@@ -1,1 +1,1 @@
-0006_alter_alert_insight_alter_alert_team_and_more
+0007_alertconfiguration_forecast_config

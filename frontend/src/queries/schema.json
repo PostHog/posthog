@@ -27779,6 +27779,34 @@
             "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
+        "ForecastConditionType": {
+            "enum": ["future_breach", "target_by_date"],
+            "type": "string"
+        },
+        "ForecastConfig": {
+            "description": "Configuration for forecast alerts. Requires a time-series trends insight without breakdowns. The `target_by_date` condition also needs a daily, weekly, or monthly interval.",
+            "discriminator": {
+                "propertyName": "condition"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/FutureBreachForecastConfig"
+                },
+                {
+                    "$ref": "#/definitions/TargetByDateForecastConfig"
+                }
+            ],
+            "required": ["condition"],
+            "type": "object"
+        },
+        "ForecastEngineType": {
+            "const": "prophet",
+            "type": "string"
+        },
+        "ForecastTargetDirection": {
+            "enum": ["at_least", "at_most"],
+            "type": "string"
+        },
         "FormDismissPayload": {
             "additionalProperties": false,
             "properties": {
@@ -28830,6 +28858,30 @@
                 }
             ],
             "required": ["kind"],
+            "type": "object"
+        },
+        "FutureBreachForecastConfig": {
+            "additionalProperties": false,
+            "description": "Warn when the point forecast crosses an absolute threshold within the selected horizon.",
+            "properties": {
+                "condition": {
+                    "const": "future_breach",
+                    "description": "Fire when the point forecast crosses the alert's threshold bounds within `horizon` future intervals.",
+                    "type": "string"
+                },
+                "engine": {
+                    "$ref": "#/definitions/ForecastEngineType"
+                },
+                "horizon": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of future insight intervals to evaluate. Cannot exceed 250 points or 92 days. Defaults to 7, or fewer when 7 intervals would pass those limits."
+                },
+                "type": {
+                    "const": "ForecastConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "engine", "condition"],
             "type": "object"
         },
         "GenericCachedQueryResponse": {
@@ -53299,6 +53351,38 @@
                     "type": "boolean"
                 }
             },
+            "type": "object"
+        },
+        "TargetByDateForecastConfig": {
+            "additionalProperties": false,
+            "description": "Warn when the point forecast for a selected date is on the wrong side of a target value.",
+            "properties": {
+                "condition": {
+                    "const": "target_by_date",
+                    "description": "Fire when the value forecast for `target_date` misses `target` on the wrong side.",
+                    "type": "string"
+                },
+                "engine": {
+                    "$ref": "#/definitions/ForecastEngineType"
+                },
+                "target": {
+                    "description": "Value the insight must reach or stay under in the evaluated target bucket.",
+                    "type": "number"
+                },
+                "target_date": {
+                    "description": "ISO date for the target. The alert expires silently when this date arrives in the project timezone.",
+                    "type": "string"
+                },
+                "target_direction": {
+                    "$ref": "#/definitions/ForecastTargetDirection",
+                    "description": "Which side of `target` is acceptable."
+                },
+                "type": {
+                    "const": "ForecastConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "engine", "condition", "target", "target_direction", "target_date"],
             "type": "object"
         },
         "TaskExecutionItem": {

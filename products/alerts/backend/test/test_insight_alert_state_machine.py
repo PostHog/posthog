@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from typing import cast
 
@@ -10,6 +10,7 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_snooze,
     apply_threshold_change,
     apply_unsnooze,
+    disable_if_target_date_passed,
     evaluate_alert_check,
     should_notify,
 )
@@ -41,6 +42,19 @@ def test_clear_check_resolves_without_notification() -> None:
     )
 
     assert outcome.new_state == AlertState.NOT_FIRING
+    assert not should_notify(outcome)
+
+
+def test_inconclusive_check_preserves_firing_state_without_notification() -> None:
+    outcome = evaluate_alert_check(
+        alert_with_state(InsightAlertState.FIRING),
+        threshold_breached=False,
+        is_inconclusive=True,
+        error_message=None,
+        now=NOW,
+    )
+
+    assert outcome.new_state == AlertState.FIRING
     assert not should_notify(outcome)
 
 
@@ -81,3 +95,50 @@ def test_control_plane_transitions_use_shared_outcomes() -> None:
     assert apply_enable(disabled_alert) == ["enabled", "state"]
     assert disabled_alert.enabled is True
     assert disabled_alert.state == InsightAlertState.NOT_FIRING
+
+
+class TestTargetDatePassed:
+    def _alert(self, target_date: str) -> AlertConfiguration:
+        return AlertConfiguration(
+            name="target alert",
+            enabled=True,
+            state=InsightAlertState.NOT_FIRING,
+            condition={"type": "absolute_value"},
+            config={"type": "TrendsAlertConfig", "series_index": 0},
+            calculation_interval="daily",
+            forecast_config={
+                "type": "ForecastConfig",
+                "engine": "prophet",
+                "condition": "target_by_date",
+                "target": 100,
+                "target_direction": "at_least",
+                "target_date": target_date,
+            },
+        )
+
+    def test_disables_once_the_date_passes(self) -> None:
+        alert = self._alert("2026-01-01")
+        changed = disable_if_target_date_passed(alert, today=date(2026, 1, 2))
+        assert alert.enabled is False
+        assert "enabled" in changed
+
+    def test_disables_on_the_date_itself(self) -> None:
+        alert = self._alert("2026-01-01")
+        assert disable_if_target_date_passed(alert, today=date(2026, 1, 1)) != []
+        assert alert.enabled is False
+
+    def test_stays_enabled_before_the_date(self) -> None:
+        alert = self._alert("2026-01-01")
+        assert disable_if_target_date_passed(alert, today=date(2025, 12, 31)) == []
+        assert alert.enabled is True
+
+    def test_ignores_the_other_conditions(self) -> None:
+        alert = self._alert("2026-01-01")
+        alert.forecast_config = {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"}
+        assert disable_if_target_date_passed(alert, today=date(2030, 1, 1)) == []
+        assert alert.enabled is True
+
+    def test_ignores_an_alert_with_no_forecast_config(self) -> None:
+        alert = self._alert("2026-01-01")
+        alert.forecast_config = None
+        assert disable_if_target_date_passed(alert, today=date(2030, 1, 1)) == []

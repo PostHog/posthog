@@ -8,6 +8,7 @@ from unittest import mock
 
 from django.core.cache import cache
 
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from parameterized import parameterized
 from rest_framework import status
 
@@ -24,12 +25,15 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.alerts.backend.destinations import AlertDelivery, count_active_alert_destinations
+from products.alerts.backend.facade.api import ForecastCapacityUnavailable, ForecastSimulationCapacityExceeded
+from products.alerts.backend.forecasting.engine import ForecastExecutionError
 from products.alerts.backend.insight_alert_destinations import (
     INSIGHT_ALERT_EVENT_IDS,
     MAX_DESTINATIONS_PER_ALERT,
     SLACK_TEMPLATE_ID,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
+from products.alerts.backend.presentation.views.alert import ForecastConfigField
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.product_analytics.backend.facade.models import Insight
 
@@ -38,21 +42,53 @@ TEST_DESTINATION_DELIVERY = AlertDelivery(
 )
 
 
+def test_forecast_config_field_canonicalizes_supported_iso_week_dates() -> None:
+    target_date = (datetime.now(UTC) + timedelta(days=30)).date()
+    iso_year, iso_week, iso_weekday = target_date.isocalendar()
+
+    value = ForecastConfigField().to_internal_value(
+        {
+            "type": "ForecastConfig",
+            "engine": "prophet",
+            "condition": "target_by_date",
+            "target": 100,
+            "target_direction": "at_least",
+            "target_date": f"{iso_year}-W{iso_week:02d}-{iso_weekday}",
+        }
+    )
+
+    assert value["target_date"] == target_date.isoformat()
+
+
+def test_forecast_config_field_stores_one_shape_per_meaning() -> None:
+    # update() decides whether the firing condition changed by comparing the stored config, so two
+    # bodies that describe the same alert have to store the same dict. The MCP client always sends
+    # `type` and `engine`; a REST caller can leave both out.
+    minimal = ForecastConfigField().to_internal_value({"condition": "future_breach"})
+    explicit = ForecastConfigField().to_internal_value(
+        {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach", "horizon": None}
+    )
+
+    assert minimal == explicit
+    assert minimal["engine"] == "prophet"
+
+
+def _trends_insight_data(
+    *, display: str = "ActionsLineGraph", query_extra: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    query: dict[str, Any] = {
+        "kind": "TrendsQuery",
+        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        "trendsFilter": {"display": display},
+    }
+    query.update(query_extra or {})
+    return {"query": query}
+
+
 class TestAlert(APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
-        self.default_insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "event": "$pageview",
-                    }
-                ],
-                "trendsFilter": {"display": "BoldNumber"},
-            },
-        }
+        self.default_insight_data = _trends_insight_data(display="BoldNumber")
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
 
     def test_create_and_delete_alert(self) -> None:
@@ -85,6 +121,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "state": "Not firing",
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "detector_config": None,
+            "forecast_config": None,
             "threshold": {
                 "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}},
                 "created_at": mock.ANY,
@@ -113,6 +150,132 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         alerts = self.client.get(f"/api/projects/{self.team.id}/alerts")
         assert len(alerts.json()["results"]) == 0
+
+    def test_create_forecast_alert(self) -> None:
+        time_series_insight_data = _trends_insight_data()
+        time_series_insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights", data=time_series_insight_data
+        ).json()
+
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "name": "forecast alert",
+                    "insight": time_series_insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "future_breach",
+                        "horizon": 7,
+                    },
+                },
+            )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["forecast_config"]["condition"] == "future_breach"
+
+    def test_create_forecast_alert_flag_disabled_returns_400(self) -> None:
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=False
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "name": "forecast alert",
+                    "insight": self.insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "future_breach",
+                        "horizon": 7,
+                    },
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "Forecast alerts are not enabled" in str(response.content)
+
+    def test_create_forecast_alert_rejects_invalid_config(self) -> None:
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "name": "bad forecast alert",
+                    "insight": self.insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "not_prophet",
+                        "condition": "future_breach",
+                    },
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_forecast_alert_rejects_a_daily_insight_that_excludes_days(self) -> None:
+        insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data=_trends_insight_data(query_extra={"interval": "day", "dateRange": {"daysOfWeek": [1, 2, 3, 4, 5]}}),
+        ).json()
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "name": "weekday forecast alert",
+                    "insight": insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "future_breach",
+                        "horizon": 7,
+                    },
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "excludes days of the week" in response.content.decode()
+
+    def test_create_alert_with_both_detector_and_forecast_rejected(self) -> None:
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "name": "conflicted alert",
+                    "insight": self.insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "detector_config": {"type": "zscore"},
+                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_alert_rejects_insight_without_viewer_access(self) -> None:
         # Alert write access must not let a user reference an insight they can't view — otherwise
@@ -1191,6 +1354,84 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
+            (
+                "moved_target_date",
+                lambda future: {
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 100,
+                        "target_direction": "at_least",
+                        "target_date": future,
+                    }
+                },
+                True,
+            ),
+            (
+                "resent_unchanged_config",
+                lambda future: {
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 100,
+                        "target_direction": "at_least",
+                        "target_date": (datetime.now(UTC).date() + timedelta(days=30)).isoformat(),
+                    }
+                },
+                False,
+            ),
+            ("renamed_only", lambda future: {"name": "renamed alert"}, False),
+        ]
+    )
+    def test_patch_forecast_config_reschedules_the_alert(
+        self, _name: str, patch_payload: Any, clears_next_check: bool
+    ) -> None:
+        insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights", data=_trends_insight_data(query_extra={"interval": "week"})
+        ).json()
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            alert = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "insight": insight["id"],
+                    "name": "target alert",
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "weekly",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 100,
+                        "target_direction": "at_least",
+                        "target_date": (datetime.now(UTC).date() + timedelta(days=30)).isoformat(),
+                    },
+                },
+            ).json()
+            scheduled_check = datetime.now(UTC) + timedelta(days=6)
+            AlertConfiguration.objects.filter(id=alert["id"]).update(
+                next_check_at=scheduled_check, state=AlertState.FIRING
+            )
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+                patch_payload((datetime.now(UTC).date() + timedelta(days=3)).isoformat()),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        persisted_alert = AlertConfiguration.objects.get(id=alert["id"])
+        assert persisted_alert.next_check_at == (None if clears_next_check else scheduled_check)
+        assert persisted_alert.state == (AlertState.NOT_FIRING if clears_next_check else AlertState.FIRING)
+
+    @parameterized.expand(
+        [
             ("real_time", "real_time", "2026-03-18T09:35:00+00:00"),
             ("every_15_minutes", "every_15_minutes", "2026-03-18T09:35:00+00:00"),
             ("hourly", "hourly", "2026-03-18T09:35:00+00:00"),
@@ -1807,6 +2048,646 @@ class TestAlertSimulate(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.content
         assert AlertCheck.objects.count() == checks_before
+
+
+class TestAlertSimulateForecast(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.insight_data = _trends_insight_data(query_extra={"interval": "day"})
+        self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.insight_data).json()
+
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
+    def test_simulate_forecast_returns_valid_response(self, mock_simulate) -> None:
+        mock_simulate.return_value = {
+            "data": [10.0, 12.0, 11.0],
+            "dates": ["2024-01-01", "2024-01-02", "2024-01-03"],
+            "interval": "day",
+            "forecast_dates": ["2024-01-04"],
+            "forecast_yhat": [13.0],
+            "forecast_lower": [10.0],
+            "forecast_upper": [16.0],
+            "target_projection": None,
+        }
+
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "future_breach",
+                        "horizon": 7,
+                    },
+                },
+            )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        data = response.json()
+        assert data["forecast_yhat"] == [13.0]
+        assert data["target_projection"] is None
+        mock_simulate.assert_called_once()
+
+    def test_simulate_forecast_missing_config_returns_400(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+            {
+                "insight": self.insight["id"],
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_simulate_forecast_flag_disabled_returns_400(self) -> None:
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=False
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "future_breach",
+                        "horizon": 7,
+                    },
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "Forecast alerts are not enabled" in str(response.content)
+
+    @parameterized.expand(
+        [
+            (
+                "horizon out of range",
+                {
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "future_breach",
+                        "horizon": 1000000,
+                    }
+                },
+            ),
+            (
+                "negative series index",
+                {
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "future_breach",
+                        "horizon": 7,
+                    },
+                    "series_index": -1,
+                },
+            ),
+        ]
+    )
+    def test_simulate_forecast_invalid_request_returns_400(self, _name: str, payload: dict) -> None:
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {"insight": self.insight["id"], **payload},
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
+    def test_simulate_forecast_wraps_value_error_as_400(self, mock_simulate) -> None:
+        mock_simulate.side_effect = ValueError("Not enough history to forecast.")
+
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Not enough history to forecast." in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("engine failure", ForecastExecutionError("internal details")),
+            ("query returned no result", RuntimeError("No results found for insight with id = 1")),
+        ]
+    )
+    @mock.patch("products.alerts.backend.presentation.views.alert.capture_exception")
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
+    def test_simulate_forecast_engine_error_returns_503(
+        self, _name: str, error: Exception, mock_simulate_forecast, mock_capture
+    ) -> None:
+        mock_simulate_forecast.side_effect = error
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {"type": "ForecastConfig", "condition": "future_breach"},
+                    "series_index": 0,
+                },
+            )
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        data = response.json()
+        assert data["detail"] == "Forecast simulation is temporarily unavailable. Try again."
+        assert mock_capture.call_args.args[0] is error
+        assert mock_capture.call_args.kwargs["additional_properties"] == {
+            "feature": "alerts",
+            "team_id": self.team.id,
+            "insight_id": str(self.insight["id"]),
+            "forecast_condition": "future_breach",
+        }
+
+    @parameterized.expand(
+        [
+            ("connect failed", NetworkError("Code: 209.")),
+            ("connect timed out", SocketTimeoutError("timed out")),
+        ]
+    )
+    @mock.patch("products.alerts.backend.presentation.views.alert.capture_exception")
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
+    def test_simulate_forecast_transient_clickhouse_failure_returns_503(
+        self, _name: str, error: Exception, mock_simulate_forecast, mock_capture
+    ) -> None:
+        mock_simulate_forecast.side_effect = error
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {"type": "ForecastConfig", "condition": "future_breach"},
+                    "series_index": 0,
+                },
+            )
+        # The driver classes carry no status_code and do not inherit RuntimeError, so they answered
+        # a generic 500 before. The query runner already reports them, hence no capture here.
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert response.json()["detail"] == "Forecast simulation is temporarily unavailable. Try again."
+        mock_capture.assert_not_called()
+
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
+    def test_simulate_forecast_capacity_error_returns_429(self, mock_simulate_forecast) -> None:
+        mock_simulate_forecast.side_effect = ForecastSimulationCapacityExceeded
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {"type": "ForecastConfig", "condition": "future_breach"},
+                    "series_index": 0,
+                },
+            )
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json()["detail"] == "Too many forecasts are already running. Try again shortly."
+
+    @mock.patch("products.alerts.backend.presentation.views.alert.capture_exception")
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
+    def test_simulate_forecast_unreachable_capacity_store_returns_503(
+        self, mock_simulate_forecast, mock_capture
+    ) -> None:
+        mock_simulate_forecast.side_effect = ForecastCapacityUnavailable("connection refused")
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {"type": "ForecastConfig", "condition": "future_breach"},
+                    "series_index": 0,
+                },
+            )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["detail"] == "Forecast simulation is temporarily unavailable. Try again."
+
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    def test_simulate_forecast_series_index_out_of_range_returns_400(self, mock_calculate) -> None:
+        mock_calculate.return_value = mock.MagicMock(
+            result=[
+                {
+                    "data": [10.0, 12.0, 11.0] * 10,
+                    "days": [f"2024-01-{i:02d}" for i in range(1, 31)],
+                    "labels": [f"2024-01-{i:02d}" for i in range(1, 31)],
+                    "label": "pageview",
+                    "action": {"name": "pageview"},
+                    "actions": [],
+                    "count": 30,
+                    "breakdown_value": "",
+                    "status": None,
+                    "compare_label": None,
+                    "compare": False,
+                    "persons_urls": [],
+                    "persons": {},
+                    "filter": {},
+                },
+                {
+                    "data": [5.0, 6.0, 7.0] * 10,
+                    "days": [f"2024-01-{i:02d}" for i in range(1, 31)],
+                    "labels": [f"2024-01-{i:02d}" for i in range(1, 31)],
+                    "label": "autocapture",
+                    "action": {"name": "autocapture"},
+                    "actions": [],
+                    "count": 30,
+                    "breakdown_value": "",
+                    "status": None,
+                    "compare_label": None,
+                    "compare": False,
+                    "persons_urls": [],
+                    "persons": {},
+                    "filter": {},
+                },
+            ]
+        )
+
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+                    "series_index": 5,
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+
+class TestFinishedTargetAlertIsEditable(APIBaseTest):
+    def _finished_target_alert(self) -> str:
+        insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data=_trends_insight_data(query_extra={"interval": "day"}),
+        ).json()
+        future = (datetime.now(UTC).date() + timedelta(days=30)).isoformat()
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "insight": insight["id"],
+                "name": "target alert",
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "daily",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                "forecast_config": {
+                    "type": "ForecastConfig",
+                    "engine": "prophet",
+                    "condition": "target_by_date",
+                    "target": 100,
+                    "target_direction": "at_least",
+                    "target_date": future,
+                },
+            },
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        alert_id = created.json()["id"]
+        AlertConfiguration.objects.filter(pk=alert_id).update(
+            enabled=False,
+            forecast_config={
+                "type": "ForecastConfig",
+                "engine": "prophet",
+                "condition": "target_by_date",
+                "target": 100,
+                "target_direction": "at_least",
+                "target_date": "2020-01-01",
+            },
+        )
+        return alert_id
+
+    def test_a_finished_target_alert_can_still_be_patched(self) -> None:
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            alert_id = self._finished_target_alert()
+            renamed = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", data={"name": "renamed"})
+            disabled = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", data={"enabled": False})
+
+        assert renamed.status_code == status.HTTP_200_OK, renamed.content
+        assert disabled.status_code == status.HTTP_200_OK, disabled.content
+        assert disabled.json()["enabled"] is False
+
+    def test_re_enabling_a_finished_target_alert_needs_a_date_it_can_reach(self) -> None:
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            alert_id = self._finished_target_alert()
+            kept_date = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", data={"enabled": True})
+            new_date = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{alert_id}",
+                data={
+                    "enabled": True,
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 100,
+                        "target_direction": "at_least",
+                        "target_date": (datetime.now(UTC).date() + timedelta(days=30)).isoformat(),
+                    },
+                },
+            )
+
+        assert kept_date.status_code == status.HTTP_400_BAD_REQUEST, kept_date.content
+        assert "target date must be in the future" in kept_date.content.decode()
+        assert new_date.status_code == status.HTTP_200_OK, new_date.content
+        assert new_date.json()["enabled"] is True
+
+
+class TestForecastTargetProjection(APIBaseTest):
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
+    def test_simulate_returns_the_target_projection(self, mock_simulate) -> None:
+        insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data=_trends_insight_data(query_extra={"interval": "day"}),
+        ).json()
+        mock_simulate.return_value = {
+            "data": [10.0],
+            "dates": ["2026-01-01"],
+            "interval": "day",
+            "forecast_dates": ["2026-12-31"],
+            "forecast_yhat": [500.0],
+            "forecast_lower": [400.0],
+            "forecast_upper": [600.0],
+            "target_projection": {
+                "predicted": 500.0,
+                "target": 1000000.0,
+                "target_date": "2026-12-31",
+                "evaluated_date": "2026-12-31",
+                "misses_target": True,
+            },
+        }
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": insight["id"],
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 1000000,
+                        "target_direction": "at_least",
+                        "target_date": "2026-12-31",
+                    },
+                },
+            )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        projection = response.json()["target_projection"]
+        assert projection["target"] == 1000000
+        assert projection["evaluated_date"] == "2026-12-31"
+        assert projection["misses_target"] is True
+
+
+class TestForecastFlagGate(APIBaseTest):
+    def test_existing_forecast_alert_can_be_disabled_once_the_flag_is_off(self) -> None:
+        insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data=_trends_insight_data(query_extra={"interval": "day"}),
+        ).json()
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            created = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "insight": insight["id"],
+                    "name": "forecast alert",
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+                },
+            )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=False
+        ):
+            disabled = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{created.json()['id']}", data={"enabled": False}
+            )
+            renamed = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{created.json()['id']}", data={"name": "renamed"}
+            )
+            recreated = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "insight": insight["id"],
+                    "name": "another forecast alert",
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+                },
+            )
+        assert disabled.status_code == status.HTTP_200_OK, disabled.content
+        assert disabled.json()["enabled"] is False
+        assert renamed.status_code == status.HTTP_400_BAD_REQUEST, renamed.content
+        assert recreated.status_code == status.HTTP_400_BAD_REQUEST, recreated.content
+
+    def test_flag_disabled_cannot_create_or_modify_forecast_config_while_disabling(self) -> None:
+        insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data=_trends_insight_data(query_extra={"interval": "day"}),
+        ).json()
+        forecast_config = {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"}
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            created = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "insight": insight["id"],
+                    "name": "forecast alert",
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": forecast_config,
+                },
+            )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=False
+        ):
+            create_disabled = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "insight": insight["id"],
+                    "name": "disabled forecast alert",
+                    "subscribed_users": [self.user.id],
+                    "enabled": False,
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": forecast_config,
+                },
+            )
+            change_while_disabling = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{created.json()['id']}",
+                data={"enabled": False, "forecast_config": {**forecast_config, "horizon": 30}},
+            )
+
+        assert create_disabled.status_code == status.HTTP_400_BAD_REQUEST, create_disabled.content
+        assert change_while_disabling.status_code == status.HTTP_400_BAD_REQUEST, change_while_disabling.content
+
+
+class TestForecastSimulateGuards(APIBaseTest):
+    def _insight(self, query_extra: dict) -> dict:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/insights", data=_trends_insight_data(query_extra=query_extra)
+        ).json()
+
+    @parameterized.expand(
+        [
+            (
+                "single_breakdown",
+                {"breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"}},
+                "breakdown",
+            ),
+            (
+                "multi_breakdown",
+                {"breakdownFilter": {"breakdowns": [{"property": "$browser", "type": "event"}]}},
+                "breakdown",
+            ),
+            ("minute_interval", {"interval": "minute"}, "hourly, daily, weekly"),
+            ("quarter_interval", {"interval": "quarter"}, "hourly, daily, weekly"),
+            (
+                "daily_insight_excluding_weekends",
+                {"interval": "day", "dateRange": {"daysOfWeek": [1, 2, 3, 4, 5]}},
+                "excludes days of the week",
+            ),
+            (
+                "cumulative_display",
+                {"interval": "day", "trendsFilter": {"display": "ActionsLineGraphCumulative"}},
+                "cumulative",
+            ),
+        ]
+    )
+    def test_simulate_forecast_rejects_unsupported_insights(self, _name: str, query_extra: dict, message: str) -> None:
+        insight = self._insight(query_extra)
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": insight["id"],
+                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert message in response.content.decode()
+
+    def test_simulate_forecast_rejects_target_by_date_for_hourly_insight(self) -> None:
+        insight = self._insight({"interval": "hour"})
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": insight["id"],
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 100,
+                        "target_direction": "at_least",
+                        "target_date": (datetime.now(UTC).date() + timedelta(days=3)).isoformat(),
+                    },
+                },
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "hourly" in response.content.decode()
+
+    @parameterized.expand(
+        [
+            ("target_today", {"interval": "day"}, 0, "The target date must be in the future."),
+            ("target_in_the_past", {"interval": "day"}, -1, "The target date must be in the future."),
+            ("target_past_reach_cap", {"interval": "day"}, 120, "A forecast target must be within 92 days."),
+        ]
+    )
+    def test_simulate_forecast_rejects_out_of_range_target_dates(
+        self, _name: str, query_extra: dict, day_offset: int, message: str
+    ) -> None:
+        insight = self._insight(query_extra)
+        target_date = datetime.now(UTC).date() + timedelta(days=day_offset)
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": insight["id"],
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 100,
+                        "target_direction": "at_least",
+                        "target_date": target_date.isoformat(),
+                    },
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert message in response.content.decode()
+
+    @parameterized.expand(
+        [
+            ("impossible calendar date", "2026-02-30"),
+            ("month out of range", "2026-13-01"),
+            ("not a date at all", "banana"),
+            ("blank", ""),
+        ]
+    )
+    def test_simulate_forecast_rejects_a_target_date_that_is_not_a_date(self, _name: str, target_date: str) -> None:
+        insight = self._insight({"interval": "day"})
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": insight["id"],
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 100,
+                        "target_direction": "at_least",
+                        "target_date": target_date,
+                    },
+                },
+            )
+        # ForecastConfig types target_date as a plain string, so an unparseable date reaches the
+        # field's own parse. Left unguarded there it answers 500 with no field named.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "forecast_config"
 
 
 class TestAlertTestDelivery(APIBaseTest):

@@ -24,7 +24,10 @@ export const AlertsListQueryParams = () => zod.object({
     has_detector: zod
         .boolean()
         .optional()
-        .describe('Optional. Restrict results by whether the alert uses anomaly detection.'),
+        .describe(
+            'Optional. Restrict results by whether the alert uses anomaly detection. A forecast alert has no detector, so has_detector=false includes forecast alerts as well as plain threshold alerts. Use has_forecast to separate the two.'
+        ),
+    has_forecast: zod.boolean().optional().describe('Optional. Restrict results by whether the alert uses a forecast.'),
     insight_id: zod.number().optional().describe('Optional. Restrict results to alerts on this insight ID.'),
     insight_tag: zod.string().optional().describe('Optional. Restrict results to alerts whose insight has this tag.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
@@ -78,6 +81,12 @@ export const alertsCreateBodyDetectorConfigOneOnezeroTypeDefault = `hbos`
 export const alertsCreateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
+export const alertsCreateBodyForecastConfigOneOneConditionDefault = `future_breach`
+export const alertsCreateBodyForecastConfigOneOneEngineDefault = `prophet`
+export const alertsCreateBodyForecastConfigOneOneTypeDefault = `ForecastConfig`
+export const alertsCreateBodyForecastConfigOneTwoConditionDefault = `target_by_date`
+export const alertsCreateBodyForecastConfigOneTwoEngineDefault = `prophet`
+export const alertsCreateBodyForecastConfigOneTwoTypeDefault = `ForecastConfig`
 
 export const AlertsCreateBody = () => zod.object({
     insight: zod
@@ -1246,6 +1255,57 @@ export const AlertsCreateBody = () => zod.object({
             zod.null(),
         ])
         .optional(),
+    forecast_config: zod
+        .union([
+            zod
+                .union([
+                    zod.object({
+                        condition: zod
+                            .enum(['future_breach'])
+                            .default(alertsCreateBodyForecastConfigOneOneConditionDefault)
+                            .describe(
+                                "Fire when the point forecast crosses the alert's threshold bounds within `horizon` future intervals."
+                            ),
+                        engine: zod.literal('prophet').default(alertsCreateBodyForecastConfigOneOneEngineDefault),
+                        horizon: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Number of future insight intervals to evaluate. Cannot exceed 250 points or 92 days. Defaults to 7, or fewer when 7 intervals would pass those limits.'
+                            ),
+                        type: zod.literal('ForecastConfig').default(alertsCreateBodyForecastConfigOneOneTypeDefault),
+                    }),
+                    zod.object({
+                        condition: zod
+                            .enum(['target_by_date'])
+                            .default(alertsCreateBodyForecastConfigOneTwoConditionDefault)
+                            .describe(
+                                'Fire when the value forecast for `target_date` misses `target` on the wrong side.'
+                            ),
+                        engine: zod.literal('prophet').default(alertsCreateBodyForecastConfigOneTwoEngineDefault),
+                        target: zod
+                            .number()
+                            .describe('Value the insight must reach or stay under in the evaluated target bucket.'),
+                        target_date: zod
+                            .string()
+                            .describe(
+                                'ISO date for the target. The alert expires silently when this date arrives in the project timezone.'
+                            ),
+                        target_direction: zod
+                            .enum(['at_least', 'at_most'])
+                            .describe('Which side of `target` is acceptable.'),
+                        type: zod.literal('ForecastConfig').default(alertsCreateBodyForecastConfigOneTwoTypeDefault),
+                    }),
+                ])
+                .describe(
+                    'Configuration for forecast alerts. Requires a time-series trends insight without breakdowns. The `target_by_date` condition also needs a daily, weekly, or monthly interval.'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Forecast alert configuration for either a predicted threshold breach or a target by date. Mutually exclusive with detector_config. Forecasts are limited to 92 calendar days.'
+        ),
     calculation_interval: zod
         .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(
@@ -1388,6 +1448,12 @@ export const alertsPartialUpdateBodyDetectorConfigOneOnezeroTypeDefault = `hbos`
 export const alertsPartialUpdateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsPartialUpdateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsPartialUpdateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
+export const alertsPartialUpdateBodyForecastConfigOneOneConditionDefault = `future_breach`
+export const alertsPartialUpdateBodyForecastConfigOneOneEngineDefault = `prophet`
+export const alertsPartialUpdateBodyForecastConfigOneOneTypeDefault = `ForecastConfig`
+export const alertsPartialUpdateBodyForecastConfigOneTwoConditionDefault = `target_by_date`
+export const alertsPartialUpdateBodyForecastConfigOneTwoEngineDefault = `prophet`
+export const alertsPartialUpdateBodyForecastConfigOneTwoTypeDefault = `ForecastConfig`
 
 export const AlertsPartialUpdateBody = () => zod.object({
     insight: zod
@@ -2581,6 +2647,65 @@ export const AlertsPartialUpdateBody = () => zod.object({
             zod.null(),
         ])
         .optional(),
+    forecast_config: zod
+        .union([
+            zod
+                .union([
+                    zod.object({
+                        condition: zod
+                            .enum(['future_breach'])
+                            .default(alertsPartialUpdateBodyForecastConfigOneOneConditionDefault)
+                            .describe(
+                                "Fire when the point forecast crosses the alert's threshold bounds within `horizon` future intervals."
+                            ),
+                        engine: zod
+                            .literal('prophet')
+                            .default(alertsPartialUpdateBodyForecastConfigOneOneEngineDefault),
+                        horizon: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Number of future insight intervals to evaluate. Cannot exceed 250 points or 92 days. Defaults to 7, or fewer when 7 intervals would pass those limits.'
+                            ),
+                        type: zod
+                            .literal('ForecastConfig')
+                            .default(alertsPartialUpdateBodyForecastConfigOneOneTypeDefault),
+                    }),
+                    zod.object({
+                        condition: zod
+                            .enum(['target_by_date'])
+                            .default(alertsPartialUpdateBodyForecastConfigOneTwoConditionDefault)
+                            .describe(
+                                'Fire when the value forecast for `target_date` misses `target` on the wrong side.'
+                            ),
+                        engine: zod
+                            .literal('prophet')
+                            .default(alertsPartialUpdateBodyForecastConfigOneTwoEngineDefault),
+                        target: zod
+                            .number()
+                            .describe('Value the insight must reach or stay under in the evaluated target bucket.'),
+                        target_date: zod
+                            .string()
+                            .describe(
+                                'ISO date for the target. The alert expires silently when this date arrives in the project timezone.'
+                            ),
+                        target_direction: zod
+                            .enum(['at_least', 'at_most'])
+                            .describe('Which side of `target` is acceptable.'),
+                        type: zod
+                            .literal('ForecastConfig')
+                            .default(alertsPartialUpdateBodyForecastConfigOneTwoTypeDefault),
+                    }),
+                ])
+                .describe(
+                    'Configuration for forecast alerts. Requires a time-series trends insight without breakdowns. The `target_by_date` condition also needs a daily, weekly, or monthly interval.'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Forecast alert configuration for either a predicted threshold breach or a target by date. Mutually exclusive with detector_config. Forecasts are limited to 92 calendar days.'
+        ),
     calculation_interval: zod
         .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(

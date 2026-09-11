@@ -1,6 +1,8 @@
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, Value, When, Window
@@ -26,12 +28,14 @@ from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investi
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
     CALCULATION_INTERVAL_ORDER,
+    AlertEvaluationResult,
     add_alert_check,
     disable_invalid_alert,
     dispatch_alert_notification,
     get_alert_error_notification_recipients,
     next_check_time,
     next_scheduled_check_time,
+    notify_alert_disabled,
     record_alert_delivery,
     skip_because_of_weekend,
 )
@@ -53,9 +57,12 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation import check_alert_for_insight
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertExtractionError, InsufficientHistoryError
+from products.alerts.backend.evaluation.forecast import inconclusive_metadata
 from products.alerts.backend.evaluation.validation import validate_alert_config
-from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
+from products.alerts.backend.forecasting.capacity import ForecastCapacityUnavailable, ForecastEvaluationCapacityExceeded
+from products.alerts.backend.forecasting.engine import ForecastExecutionError
+from products.alerts.backend.insight_alert_state_machine import apply_unsnooze, disable_if_target_date_passed
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -195,6 +202,14 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
             )
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.NOT_DUE)
 
+        # Runs ahead of the weekend, quiet-hours, and snooze guards. A target alert whose date has
+        # passed is finished, so a schedule restriction must not keep it enabled for another cadence.
+        project_today = datetime.now(UTC).astimezone(ZoneInfo(alert.team.timezone)).date()
+        finished_fields = disable_if_target_date_passed(alert, project_today)
+        if finished_fields:
+            alert.save(update_fields=finished_fields)
+            return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.TARGET_DATE_PASSED)
+
         if skip_because_of_weekend(alert):
             logger.info("Skipping alert check because weekend checking is disabled", alert=alert)
             alert.next_check_at = next_check_time(alert)
@@ -232,6 +247,8 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                     threshold_config,
                     alert.calculation_interval,
                     detector_config=alert.detector_config,
+                    forecast_config=alert.forecast_config,
+                    project_timezone=alert.team.timezone,
                 )
         except ValueError as e:
             disable_invalid_alert(alert, str(e))
@@ -250,6 +267,39 @@ def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[
     through here, so the errored-check write stays in one place.
     """
     return add_alert_check(alert, None, error)
+
+
+def _evaluation_inputs(alert: AlertConfiguration) -> dict[str, object]:
+    # Deep-copied because the evaluation upgrades the insight query in place: upgrade_insight
+    # replaces the source node of a wrapper query (InsightVizNode and friends) inside the same dict
+    # that this snapshot would otherwise reference. The snapshot would then change together with
+    # the object it must be compared against, and the comparison against the reloaded alert would
+    # report a user edit that did not happen.
+    return deepcopy(
+        {
+            "insight_id": alert.insight_id,
+            "insight_query": alert.insight.query,
+            "condition": alert.condition,
+            "config": alert.config,
+            "threshold_id": alert.threshold_id,
+            "threshold_configuration": alert.threshold.configuration if alert.threshold else None,
+            "calculation_interval": alert.calculation_interval,
+            "detector_config": alert.detector_config,
+            "forecast_config": alert.forecast_config,
+            "project_timezone": alert.team.timezone,
+        }
+    )
+
+
+def _discarded_evaluation(alert: AlertConfiguration, evaluated_inputs: dict[str, object]) -> EvaluateAlertResult | None:
+    if alert.enabled and _evaluation_inputs(alert) == evaluated_inputs:
+        return None
+    logger.info("alerts.discarded_obsolete_evaluation", alert_id=str(alert.id))
+    return EvaluateAlertResult(
+        alert_check_id=None,
+        should_notify=False,
+        new_state=AlertState(alert.state),
+    )
 
 
 @temporalio.activity.defn
@@ -274,6 +324,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 f"Alert {inputs.alert_id} disabled between prepare and evaluate",
                 non_retryable=True,
             )
+        evaluated_inputs = _evaluation_inputs(alert)
 
         # CH workload management keys off these tags to isolate alert queries from other tenants.
         # calculation_interval / config_type also let query_log cost be grouped by alert cadence
@@ -293,17 +344,64 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         try:
             alert_evaluation_result = check_alert_for_insight(alert)
             breaches = alert_evaluation_result.breaches
+        except (ForecastExecutionError, ForecastCapacityUnavailable, ForecastEvaluationCapacityExceeded):
+            # Forecast infrastructure failed, not the alert. Retrying beats an errored check, which
+            # would flip the alert and email its subscribers on the first blip.
+            raise
         except CH_TRANSIENT_ERRORS:
             raise
+        except InsufficientHistoryError as err:
+            # Extraction stopped before the evaluation could classify the outcome, so the reason
+            # only exists on this exception. An inconclusive check preserves the alert state and
+            # notifies nobody, which makes the check row and this log the only way to tell a
+            # permanently inconclusive forecast alert from a healthy one.
+            logger.info("alerts.forecast_inconclusive", alert_id=str(alert.id), detail=str(err))
+            with transaction.atomic():
+                locked = (
+                    AlertConfiguration.objects.select_for_update(of=("self",))
+                    .select_related("insight", "team", "threshold")
+                    .get(id=inputs.alert_id)
+                )
+                if discarded := _discarded_evaluation(locked, evaluated_inputs):
+                    return discarded
+                alert_check, _ = add_alert_check(
+                    locked,
+                    AlertEvaluationResult(
+                        value=None,
+                        breaches=[],
+                        is_inconclusive=True,
+                        triggered_metadata=inconclusive_metadata("extraction_incomplete", str(err)),
+                    ),
+                    None,
+                )
+            return EvaluateAlertResult(
+                alert_check_id=str(alert_check.id),
+                should_notify=False,
+                new_state=AlertState(alert_check.state),
+            )
         except AlertExtractionError as err:
             # The alert can't be evaluated as configured (wrong query shape / bad config) — a
             # deliberate fail-loud outcome, not a bug. Auto-disable and email the owner via the
             # existing path instead of capturing it as an exception, which would pollute error
             # tracking with a config problem that recurs on every check until fixed.
-            alert_check = disable_invalid_alert(alert, str(err))
+            #
+            # Reloaded under the row lock like the other write paths, because a user who fixes or
+            # disables the alert while the query runs must not have it disabled by the failure of
+            # the configuration they replaced. The email goes out after the disable commits, so a
+            # rollback cannot leave subscribers with a disabled notice for an enabled alert.
+            with transaction.atomic():
+                locked = (
+                    AlertConfiguration.objects.select_for_update(of=("self",))
+                    .select_related("insight", "team", "threshold")
+                    .get(id=inputs.alert_id)
+                )
+                if discarded := _discarded_evaluation(locked, evaluated_inputs):
+                    return discarded
+                alert_check = disable_invalid_alert(locked, str(err), notify_subscribers=False)
+            notify_alert_disabled(locked, alert_check, str(err))
             return EvaluateAlertResult(
                 alert_check_id=str(alert_check.id),
-                should_notify=False,  # disable_invalid_alert already emailed subscribers
+                should_notify=False,  # notify_alert_disabled already emailed subscribers
                 new_state=AlertState.ERRORED,
             )
         except TableAccessDeniedError as err:
@@ -351,6 +449,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     .select_related("insight", "team", "threshold")
                     .get(id=inputs.alert_id)
                 )
+                if discarded := _discarded_evaluation(alert, evaluated_inputs):
+                    return discarded
                 alert_check, should_notify = _write_errored_alert_check(alert, error)
             return EvaluateAlertResult(
                 alert_check_id=str(alert_check.id),
@@ -367,6 +467,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 .select_related("insight", "team", "threshold")
                 .get(id=inputs.alert_id)
             )
+            if discarded := _discarded_evaluation(alert, evaluated_inputs):
+                return discarded
             previous_state = alert.state
             alert_check, should_notify = add_alert_check(alert, alert_evaluation_result, error)
 

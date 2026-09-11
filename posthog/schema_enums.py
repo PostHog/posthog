@@ -2774,6 +2774,16 @@ class FilterLogicalOperator(StrEnum):
     OR_ = "OR"
 
 
+class ForecastConditionType(StrEnum):
+    FUTURE_BREACH = "future_breach"
+    TARGET_BY_DATE = "target_by_date"
+
+
+class ForecastTargetDirection(StrEnum):
+    AT_LEAST = "at_least"
+    AT_MOST = "at_most"
+
+
 class FunnelConversionMetric(StrEnum):
     CONVERSION_FROM_START = "conversion_from_start"
     CONVERSION_FROM_PREVIOUS = "conversion_from_previous"

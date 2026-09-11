@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from posthog.schema import TrendsAlertConfig, TrendsQuery
+from posthog.schema import ChartDisplayType, TrendsAlertConfig, TrendsFilter, TrendsQuery
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -42,18 +42,18 @@ from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
 
-def extract_detector_series(
+def extract_trends_series(
     insight: Insight,
     team: Any,
     query: TrendsQuery,
-    detector_config: dict[str, Any],
+    min_samples: int,
     execution_mode: ExecutionMode,
     *,
     series_index: int = 0,
     date_from: str | None = None,
     user: Optional[User] = None,
 ) -> ExtractionResult:
-    """Run a trends insight over the detector's lookback window and normalize it into series.
+    """Run a trends insight over the lookback window and normalize it into series.
 
     Each ``ComparableSeries`` carries the full (complete-interval) history the detector scores —
     the incomplete current interval is already dropped by ``_prepare_series``. Raises on a ``None``
@@ -61,7 +61,6 @@ def extract_detector_series(
     ``empty_query_result=True``; rows that exist but are too short to score are dropped, also leaving
     an empty series list, but with the flag False — the two cases evaluate to 0 and None respectively.
     """
-    min_samples = _compute_min_samples_for_detector(detector_config) + 1
     is_non_time_series = _is_non_time_series_trend(query)
     already_complete = query_excludes_incomplete_periods(query)
     has_breakdown = _has_breakdown(query)
@@ -78,8 +77,32 @@ def extract_detector_series(
     else:
         filters_override = _date_range_override_for_detector(query, min_samples)
 
+    # The Metric display turns comparison back on for its change pill, so clearing compareFilter
+    # alone does not reach it. TrendsQueryRunner reads metricShowChange to decide, so the pill has
+    # to be off in the same transient copy.
+    forces_compare_for_metric_pill = bool(query.trendsFilter and query.trendsFilter.display == ChartDisplayType.METRIC)
+
+    query_override = None
+    if (query.compareFilter and query.compareFilter.compare) or forces_compare_for_metric_pill:
+        # Comparison responses interleave current and previous-period rows, while alerts select one
+        # current series. Disable comparison only for this execution: it prevents selecting the
+        # wrong row and avoids calculating data the detector/forecast never consumes.
+        overrides: dict[str, Any] = {}
+        if query.compareFilter is not None:
+            overrides["compareFilter"] = query.compareFilter.model_copy(update={"compare": False})
+        if forces_compare_for_metric_pill:
+            overrides["trendsFilter"] = cast(TrendsFilter, query.trendsFilter).model_copy(
+                update={"metricShowChange": False}
+            )
+        query_override = query.model_copy(update=overrides).model_dump(by_alias=True)
+
     calculation_result = calculate_for_query_based_insight(
-        insight, team=team, execution_mode=execution_mode, user=user, filters_override=filters_override
+        insight,
+        team=team,
+        execution_mode=execution_mode,
+        user=user,
+        filters_override=filters_override,
+        query_override=query_override,
     )
 
     if calculation_result.result is None:
@@ -109,6 +132,29 @@ def extract_detector_series(
         series.append(ComparableSeries(label=prepared.label, points=points, current_index=len(points) - 1))
 
     return ExtractionResult(series=series, is_breakdown=has_breakdown, interval_type=query.interval)
+
+
+def extract_detector_series(
+    insight: Insight,
+    team: Any,
+    query: TrendsQuery,
+    detector_config: dict[str, Any],
+    execution_mode: ExecutionMode,
+    *,
+    series_index: int = 0,
+    date_from: str | None = None,
+    user: Optional[User] = None,
+) -> ExtractionResult:
+    return extract_trends_series(
+        insight,
+        team,
+        query,
+        _compute_min_samples_for_detector(detector_config) + 1,
+        execution_mode,
+        series_index=series_index,
+        date_from=date_from,
+        user=user,
+    )
 
 
 def _triggered_dates(series: ComparableSeries, triggered_indices: list[int]) -> list[str]:
@@ -221,7 +267,7 @@ class TrendsDetectorExtractor:
             insight,
             ctx.team,
             trends_query,
-            ctx.detector_config,
+            ctx.extractor_config,
             execution_mode,
             series_index=ctx.series_index,
             date_from=ctx.date_from,
@@ -270,7 +316,7 @@ def simulate_detector_on_insight(
 
     ctx = SimulationContext(
         team=team,
-        detector_config=detector_config,
+        extractor_config=detector_config,
         user=user,
         series_index=series_index,
         date_from=date_from,

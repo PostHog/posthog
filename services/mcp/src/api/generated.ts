@@ -10191,6 +10191,61 @@ export namespace Schemas {
     export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
 
     /**
+     * Fire when the point forecast crosses the alert's threshold bounds within `horizon` future intervals.
+     */
+    export type FutureBreachForecastConfigCondition = typeof FutureBreachForecastConfigCondition[keyof typeof FutureBreachForecastConfigCondition];
+
+
+    export const FutureBreachForecastConfigCondition = {
+      FutureBreach: 'future_breach',
+    } as const;
+
+    export interface FutureBreachForecastConfig {
+      /** Fire when the point forecast crosses the alert's threshold bounds within `horizon` future intervals. */
+      condition: FutureBreachForecastConfigCondition;
+      engine?: 'prophet';
+      /** Number of future insight intervals to evaluate. Cannot exceed 250 points or 92 days. Defaults to 7, or fewer when 7 intervals would pass those limits. */
+      horizon?: number | null;
+      type?: 'ForecastConfig';
+    }
+
+    /**
+     * Fire when the value forecast for `target_date` misses `target` on the wrong side.
+     */
+    export type TargetByDateForecastConfigCondition = typeof TargetByDateForecastConfigCondition[keyof typeof TargetByDateForecastConfigCondition];
+
+
+    export const TargetByDateForecastConfigCondition = {
+      TargetByDate: 'target_by_date',
+    } as const;
+
+    export type ForecastTargetDirection = typeof ForecastTargetDirection[keyof typeof ForecastTargetDirection];
+
+
+    export const ForecastTargetDirection = {
+      AtLeast: 'at_least',
+      AtMost: 'at_most',
+    } as const;
+
+    export interface TargetByDateForecastConfig {
+      /** Fire when the value forecast for `target_date` misses `target` on the wrong side. */
+      condition: TargetByDateForecastConfigCondition;
+      engine?: 'prophet';
+      /** Value the insight must reach or stay under in the evaluated target bucket. */
+      target: number;
+      /** ISO date for the target. The alert expires silently when this date arrives in the project timezone. */
+      target_date: string;
+      /** Which side of `target` is acceptable. */
+      target_direction: ForecastTargetDirection;
+      type?: 'ForecastConfig';
+    }
+
+    /**
+     * Configuration for forecast alerts. Requires a time-series trends insight without breakdowns. The `target_by_date` condition also needs a daily, weekly, or monthly interval.
+     */
+    export type ForecastConfig = FutureBreachForecastConfig | TargetByDateForecastConfig;
+
+    /**
      * * `real_time` - real_time
      * * `every_15_minutes` - every_15_minutes
      * * `hourly` - hourly
@@ -10280,6 +10335,8 @@ export namespace Schemas {
       /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
+      /** Forecast alert configuration for either a predicted threshold breach or a target by date. Mutually exclusive with detector_config. Forecasts are limited to 92 calendar days. */
+      forecast_config?: ForecastConfig | null;
       /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
        * * `real_time` - real_time
@@ -42030,6 +42087,58 @@ export namespace Schemas {
       latest_at: string | null;
     }
 
+    export interface ForecastSimulateRequest {
+      /** Insight ID to simulate the forecast on. */
+      insight: number;
+      /** Forecast configuration to simulate. */
+      forecast_config: ForecastConfig;
+      /**
+         * Zero-based index of the series to analyze (trends insights only).
+         * @minimum 0
+         */
+      series_index?: number;
+      /**
+         * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the forecast's minimum required samples. Trends insights only.
+         * @nullable
+         */
+      date_from?: string | null;
+    }
+
+    export interface ForecastTargetProjection {
+      /** Value predicted for the evaluated insight bucket. */
+      predicted: number;
+      /** The target value being aimed for. */
+      target: number;
+      /** The date the target must be met. */
+      target_date: string;
+      /** The latest forecast bucket date on or before the target date used for comparison. */
+      evaluated_date: string;
+      /** Whether the point forecast misses the configured target. */
+      misses_target: boolean;
+    }
+
+    export interface ForecastSimulateResponse {
+      /** Historical data values for each point. */
+      data: number[];
+      /** Date labels for each historical point. */
+      dates: string[];
+      /**
+         * Interval of the trends query (hour, day, week, month).
+         * @nullable
+         */
+      interval: string | null;
+      /** Date labels for each forecast point. */
+      forecast_dates: string[];
+      /** Predicted value for each forecast point. */
+      forecast_yhat: number[];
+      /** Lower bound of the forecast uncertainty band for each point. */
+      forecast_lower: number[];
+      /** Upper bound of the forecast uncertainty band for each point. */
+      forecast_upper: number[];
+      /** Point-forecast comparison for the evaluated target bucket. Null for future breach forecasts. */
+      target_projection: ForecastTargetProjection | null;
+    }
+
     /**
      * Request body for `forget`.
      */
@@ -62596,6 +62705,8 @@ export namespace Schemas {
       /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
+      /** Forecast alert configuration for either a predicted threshold breach or a target by date. Mutually exclusive with detector_config. Forecasts are limited to 92 calendar days. */
+      forecast_config?: ForecastConfig | null;
       /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
        * * `real_time` - real_time
@@ -94349,9 +94460,13 @@ export namespace Schemas {
      */
     created_by?: string;
     /**
-     * Optional. Restrict results by whether the alert uses anomaly detection.
+     * Optional. Restrict results by whether the alert uses anomaly detection. A forecast alert has no detector, so has_detector=false includes forecast alerts as well as plain threshold alerts. Use has_forecast to separate the two.
      */
     has_detector?: boolean;
+    /**
+     * Optional. Restrict results by whether the alert uses a forecast.
+     */
+    has_forecast?: boolean;
     /**
      * Optional. Restrict results to alerts on this insight ID.
      */

@@ -11,6 +11,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.models.activity_logging.model_activity import ActingUserContext
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
@@ -35,6 +36,12 @@ from products.alerts.backend.destinations import (
     soft_delete_all_alert_destinations,
 )
 from products.alerts.backend.email_notifications import send_alert_email
+from products.alerts.backend.forecasting.capacity import (
+    ForecastCapacityUnavailable,
+    ForecastSimulationCapacityExceeded,
+    forecast_simulation_slot,
+)
+from products.alerts.backend.forecasting.engine import ForecastExecutionError, validate_forecast_horizon
 from products.alerts.backend.insight_alert_destinations import (
     INSIGHT_ALERT_DESTINATION_TYPES,
     INSIGHT_ALERT_EVENT_IDS,
@@ -49,6 +56,7 @@ from products.alerts.backend.scheduling import (
     validate_and_normalize_schedule_restriction,
     validate_and_normalize_schedule_start_time,
 )
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -57,6 +65,29 @@ SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "i
 # Mirrors the in-app SnoozeButton's DateFilter max — Slack's datetimepicker has no bounds of
 # its own, so the cap has to live here.
 SLACK_SNOOZE_MAX_DAYS = 31
+
+
+def simulate_forecast_on_insight(
+    insight: Insight,
+    team: Team,
+    forecast_config: dict[str, Any],
+    series_index: int = 0,
+    date_from: str | None = None,
+    user: User | None = None,
+) -> dict[str, Any]:
+    # Deferred to keep callers that only need the lightweight alert facade from pulling in
+    # evaluation dispatch, which itself depends on the legacy alert task utilities.
+    from products.alerts.backend.evaluation.forecast import simulate_forecast_on_insight as simulate  # noqa: PLC0415
+
+    with forecast_simulation_slot(team_id=team.id):
+        return simulate(
+            insight,
+            team,
+            forecast_config,
+            series_index=series_index,
+            date_from=date_from,
+            user=user,
+        )
 
 
 def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
@@ -225,6 +256,9 @@ __all__ = [
     "AlertDestinationValidationError",
     "AlertScheduleRestriction",
     "DestinationType",
+    "ForecastCapacityUnavailable",
+    "ForecastExecutionError",
+    "ForecastSimulationCapacityExceeded",
     "SLACK_SNOOZE_MAX_DAYS",
     "SlackSnoozeOutcome",
     "build_alert_destination_config",
@@ -239,6 +273,7 @@ __all__ = [
     "owned_alert_destinations_qs",
     "redact_urls_in_name",
     "serialize_insight_alerts",
+    "simulate_forecast_on_insight",
     "snooze_alert_from_slack",
     "soft_delete_alert_destinations",
     "soft_delete_alert_destinations_for_alerts",
@@ -246,5 +281,6 @@ __all__ = [
     "send_alert_email",
     "validate_destination_data",
     "validate_and_normalize_schedule_restriction",
+    "validate_forecast_horizon",
     "validate_and_normalize_schedule_start_time",
 ]

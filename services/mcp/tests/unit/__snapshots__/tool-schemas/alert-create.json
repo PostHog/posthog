@@ -2227,6 +2227,86 @@
             "description": "Whether the alert is actively being evaluated.",
             "type": "boolean"
         },
+        "forecast_config": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "condition": {
+                                    "default": "future_breach",
+                                    "description": "Fire when the point forecast crosses the alert's threshold bounds within `horizon` future intervals.",
+                                    "enum": ["future_breach"],
+                                    "type": "string"
+                                },
+                                "engine": {
+                                    "const": "prophet",
+                                    "default": "prophet",
+                                    "type": "string"
+                                },
+                                "horizon": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Number of future insight intervals to evaluate. Cannot exceed 250 points or 92 days. Defaults to 7, or fewer when 7 intervals would pass those limits."
+                                },
+                                "type": {
+                                    "const": "ForecastConfig",
+                                    "default": "ForecastConfig",
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "condition": {
+                                    "default": "target_by_date",
+                                    "description": "Fire when the value forecast for `target_date` misses `target` on the wrong side.",
+                                    "enum": ["target_by_date"],
+                                    "type": "string"
+                                },
+                                "engine": {
+                                    "const": "prophet",
+                                    "default": "prophet",
+                                    "type": "string"
+                                },
+                                "target": {
+                                    "description": "Value the insight must reach or stay under in the evaluated target bucket.",
+                                    "type": "number"
+                                },
+                                "target_date": {
+                                    "description": "ISO date for the target. The alert expires silently when this date arrives in the project timezone.",
+                                    "type": "string"
+                                },
+                                "target_direction": {
+                                    "description": "Which side of `target` is acceptable.",
+                                    "enum": ["at_least", "at_most"],
+                                    "type": "string"
+                                },
+                                "type": {
+                                    "const": "ForecastConfig",
+                                    "default": "ForecastConfig",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["target", "target_date", "target_direction"],
+                            "type": "object"
+                        }
+                    ],
+                    "description": "Configuration for forecast alerts. Requires a time-series trends insight without breakdowns. The `target_by_date` condition also needs a daily, weekly, or monthly interval."
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Forecast alert configuration for either a predicted threshold breach or a target by date. Mutually exclusive with detector_config. Forecasts are limited to 92 calendar days."
+        },
         "insight": {
             "description": "Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
             "type": "number"

@@ -5,6 +5,7 @@ from typing import Any, Protocol
 from posthog.schema import AlertCondition, AlertConditionType, IntervalType
 
 from posthog.api.services.query import ExecutionMode
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -26,7 +27,7 @@ class ComparableSeries:
     is_current_interval: bool = False  # anchor is the ongoing (incomplete) interval — affects breach wording
 
 
-@dataclass
+@dataclass(frozen=False)
 class ExtractionResult:
     """Everything the comparator needs from an extractor, so the dispatcher stays kind-agnostic.
 
@@ -58,6 +59,14 @@ class ExtractionResult:
     # decimals, duration, %). None → the comparator falls back to raw ``f"{value}{unit}"``. Only the
     # trends extractor sets it today; the PERCENTAGE-threshold path ignores it (relative % ratios).
     value_formatter: Callable[[float], str] | None = None
+    # Forecast extractors pin the horizon to the same completed bucket used to size the query.
+    # Without this contract, target-date alerts can fetch too little history and then recompute a
+    # longer horizon after the ongoing bucket is removed.
+    forecast_horizon: int | None = None
+    forecast_last_completed_bucket: str | None = None
+    # Hourly forecasts step through real UTC hours and convert their output back to this timezone,
+    # so spring-forward does not invent a local bucket that never existed.
+    forecast_timezone: str = "UTC"
 
 
 def zero_sentinel_series() -> ComparableSeries:
@@ -76,6 +85,10 @@ class AlertExtractionError(Exception):
     Routed to the errored-alert notification path — distinct from "evaluated fine,
     no data this interval", which is represented as SeriesPoint(value=None).
     """
+
+
+class InsufficientHistoryError(Exception):
+    pass
 
 
 def lookback_intervals_for(condition: AlertCondition) -> int:
@@ -101,14 +114,14 @@ def execution_mode_for_alert(interval: IntervalType | None, *, high_frequency: b
     return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
-@dataclass
+@frozen
 class SimulationContext:
     """Alert-less inputs for a read-only detector simulation. Each extractor reads only the fields its
     kind needs: trends uses ``series_index``/``date_from``, SQL uses ``config``; both use ``team``,
     ``user``, and ``detector_config`` (the latter sizes the lookback window)."""
 
     team: Team
-    detector_config: dict[str, Any]
+    extractor_config: dict[str, Any]
     user: User | None = None
     series_index: int = 0
     date_from: str | None = None

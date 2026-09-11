@@ -47,10 +47,11 @@ class TestAlertUtils:
 
     @parameterized.expand(
         [
-            ("threshold", None, {"alert_mode": "threshold", "detector_type": None, "ensemble_operator": None}),
+            ("threshold", None, None, {"alert_mode": "threshold", "detector_type": None, "ensemble_operator": None}),
             (
                 "detector",
                 {"type": "zscore", "threshold": 0.95, "window": 30},
+                None,
                 {"alert_mode": "detector", "detector_type": "zscore", "ensemble_operator": None},
             ),
             (
@@ -63,7 +64,19 @@ class TestAlertUtils:
                         {"type": "mad", "threshold": 0.95, "window": 30},
                     ],
                 },
+                None,
                 {"alert_mode": "detector", "detector_type": "ensemble", "ensemble_operator": "AND"},
+            ),
+            (
+                "forecast",
+                None,
+                {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+                {
+                    "alert_mode": "forecast",
+                    "detector_type": None,
+                    "forecast_engine": "prophet",
+                    "forecast_condition": "future_breach",
+                },
             ),
         ]
     )
@@ -75,6 +88,7 @@ class TestAlertUtils:
         self,
         _name: str,
         detector_config: dict | None,
+        forecast_config: dict | None,
         expected_props: dict,
         _mock_list: MagicMock,
         mock_produce: MagicMock,
@@ -92,6 +106,7 @@ class TestAlertUtils:
         alert.team_id = 2
         alert.team.name = "test project"
         alert.detector_config = detector_config
+        alert.forecast_config = forecast_config
 
         trigger_alert_hog_functions(alert, properties={"breaches": "test breach"})
 

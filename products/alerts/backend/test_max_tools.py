@@ -65,6 +65,7 @@ class TestUpsertAlertTool(BaseTest):
         threshold_type: InsightThresholdType = InsightThresholdType.ABSOLUTE,
         calculation_interval: AlertCalculationInterval = AlertCalculationInterval.DAILY,
         enabled: bool = True,
+        forecast_config: dict | None = None,
     ) -> AlertConfiguration:
         threshold_config: dict = {"type": threshold_type, "bounds": {}}
         if lower_threshold is not None:
@@ -89,6 +90,7 @@ class TestUpsertAlertTool(BaseTest):
                 config={"type": "TrendsAlertConfig", "series_index": 0},
                 calculation_interval=calculation_interval,
                 enabled=enabled,
+                forecast_config=forecast_config,
                 created_by=self.user,
             )
             AlertSubscription.objects.create(
@@ -99,6 +101,21 @@ class TestUpsertAlertTool(BaseTest):
             return alert
 
         return await sync_to_async(_create)()
+
+    async def _create_forecast_alert(self, insight: Insight, *, enabled: bool) -> AlertConfiguration:
+        return await self._create_alert(
+            insight,
+            name="Forecast alert",
+            lower_threshold=None,
+            upper_threshold=200.0,
+            enabled=enabled,
+            forecast_config={
+                "type": "ForecastConfig",
+                "condition": "future_breach",
+                "engine": "prophet",
+                "horizon": 7,
+            },
+        )
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -624,6 +641,47 @@ class TestUpsertAlertTool(BaseTest):
         threshold = await sync_to_async(lambda: alert.threshold)()
         assert threshold is not None
         assert threshold.configuration["bounds"]["lower"] == 50.0
+
+    @parameterized.expand(
+        [
+            ("cadence_finer_than_insight_interval", True, {"calculation_interval": AlertCalculationInterval.HOURLY}),
+            ("percentage_threshold", True, {"threshold_type": InsightThresholdType.PERCENTAGE}),
+            ("re_enable", False, {"enabled": True}),
+            ("rename", True, {"name": "Renamed"}),
+            ("disable_bundled_with_a_rename", True, {"enabled": False, "name": "Renamed"}),
+        ]
+    )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_update_rejects_forecast_alert_changes(self, _name, created_enabled, update_kwargs):
+        insight = await self._create_insight()
+        alert = await self._create_forecast_alert(insight, enabled=created_enabled)
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(alert.id), **update_kwargs))
+
+        assert artifact["error"] == "unsupported_update"
+        assert "only be turned off" in content
+        await sync_to_async(alert.refresh_from_db)()
+        threshold = await sync_to_async(lambda: alert.threshold)()
+        assert alert.name == "Forecast alert"
+        assert alert.calculation_interval == AlertCalculationInterval.DAILY
+        assert alert.enabled is created_enabled
+        assert threshold is not None
+        assert threshold.configuration["type"] == InsightThresholdType.ABSOLUTE
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_update_allows_disabling_a_forecast_alert(self):
+        insight = await self._create_insight()
+        alert = await self._create_forecast_alert(insight, enabled=True)
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(alert.id), enabled=False))
+
+        assert "updated successfully" in content
+        await sync_to_async(alert.refresh_from_db)()
+        assert alert.enabled is False
 
     @parameterized.expand(
         [

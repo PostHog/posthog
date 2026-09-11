@@ -1,6 +1,8 @@
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
 
 from parameterized import parameterized
 
@@ -236,6 +238,35 @@ class TestValidateAlertConfig:
                 None,
                 "daily",
                 r"series_index 2 is out of range \(query has 2 series\)",
+            ),
+            (
+                "series_index_out_of_range_with_legacy_formula",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview"},
+                        {"kind": "EventsNode", "event": "$autocapture"},
+                    ],
+                    "trendsFilter": {"display": "BoldNumber", "formula": "A+B"},
+                },
+                _base_condition(),
+                _base_config(series_index=1),
+                None,
+                "daily",
+                r"series_index 1 is out of range \(query has 1 series\)",
+            ),
+            (
+                "series_index_valid_with_legacy_formulas",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "trendsFilter": {"display": "BoldNumber", "formulas": ["A", "A*2"]},
+                },
+                _base_condition(),
+                _base_config(series_index=1),
+                _base_threshold(),
+                "daily",
+                None,
             ),
             (
                 "valid_calculation_interval",
@@ -541,3 +572,324 @@ class TestValidateAlertConfig:
             "daily",
             require_threshold_bounds=False,
         )
+
+
+VALID_FORECAST = {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach", "horizon": 7}
+TRENDS_QUERY = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
+TRENDS_CONFIG = {"type": "TrendsAlertConfig", "series_index": 0}
+ABS_THRESHOLD = {"type": "absolute", "bounds": {"upper": 100}}
+
+
+class TestForecastConfigValidation:
+    @parameterized.expand(
+        [
+            ("horizon_zero", {**VALID_FORECAST, "horizon": 0}, "horizon"),
+            ("horizon_reaches_past_the_cap", {**VALID_FORECAST, "horizon": 93}, "92 days"),
+            ("too_many_output_points", {**VALID_FORECAST, "horizon": 251}, "250"),
+            ("expected_range_removed", {**VALID_FORECAST, "condition": "band_deviation"}, "condition"),
+            ("interval_width_removed", {**VALID_FORECAST, "interval_width": 0.8}, "interval_width"),
+            ("sensitivity_removed", {**VALID_FORECAST, "sensitivity": "forecast"}, "sensitivity"),
+            ("target_field_on_breach", {**VALID_FORECAST, "target": 100}, "target"),
+            ("unknown_engine", {**VALID_FORECAST, "engine": "chronos"}, "engine"),
+            ("unknown_condition", {**VALID_FORECAST, "condition": "nope"}, "condition"),
+        ]
+    )
+    def test_invalid_forecast_config_rejected(self, _name: str, forecast_config: dict, match: str) -> None:
+        with pytest.raises(ValueError, match=match):
+            validate_alert_config(
+                TRENDS_QUERY,
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval="daily",
+                forecast_config=forecast_config,
+            )
+
+    def test_valid_forecast_config_accepted(self) -> None:
+        validate_alert_config(
+            TRENDS_QUERY,
+            {"type": "absolute_value"},
+            TRENDS_CONFIG,
+            ABS_THRESHOLD,
+            calculation_interval="daily",
+            forecast_config=VALID_FORECAST,
+        )
+
+    def test_forecast_and_detector_mutually_exclusive(self) -> None:
+        with pytest.raises(ValueError, match="both"):
+            validate_alert_config(
+                TRENDS_QUERY,
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval="daily",
+                detector_config={"type": "zscore"},
+                forecast_config=VALID_FORECAST,
+            )
+
+    def test_future_breach_requires_threshold_bounds(self) -> None:
+        with pytest.raises(ValueError, match="threshold"):
+            validate_alert_config(
+                TRENDS_QUERY,
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                None,
+                calculation_interval="daily",
+                forecast_config=VALID_FORECAST,
+            )
+
+    def test_forecast_rejects_non_trends(self) -> None:
+        with pytest.raises(ValueError, match="[Ff]orecast"):
+            validate_alert_config(
+                {"kind": "HogQLQuery", "query": "select 1"},
+                {"type": "absolute_value"},
+                {"type": "HogQLAlertConfig", "evaluation": "last_row"},
+                ABS_THRESHOLD,
+                calculation_interval="daily",
+                forecast_config=VALID_FORECAST,
+            )
+
+    @parameterized.expand(
+        [
+            ("single", {"breakdown": "$browser", "breakdown_type": "event"}),
+            ("multi", {"breakdowns": [{"property": "$browser", "type": "event"}]}),
+        ]
+    )
+    def test_forecast_rejects_breakdown(self, _name: str, breakdown_filter: dict) -> None:
+        query = {**TRENDS_QUERY, "breakdownFilter": breakdown_filter}
+        with pytest.raises(ValueError, match="breakdown"):
+            validate_alert_config(
+                query,
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval="daily",
+                forecast_config=VALID_FORECAST,
+            )
+
+    @parameterized.expand(
+        [
+            ("hour", "hour", "hourly", 7),
+            ("day", "day", "daily", 7),
+            ("week", "week", "weekly", 7),
+            ("month", "month", "monthly", 3),
+        ]
+    )
+    def test_forecast_accepts_supported_intervals(
+        self, _name: str, interval: str, calculation_interval: str, horizon: int
+    ) -> None:
+        validate_alert_config(
+            {**TRENDS_QUERY, "interval": interval},
+            {"type": "absolute_value"},
+            TRENDS_CONFIG,
+            ABS_THRESHOLD,
+            calculation_interval=calculation_interval,
+            forecast_config={**VALID_FORECAST, "horizon": horizon},
+        )
+
+    @parameterized.expand(
+        [
+            ("13 weeks fits", "week", 13, True),
+            ("14 weeks is too far", "week", 14, False),
+            ("3 months fit", "month", 3, True),
+            ("4 months are too far", "month", 4, False),
+        ]
+    )
+    def test_horizon_cap_binds_by_reach_not_count(
+        self, _name: str, interval: str, horizon: int, accepted: bool
+    ) -> None:
+        calculation_interval = "weekly" if interval == "week" else "monthly"
+
+        def run() -> None:
+            validate_alert_config(
+                {**TRENDS_QUERY, "interval": interval},
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval=calculation_interval,
+                forecast_config={**VALID_FORECAST, "horizon": horizon},
+            )
+
+        if accepted:
+            run()
+        else:
+            with pytest.raises(ValueError, match="92 days"):
+                run()
+
+    @parameterized.expand(
+        [
+            ("minute", "minute"),
+            ("quarter", "quarter"),
+            ("year", "year"),
+        ]
+    )
+    def test_forecast_rejects_unsupported_intervals(self, _name: str, interval: str) -> None:
+        with pytest.raises(ValueError, match="hourly, daily, weekly"):
+            validate_alert_config(
+                {**TRENDS_QUERY, "interval": interval},
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval="daily",
+                forecast_config=VALID_FORECAST,
+            )
+
+    def test_future_breach_rejects_percentage_threshold(self) -> None:
+        with pytest.raises(ValueError, match="absolute threshold"):
+            validate_alert_config(
+                TRENDS_QUERY,
+                {"type": "relative_increase"},
+                TRENDS_CONFIG,
+                {"type": "percentage", "bounds": {"upper": 0.2}},
+                calculation_interval="daily",
+                forecast_config=VALID_FORECAST,
+            )
+
+    @parameterized.expand(
+        [
+            ("missing target", {"target_direction": "at_least", "target_date": "2026-12-31"}, "target"),
+            ("missing direction", {"target": 100, "target_date": "2026-12-31"}, "target_direction"),
+            ("missing date", {"target": 100, "target_direction": "at_least"}, "target_date"),
+            (
+                "past date",
+                {"target": 100, "target_direction": "at_least", "target_date": "2020-01-01"},
+                "in the future",
+            ),
+            (
+                "beyond the cap",
+                {"target": 100, "target_direction": "at_least", "target_date": "2030-01-01"},
+                "within 92 days",
+            ),
+            (
+                "horizon is not a target field",
+                {
+                    "target": 100,
+                    "target_direction": "at_least",
+                    "target_date": "2026-12-31",
+                    "horizon": 7,
+                },
+                "horizon",
+            ),
+        ]
+    )
+    def test_target_by_date_config_is_rejected(self, _name: str, extra: dict, message: str) -> None:
+        with pytest.raises(ValueError, match=message):
+            validate_alert_config(
+                TRENDS_QUERY,
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval="daily",
+                forecast_config={
+                    "type": "ForecastConfig",
+                    "engine": "prophet",
+                    "condition": "target_by_date",
+                    **extra,
+                },
+                require_future_target_date=True,
+            )
+
+    def test_a_finished_target_alert_still_validates(self) -> None:
+        validate_alert_config(
+            TRENDS_QUERY,
+            {"type": "absolute_value"},
+            TRENDS_CONFIG,
+            ABS_THRESHOLD,
+            calculation_interval="daily",
+            forecast_config={
+                "type": "ForecastConfig",
+                "engine": "prophet",
+                "condition": "target_by_date",
+                "target": 100,
+                "target_direction": "at_least",
+                "target_date": "2020-01-01",
+            },
+        )
+
+    def test_target_by_date_config_is_accepted(self) -> None:
+        target_date = (datetime.now(UTC).date() + timedelta(days=90)).isoformat()
+        validate_alert_config(
+            TRENDS_QUERY,
+            {"type": "absolute_value"},
+            TRENDS_CONFIG,
+            ABS_THRESHOLD,
+            calculation_interval="daily",
+            forecast_config={
+                "type": "ForecastConfig",
+                "engine": "prophet",
+                "condition": "target_by_date",
+                "target": 10000,
+                "target_direction": "at_least",
+                "target_date": target_date,
+            },
+        )
+
+    def test_target_by_date_rejects_hourly_insights_before_counting_output_points(self) -> None:
+        target_date = (datetime.now(UTC).date() + timedelta(days=11)).isoformat()
+        with pytest.raises(ValueError, match="don't support hourly insights"):
+            validate_alert_config(
+                {**TRENDS_QUERY, "interval": "hour"},
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval="hourly",
+                forecast_config={
+                    "type": "ForecastConfig",
+                    "engine": "prophet",
+                    "condition": "target_by_date",
+                    "target": 10000,
+                    "target_direction": "at_least",
+                    "target_date": target_date,
+                },
+                require_future_target_date=True,
+            )
+
+    @freeze_time("2026-01-01T10:30:00Z")
+    def test_target_date_future_check_uses_the_project_timezone(self) -> None:
+        with pytest.raises(ValueError, match="in the future"):
+            validate_alert_config(
+                TRENDS_QUERY,
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval="daily",
+                forecast_config={
+                    "type": "ForecastConfig",
+                    "engine": "prophet",
+                    "condition": "target_by_date",
+                    "target": 100,
+                    "target_direction": "at_least",
+                    "target_date": "2026-01-02",
+                },
+                require_future_target_date=True,
+                project_timezone="Pacific/Kiritimati",
+            )
+
+    @parameterized.expand(
+        [
+            ("hourly insight cannot run every 15 minutes", "hour", "every_15_minutes", False),
+            ("daily insight cannot run hourly", "day", "hourly", False),
+            ("daily insight can run daily", "day", "daily", True),
+            ("daily insight can run weekly", "day", "weekly", True),
+            ("weekly insight cannot run daily", "week", "daily", False),
+            ("monthly insight can run monthly", "month", "monthly", True),
+        ]
+    )
+    def test_forecast_cadence_cannot_be_faster_than_insight_interval(
+        self, _name: str, interval: str, calculation_interval: str, accepted: bool
+    ) -> None:
+        def run() -> None:
+            validate_alert_config(
+                {**TRENDS_QUERY, "interval": interval},
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval=calculation_interval,
+                forecast_config={**VALID_FORECAST, "horizon": 3 if interval == "month" else 7},
+            )
+
+        if accepted:
+            run()
+        else:
+            with pytest.raises(ValueError, match="cannot run more often"):
+                run()

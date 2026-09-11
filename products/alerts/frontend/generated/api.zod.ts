@@ -1182,3 +1182,78 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
             'Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row\/first_row) so the preview matches the alert; ignored for trends.'
         ),
 })
+
+/**
+ * Simulate a forecast on an insight's historical data. Read-only — no AlertCheck records are created.
+ */
+export const alertsSimulateForecastCreateBodyForecastConfigOneOneConditionDefault = `future_breach`
+export const alertsSimulateForecastCreateBodyForecastConfigOneOneEngineDefault = `prophet`
+export const alertsSimulateForecastCreateBodyForecastConfigOneOneTypeDefault = `ForecastConfig`
+export const alertsSimulateForecastCreateBodyForecastConfigOneTwoConditionDefault = `target_by_date`
+export const alertsSimulateForecastCreateBodyForecastConfigOneTwoEngineDefault = `prophet`
+export const alertsSimulateForecastCreateBodyForecastConfigOneTwoTypeDefault = `ForecastConfig`
+export const alertsSimulateForecastCreateBodySeriesIndexDefault = 0
+export const alertsSimulateForecastCreateBodySeriesIndexMin = 0
+
+export const AlertsSimulateForecastCreateBody = /* @__PURE__ */ zod.object({
+    insight: zod.number().describe('Insight ID to simulate the forecast on.'),
+    forecast_config: zod
+        .union([
+            zod.object({
+                condition: zod
+                    .enum(['future_breach'])
+                    .default(alertsSimulateForecastCreateBodyForecastConfigOneOneConditionDefault)
+                    .describe(
+                        "Fire when the point forecast crosses the alert's threshold bounds within `horizon` future intervals."
+                    ),
+                engine: zod
+                    .literal('prophet')
+                    .default(alertsSimulateForecastCreateBodyForecastConfigOneOneEngineDefault),
+                horizon: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Number of future insight intervals to evaluate. Cannot exceed 250 points or 92 days. Defaults to 7, or fewer when 7 intervals would pass those limits.'
+                    ),
+                type: zod
+                    .literal('ForecastConfig')
+                    .default(alertsSimulateForecastCreateBodyForecastConfigOneOneTypeDefault),
+            }),
+            zod.object({
+                condition: zod
+                    .enum(['target_by_date'])
+                    .default(alertsSimulateForecastCreateBodyForecastConfigOneTwoConditionDefault)
+                    .describe('Fire when the value forecast for `target_date` misses `target` on the wrong side.'),
+                engine: zod
+                    .literal('prophet')
+                    .default(alertsSimulateForecastCreateBodyForecastConfigOneTwoEngineDefault),
+                target: zod
+                    .number()
+                    .describe('Value the insight must reach or stay under in the evaluated target bucket.'),
+                target_date: zod
+                    .string()
+                    .describe(
+                        'ISO date for the target. The alert expires silently when this date arrives in the project timezone.'
+                    ),
+                target_direction: zod.enum(['at_least', 'at_most']).describe('Which side of `target` is acceptable.'),
+                type: zod
+                    .literal('ForecastConfig')
+                    .default(alertsSimulateForecastCreateBodyForecastConfigOneTwoTypeDefault),
+            }),
+        ])
+        .describe(
+            'Configuration for forecast alerts. Requires a time-series trends insight without breakdowns. The `target_by_date` condition also needs a daily, weekly, or monthly interval.'
+        )
+        .describe('Forecast configuration to simulate.'),
+    series_index: zod
+        .number()
+        .min(alertsSimulateForecastCreateBodySeriesIndexMin)
+        .default(alertsSimulateForecastCreateBodySeriesIndexDefault)
+        .describe('Zero-based index of the series to analyze (trends insights only).'),
+    date_from: zod
+        .string()
+        .nullish()
+        .describe(
+            "Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the forecast's minimum required samples. Trends insights only."
+        ),
+})

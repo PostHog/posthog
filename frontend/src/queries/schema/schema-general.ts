@@ -6501,6 +6501,53 @@ export interface AlertScheduleRestriction {
     blocked_windows: AlertScheduleRestrictionWindow[]
 }
 
+export enum ForecastEngineType {
+    PROPHET = 'prophet',
+}
+
+export enum ForecastConditionType {
+    /** Fire when the point forecast crosses the alert's threshold bounds within `horizon` future intervals. */
+    FUTURE_BREACH = 'future_breach',
+    /** Fire when the value forecast for `target_date` misses `target` on the wrong side. */
+    TARGET_BY_DATE = 'target_by_date',
+}
+
+export enum ForecastTargetDirection {
+    /** The metric must reach at least `target`, for example revenue or signups. */
+    AT_LEAST = 'at_least',
+    /** The metric must stay at or under `target`, for example churn or latency. */
+    AT_MOST = 'at_most',
+}
+
+/** Warn when the point forecast crosses an absolute threshold within the selected horizon. */
+export interface FutureBreachForecastConfig {
+    type: 'ForecastConfig'
+    engine: ForecastEngineType
+    condition: ForecastConditionType.FUTURE_BREACH
+    /** Number of future insight intervals to evaluate. Cannot exceed 250 points or 92 days. Defaults to 7, or fewer when 7 intervals would pass those limits. */
+    horizon?: integer
+}
+
+/** Warn when the point forecast for a selected date is on the wrong side of a target value. */
+export interface TargetByDateForecastConfig {
+    type: 'ForecastConfig'
+    engine: ForecastEngineType
+    condition: ForecastConditionType.TARGET_BY_DATE
+    /** Value the insight must reach or stay under in the evaluated target bucket. */
+    target: number
+    /** Which side of `target` is acceptable. */
+    target_direction: ForecastTargetDirection
+    /** ISO date for the target. The alert expires silently when this date arrives in the project timezone. */
+    target_date: string
+}
+
+/**
+ * Configuration for forecast alerts. Requires a time-series trends insight without breakdowns.
+ * The `target_by_date` condition also needs a daily, weekly, or monthly interval.
+ * @discriminator condition
+ */
+export type ForecastConfig = FutureBreachForecastConfig | TargetByDateForecastConfig
+
 // Detector types for anomaly detection alerts
 export enum DetectorType {
     ZSCORE = 'zscore',

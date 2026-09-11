@@ -119,6 +119,8 @@ from posthog.schema_enums import (
     ExternalQueryStatus as ExternalQueryStatus,
     FileSystemIconType as FileSystemIconType,
     FilterLogicalOperator as FilterLogicalOperator,
+    ForecastConditionType as ForecastConditionType,
+    ForecastTargetDirection as ForecastTargetDirection,
     FunnelAggregateByHogQL as FunnelAggregateByHogQL,
     FunnelConversionMetric as FunnelConversionMetric,
     FunnelConversionWindowTimeUnit as FunnelConversionWindowTimeUnit,
@@ -3034,6 +3036,29 @@ class Branching(BaseModel):
     type: SurveyQuestionBranchingType
 
 
+class TargetByDateForecastConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    condition: Literal["target_by_date"] = Field(
+        default="target_by_date",
+        description=("Fire when the value forecast for `target_date` misses `target` on the wrong side."),
+    )
+    engine: Literal["prophet"] = "prophet"
+    target: float = Field(
+        ...,
+        description=("Value the insight must reach or stay under in the evaluated target bucket."),
+    )
+    target_date: str = Field(
+        ...,
+        description=(
+            "ISO date for the target. The alert expires silently when this date arrives in the project timezone."
+        ),
+    )
+    target_direction: ForecastTargetDirection = Field(..., description="Which side of `target` is acceptable.")
+    type: Literal["ForecastConfig"] = "ForecastConfig"
+
+
 class TimelineEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5530,6 +5555,28 @@ class FunnelsFilterLegacy(BaseModel):
     funnel_window_interval_unit: FunnelConversionWindowTimeUnit | None = None
     hidden_legend_keys: dict[str, bool | Any] | None = None
     layout: FunnelLayout | None = None
+
+
+class FutureBreachForecastConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    condition: Literal["future_breach"] = Field(
+        default="future_breach",
+        description=(
+            "Fire when the point forecast crosses the alert's threshold bounds within `horizon` future intervals."
+        ),
+    )
+    engine: Literal["prophet"] = "prophet"
+    horizon: int | None = Field(
+        default=None,
+        description=(
+            "Number of future insight intervals to evaluate. Cannot exceed 250 points"
+            " or 92 days. Defaults to 7, or fewer when 7 intervals would pass those"
+            " limits."
+        ),
+    )
+    type: Literal["ForecastConfig"] = "ForecastConfig"
 
 
 class GroupPropertyFilter(BaseModel):
@@ -17354,6 +17401,18 @@ class ExperimentBreakdownResult(BaseModel):
     variants: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] = Field(
         ...,
         description=("Test variant results with statistical comparisons for this breakdown"),
+    )
+
+
+class ForecastConfig(RootModel[FutureBreachForecastConfig | TargetByDateForecastConfig]):
+    root: FutureBreachForecastConfig | TargetByDateForecastConfig = Field(
+        ...,
+        description=(
+            "Configuration for forecast alerts. Requires a time-series trends insight"
+            " without breakdowns. The `target_by_date` condition also needs a daily,"
+            " weekly, or monthly interval."
+        ),
+        discriminator="condition",
     )
 
 
