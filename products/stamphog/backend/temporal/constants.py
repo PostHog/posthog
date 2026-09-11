@@ -87,9 +87,13 @@ class SandboxPhaseError(Exception):
     """
 
 
-# One attempt. The activity setup costs nothing and is safe to repeat, and the activity marks its
-# paid phase and records a claim. A higher count belongs in a later change, after this one is on
-# every worker: workflow and activity tasks share one unversioned queue, so a rolling deploy lets a
-# new workflow worker schedule against an old activity worker that writes no claim. A paid-phase
-# failure would then bill a second review.
-SANDBOX_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
+# Two attempts. The free phase — context load, token mint, sandbox config — costs nothing and is
+# safe to repeat, so a refusal there must not burn the whole review. The paid phase is fenced twice:
+# it raises SandboxPhaseError, which this policy excludes, and it records a claim that stops a
+# second sandbox when Temporal retries a lost worker instead. Both fences are on every worker, so
+# the rolling-deploy hole that held this at one attempt is closed.
+SANDBOX_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=2,
+    initial_interval=timedelta(seconds=10),
+    non_retryable_error_types=["SandboxPhaseError"],
+)

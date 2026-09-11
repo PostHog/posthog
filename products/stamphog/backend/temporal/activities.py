@@ -25,6 +25,8 @@ import base64
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -126,8 +128,13 @@ STAMPHOG_AI_PRODUCT = "aio_stamphog"
 # The cap bounds what a leaked token can spend; the TTL must outlive the 30-minute review activity.
 _REVIEWER_TOKEN_CAP_USD = "5"
 _REVIEWER_TOKEN_TTL_SECONDS = 3600
-_MINT_ATTEMPTS = 2
+_MINT_ATTEMPTS = 4
 _MINT_TIMEOUT_SECONDS = 3
+# Waits of about 1s, 2s and 4s before the retries, plus jitter so a fleet of workers refused at
+# once does not come back in step. A Retry-After the gateway sends wins, clamped to the same
+# ceiling: the whole mint must stay short against the review activity's start-to-close timeout.
+_MINT_BACKOFF_SECONDS = 1.0
+_MINT_MAX_BACKOFF_SECONDS = 10.0
 
 AI_GATEWAY_TOKEN_MINTS = Counter(
     "stamphog_ai_gateway_token_mints_total",
@@ -174,14 +181,40 @@ def _mint_reviewer_oauth_token(run: ReviewRun, user: User) -> str:
     )
 
 
+def _retry_after_seconds(response: requests.Response) -> float | None:
+    """Seconds the gateway asked the caller to wait, from either Retry-After form; None if unusable."""
+    header = response.headers.get("Retry-After")
+    if not header:
+        return None
+    try:
+        return max(0.0, float(header.strip()))
+    except ValueError:
+        pass
+    try:
+        retry_at = parsedate_to_datetime(header)
+    except (TypeError, ValueError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=UTC)
+    return max(0.0, (retry_at - datetime.now(UTC)).total_seconds())
+
+
+def _mint_backoff_seconds(attempt: int, retry_after: float | None) -> float:
+    """What to wait before the next mint attempt: the gateway's own answer, else exponential backoff."""
+    if retry_after is not None:
+        return min(retry_after, _MINT_MAX_BACKOFF_SECONDS)
+    delay = min(_MINT_BACKOFF_SECONDS * 2**attempt, _MINT_MAX_BACKOFF_SECONDS)
+    return delay + random.uniform(0, delay / 4)
+
+
 def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: User) -> str:
     """Per-run ``phe_`` minted with the worker's ``phs_``, which never enters the sandbox.
 
-    Pinned to product and team and capped in spend and lifetime, so a leak buys little. Retries once
-    on 429, 5xx and network errors; any other refusal is final, and hosted runs have no shared-key
-    fallback. A token minted without a requested model pin is revoked and fails the run. Kept
-    separate from the tasks and wizard minters: each product owns its failure posture, and this cap
-    and TTL are documented invariants rather than ops knobs.
+    Pinned to product and team and capped in spend and lifetime, so a leak buys little. Retries with
+    growing backoff on 429, 5xx and network errors; any other refusal is final, and hosted runs have
+    no shared-key fallback. A token minted without a requested model pin is revoked and fails the
+    run. Kept separate from the tasks and wizard minters: each product owns its failure posture, and
+    this cap and TTL are documented invariants rather than ops knobs.
     """
     body: dict[str, object] = {
         "cap_usd": _REVIEWER_TOKEN_CAP_USD,
@@ -198,6 +231,7 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
     mint_url = f"{_gateway_root(gateway)}/v1/tokens"
     last_error = ""
     for attempt in range(_MINT_ATTEMPTS):
+        retry_after: float | None = None
         try:
             response = requests.post(
                 mint_url,
@@ -229,11 +263,12 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
                 break
             if response.status_code == 429 or response.status_code >= 500:
                 last_error = f"HTTP {response.status_code}"
+                retry_after = _retry_after_seconds(response)
             else:
                 last_error = f"HTTP {response.status_code}: {response.text[:200]}"
                 break
         if attempt < _MINT_ATTEMPTS - 1:
-            time.sleep(0.5 + random.uniform(0, 0.25))
+            time.sleep(_mint_backoff_seconds(attempt, retry_after))
     AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
     raise RuntimeError(
         f"Could not mint the sandbox gateway token ({last_error}); hosted reviews require the LLM gateway"
