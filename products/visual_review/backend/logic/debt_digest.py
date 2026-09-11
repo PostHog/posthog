@@ -305,7 +305,7 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
         if count >= VARIANT_PILEUP_MIN and key not in quarantined_keys
     }
 
-    run_types = {entry.run_type for entry in expiring} | {run_type for run_type, _ in piled_up}
+    run_types = {entry.run_type for entry in expiring} | {key.run_type for key in piled_up}
     sources = _attribution_sources(repo, run_types, newest_run_by_type)
     authors = _display_names({entry.created_by_id for entry in expiring if entry.created_by_id})
 
@@ -321,12 +321,15 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
         ],
         variant_pileups=[
             DebtItem(
-                identifier=identifier,
-                run_type=run_type,
-                attribution=_attribution(sources, run_type, identifier),
-                line=_pileup_line(repo, run_type, identifier, count),
+                identifier=key.identifier,
+                run_type=key.run_type,
+                attribution=_attribution(sources, key.run_type, key.identifier),
+                line=_pileup_line(repo, key.run_type, key.identifier, count),
             )
-            for (run_type, identifier), count in sorted(piled_up.items(), key=lambda item: (-item[1], item[0]))
+            # Biggest pile first, then by identity so a tie reads the same way every morning.
+            for key, count in sorted(
+                piled_up.items(), key=lambda item: (-item[1], item[0].run_type, item[0].identifier)
+            )
         ],
     )
 

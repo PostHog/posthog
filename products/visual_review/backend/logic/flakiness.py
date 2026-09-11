@@ -31,6 +31,7 @@ from ..facade.enums import ClassificationReason, FlakinessState, ReviewState, Ru
 from ..models import QuarantinedIdentifier, Run, RunSnapshot, ToleratedHash
 from . import run_queries
 from .quarantine import expiry_soon_cutoff, is_expiring_soon
+from .run_queries import SnapshotKey
 
 # Rows a run recorded as a difference from the baseline, split by what that
 # difference cost. `_HARD` failed the gate and blocked whoever was merging.
@@ -71,14 +72,6 @@ _SOFT = Q(result=SnapshotResult.UNCHANGED) & (
         tolerated_hash_match__reason=ToleratedReason.AUTO_THRESHOLD,
     )
 )
-
-
-@frozen
-class _SnapshotKey:
-    """One snapshot identity. The same identifier under two run types is two."""
-
-    run_type: str
-    identifier: str
 
 
 @frozen
@@ -174,7 +167,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # Hydrated so each row can render reason, expiry, who and the source run
     # without a per-row fetch. `Run.metadata` and `Run.error_message` can be
     # large and are not needed for the summary.
-    active_quarantines_by_key: dict[_SnapshotKey, QuarantinedIdentifier] = {}
+    active_quarantines_by_key: dict[SnapshotKey, QuarantinedIdentifier] = {}
     for active_quarantine in (
         QuarantinedIdentifier.objects.filter(repo_id=repo_id)
         .filter(live)
@@ -182,7 +175,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
         .defer("source_run__metadata", "source_run__error_message")
         .order_by("-created_at")
     ):
-        quarantine_key = _SnapshotKey(run_type=active_quarantine.run_type, identifier=active_quarantine.identifier)
+        quarantine_key = SnapshotKey(run_type=active_quarantine.run_type, identifier=active_quarantine.identifier)
         # Creating a quarantine supersedes the prior active row, so duplicates
         # should not exist. Keep the newest if one ever does.
         if quarantine_key not in active_quarantines_by_key:
@@ -204,12 +197,12 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # The baseline hash each identifier would be compared against right now.
     # values_list rather than model hydration: the universe can run to
     # thousands of rows and only the listed ones need thumbnails later.
-    baseline_hash_by_key: dict[_SnapshotKey, str] = {}
+    baseline_hash_by_key: dict[SnapshotKey, str] = {}
     for run_id, identifier, baseline_hash in RunSnapshot.objects.filter(run_id__in=universe_run_ids).values_list(
         "run_id", "identifier", "baseline_hash"
     ):
         if baseline_hash:
-            baseline_hash_by_key[_SnapshotKey(run_type=run_type_by_run_id[run_id], identifier=identifier)] = (
+            baseline_hash_by_key[SnapshotKey(run_type=run_type_by_run_id[run_id], identifier=identifier)] = (
                 baseline_hash
             )
 
@@ -326,7 +319,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # neighbour does. The history it reads reaches back only as far as retention
     # keeps default-branch runs, which is
     # `retention.DEFAULT_BRANCH_RUN_RETENTION_DAYS`.
-    baseline_moved_at_by_key: dict[_SnapshotKey, datetime] = {}
+    baseline_moved_at_by_key: dict[SnapshotKey, datetime] = {}
     for identifier, run_type, moved_at in (
         RunSnapshot.objects.filter(
             run__repo_id=repo_id,
@@ -340,7 +333,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
         .values_list("identifier", "run__run_type", "moved_at")
     ):
         if moved_at is not None:
-            baseline_moved_at_by_key[_SnapshotKey(run_type=run_type, identifier=identifier)] = moved_at
+            baseline_moved_at_by_key[SnapshotKey(run_type=run_type, identifier=identifier)] = moved_at
 
     expiry_cutoff = expiry_soon_cutoff(now)
 
@@ -350,7 +343,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # default-branch run. Those keys are absent from `baseline_hash_by_key`, so
     # walk them too rather than silently drop what they recorded.
     baseline_less_keys = (active_quarantines_by_key.keys() | hard_activity.keys()) - baseline_hash_by_key.keys()
-    scored_keys: list[tuple[_SnapshotKey, str]] = [
+    scored_keys: list[tuple[SnapshotKey, str]] = [
         *baseline_hash_by_key.items(),
         *((key, "") for key in baseline_less_keys),
     ]
@@ -447,7 +440,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     snapshots_by_key = _hydrate_snapshots(
         universe_run_ids=universe_run_ids,
         run_type_by_run_id=run_type_by_run_id,
-        keys={_SnapshotKey(run_type=row.run_type, identifier=row.identifier) for row in listed},
+        keys={SnapshotKey(run_type=row.run_type, identifier=row.identifier) for row in listed},
     )
 
     return _FlakinessRaw(
@@ -468,7 +461,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
 
 
 def _quarantine_only_raw(
-    active_quarantines_by_key: dict[_SnapshotKey, QuarantinedIdentifier],
+    active_quarantines_by_key: dict[SnapshotKey, QuarantinedIdentifier],
     *,
     generated_at: datetime,
     strip_days: int,
@@ -529,7 +522,7 @@ def _read_activity(
     in_window: Q,
     match: Q,
     identifiers: list[str] | None = None,
-) -> dict[_SnapshotKey, _Activity]:
+) -> dict[SnapshotKey, _Activity]:
     """Window activity per snapshot identity, for the rows `match` selects.
 
     Grouped by day so one query serves both the rate and the activity strip:
@@ -539,10 +532,10 @@ def _read_activity(
     if identifiers is not None:
         queryset = queryset.filter(identifier__in=identifiers)
 
-    daily: dict[_SnapshotKey, dict[date, int]] = defaultdict(dict)
-    totals: Counter[_SnapshotKey] = Counter()
-    last_at: dict[_SnapshotKey, datetime] = {}
-    worst: dict[_SnapshotKey, float] = {}
+    daily: dict[SnapshotKey, dict[date, int]] = defaultdict(dict)
+    totals: Counter[SnapshotKey] = Counter()
+    last_at: dict[SnapshotKey, datetime] = {}
+    worst: dict[SnapshotKey, float] = {}
     for run_type, identifier, day, day_count, latest, worst_diff in (
         queryset.annotate(day=TruncDate("run__created_at"))
         .values("run__run_type", "identifier", "day")
@@ -553,7 +546,7 @@ def _read_activity(
         )
         .values_list("run__run_type", "identifier", "day", "day_count", "latest", "worst_diff")
     ):
-        key = _SnapshotKey(run_type=run_type, identifier=identifier)
+        key = SnapshotKey(run_type=run_type, identifier=identifier)
         daily[key][day] = day_count
         totals[key] += day_count
         seen_last = last_at.get(key)
@@ -640,9 +633,9 @@ def _latest(*moments: datetime | None) -> datetime | None:
     return max(known) if known else None
 
 
-def snapshot_key(row: _FlakinessRow) -> _SnapshotKey:
+def snapshot_key(row: _FlakinessRow) -> SnapshotKey:
     """Key for `_FlakinessRaw.snapshots_by_key`, for the facade to look a row up."""
-    return _SnapshotKey(run_type=row.run_type, identifier=row.identifier)
+    return SnapshotKey(run_type=row.run_type, identifier=row.identifier)
 
 
 def _needs_decision(
@@ -687,13 +680,13 @@ def _hydrate_snapshots(
     *,
     universe_run_ids: list[UUID],
     run_type_by_run_id: dict[UUID, str],
-    keys: set[_SnapshotKey],
-) -> dict[_SnapshotKey, RunSnapshot]:
+    keys: set[SnapshotKey],
+) -> dict[SnapshotKey, RunSnapshot]:
     """Thumbnail and dimension data for the listed rows only."""
     if not keys:
         return {}
     identifiers = list({key.identifier for key in keys})
-    hydrated: dict[_SnapshotKey, RunSnapshot] = {}
+    hydrated: dict[SnapshotKey, RunSnapshot] = {}
     for snapshot in (
         RunSnapshot.objects.filter(run_id__in=universe_run_ids, identifier__in=identifiers)
         .select_related("current_artifact__thumbnail")
@@ -706,7 +699,7 @@ def _hydrate_snapshots(
             "current_artifact__thumbnail__content_hash",
         )
     ):
-        key = _SnapshotKey(run_type=run_type_by_run_id[snapshot.run_id], identifier=snapshot.identifier)
+        key = SnapshotKey(run_type=run_type_by_run_id[snapshot.run_id], identifier=snapshot.identifier)
         if key in keys:
             hydrated[key] = snapshot
     return hydrated
@@ -766,7 +759,7 @@ class _FlakinessRaw:
     """
 
     rows: list[_FlakinessRow]
-    snapshots_by_key: dict[_SnapshotKey, RunSnapshot]
+    snapshots_by_key: dict[SnapshotKey, RunSnapshot]
     tracked_total: int
     totals_broken: int
     totals_unstable: int

@@ -319,9 +319,9 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         run = snapshot.run
         artifact = snapshot.current_artifact
         thumbnail = artifact.thumbnail if artifact is not None else None
-        # `(run_type, identifier)` keys because the same identifier in
-        # different run types is a different baseline.
-        key = (run.run_type, identifier)
+        # Keyed per identity because the same identifier in different run types
+        # is a different baseline.
+        key = run_queries.SnapshotKey(run_type=run.run_type, identifier=identifier)
         metadata = snapshot.metadata or {}
         active_quarantine = raw.active_quarantines_by_key.get(key)
         entries.append(

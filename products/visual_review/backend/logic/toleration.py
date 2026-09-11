@@ -14,6 +14,7 @@ from ..db import WRITER_DB
 from ..facade.enums import INTENTIONAL_TOLERATE_REASONS, ActorType, ReviewState, SnapshotResult, ToleratedReason
 from ..models import Run, RunSnapshot, ToleratedHash
 from . import errors, run_queries
+from .run_queries import SnapshotKey
 
 
 @transaction.atomic(using=WRITER_DB)
@@ -91,9 +92,9 @@ def mark_snapshot_as_tolerated(
 
 def count_active_variants_against_current_baseline(
     repo_id: UUID, *, now: datetime, newest_run_by_type: Mapping[str, Run] | None = None
-) -> dict[tuple[str, str], int]:
-    """How many accepted variants each `(run_type, identifier)` still carries against the baseline
-    it would be compared against right now.
+) -> dict[SnapshotKey, int]:
+    """How many accepted variants each snapshot identity still carries against the baseline it
+    would be compared against right now.
 
     A toleration is recorded under the baseline hash it was decided for, so a baseline change
     invalidates the whole pile at once and this count drops back to zero. That is what makes the
@@ -119,7 +120,7 @@ def count_active_variants_against_current_baseline(
         (identifier, baseline_hash): count
         for identifier, baseline_hash, count in ToleratedHash.objects.filter(
             repo_id=repo_id,
-            identifier__in=list({identifier for _, identifier in baseline_hash_by_key}),
+            identifier__in=list({key.identifier for key in baseline_hash_by_key}),
             baseline_hash__in=list(set(baseline_hash_by_key.values())),
             reason__in=INTENTIONAL_TOLERATE_REASONS,
         )
@@ -128,9 +129,9 @@ def count_active_variants_against_current_baseline(
         .annotate(c=Count("id"))
         .values_list("identifier", "baseline_hash", "c")
     }
-    counts: dict[tuple[str, str], int] = {}
+    counts: dict[SnapshotKey, int] = {}
     for key, baseline_hash in baseline_hash_by_key.items():
-        count = counts_by_pair.get((key[1], baseline_hash), 0)
+        count = counts_by_pair.get((key.identifier, baseline_hash), 0)
         if count:
             counts[key] = count
     return counts
@@ -138,8 +139,8 @@ def count_active_variants_against_current_baseline(
 
 def _current_baseline_hashes(
     repo_id: UUID, newest_run_by_type: Mapping[str, Run] | None = None
-) -> dict[tuple[str, str], str]:
-    """The baseline hash each `(run_type, identifier)` would be compared against right now.
+) -> dict[SnapshotKey, str]:
+    """The baseline hash each snapshot identity would be compared against right now.
 
     values_list rather than model hydration: the universe runs to thousands of rows and nothing
     here needs anything else off them.
@@ -150,7 +151,7 @@ def _current_baseline_hashes(
     if not run_type_by_run_id:
         return {}
     return {
-        (run_type_by_run_id[run_id], identifier): baseline_hash
+        SnapshotKey(run_type=run_type_by_run_id[run_id], identifier=identifier): baseline_hash
         for run_id, identifier, baseline_hash in RunSnapshot.objects.filter(
             run_id__in=list(run_type_by_run_id)
         ).values_list("run_id", "identifier", "baseline_hash")

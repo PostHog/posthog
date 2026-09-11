@@ -9,6 +9,7 @@ from django.utils import timezone
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import ActorType, RunType, SnapshotResult
 from products.visual_review.backend.logic import artifact_store, repos, runs, toleration
+from products.visual_review.backend.logic.run_queries import SnapshotKey
 from products.visual_review.backend.models import ToleratedHash
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -188,7 +189,7 @@ class TestToleratedHashes:
 
         counts = toleration.count_active_variants_against_current_baseline(repo.id, now=now)
 
-        assert counts.get((RunType.STORYBOOK, "Button"), 0) == expected
+        assert counts.get(SnapshotKey(run_type=RunType.STORYBOOK, identifier="Button"), 0) == expected
 
     def test_get_tolerated_hashes_for_identifier(self, repo):
         from products.visual_review.backend.models import ToleratedHash

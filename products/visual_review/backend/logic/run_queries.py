@@ -7,6 +7,7 @@ from uuid import UUID
 from django.db import models as db_models
 from django.db.models import Count, Q
 
+from posthog.dataclasses import frozen
 from posthog.helpers.trigram_search import (
     TrigramSearchField,
     apply_trigram_search,
@@ -18,6 +19,14 @@ from ..db import WRITER_DB
 from ..facade.enums import RunPurpose, RunStatus, SnapshotResult
 from ..models import Run, RunSnapshot
 from . import errors
+
+
+@frozen
+class SnapshotKey:
+    """One snapshot identity. The same identifier under two run types is two."""
+
+    run_type: str
+    identifier: str
 
 
 def is_run_stale(run: Run) -> bool:
