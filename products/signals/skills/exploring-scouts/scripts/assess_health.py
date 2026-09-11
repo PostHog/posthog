@@ -192,7 +192,7 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
     body: list[list[str]] = []
     for s in sorted(scouts, key=lambda x: x["name"]):
         gap = f"{s['median_gap']}m" if s["median_gap"] is not None else "-"
-        interval = f"{int(s['interval'])}m" if s["interval"] else "?"
+        interval = "cron" if s.get("cron") else (f"{int(s['interval'])}m" if s["interval"] else "?")
         dur = f"{s['median_dur']}m" if s["median_dur"] is not None else "-"
         runs_cell = f"{s['runs']}" + (f" ({s['failed']}F)" if s["failed"] else "")
         mem = "n/a" if s["mem_count"] is None else (str(s["mem_count"]) if s["mem_count"] else "0")
@@ -234,6 +234,8 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
           "           judge signal-to-noise against the report statuses in inbox-reports-list.",
           " gap/ival  median gap between consecutive run starts / the configured",
           "           run_interval_minutes. gap well above ival = the scout is being skipped.",
+          "           'cron' = the scout runs on run_cron_schedule; its gaps are irregular by",
+          "           design, so adherence, stall and staleness flags are skipped for it.",
           " adher     cadence adherence — runs observed / runs expected across the window",
           "           span at that interval. 100% = fired on (nearly) every scheduled tick.",
           " med       median run duration (start -> finish). healthy runs finish in a couple",
@@ -260,7 +262,14 @@ def main() -> int:
         run_rows = [r for r in run_rows if r.get("skill_name") == args.skill]
 
     cfg_rows = rows(load(args.config)) if args.config else []
-    intervals = {r.get("skill_name"): r.get("run_interval_minutes") for r in cfg_rows}
+    # A cron scout's interval is not its cadence: the cron wins while it is set and its gaps are
+    # irregular by design (a weekday-only scout skips the weekend), so interval-based adherence,
+    # stall and staleness scoring would misflag a healthy one. Leave its interval unset instead.
+    intervals = {
+        r.get("skill_name"): (None if r.get("run_cron_schedule") else r.get("run_interval_minutes"))
+        for r in cfg_rows
+    }
+    cron_skills = {r.get("skill_name") for r in cfg_rows if r.get("run_cron_schedule")}
     last_run_by_skill = {r.get("skill_name"): r.get("last_run_at") for r in cfg_rows}
     now = parse_ts(args.now) if args.now else None
 
@@ -283,6 +292,8 @@ def main() -> int:
                      now, last_run_by_skill.get(name))
         for name, runs in by_skill.items()
     ]
+    for s in assessed:
+        s["cron"] = s["name"] in cron_skills
 
     starts = [s for r in run_rows if (s := parse_ts(r.get("started_at")))]
     if starts:

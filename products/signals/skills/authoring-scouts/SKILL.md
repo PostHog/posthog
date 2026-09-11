@@ -150,6 +150,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   Slack delivery is a firehose of that one scout's output — no priority filter, no reviewer routing — so it suits a scout whose bar is already tight rather than a chatty one you're still calibrating.
   A Slack-delivered scout is also exempt from the ignored-reports auto-pause, since consumption there isn't measurable.
 - `display_name` — the name the UI shows for the scout. Leave blank to use the default derived from the skill name; it never changes `skill_name`, which stays fixed.
+  The only setting here the nested `config` on `scout-create` does not take: set it with a `-config-update` after creation.
 - `model` — pins the model the scout's runs use. Leave unset to follow the fleet default, which is what most scouts should do; set it when a scout's job needs a stronger model (long research) or a cheaper one (a frequent, mechanical probe) and say why in the body.
 - `mcp_gateway_server_ids` — MCP store servers (by id) this scout's runs may mount, chosen from the connections members have shared with the whole team.
   Empty (the default) mounts none. Personal connections never back a scout run, so runs behave the same whoever edits the scout.

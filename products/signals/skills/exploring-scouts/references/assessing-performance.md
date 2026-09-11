@@ -20,7 +20,7 @@ Read the two together: the runs tell you how often the scout wrote, the inbox fi
 
 ### 1. Cadence adherence — is it running on schedule?
 
-Compare the gaps between consecutive `started_at` timestamps against `run_interval_minutes` from the config.
+Compare the gaps between consecutive `started_at` timestamps against `run_interval_minutes` from the config — or, on a scout with a `run_cron_schedule`, against its slots, since its gaps are irregular by design (a weekday-only scout skips the weekend) and `assess_health.py` skips interval-based scoring for it.
 Roughly-on-schedule is healthy.
 Persistent large gaps mean the coordinator isn't dispatching it as often as configured.
 
@@ -33,7 +33,7 @@ Count clean completions vs. `failed` runs over the window, and group the failure
 Distinguish failure modes by duration: a `failed` run that ran ~15 minutes (the per-run budget) before failing **timed out**; a `failed` run that died quickly is more likely genuinely broken.
 Most timeouts are over-investigation — the scout ran to the wall, common and semi-expected on high-volume surfaces (logs, error tracking), and the fleet self-corrects by writing "tight-run recipe" scratchpad entries.
 But a timeout can also be a **false timeout**: the scout finished in a few minutes and the run then hung on a dropped close-out, so don't infer over-investigation from the duration alone.
-A failure streak longer than a twelve-hour outage could explain pauses the scout with `pause_reason=repeated_failures` — the threshold is one past the runs its schedule fits in twelve hours, clamped to 5–25 (daily: 5, hourly: 13); the coordinator probes it once a day and resumes it when a probe succeeds, so a fixed cause clears itself.
+A streak of scheduled failures longer than a twelve-hour outage could explain pauses the scout with `pause_reason=repeated_failures` — the threshold is one past the runs its schedule fits in twelve hours, clamped to 5–25 (daily: 5, hourly: 13); the coordinator probes it once a day and resumes it when a probe succeeds, so a fixed cause clears itself. Manual and workflow-triggered failures never feed the streak; a clean run from any trigger clears it.
 
 - **Diagnosis:** start with the run's `failure_reason` and `error` fields — they carry the diagnosis and the full error text.
   When you need the sequence of calls, read the transcript — open `task_url`, or pull it as data with `tasks-runs-session-logs-retrieve` (fetch the full log; the bundled `render_run_report.py` reassembles tool inputs from the `tool_call_update` chunks, which is why they can't be excluded).

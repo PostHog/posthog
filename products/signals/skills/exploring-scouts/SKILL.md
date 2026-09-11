@@ -91,7 +91,7 @@ Read the result against three cases:
   Nothing is running.
   Tell the user which scouts exist and that they're all off — and say who switched each one off, which `status` carries: `paused_by_user` means a person (or a launch seed posture) turned it off, `paused_by_system` means an automatic pause with its cause in `pause_reason` (`no_output` / `ignored` / `repeated_failures`).
   Either kind resumes with `enabled: true` via `scout-config-update`.
-  A `repeated_failures` pause is the failure breaker: the streak (`consecutive_failure_count`) ran one failure past what the schedule fits in twelve hours, clamped to 5–25 (daily: 5, hourly: 13). It is half-open, so the coordinator probes the scout once a day and resumes it on a clean run; read the newest run's `failure_reason` to say what kept failing.
+  A `repeated_failures` pause is the failure breaker: the streak of scheduled failures (`consecutive_failure_count`; manual and workflow-triggered runs don't count) ran one past what the schedule fits in twelve hours, clamped to 5–25 (daily: 5, hourly: 13). It is half-open, so the coordinator probes the scout once a day and resumes it on a clean run; read the newest run's `failure_reason` to say what kept failing.
 - **At least one `enabled: true`** — the fleet is registered and that scout is allowed to run.
   For each enabled scout note its cadence (`run_cron_schedule` when set, else `run_interval_minutes` — the cron wins), `emit` (false = **dry-run**, runs but writes nothing to the inbox), and `last_run_at`.
   A `status` of `pending_pause` means the scout still runs but the system has flagged it to pause soon (cause in `pause_reason`); any config edit clears the warning.
@@ -271,7 +271,8 @@ There's no single metric — judge a scout over a window of runs.
 Pull the runs (`runs-list` with a `date_from`), then reason across the dimensions below.
 The full playbook, including how to read each signal and the common failure modes, is in [`references/assessing-performance.md`](references/assessing-performance.md).
 
-- **Cadence adherence** — are runs landing roughly every `run_interval_minutes`?
+- **Cadence adherence** — are runs landing roughly every `run_interval_minutes`, or on each `run_cron_schedule` slot?
+  Judge a cron scout against its slots, not its interval: a weekday-only scout's weekend gap is the schedule, not a stall, and `assess_health.py` skips interval-based scoring for it (its cadence column reads `cron`).
   Large gaps mean the coordinator is skipping it (disabled, drained from the flag, or capped out on busy ticks) — _or_ it's dispatching but the runs aren't materializing.
   Tell the two apart with `last_run_at`: if the config's `last_run_at` is also stale, the coordinator stopped planning it; if `last_run_at` is fresh but the newest run row is hours old, it's the dispatch-vs-execution divergence above (workers backed up / down, or runs stranded), which `runs-list` alone hides.
 - **Success rate** — how many runs reach a clean `status` vs. error out?
@@ -346,7 +347,7 @@ python scripts/assess_health.py --runs runs.json --config cfg.json \
     --scratchpad mem.json --now <current-ISO-time> [--skill signals-scout-general]
 ```
 
-`--config` is what lets it score cadence adherence (the expected interval) and staleness (the authoritative `last_run_at`, which the windowed runs can miss when the 100-row cap truncates the newest runs).
+`--config` is what lets it score cadence adherence (the expected interval; a scout with a `run_cron_schedule` is marked `cron` and exempt from the interval-based adherence, stall, and staleness flags) and staleness (the authoritative `last_run_at`, which the windowed runs can miss when the 100-row cap truncates the newest runs).
 Without `--scratchpad` the memory column shows `n/a` and no memory flags fire.
 The report rate reads the run rows' `emitted_report_ids` / `edited_report_ids` directly, so it's exact — but it only counts _writes_; judge signal-to-noise by the resulting report statuses via `inbox-reports-list`.
 
