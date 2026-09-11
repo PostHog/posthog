@@ -23,7 +23,7 @@ import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
+import { getAccessControlDisabledReason, hasEffectiveNoneAccess, userHasAccess } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { slugify } from 'lib/utils/strings'
@@ -94,7 +94,12 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const hasDashboardColors = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]
-    const showMetalytics = dashboard != null && metalyticsInstanceId != null && !!featureFlags[FEATURE_FLAGS.METALYTICS]
+    // Metalytics opens the Activity side panel, which is hidden from a member denied the activity log.
+    const showMetalytics =
+        dashboard != null &&
+        metalyticsInstanceId != null &&
+        !!featureFlags[FEATURE_FLAGS.METALYTICS] &&
+        !hasEffectiveNoneAccess(AccessControlResourceType.ActivityLog)
 
     const { push } = useActions(router)
 

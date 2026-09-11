@@ -4,9 +4,10 @@ import { IconPulse } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { hasEffectiveNoneAccess } from 'lib/utils/accessControlUtils'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
+import { AccessControlResourceType, SidePanelTab } from '~/types'
 
 import { FlaggedFeature } from '../FlaggedFeature'
 import { metalyticsLogic } from '../Metalytics/metalyticsLogic'
@@ -21,7 +22,8 @@ export function SceneMetalyticsSummaryButton({
     const safeUniqueUsers = viewCount?.users ?? 0
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
-    if (!instanceId) {
+    // Metalytics opens the Activity side panel, which is hidden from a member denied the activity log.
+    if (!instanceId || hasEffectiveNoneAccess(AccessControlResourceType.ActivityLog)) {
         return null
     }
 

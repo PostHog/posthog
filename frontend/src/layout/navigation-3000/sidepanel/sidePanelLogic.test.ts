@@ -7,9 +7,17 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
-import { SidePanelTab } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AppContext,
+    AvailableFeature,
+    SidePanelTab,
+    UserType,
+} from '~/types'
 
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
@@ -68,6 +76,35 @@ describe('sidePanelLogic', () => {
 
         await navigate(urls.eventDefinition('1'))
         expect(logic.values.enabledTabs).toContain(SidePanelTab.Discussion)
+    })
+
+    it.each([
+        [AccessControlLevel.Viewer, true],
+        [AccessControlLevel.None, false],
+    ])('with %s access to activity logs, the Activity tab is enabled: %s', async (level, expected) => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                effective_resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT?.effective_resource_access_control,
+                    [AccessControlResourceType.ActivityLog]: level,
+                },
+            } as AppContext
+            userLogic.actions.loadUserSuccess({
+                ...userLogic.values.user,
+                organization: {
+                    ...userLogic.values.user?.organization,
+                    available_product_features: [{ key: AvailableFeature.AUDIT_LOGS, name: 'Audit logs' }],
+                },
+            } as UserType)
+
+            await navigate(urls.eventDefinition('1'))
+
+            expect(logic.values.enabledTabs.includes(SidePanelTab.Activity)).toBe(expected)
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
     })
 
     it('closes a context-bound tab when navigating to a different scene', async () => {

@@ -29,7 +29,7 @@ import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { getAccessControlDisabledReason, hasEffectiveNoneAccess } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -163,11 +163,13 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
         hogQL != null &&
         (isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query))
     const canShowDebugPanel = isSavedInsight && (user?.is_staff || user?.is_impersonated || preflight?.is_debug)
+    // Metalytics opens the Activity side panel, which is hidden from a member denied the activity log.
     const showMetalytics =
         isSavedInsight &&
         metalyticsInstanceId != null &&
         featureFlags['metalytics'] &&
-        hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
+        hasAvailableFeature(AvailableFeature.AUDIT_LOGS) &&
+        !hasEffectiveNoneAccess(AccessControlResourceType.ActivityLog)
 
     const handleToggleQueryEditorPanel = (): void => {
         if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
