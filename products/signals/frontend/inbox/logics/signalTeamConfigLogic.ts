@@ -29,6 +29,7 @@ export interface signalTeamConfigLogicValues {
     baseBranchOverrides: BaseBranchOverride[]
     dailyReportLimitReached: boolean
     defaultAutostartPriority: SignalReportPriority
+    defaultOpenPullRequestReady: boolean
     draftBaseBranchBranch: string
     draftBaseBranchIntegrationId: number | null
     draftBaseBranchRepo: string
@@ -37,7 +38,6 @@ export interface signalTeamConfigLogicValues {
     issueTrackerConfig: Record<string, string>
     issueTrackerIntegrationId: number | null
     maxReportsPerDay: number | null
-    defaultOpenPullRequestReady: boolean
     patchesInFlight: number
     reportsGeneratedToday: number
     saveMaxReportsPerDayDisabledReason: string | null

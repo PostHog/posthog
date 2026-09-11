@@ -57,7 +57,6 @@ const THRESHOLD_SEGMENTS = PRIORITY_THRESHOLD_OPTIONS.map(({ value }) => ({
 const MY_THRESHOLD_DEFAULT_VALUE = '__default__'
 const MY_THRESHOLD_SEGMENTS = [{ value: MY_THRESHOLD_DEFAULT_VALUE, label: 'Default' }, ...THRESHOLD_SEGMENTS]
 
-/** Draft or ready for review, plus the "follow the project" option only the personal control has. */
 const PR_STATE_SEGMENTS = [
     { value: 'draft', label: 'Draft' },
     { value: 'ready', label: 'Ready' },
@@ -529,12 +528,10 @@ function GitHubAssignmentRow(): JSX.Element {
 }
 
 /**
- * Whether self-driving PRs skip the draft state. A draft only runs a narrowed CI matrix, so a
- * reviewer who wants to know the change is green has to mark it ready and wait for the full matrix
- * to start over. Draft stays the default because a ready PR runs that matrix on every push, and the
- * personal control overrides the project one because one reviewer's workflow differs from their
- * teammate's. Renders regardless of the auto-start toggle: a PR opened by hand from the inbox goes
- * through the same transition.
+ * Whether self-driving PRs skip the draft state. Draft stays the default because a ready PR runs
+ * the full CI matrix on every push, and the personal control overrides the project one because one
+ * reviewer's workflow differs from their teammate's. Renders regardless of the auto-start toggle:
+ * a PR opened by hand from the inbox goes through the same transition.
  */
 function PullRequestStateRows(): JSX.Element {
     const { defaultOpenPullRequestReady, teamConfigUpdating } = useValues(signalTeamConfigLogic)

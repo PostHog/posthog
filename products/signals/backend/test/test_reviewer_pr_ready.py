@@ -85,10 +85,8 @@ class TestShouldOpenPullRequestReady:
             ([False], False, False),
             ([None], False, False),
             ([None], True, True),
-            # The union: one reviewer wanting the full CI matrix is not in conflict with another's
-            # preference, so a mixed set still opens ready.
+            # One reviewer wanting the full CI matrix does not conflict with another's preference.
             ([True, False], False, True),
-            # A reviewer's own answer wins over the team default in both directions.
             ([False], True, False),
             ([True, None], False, True),
         ],
@@ -161,8 +159,7 @@ class TestOpenPullRequestReadyForReview:
         ):
             assert open_pull_request_ready_for_review(team_id=team.id, report_id=str(report.id), pr_url=PR_URL) is True
 
-        # `no-ci` is an explicit "do not spend runners on this", so it has to reach GitHub as a guard
-        # rather than being resolved after the pull request is already out of draft.
+        # `no-ci` has to reach GitHub as a guard, not be resolved after the PR is out of draft.
         github.mark_pull_request_ready_for_review.assert_called_once_with(
             "PostHog/posthog", 123, skip_labels=frozenset({"no-ci"})
         )
