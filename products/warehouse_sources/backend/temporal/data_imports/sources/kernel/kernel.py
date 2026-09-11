@@ -48,7 +48,7 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{KERNEL_BASE_URL}{path}?{query}" if query else f"{KERNEL_BASE_URL}{path}"
 
 
-def _extract_items(body: Any) -> list[dict[str, Any]]:
+def _extract_items(body: Any) -> list[Any]:
     """Pull the row list out of a Kernel list response.
 
     Kernel signals pagination through headers (X-Has-More / X-Next-Offset), so the body is
@@ -73,7 +73,7 @@ def _redact_sensitive_fields(item: Any) -> Any:
 
     Kernel objects are written to the warehouse verbatim, so env vars and token-bearing
     live-view / CDP URLs would otherwise be queryable by any project user. `item` is untyped
-    JSON, so non-dict rows pass through untouched.
+    JSON. The caller skips non-dict rows because Arrow cannot serialize them as table rows.
     """
     if not isinstance(item, dict):
         return item
@@ -174,7 +174,8 @@ def get_rows(
             continue
 
         for item in items:
-            batcher.batch(_redact_sensitive_fields(item))
+            if isinstance(item, dict):
+                batcher.batch(_redact_sensitive_fields(item))
 
         if batcher.should_yield():
             yield batcher.get_table()

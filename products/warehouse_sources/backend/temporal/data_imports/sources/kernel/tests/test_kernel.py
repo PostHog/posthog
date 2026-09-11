@@ -198,6 +198,16 @@ class TestGetRows:
         assert rows == [{"id": "b1", "region": "us"}]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_non_dict_rows_are_skipped(self, mock_session: Any) -> None:
+        mock_session.return_value.get.return_value = _response(
+            [{"id": "b1"}, "unexpected", None, ["nested"]], has_more=False
+        )
+
+        rows = self._collect("browsers")
+
+        assert rows == [{"id": "b1"}]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_unexpected_response_shape_raises(self, mock_session: Any) -> None:
         mock_session.return_value.get.return_value = _response({"unexpected": [{"id": "a1"}]}, has_more=False)
 
