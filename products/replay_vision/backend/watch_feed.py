@@ -19,6 +19,9 @@ RARE_TAG_MAX_SHARE = 0.1
 # When more than this share of a scanner's tagged rows carry a "rare" tag, the vocabulary isn't
 # discriminating (e.g. freeform tags that never repeat) and rarity means nothing — suppress the rule.
 RARE_TAG_MAX_HIT_SHARE = 0.5
+# The scan's own judgment of how much a team would benefit from watching the session. At or above this it
+# ranks as notable on its own, regardless of what the scanner was asked.
+NOTABLE_MIN_SCORE = 0.6
 # A monitor verdict carried by at most this share of the scanner's window rows is the unusual
 # answer, whatever the prompt's polarity ("did they struggle?" vs "was the experience good?").
 UNUSUAL_VERDICT_MAX_SHARE = 0.35
@@ -66,6 +69,8 @@ class _Candidate:
     tags: tuple[str, ...]
     summary_tokens: frozenset[str]
     friction: bool
+    notability: float | None
+    notability_reason: str | None
 
 
 def _parse_candidate(row: dict[str, Any]) -> _Candidate:
@@ -88,6 +93,8 @@ def _parse_candidate(row: dict[str, Any]) -> _Candidate:
     reasoning = output.get("reasoning")
     summary_text = " ".join(part for part in (title, summary) if isinstance(part, str))
     prose = " ".join(part for part in (title, summary, reasoning) if isinstance(part, str))
+    notability = output.get("notability")
+    notability_reason = output.get("notability_reason")
     scanner_type = output.get("scanner_type") if isinstance(output.get("scanner_type"), str) else None
     verdict = output.get("verdict") if isinstance(output.get("verdict"), str) else None
     # A no-verdict monitor's reasoning restates its question in the negative ("did not struggle"),
@@ -105,6 +112,8 @@ def _parse_candidate(row: dict[str, Any]) -> _Candidate:
         tags=tuple(tag for tag in tags if isinstance(tag, str)),
         summary_tokens=frozenset(_TOKEN_RE.findall(summary_text.lower())),
         friction=friction_eligible and bool(_FRICTION_RE.search(" ".join([prose, *tags]))),
+        notability=float(notability) if isinstance(notability, int | float) else None,
+        notability_reason=notability_reason if isinstance(notability_reason, str) and notability_reason else None,
     )
 
 
@@ -213,32 +222,48 @@ def _type_hit(candidate: _Candidate, baseline: _ScannerBaseline, siblings: list[
 def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntry]:
     """Rank candidate rows (`id`, `scanner_id`, `created_at`, `scanner_result`, `feed_viewed`) most
     watchable first: signal emitters, then type-specific hits, then unviewed before viewed, then
-    sessions whose prose reads as friction, then newest.
+    the scan's own notability judgment, then prose that reads as friction, then newest.
 
     Signals and type hits encode what the user configured the scanner to find, so a strong hit they
     saw yesterday still outranks unviewed routine rows — seen-state orders rows within those tiers
-    rather than above them. Friction is only a keyword heuristic, so it stays below seen-state:
-    it may lift unread rows, never resurface ones a reader already dismissed."""
+    rather than above them. Notability and friction are inferred rather than configured, so they stay
+    below seen-state: they lift unread rows, never resurface ones a reader already dismissed. The
+    notability value also breaks ties inside every tier.
+    """
     candidates = [_parse_candidate(row) for row in rows]
     baselines = _baselines(candidates)
     by_scanner: dict[UUID, list[_Candidate]] = {}
     for candidate in candidates:
         by_scanner.setdefault(candidate.scanner_id, []).append(candidate)
-    scored: list[tuple[tuple[bool, bool, bool, bool, datetime], WatchFeedEntry]] = []
+    scored: list[tuple[tuple[bool, bool, bool, bool, bool, float, datetime], WatchFeedEntry]] = []
     for candidate in candidates:
         hit = _type_hit(candidate, baselines[candidate.scanner_id], by_scanner[candidate.scanner_id])
         has_signal = candidate.signals_count > 0
+        notable = candidate.notability is not None and candidate.notability >= NOTABLE_MIN_SCORE
         if has_signal:
             reason: dict[str, Any] = {"kind": "signal_emitted", "signals_count": candidate.signals_count}
         elif hit is not None:
             reason = hit
+        elif notable:
+            reason = {"kind": "notable", "notability": candidate.notability}
         elif candidate.friction:
             reason = {"kind": "friction"}
         elif not candidate.viewed:
             reason = {"kind": "unviewed_recent"}
         else:
             reason = {"kind": "recent"}
-        sort_key = (has_signal, hit is not None, not candidate.viewed, candidate.friction, candidate.created_at)
+        # The scan's own sentence beats any phrasing we could derive, so carry it wherever it exists.
+        if candidate.notability_reason:
+            reason["notability_reason"] = candidate.notability_reason
+        sort_key = (
+            has_signal,
+            hit is not None,
+            not candidate.viewed,
+            notable,
+            candidate.friction,
+            candidate.notability or 0.0,
+            candidate.created_at,
+        )
         scored.append((sort_key, WatchFeedEntry(observation_id=candidate.observation_id, reason=reason)))
     scored.sort(key=lambda item: item[0], reverse=True)
     return [entry for _, entry in scored]

@@ -72,6 +72,10 @@ When a turn asks you to cite key moments, mark each one inline as `(t <seconds>)
 You'll often be asked to rate your own `confidence` (0 to 1) in an answer. Default to 0.5 and raise it only as independent evidence accumulates — reserve 0.9+ for unambiguous conclusions corroborated by 2+ independent signals, and cap it at 0.8 when a conclusion rests on a single moment with no corroboration.
 </confidence_calibration>
 
+<notability_calibration>
+You'll also be asked to rate a session's `notability` (0 to 1): how much a product team would benefit from watching it. Anchor it — 0.0-0.2 a routine session that went as intended; 0.3-0.5 minor hesitation or a small detour worth a glance; 0.6-0.8 real friction the person worked around, a confusing moment, or behaviour that contradicts how the product is meant to be used; 0.9-1.0 the person hit an error, got stuck, or abandoned what they came to do. Most sessions are routine, so most scores belong below 0.5 — reserve the top band for sessions where you can name the moment it went wrong.
+</notability_calibration>
+
 <session_metadata>
 Session-level context (fields are omitted when unknown):
 {% for key, value in session_metadata.items() %}- {{ key }}: {{ value }}
