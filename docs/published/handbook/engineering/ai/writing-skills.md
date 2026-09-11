@@ -144,6 +144,14 @@ Both fields are required and validated at build time.
 Reference files are loaded on demand – only the entry point is read initially.
 Keep `SKILL.md` under 500 lines and split detailed content into `references/`.
 
+A reference over 100 lines opens with a `## Contents` section listing its `##` sections,
+so an agent that reads part of the file still sees what the rest covers.
+`hogli lint:skills` fails on a long reference that has none.
+References written before the check are listed in
+[`products/posthog_ai/scripts/reference_toc_baseline.txt`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/scripts/reference_toc_baseline.txt)
+and stay exempt until someone adds the section.
+The lint also fails on a baseline line whose file now has one, so the list only shrinks.
+
 See [`querying-posthog-data/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/SKILL.md)
 for how this works in practice –
 the entry point links to 30+ reference files
