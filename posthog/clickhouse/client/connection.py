@@ -198,12 +198,14 @@ class QuerySummary:
 
 
 class ClickHouseClient(SyncClient):
-    """Driver client that keeps the query info of a query the server stopped.
+    """Driver client that keeps what a query the server stopped had read.
 
-    Any exception disconnects the client, and the disconnect clears ``last_query``. A killed query
-    reports its progress before it dies, and that read cost the same as a successful one, so the
-    cleared query info is stashed here. Metering keeps reading ``last_query``, so it never sees
-    the stash and a killed query stays unmetered.
+    The driver disconnects on any exception, and the disconnect clears ``last_query``, which holds
+    the rows and time the server reported. A query the server stopped (timeout, memory limit) has
+    still read those rows, and the scan analysis needs the count: it decides whether the run is
+    over the floor and which of its queries to explain, and the person sees it with the error. The
+    cleared query info is stashed here for ``_query_stats_summary`` to read once. Metering keeps
+    reading ``last_query``, so a stopped query stays unmetered as before.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:

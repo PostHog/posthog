@@ -1975,7 +1975,7 @@ export interface QueryScanSummaryApi {
     mode: QueryScanModeApi
     /** Rows ClickHouse read for the last fresh run of this query, all tables included. */
     rows_read: number
-    /** Where the analysis of this query stands. The analysis only runs when `duration_ms` is over the threshold in the flag's payload, so the field is absent for a fast query. `pending` while the analysis is queued, `done` once its findings are in `warnings`. */
+    /** Where the analysis of this query stands, see `QueryScanStatus`. The analysis only runs when `duration_ms` is over the threshold in the flag's payload, so the field is absent for a fast query. */
     status?: QueryScanStatusApi | null
 }
 
