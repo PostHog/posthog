@@ -7,7 +7,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-error-tracking'
 
-import { ErrorTrackingIssueCard } from 'products/posthog_ai/frontend/api/primitives'
+import { ErrorTrackingIssueCard } from 'products/error_tracking/frontend/ErrorTrackingIssueCard'
 
 import { RelatedErrorsLogicProps, relatedErrorsLogic } from './relatedErrorsLogic'
 
