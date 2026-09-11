@@ -155,6 +155,8 @@ import { useHotkeys } from "react-hotkeys-hook";
 
 type SessionUpdateItem = Extract<ConversationItem, { type: "session_update" }>;
 
+const NO_ATTACHMENTS: UserMessageAttachment[] = [];
+
 function isToolCallItem(item: ConversationItem): item is SessionUpdateItem {
   return (
     item.type === "session_update" && item.update.sessionUpdate === "tool_call"
@@ -528,7 +530,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 function UserBubble({
   content,
   timestamp,
-  attachments = [],
+  attachments = NO_ATTACHMENTS,
   keyboardFocused = false,
 }: {
   content: string;

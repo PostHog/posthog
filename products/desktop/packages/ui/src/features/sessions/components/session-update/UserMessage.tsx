@@ -27,6 +27,8 @@ interface UserMessageProps {
   keyboardFocused?: boolean;
 }
 
+const NO_ATTACHMENTS: UserMessageAttachment[] = [];
+
 function formatTimestamp(ts: number): string {
   return new Date(ts).toLocaleString([], {
     month: "short",
@@ -47,7 +49,7 @@ export const UserMessage = memo(function UserMessage({
   content,
   timestamp,
   sourceUrl,
-  attachments = [],
+  attachments = NO_ATTACHMENTS,
   animate = true,
   taskId,
   keyboardFocused = false,

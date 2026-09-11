@@ -26,6 +26,8 @@ import {
 } from "@posthog/platform/workspace-settings";
 import {
   ALLOWED_IMAGE_MIME_TYPES,
+  CLIPBOARD_ATTACHMENT_DIR_NAME,
+  CLIPBOARD_ATTACHMENT_PREFIX,
   IMAGE_MIME_TYPES,
   isRasterImageFile,
 } from "@posthog/shared";
@@ -47,7 +49,10 @@ const fsPromises = fs.promises;
 const MAX_IMAGE_DIMENSION = 1568;
 const JPEG_QUALITY = 85;
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
-const CLIPBOARD_TEMP_DIR = path.join(os.tmpdir(), "posthog-code-clipboard");
+const CLIPBOARD_TEMP_DIR = path.join(
+  os.tmpdir(),
+  CLIPBOARD_ATTACHMENT_DIR_NAME,
+);
 const claudeSettingsPath = path.join(os.homedir(), ".claude", "settings.json");
 
 // User-level agent instruction files as path segments under the home
@@ -565,7 +570,7 @@ export class OsService {
     const safeName = path.basename(displayName) || "attachment";
     await fsPromises.mkdir(CLIPBOARD_TEMP_DIR, { recursive: true });
     const tempDir = await fsPromises.mkdtemp(
-      path.join(CLIPBOARD_TEMP_DIR, "attachment-"),
+      path.join(CLIPBOARD_TEMP_DIR, CLIPBOARD_ATTACHMENT_PREFIX),
     );
     return path.join(tempDir, safeName);
   }

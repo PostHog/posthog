@@ -1,7 +1,7 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import {
   getFileName,
-  isAbsolutePath,
+  isClipboardAttachmentPath,
   isRasterImageFile,
   pathToFileUri,
   unescapeXmlAttr,
@@ -186,7 +186,10 @@ export function extractImageFileTags(text: string): PromptDisplayContent {
   const stripped = text.replace(FILE_TAG_REGEX, (tag, rawPath: string) => {
     const filePath = unescapeXmlAttr(rawPath);
     const label = getFileName(filePath);
-    if (!isAbsolutePath(filePath) || !isRasterImageFile(label)) return tag;
+    // Message text is not trusted: only files the composer saved may be read from disk.
+    if (!isClipboardAttachmentPath(filePath) || !isRasterImageFile(label)) {
+      return tag;
+    }
     const id = pathToFileUri(filePath);
     if (!attachments.some((attachment) => attachment.id === id)) {
       attachments.push({ id, label });

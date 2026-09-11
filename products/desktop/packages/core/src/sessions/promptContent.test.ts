@@ -109,23 +109,31 @@ describe("promptContent", () => {
 
   it.each([
     {
-      name: "lifts an absolute image tag out of the text",
-      text: 'look at this <file path="/tmp/attachment-abc/clipboard.png" />',
+      name: "lifts a composer image tag out of the text",
+      text: 'look at this <file path="/tmp/posthog-code-clipboard/attachment-abc/clipboard.png" />',
       expected: {
         text: "look at this",
         attachments: [
           {
-            id: "file:///tmp/attachment-abc/clipboard.png",
+            id: "file:///tmp/posthog-code-clipboard/attachment-abc/clipboard.png",
             label: "clipboard.png",
           },
         ],
       },
     },
     {
-      name: "keeps relative and non-image file mentions inline",
-      text: 'see <file path="src/logo.png" /> and <file path="/tmp/notes.md" />',
+      name: "keeps images outside the composer folder inline",
+      text: 'see <file path="/Users/me/Pictures/secret.png" /> and <file path="src/logo.png" />',
       expected: {
-        text: 'see <file path="src/logo.png" /> and <file path="/tmp/notes.md" />',
+        text: 'see <file path="/Users/me/Pictures/secret.png" /> and <file path="src/logo.png" />',
+        attachments: [],
+      },
+    },
+    {
+      name: "keeps non-image composer files inline",
+      text: 'see <file path="/tmp/posthog-code-clipboard/attachment-abc/notes.md" />',
+      expected: {
+        text: 'see <file path="/tmp/posthog-code-clipboard/attachment-abc/notes.md" />',
         attachments: [],
       },
     },
