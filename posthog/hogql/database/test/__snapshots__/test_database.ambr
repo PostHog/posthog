@@ -2166,6 +2166,16 @@
                   "table": null,
                   "type": "string"
               },
+              "is_initial_query": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_initial_query",
+                  "id": null,
+                  "name": "is_initial_query",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
               "exception_code": {
                   "chain": null,
                   "fields": null,
@@ -2282,6 +2292,36 @@
                   "hogql_value": "ReadBufferFromS3Bytes",
                   "id": null,
                   "name": "ReadBufferFromS3Bytes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "plan_fingerprint": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "plan_fingerprint",
+                  "id": null,
+                  "name": "plan_fingerprint",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "estimated_rows": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "estimated_rows",
+                  "id": null,
+                  "name": "estimated_rows",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "estimated_bytes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "estimated_bytes",
+                  "id": null,
+                  "name": "estimated_bytes",
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
@@ -13745,6 +13785,16 @@
                   "table": null,
                   "type": "string"
               },
+              "is_initial_query": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_initial_query",
+                  "id": null,
+                  "name": "is_initial_query",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
               "exception_code": {
                   "chain": null,
                   "fields": null,
@@ -13861,6 +13911,36 @@
                   "hogql_value": "ReadBufferFromS3Bytes",
                   "id": null,
                   "name": "ReadBufferFromS3Bytes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "plan_fingerprint": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "plan_fingerprint",
+                  "id": null,
+                  "name": "plan_fingerprint",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "estimated_rows": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "estimated_rows",
+                  "id": null,
+                  "name": "estimated_rows",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "estimated_bytes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "estimated_bytes",
+                  "id": null,
+                  "name": "estimated_bytes",
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
