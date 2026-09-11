@@ -343,7 +343,7 @@ function experimentIdFromPath(pathname: string): number | null {
 
 export function PlayerSidebarExperimentsSection(): JSX.Element | null {
     const { logicProps, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
-    const { seekToTimestamp } = useActions(sessionRecordingPlayerLogic)
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const experimentContextLogic = sessionRecordingExperimentContextLogic({
         sessionRecordingId: logicProps.sessionRecordingId,
     })
@@ -399,6 +399,13 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
     }
 
     const recordingStartMs = sessionPlayerData?.start?.valueOf() ?? null
+    // seekToTime rather than seekToTimestamp, because only seekToTime consumes a pending
+    // auto-skip. A click made before that skip fires would otherwise be overridden by it.
+    const seekToTimestamp = (timestampMs: number): void => {
+        if (recordingStartMs != null) {
+            seekToTime(timestampMs - recordingStartMs)
+        }
+    }
     const recordingEndMs =
         recordingStartMs != null && sessionPlayerData?.durationMs != null
             ? recordingStartMs + sessionPlayerData.durationMs

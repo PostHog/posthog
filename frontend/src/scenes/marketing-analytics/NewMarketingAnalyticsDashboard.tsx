@@ -7,6 +7,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
+import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
 import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { MarketingAnalyticsCell } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/shared'
@@ -134,6 +135,12 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                         />
                     </section>
                 ))
+            )}
+            {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION] && (
+                <section aria-label="Conversion" className="flex flex-col gap-2">
+                    <h2 className="mb-0">Conversion</h2>
+                    <AttributionTab />
+                </section>
             )}
             {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION] && (
                 <section aria-label="Retention" className="flex flex-col gap-2">

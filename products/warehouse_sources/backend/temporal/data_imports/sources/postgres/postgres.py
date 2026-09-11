@@ -65,8 +65,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
+    TableProjection,
     ValidatedRowFilter,
     compute_projected_columns,
+    resolve_table_projection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
     EXTRACT_BATCH_MAX_BYTES,
@@ -3277,22 +3279,6 @@ def _get_table(
     return Table(name=table_name, parents=(schema,), columns=columns, type=table_type)
 
 
-def _project_table_columns(
-    table: Table[PostgreSQLColumn],
-    retained: list[str] | None,
-) -> Table[PostgreSQLColumn]:
-    """Return a new `Table` whose columns are filtered to `retained` (in source order).
-
-    `None` retained returns the table unchanged. Columns missing from `retained` are dropped from
-    the Arrow schema so projected SELECT output zips correctly into the schema."""
-    if retained is None:
-        return table
-
-    retained_set = set(retained)
-    filtered = [column for column in table.columns if column.name in retained_set]
-    return Table(name=table.name, parents=table.parents, columns=filtered, type=table.type, alias=table.alias)
-
-
 # paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
 # the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
 # bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it (it
@@ -3350,6 +3336,16 @@ def postgres_source(
         raise ValueError("Table name is missing")
 
     effective_sslmode = _get_sslmode(require_ssl)
+
+    def _resolve_projection(
+        full_table: Table[PostgreSQLColumn], primary_keys: list[str] | None
+    ) -> TableProjection[PostgreSQLColumn]:
+        return resolve_table_projection(
+            full_table,
+            enabled_columns=enabled_columns,
+            primary_keys=primary_keys,
+            incremental_field=incremental_field,
+        )
 
     with _tunnel_with_handshake_translation(tunnel) as (host, port):
 
@@ -3487,28 +3483,14 @@ def postgres_source(
 
                             # Project both the Arrow schema and the SELECT clause so the cursor's row shape
                             # matches what downstream consumers expect.
-                            retained_columns: list[str] | None = None
-                            if enabled_columns is not None:
-                                retained_set: set[str] = set(enabled_columns)
-                                for pk in primary_keys or []:
-                                    retained_set.add(pk)
-                                if incremental_field:
-                                    retained_set.add(incremental_field)
-                                retained_columns = [
-                                    column.name for column in full_table.columns if column.name in retained_set
-                                ]
-                                # Mirror `compute_projected_columns` fallback to `SELECT *` so Arrow stays full-table.
-                                if not retained_columns:
-                                    retained_columns = None
-
-                            table = _project_table_columns(full_table, retained_columns)
-                            logger.debug(f"Source schema: {table.to_arrow_schema()}")
+                            setup_projection = _resolve_projection(full_table, primary_keys)
+                            logger.debug(f"Source schema: {setup_projection.table.to_arrow_schema()}")
 
                             inner_query_with_limit = _build_query(
                                 schema,
                                 table_name,
                                 should_use_incremental_field,
-                                table.type,
+                                setup_projection.table.type,
                                 incremental_field,
                                 incremental_field_type,
                                 db_incremental_field_last_value,
@@ -3516,7 +3498,7 @@ def postgres_source(
                                 sample_percent=_size_sample_percent(
                                     _estimated_row_count(cursor, schema, table_name, logger)
                                 ),
-                                enabled_columns=enabled_columns,
+                                enabled_columns=setup_projection.enabled_columns,
                                 primary_keys=primary_keys,
                                 xmin_bounds=xmin_bounds,
                             )
@@ -3716,11 +3698,6 @@ def postgres_source(
 
     def get_rows(chunk_size: int) -> Iterator[Any]:
         binary_reporter = BinaryColumnReporter(logger)
-        arrow_schema = table.to_arrow_schema()
-        if xmin_bounds is not None:
-            # The forced `_ph_xmin` projection isn't part of the discovered columns, so add it to
-            # the Arrow schema (as the leading field, matching the SELECT) for a clean zip.
-            arrow_schema = arrow_schema.insert(0, pa.field(XMIN_PROJECTED_COLUMN, pa.int64(), nullable=False))
         with _tunnel_with_handshake_translation(tunnel) as (host, port):
             cursor_factory = psycopg.ServerCursor if not using_read_replica and not is_duckdb else None
 
@@ -3802,6 +3779,32 @@ def postgres_source(
                 connection.commit()
                 return connection
 
+            def refreshed_projection() -> TableProjection[PostgreSQLColumn]:
+                """Re-read the catalog on a streaming connection, right before the read query.
+
+                A probe that fails keeps the setup projection, which is where this read would
+                have started anyway. See `resolve_table_projection` for why the read resolves
+                again. This costs one connect per sync, because every read path below builds its
+                query before it opens a connection of its own.
+                """
+                try:
+                    with _connect_with_dropped_retry(get_connection, logger) as probe_connection:
+                        # `get_connection` may bind ServerCursor as the factory, which needs a
+                        # name, so take an unnamed client cursor directly.
+                        with psycopg.Cursor(probe_connection) as probe_cursor:
+                            fresh_table = _get_table(probe_cursor, schema, table_name, logger)
+                except Exception as e:
+                    logger.debug(f"Could not re-read the catalog before streaming: {e}", exc_info=e)
+                    return setup_projection
+                return _resolve_projection(fresh_table, primary_keys)
+
+            read_projection = refreshed_projection()
+            arrow_schema = read_projection.table.to_arrow_schema()
+            if xmin_bounds is not None:
+                # The forced `_ph_xmin` projection isn't part of the discovered columns, so add it
+                # to the Arrow schema (as the leading field, matching the SELECT) for a clean zip.
+                arrow_schema = arrow_schema.insert(0, pa.field(XMIN_PROJECTED_COLUMN, pa.int64(), nullable=False))
+
             def offset_chunking(
                 offset: int,
                 chunk_size: int,
@@ -3829,11 +3832,11 @@ def postgres_source(
                     schema,
                     table_name,
                     should_use_incremental_field,
-                    table.type,
+                    read_projection.table.type,
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
-                    enabled_columns=enabled_columns,
+                    enabled_columns=read_projection.enabled_columns,
                     primary_keys=primary_keys,
                     row_filters=row_filters,
                     xmin_bounds=xmin_bounds,
@@ -3859,7 +3862,7 @@ def postgres_source(
                             keyset_primary_keys,
                             last_key,
                             incremental_field=incremental_field,
-                            enabled_columns=enabled_columns,
+                            enabled_columns=read_projection.enabled_columns,
                             row_filters=row_filters,
                             xmin_bounds=xmin_bounds,
                         )
@@ -4051,7 +4054,7 @@ def postgres_source(
                         incremental_field,
                         incremental_field_type,
                         db_incremental_field_last_value,
-                        enabled_columns=enabled_columns,
+                        enabled_columns=read_projection.enabled_columns,
                         primary_keys=primary_keys,
                         row_filters=row_filters,
                     )
@@ -4082,12 +4085,12 @@ def postgres_source(
                         schema,
                         table_name,
                         should_use_incremental_field,
-                        table.type,
+                        read_projection.table.type,
                         incremental_field,
                         incremental_field_type,
                         lo,
                         upper_bound_inclusive=hi,
-                        enabled_columns=enabled_columns,
+                        enabled_columns=read_projection.enabled_columns,
                         primary_keys=primary_keys,
                         row_filters=row_filters,
                     )
@@ -4167,11 +4170,11 @@ def postgres_source(
                                 schema,
                                 table_name,
                                 should_use_incremental_field,
-                                table.type,
+                                read_projection.table.type,
                                 incremental_field,
                                 incremental_field_type,
                                 db_incremental_field_last_value,
-                                enabled_columns=enabled_columns,
+                                enabled_columns=read_projection.enabled_columns,
                                 primary_keys=primary_keys,
                                 row_filters=row_filters,
                                 xmin_bounds=xmin_bounds,

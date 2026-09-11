@@ -108,7 +108,7 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
     if (forcedMode) {
         return (
             <ProductSceneFrame config={config}>
-                <ProductEmptyState config={config} mode={forcedMode} />
+                <ProductEmptyState config={config} mode={forcedMode} preview />
             </ProductSceneFrame>
         )
     }

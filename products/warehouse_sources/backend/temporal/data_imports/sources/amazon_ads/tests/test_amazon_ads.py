@@ -12,7 +12,6 @@ import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.amazon_ads import (
     LWA_TOKEN_URL,
-    PAGE_SIZE,
     REPORT_POLL_MAX_ATTEMPTS,
     AmazonAdsReportError,
     AmazonAdsResumeConfig,
@@ -25,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.settings import (
     AMAZON_ADS_ENDPOINTS,
     ENDPOINTS,
+    PAGE_SIZE,
     SP_CAMPAIGN_REPORT,
 )
 
@@ -183,6 +183,60 @@ class TestGetRows:
         assert first_list_call.kwargs["json"] == {"maxResults": PAGE_SIZE}
         second_list_call = mock_session.return_value.post.call_args_list[2]
         assert second_list_call.kwargs["json"] == {"maxResults": PAGE_SIZE, "nextToken": "tok"}
+
+    @pytest.mark.parametrize(
+        "endpoint, expected_body",
+        [
+            ("sp_campaigns", {"maxResults": PAGE_SIZE}),
+            # `/portfolios/list` declares no `maxResults`, and rejects a body field it does not know.
+            ("portfolios", {}),
+            ("sp_negative_keywords", {"maxResults": PAGE_SIZE}),
+            # Sponsored Brands and Sponsored Display share the unified Ads API paths, so the ad
+            # product filter is the only thing that keeps one product's rows out of the other's
+            # table. Amazon caps `maxResults` at 100 per entity query, and at 5000 for targets.
+            ("sb_campaigns", {"maxResults": 100, "adProductFilter": {"include": ["SPONSORED_BRANDS"]}}),
+            ("sb_targets", {"maxResults": 5000, "adProductFilter": {"include": ["SPONSORED_BRANDS"]}}),
+            ("sd_ads", {"maxResults": 100, "adProductFilter": {"include": ["SPONSORED_DISPLAY"]}}),
+            ("sd_targets", {"maxResults": 5000, "adProductFilter": {"include": ["SPONSORED_DISPLAY"]}}),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_list_request_body_per_endpoint(self, mock_session, endpoint, expected_body):
+        config = AMAZON_ADS_ENDPOINTS[endpoint]
+        mock_session.return_value.post.side_effect = [
+            _token_response(),
+            _json_response({config.data_key: [{"id": 1}], "nextToken": "tok"}),
+            _json_response({config.data_key: [{"id": 2}]}),
+        ]
+        mock_session.return_value.get.return_value = _json_response([{"profileId": 1}])
+
+        list(get_rows("na", "cid", "sec", "rt", endpoint, mock.MagicMock()))
+
+        calls = mock_session.return_value.post.call_args_list
+        assert calls[1].kwargs["json"] == expected_body
+        assert calls[2].kwargs["json"] == {**expected_body, "nextToken": "tok"}
+
+    @pytest.mark.parametrize(
+        "endpoint, expected_client_id",
+        [
+            ("sb_campaigns", "cid"),
+            ("sd_campaigns", "cid"),
+            ("sp_campaigns", None),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_unified_ads_api_sends_its_own_client_id_header(self, mock_session, endpoint, expected_client_id):
+        config = AMAZON_ADS_ENDPOINTS[endpoint]
+        mock_session.return_value.post.side_effect = [
+            _token_response(),
+            _json_response({config.data_key: [{"id": 1}]}),
+        ]
+        mock_session.return_value.get.return_value = _json_response([{"profileId": 1}])
+
+        list(get_rows("na", "cid", "sec", "rt", endpoint, mock.MagicMock()))
+
+        headers = mock_session.return_value.post.call_args_list[1].kwargs["headers"]
+        assert headers.get("Amazon-Ads-ClientId") == expected_client_id
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_remints_token_on_401(self, mock_session):
