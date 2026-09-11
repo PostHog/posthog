@@ -33,6 +33,7 @@ from posthog.api.team.conversations_settings import (
     report_conversations_settings_changes,
 )
 from posthog.api.team.integration_config import (
+    TeamLogsConfigSerializer,
     TeamTracingConfigSerializer,
     handle_experiments_config,
     handle_logs_config,
@@ -1728,6 +1729,18 @@ class ProjectViewSet(
         project = self.get_object()
         return response.Response({"is_generating_demo_data": project.passthrough_team.get_is_generating_demo_data()})
 
+    @extend_schema(
+        methods=["GET"],
+        request=None,
+        responses={200: TeamLogsConfigSerializer},
+        extensions={"x-product": "logs"},
+    )
+    @extend_schema(
+        methods=["PATCH"],
+        request=TeamLogsConfigSerializer,
+        responses={200: TeamLogsConfigSerializer},
+        extensions={"x-product": "logs"},
+    )
     @action(
         methods=["GET", "PATCH"],
         detail=True,

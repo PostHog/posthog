@@ -654,6 +654,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 'active-creation',
                 { pauseOnPageHidden: false }
             )
+            cache.creationPath = router.values.location.pathname
             actions.setActiveCreation({ streamKey, interactionKey: streamKey })
             stream.actions.startOptimisticRun(description)
 
@@ -907,21 +908,27 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
     })),
 
-    urlToAction(({ actions, values, props }) => {
+    urlToAction(({ actions, values, props, cache }) => {
         // The optimistic creation is kept alive across the success navigation so the detail page can adopt
         // its seeded stream. Release it once the user lands anywhere other than the created task — another
-        // task, the list, or back to `/tasks/new`. Before attachment, only `/tasks/new` owns the creation.
+        // task, the list, or back to `/tasks/new`. Before attachment, the starting page owns the creation,
+        // including `/ai` when its URL prompt submits before this logic finishes mounting.
         const clearIfLeftCreatedTask = (taskId?: string): void => {
             const activeCreation = values.activeCreation
-            if (activeCreation && (activeCreation.taskId ? activeCreation.taskId !== taskId : taskId !== 'new')) {
+            if (
+                activeCreation &&
+                (activeCreation.taskId
+                    ? activeCreation.taskId !== taskId
+                    : router.values.location.pathname !== cache.creationPath)
+            ) {
                 actions.clearActiveCreation()
             }
         }
         return {
             // An embedded instance never navigates the main app on its own creation (see `submitNewTask`), so
             // main-app URL changes are unrelated to its run — never release the side panel's active creation.
-            '/tasks': () => (props.panelId ? undefined : clearIfLeftCreatedTask()),
             '/tasks/:taskId': ({ taskId }) => (props.panelId ? undefined : clearIfLeftCreatedTask(taskId)),
+            '*': () => (props.panelId ? undefined : clearIfLeftCreatedTask()),
         }
     }),
 ])

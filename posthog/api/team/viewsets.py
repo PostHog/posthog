@@ -312,6 +312,18 @@ class TeamViewSet(
         )
         return response.Response(team_serializer.TeamSerializer(team, context=self.get_serializer_context()).data)
 
+    @extend_schema(
+        methods=["GET"],
+        request=None,
+        responses={200: integration_config.TeamLogsConfigSerializer},
+        extensions={"x-product": "logs"},
+    )
+    @extend_schema(
+        methods=["PATCH"],
+        request=integration_config.TeamLogsConfigSerializer,
+        responses={200: integration_config.TeamLogsConfigSerializer},
+        extensions={"x-product": "logs"},
+    )
     @action(
         methods=["GET", "PATCH"],
         detail=True,
