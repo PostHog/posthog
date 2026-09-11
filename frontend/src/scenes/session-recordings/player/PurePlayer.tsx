@@ -96,6 +96,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         hasLateFullSnapshot,
         leadingUnplayableMs,
         hasOversizedMutations,
+        oversizedMutationMs,
     } = useValues(sessionRecordingPlayerLogic)
 
     const {
@@ -380,8 +381,10 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                             className="shrink-0"
                                             dismissKey={`oversized-mutations-${sessionRecordingId}`}
                                         >
-                                            Parts of this recording captured too much changing content to render.
-                                            Playback skips those sections to keep the player responsive.{' '}
+                                            {humanFriendlyDuration(oversizedMutationMs / 1000, { maxUnits: 2 })} of this
+                                            recording can't be played. Those sections captured too much changing content
+                                            to render, so playback skips them to keep the player responsive. The
+                                            progress bar below marks where they are.{' '}
                                             <Link to="https://posthog.com/docs/session-replay/troubleshooting">
                                                 Learn more
                                             </Link>

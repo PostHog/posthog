@@ -27,6 +27,7 @@ import {
 
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { metricCount } from 'lib/operationalMetrics'
+import { objectsEqual } from 'lib/utils/objects'
 
 import {
     RecordingSegment,
@@ -179,7 +180,9 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     hasOversizedMutations: boolean
     isOldAndInvalid: boolean
     isRecentAndInvalid: boolean
+    oversizedMutationMs: number
     oversizedMutationRanges: Record<number, OversizedMutationRange[]>
+    oversizedMutationSpans: OversizedMutationRange[]
     playableSnapshotsByWindowId: Record<number, eventWithTime[]>
     processedSnapshots: RecordingSnapshot[]
     recordingTooLargeToPlay: boolean
@@ -385,6 +388,11 @@ export interface sessionRecordingDataCoordinatorLogicMeta {
             snapshotsByWindowId: Record<number, eventWithTime[]>
         ) => Record<number, OversizedMutationRange[]>
         hasOversizedMutations: (oversizedMutationRanges: Record<number, OversizedMutationRange[]>) => boolean
+        oversizedMutationSpans: (
+            oversizedMutationRanges: Record<number, OversizedMutationRange[]>,
+            end: Dayjs | null
+        ) => OversizedMutationRange[]
+        oversizedMutationMs: (oversizedMutationSpans: OversizedMutationRange[]) => number
         playableSnapshotsByWindowId: (
             snapshotsByWindowId: Record<number, eventWithTime[]>,
             oversizedMutationRanges: Record<number, OversizedMutationRange[]>
@@ -770,6 +778,43 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             (oversizedMutationRanges: Record<number, OversizedMutationRange[]>): boolean => {
                 return Object.keys(oversizedMutationRanges).length > 0
             },
+        ],
+
+        // The same wall-clock stretch, merged across windows, so the viewer sees one skipped span per
+        // gap rather than one per window. A range that never recovers ends at the end of the recording.
+        oversizedMutationSpans: [
+            (s) => [s.oversizedMutationRanges, s.end],
+            (
+                oversizedMutationRanges: Record<number, OversizedMutationRange[]>,
+                end: Dayjs | null
+            ): OversizedMutationRange[] => {
+                const recordingEnd = end?.valueOf()
+                if (recordingEnd == null) {
+                    return []
+                }
+                const ranges = Object.values(oversizedMutationRanges)
+                    .flat()
+                    .map((range) => ({ start: range.start, end: Math.min(range.end, recordingEnd) }))
+                    .filter((range) => range.end > range.start)
+                    .sort((a, b) => a.start - b.start)
+                const merged: OversizedMutationRange[] = []
+                for (const range of ranges) {
+                    const previous = merged[merged.length - 1]
+                    if (previous && range.start <= previous.end) {
+                        previous.end = Math.max(previous.end, range.end)
+                    } else {
+                        merged.push({ ...range })
+                    }
+                }
+                return merged
+            },
+            { resultEqualityCheck: objectsEqual },
+        ],
+
+        oversizedMutationMs: [
+            (s) => [s.oversizedMutationSpans],
+            (oversizedMutationSpans: OversizedMutationRange[]): number =>
+                oversizedMutationSpans.reduce((total, span) => total + span.end - span.start, 0),
         ],
 
         // Replayer input only; export, segments, and the inspector keep the raw events

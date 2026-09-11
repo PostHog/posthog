@@ -27,6 +27,27 @@ export const lateFullSnapshotAsJSONLines = (baseTimestamp: number, lateByMs: num
     return `${JSON.stringify({ window_id: parsed.window_id, data })}\n`
 }
 
+// A real DOM full snapshot, then a burst of mutations that adds enough nodes in one second to trip
+// the oversized-mutation skip, then a recovery full snapshot. Used to render the skipped-range marks.
+export const oversizedMutationSnapshotsAsJSONLines = (baseTimestamp: number, addsInBurst: number = 16000): string => {
+    const firstLine = snapshotsAsJSONLines().trim().split('\n')[0]
+    const parsed = JSON.parse(firstLine)
+    const meta = parsed.data.find((e: { type: number }) => e.type === 4)
+    const fullSnapshot = parsed.data.find((e: { type: number }) => e.type === 2)
+    const adds = Array.from({ length: addsInBurst }, (_, i) => ({
+        parentId: 4,
+        nextId: null,
+        node: { type: 3, textContent: `n${i}`, id: 1000 + i },
+    }))
+    const data = [
+        { ...meta, timestamp: baseTimestamp },
+        { ...fullSnapshot, timestamp: baseTimestamp + 1 },
+        { type: 3, data: { source: 0, texts: [], attributes: [], removes: [], adds }, timestamp: baseTimestamp + 5000 },
+        { ...fullSnapshot, timestamp: baseTimestamp + 20000 },
+    ]
+    return `${JSON.stringify({ window_id: parsed.window_id, data })}\n`
+}
+
 export const convertSnapshotsByWindowId = (
     snapshotsByWindowId: { [key: string]: eventWithTime[] },
     registerWindowId?: RegisterWindowIdCallback
