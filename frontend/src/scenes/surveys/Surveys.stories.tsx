@@ -590,6 +590,7 @@ export const SurveySummaryExport: Story = {
         pageUrl: `${urls.survey(MOCK_SURVEY_WITH_RESULTS.id)}?tab=summary`,
         testOptions: {
             waitForSelector: '#survey-responses-export',
+            viewport: { width: 560, height: 800 },
         },
     },
 }
