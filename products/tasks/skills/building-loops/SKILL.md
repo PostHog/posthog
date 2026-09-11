@@ -180,7 +180,7 @@ Slack, `template_id` `template-slack`. `slack_workspace` is the Slack integratio
 }
 ```
 
-Email: set the step's `type` to `function_email` instead of `function`. `from` is a sender id from `integrations-list`, `to` is the user's address. The `email` input accepts Liquid, so use `{{ variables.task_final_message }}` here:
+Email: set the step's `type` to `function_email` instead of `function`. `from` is a sender id from `integrations-list`, and `to` is an object holding the user's address. Send `html` as an empty string: the runtime requires the key, and an empty one sends a text-only email. The `email` input accepts Liquid, so use `{{ variables.task_final_message }}` here:
 
 ```json
 {
@@ -189,9 +189,10 @@ Email: set the step's `type` to `function_email` instead of `function`. `from` i
     "email": {
       "value": {
         "from": { "integrationId": <sender id> },
-        "to": "<user email>",
+        "to": { "email": "<user email>", "name": "" },
         "subject": "<loop name> finished",
-        "text": "{{ variables.task_final_message }}"
+        "text": "{{ variables.task_final_message }}",
+        "html": ""
       }
     }
   }
