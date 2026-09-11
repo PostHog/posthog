@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  extractImageFileTags,
   extractPromptDisplayContent,
   makeAttachmentUri,
   parseAttachmentUri,
@@ -104,5 +105,31 @@ describe("promptContent", () => {
     expect(result.attachments).toEqual([
       { id: fileUri, label: "screenshot.png" },
     ]);
+  });
+
+  it.each([
+    {
+      name: "lifts an absolute image tag out of the text",
+      text: 'look at this <file path="/tmp/attachment-abc/clipboard.png" />',
+      expected: {
+        text: "look at this",
+        attachments: [
+          {
+            id: "file:///tmp/attachment-abc/clipboard.png",
+            label: "clipboard.png",
+          },
+        ],
+      },
+    },
+    {
+      name: "keeps relative and non-image file mentions inline",
+      text: 'see <file path="src/logo.png" /> and <file path="/tmp/notes.md" />',
+      expected: {
+        text: 'see <file path="src/logo.png" /> and <file path="/tmp/notes.md" />',
+        attachments: [],
+      },
+    },
+  ])("extractImageFileTags $name", ({ text, expected }) => {
+    expect(extractImageFileTags(text)).toEqual(expected);
   });
 });

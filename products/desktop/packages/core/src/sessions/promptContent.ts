@@ -1,5 +1,11 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
-import { getFileName } from "@posthog/shared";
+import {
+  getFileName,
+  isAbsolutePath,
+  isRasterImageFile,
+  pathToFileUri,
+  unescapeXmlAttr,
+} from "@posthog/shared";
 
 const ATTACHMENT_URI_PREFIX = "attachment://";
 
@@ -171,4 +177,29 @@ export function extractPromptDisplayContent(
   }
 
   return { text: textParts.join(""), attachments };
+}
+
+const FILE_TAG_REGEX = /<file\s+path="([^"]+)"\s*\/>/g;
+
+export function extractImageFileTags(text: string): PromptDisplayContent {
+  const attachments: AttachmentRef[] = [];
+  const stripped = text.replace(FILE_TAG_REGEX, (tag, rawPath: string) => {
+    const filePath = unescapeXmlAttr(rawPath);
+    const label = getFileName(filePath);
+    if (!isAbsolutePath(filePath) || !isRasterImageFile(label)) return tag;
+    const id = pathToFileUri(filePath);
+    if (!attachments.some((attachment) => attachment.id === id)) {
+      attachments.push({ id, label });
+    }
+    return "";
+  });
+  if (attachments.length === 0) return { text, attachments };
+
+  return {
+    text: stripped
+      .replace(/[ \t]+$/gm, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim(),
+    attachments,
+  };
 }
