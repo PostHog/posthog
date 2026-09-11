@@ -3,12 +3,12 @@ import dataclasses
 from typing import Any, cast
 
 import pytest
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
 import httpx
-from freezegun import freeze_time
 from google.genai.errors import APIError
 from pydantic import BaseModel
 from temporalio.testing import ActivityEnvironment
@@ -625,7 +625,7 @@ class TestVerifyPositives:
         async def read_budget() -> float | None:
             return _remaining_verify_budget_seconds()
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             assert await env.run(read_budget) == expected
 
     def test_remaining_budget_is_unbounded_outside_an_activity(self) -> None:
