@@ -8,9 +8,10 @@ import pytest
 from django.test import override_settings
 
 from clickhouse_driver import Client
+from dagster import resource
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE_SQL
-from posthog.clickhouse.cluster import ClickhouseCluster, NodeRole
+from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.deletes import deletes_job
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_JSON_TABLE_SQL,
@@ -30,8 +31,23 @@ pytestmark = [
 ]
 
 
+@resource(config_schema={"host": str, "port": int, "cluster": str})
+def discovered_cluster(context) -> Iterator[ClickhouseCluster]:
+    config = context.resource_config
+    bootstrap = Client(config["host"], port=config["port"], database="system")
+    try:
+        yield ClickhouseCluster(
+            bootstrap,
+            cluster=config["cluster"],
+            client_settings={"mutations_sync": "0", "lightweight_deletes_sync": "0"},
+            connection_overrides={"user": "default", "password": "", "secure": False},
+        )
+    finally:
+        bootstrap.disconnect()
+
+
 @pytest.fixture
-def deletion_nodes(settings) -> Iterator[tuple[ClickhouseCluster, list[Client]]]:
+def deletion_nodes(settings) -> Iterator[list[Client]]:
     settings.CLICKHOUSE_ENABLE_STORAGE_POLICY = False
     settings.DICTIONARY_STAGING_S3_PREFIX = f"deletes_multinode/{uuid4()}"
     settings.CLICKHOUSE_EVENTS_CLUSTER = "delete_test_events"
@@ -59,13 +75,7 @@ def deletion_nodes(settings) -> Iterator[tuple[ClickhouseCluster, list[Client]]]
             client.execute(EVENTS_JSON_TABLE_SQL())
             with override_settings(CLICKHOUSE_CLUSTER="delete_test_events"):
                 client.execute(DISTRIBUTED_EVENTS_JSON_TABLE_SQL(on_cluster=False))
-        cluster = ClickhouseCluster(
-            data,
-            cluster="delete_test_data",
-            client_settings={"mutations_sync": "0", "lightweight_deletes_sync": "0"},
-            connection_overrides={"user": "default", "password": "", "secure": False},
-        )
-        yield cluster, clients
+        yield clients
     finally:
         for client in created:
             client.execute(f"DROP DATABASE {database} SYNC")
@@ -78,8 +88,8 @@ def deletion_nodes(settings) -> Iterator[tuple[ClickhouseCluster, list[Client]]]
             object_storage.delete_objects(staged, bucket=settings.DICTIONARY_STAGING_S3_BUCKET)
 
 
-def test_adhoc_deletes_reach_every_events_shard(deletion_nodes):
-    cluster, clients = deletion_nodes
+def test_adhoc_deletes_discover_clusters_and_run_all_ops(deletion_nodes):
+    clients = deletion_nodes
     data, *event_nodes = clients
     timestamp = datetime.now(UTC)
     queued = [(101, UUID(int=1)), (101, UUID(int=2))]
@@ -100,8 +110,6 @@ def test_adhoc_deletes_reach_every_events_shard(deletion_nodes):
 
     assert data.execute("SELECT getMacro('hostClusterRole')") == [("data",)]
     assert event_tables(data) == {"events", EVENTS_DATA_TABLE()}
-    assert len(cluster.shards) == 1
-    assert len(cluster.sibling("delete_test_events", NodeRole.EVENTS).shards) == 2
     for shard_index, client in enumerate(event_nodes):
         assert client.execute("SELECT getMacro('hostClusterRole')") == [("events",)]
         assert event_tables(client) == {"events_json", EVENTS_JSON_DATA_TABLE}
@@ -133,16 +141,22 @@ def test_adhoc_deletes_reach_every_events_shard(deletion_nodes):
     assert before == sorted(rows, key=lambda row: (row[0], row[1]))
 
     result = deletes_job.execute_in_process(
-        resources={"cluster": cluster},
+        resources={"cluster": discovered_cluster},
         run_config={
+            "resources": {"cluster": {"config": {"host": "127.0.0.1", "port": 19101, "cluster": "delete_test_data"}}},
             "ops": {
                 name: {"config": {"shards": 1, "dictionary_load_timeout": 30}}
                 for name in ("create_deletes_dict", "create_adhoc_event_deletes_dict")
-            }
+            },
         },
     )
 
     assert result.success
+    assert {event.step_key for event in result.get_step_success_events()} == set(deletes_job.graph.node_dict)
+    for client in clients:
+        assert client.execute(
+            "SELECT count() FROM system.tables WHERE database = currentDatabase() AND startsWith(name, 'pending_deletes_')"
+        ) == [(0,)]
     assert set(data.execute("SELECT team_id, uuid FROM adhoc_events_deletion WHERE is_deleted = 1")) == set(queued)
     after_events = read_events(data, "events")
     for client in event_nodes:

@@ -2,12 +2,19 @@
 
 The opt-in test in `posthog/dags/tests/test_deletes_multinode.py` executes the complete `deletes_job` across two distinct ClickHouse clusters: a data cluster with one node and an events cluster with two shards.
 It uses real ClickHouse discovery, S3 dictionary staging, asynchronous delete mutations, mutation waits, request completion, and cleanup.
+Dagster initializes the cluster resource from one bootstrap host, port, and cluster name.
+The resource uses the production `ClickhouseCluster` discovery queries against `system.clusters` and node-role macros; the test supplies no node list or prebuilt cluster handle to the job.
+The resource adapter supports the isolated stack's nonstandard bootstrap port.
+The fixture's direct clients only create schemas, seed data, and check results.
 It does not mock cluster routing or the deletion ops.
 
 Both `events` and `events_json` start with the same four events.
 Two `(team_id, uuid)` pairs are queued in `adhoc_events_deletion`, with one matching row on each events shard.
 The two controls are an unqueued event and the same UUID as a queued event in another team.
 The test compares the ordered event rows before and after the job, checks the exact remaining identities on each storage shard, checks the deletion markers, and checks the job's survivor counts.
+The run must report a successful step for every op in the job graph and remove the temporary deletion tables.
+Only adhoc requests are seeded: the team-deletion ops execute their normal no-pending-team path.
+The event deletion assertions therefore cannot pass because of a team or person deletion request.
 
 ## Run locally
 
