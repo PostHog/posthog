@@ -799,3 +799,57 @@ class TestDataHealthIssuesReadsTheNewestRun(APIBaseTest):
         self._view("orders", status="Failed", latest_error="Ancient v1 error")
 
         assert "orders" not in self._reported()
+
+
+class TestDataHealthIssuesSyncVisibility(APIBaseTest):
+    HALTED_AT = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
+
+    def _schema(self, **fields) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        return ExternalDataSchema.objects.create(
+            name="customers", team=self.team, source=source, latest_error="Invalid API key", **fields
+        )
+
+    def _reported_syncs(self) -> dict[str, dict]:
+        response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/data_health_issues/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return {r["id"]: r for r in response.json()["results"] if r["type"] == "external_data_sync"}
+
+    @parameterized.expand(
+        [
+            ("still_retrying", ExternalDataSchema.Status.FAILED, True, False, "failed"),
+            ("halted_by_posthog", ExternalDataSchema.Status.FAILED, False, True, "disabled"),
+            ("switched_off_by_user", ExternalDataSchema.Status.FAILED, False, False, None),
+            ("billing_limit", ExternalDataSchema.Status.BILLING_LIMIT_REACHED, True, False, "billing_limit"),
+        ]
+    )
+    def test_a_sync_is_reported_unless_the_user_switched_it_off(
+        self, _name, schema_status, should_sync, halted_by_posthog, expected_status
+    ):
+        schema = self._schema(
+            status=schema_status,
+            should_sync=should_sync,
+            auto_disabled_at=self.HALTED_AT if halted_by_posthog else None,
+        )
+
+        reported = self._reported_syncs()
+
+        if expected_status is None:
+            assert str(schema.id) not in reported
+        else:
+            assert reported[str(schema.id)]["status"] == expected_status
+
+    def test_a_halted_sync_reports_the_time_posthog_stopped_it(self):
+        schema = self._schema(
+            status=ExternalDataSchema.Status.FAILED,
+            should_sync=False,
+            auto_disabled_at=self.HALTED_AT,
+            last_synced_at=self.HALTED_AT - timedelta(days=3),
+        )
+
+        reported = self._reported_syncs()[str(schema.id)]
+
+        assert reported["failed_at"] == self.HALTED_AT.isoformat()
+        assert reported["error"] == "Invalid API key"

@@ -691,13 +691,15 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
 
             # Get failed syncs from ExternalDataSchema
-            # Only show syncs that are actively enabled but failing
+            # A schema the user switched off is not a failure to report. A schema PostHog halted
+            # after a non-retryable error is one, because only the user can repair the source and
+            # turn syncing back on. `auto_disabled_at` tells the two apart.
             problem_syncs = (
                 ExternalDataSchema.objects.filter(
                     team_id=self.team_id,
                     deleted=False,
-                    should_sync=True,
                 )
+                .filter(Q(should_sync=True) | Q(auto_disabled_at__isnull=False))
                 .filter(
                     Q(status=ExternalDataSchemaStatus.FAILED) | Q(status=ExternalDataSchemaStatus.BILLING_LIMIT_REACHED)
                 )
@@ -706,8 +708,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             for schema in problem_syncs:
                 sync_status = "failed"
+                failed_at = schema.last_synced_at
                 if schema.status == ExternalDataSchemaStatus.BILLING_LIMIT_REACHED:
                     sync_status = "billing_limit"
+                elif not schema.should_sync:
+                    sync_status = "disabled"
+                    failed_at = schema.auto_disabled_at
 
                 results.append(
                     {
@@ -717,7 +723,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         "source_type": schema.source.source_type if schema.source else None,
                         "status": sync_status,
                         "error": schema.latest_error,
-                        "failed_at": schema.last_synced_at.isoformat() if schema.last_synced_at else None,
+                        "failed_at": failed_at.isoformat() if failed_at else None,
                         "url": f"/data-warehouse/sources/{schema.source_id}" if schema.source_id else None,
                     }
                 )
