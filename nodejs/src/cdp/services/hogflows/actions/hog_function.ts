@@ -27,6 +27,14 @@ import { observeMissingVariableReferences } from '../hogflow-variable-usage'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
+type HogFlowActionBillingType = 'fetch' | 'email' | 'push' | 'sms'
+
+const WORKFLOW_USAGE_KEYS = {
+    fetch: 'workflow_billable_invocations',
+    email: 'workflow_emails_sent',
+    push: 'workflow_push_sent',
+    sms: 'workflow_sms_sent',
+} as const
 
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
@@ -84,7 +92,7 @@ export class HogFunctionHandler implements ActionHandler {
         private hogFlowFunctionsService: HogFlowFunctionsService,
         private recipientPreferencesService: RecipientPreferencesService,
         private emailValidationService: EmailValidationService,
-        private hogFlowActionBillingType: 'fetch' | 'email' | 'push',
+        private hogFlowActionBillingType: HogFlowActionBillingType,
         private usageReporter?: CdpUsageReporterService,
         private options: { awaitedStepsEnabled?: boolean } = {}
     ) {}
@@ -166,6 +174,7 @@ export class HogFunctionHandler implements ActionHandler {
             // actionStepCount holds across a retry of this step but changes on a loop revisit.
             this.usageReporter?.reportBillableInvocation({
                 teamId: invocation.teamId,
+                usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
                 recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
             })
 

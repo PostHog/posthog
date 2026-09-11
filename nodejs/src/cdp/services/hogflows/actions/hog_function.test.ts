@@ -28,6 +28,7 @@ import { EmailService } from '../../messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../../messaging/recipient-tokens.service'
+import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { findActionByType } from '../hogflow-utils'
 import { HogFunctionHandler } from './hog_function'
@@ -476,14 +477,23 @@ describe('HogFunctionHandler', () => {
     // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
     // (roughly half of email), so a completed invocation must emit exactly one billable_invocation
     // carrying the handler's billing type — never fall back to another channel's kind.
-    it.each(['fetch', 'email', 'push'] as const)(
+    it.each([
+        ['fetch', 'workflow_billable_invocations'],
+        ['email', 'workflow_emails_sent'],
+        ['push', 'workflow_push_sent'],
+        ['sms', 'workflow_sms_sent'],
+    ] as const)(
         'emits a single billable_invocation with %s kind matching the handler billing type',
-        async (billingType) => {
+        async (billingType, usageKey) => {
+            const usageReporter = {
+                reportBillableInvocation: jest.fn(),
+            } as unknown as CdpUsageReporterService
             const handler = new HogFunctionHandler(
                 mockHogFlowFunctionsService,
                 mockRecipientPreferencesService,
                 mockEmailValidationService,
-                billingType
+                billingType,
+                usageReporter
             )
 
             const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
@@ -507,6 +517,9 @@ describe('HogFunctionHandler', () => {
                 metric_name: 'billable_invocation',
                 count: 1,
             })
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
+                expect.objectContaining({ teamId: team.id, usageKey })
+            )
         }
     )
 
