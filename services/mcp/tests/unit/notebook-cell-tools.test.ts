@@ -622,6 +622,10 @@ describe('notebook cell tools', () => {
             ['unterminated', '<PythonV2 nodeId="x" code="a\n\nb" />'],
             // The backend recovers this form as a live cell, so `<` alone is not the whole guard.
             ['escaped multiline', '\\<PythonV2 nodeId="x" code="# hi\nout = 1" />'],
+            // Python strips \\x1c-\\x1f and JavaScript's trim() does not, so the backend reads
+            // these as tags while a trim-based guard reads them as prose.
+            ['control-prefixed', '\x1c<SQLV2 nodeId="x" code="select 1" />'],
+            ['control-separated', '<SQLV2\x1cnodeId="x" code="select 1" />'],
         ])('refuses markdown carrying a %s component tag', async (_name, injected) => {
             const state = makeState(DOC)
             state.stateCells = [FIRST]
@@ -681,6 +685,21 @@ describe('notebook cell tools', () => {
             const saved = state.saveBodies[0].content.content[0].attrs.markdown
             expect(saved).toContain('Rewritten paragraph.')
             expect(saved).toContain('Second paragraph.')
+        })
+
+        it('refuses a node_id that names more than one block', async () => {
+            const state = makeState(DOC)
+            state.stateCells = [FIRST, { ...FIRST, code: 'A different block that hashed the same.' }]
+            const context = createMockContext(state)
+
+            await expect(
+                updateCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    node_id: FIRST.node_id,
+                    markdown: 'Rewritten.',
+                })
+            ).rejects.toThrow(/names 2 blocks/)
+            expect(state.saveBodies).toHaveLength(0)
         })
 
         it('refuses when another markdown cell holds the same text', async () => {

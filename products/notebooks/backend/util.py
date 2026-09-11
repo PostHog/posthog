@@ -2,6 +2,7 @@ import re
 import html
 import json
 import uuid
+import hashlib
 from collections.abc import Iterator
 from typing import Any
 
@@ -375,24 +376,35 @@ def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> 
     and must stay addressable wherever they sit in the document.
     """
     lines = markdown.split("\n")
-    line_starts = _markdown_line_start_offsets(lines)
     occurrences: dict[str, int] = {}
     line_index = 0
     prose_built = 0
+    # Tracked as the walk advances rather than precomputed for every line. A body near the
+    # request size limit holds millions of lines, and a list that long costs hundreds of
+    # megabytes before the prose cap can apply.
+    offset = 0
 
     def prose_budget_left() -> bool:
         return max_prose_blocks is None or prose_built < max_prose_blocks
 
+    def advance(from_line: int, to_line: int) -> int:
+        # Every line carries a trailing newline except the last, and the caller never reads the
+        # offset past the end, so counting one for each keeps the arithmetic uniform.
+        return sum(_utf16_length(lines[index]) + 1 for index in range(from_line, to_line))
+
     while line_index < len(lines):
         if not lines[line_index].strip():
+            offset += _utf16_length(lines[line_index]) + 1
             line_index += 1
             continue
 
         if lines[line_index].strip().startswith("```"):
             end_line_index = _get_markdown_code_block_end(lines, line_index)
+            span = advance(line_index, end_line_index)
             if prose_budget_left():
                 prose_built += 1
-                yield _build_markdown_prose_block(lines, line_starts, line_index, end_line_index, occurrences)
+                yield _build_markdown_prose_block(lines, offset, span, line_index, end_line_index, occurrences)
+            offset += span
             line_index = end_line_index
             continue
 
@@ -403,18 +415,22 @@ def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> 
         )
         if component is not None:
             tag_name, raw, next_line_index = component
+            span = advance(line_index, next_line_index)
             yield _build_markdown_component_block(
-                tag_name, raw, lines, line_starts, line_index, next_line_index, occurrences
+                tag_name, raw, lines, offset, span, line_index, next_line_index, occurrences
             )
+            offset += span
             line_index = next_line_index
             continue
 
         end_line_index = line_index + 1
         while end_line_index < len(lines) and _continues_markdown_prose_block(lines, end_line_index):
             end_line_index += 1
+        span = advance(line_index, end_line_index)
         if prose_budget_left():
             prose_built += 1
-            yield _build_markdown_prose_block(lines, line_starts, line_index, end_line_index, occurrences)
+            yield _build_markdown_prose_block(lines, offset, span, line_index, end_line_index, occurrences)
+        offset += span
         line_index = end_line_index
 
 
@@ -438,28 +454,24 @@ def _opens_markdown_component_block(lines: list[str], line_index: int) -> bool:
     return _read_markdown_component_block(lines, line_index) is not None
 
 
-def _markdown_line_start_offsets(lines: list[str]) -> list[int]:
-    """Character offset each line starts at, plus one entry past the end.
+def _utf16_length(text: str) -> int:
+    """Length in UTF-16 code units, the unit the collaboration protocol and JavaScript both use.
 
-    Every entry counts a trailing newline, the last line included even though it has none. A
-    block that ends at line `n` therefore ends at `offsets[n] - 1`, whether the document
-    continues after it or stops there.
+    Python counts code points, so an astral character is one here and two there. Reporting code
+    points would put every offset after an emoji two apart from where a JavaScript caller slices.
     """
-    offsets = [0]
-    for line in lines:
-        offsets.append(offsets[-1] + len(line) + 1)
-    return offsets
+    return len(text) + sum(1 for character in text if ord(character) > 0xFFFF)
 
 
 def _build_markdown_prose_block(
     lines: list[str],
-    line_starts: list[int],
+    start: int,
+    span: int,
     start_line: int,
     end_line: int,
     occurrences: dict[str, int],
 ) -> MarkdownBlock:
-    start = line_starts[start_line]
-    end = line_starts[end_line] - 1
+    end = start + span - 1
     source = "\n".join(lines[start_line:end_line])
     occurrence = occurrences.get(source, 0)
     occurrences[source] = occurrence + 1
@@ -478,13 +490,13 @@ def _build_markdown_component_block(
     tag_name: str,
     raw: str,
     lines: list[str],
-    line_starts: list[int],
+    start: int,
+    span: int,
     start_line: int,
     end_line: int,
     occurrences: dict[str, int],
 ) -> MarkdownBlock:
-    start = line_starts[start_line]
-    end = line_starts[end_line] - 1
+    end = start + span - 1
     props = _parse_markdown_component_props(raw)
     fingerprint = _get_markdown_component_fingerprint(tag_name, props)
     occurrence = occurrences.get(fingerprint, 0)
@@ -877,7 +889,12 @@ def _create_stable_markdown_node_id(fingerprint: str, occurrence: int) -> str:
 def _create_stable_markdown_prose_id(source: str, occurrence: int) -> str:
     # A separate prefix from `mdn-` keeps prose ids and component ids in disjoint spaces, so a
     # caller can route an id to the right lookup without inspecting the document.
-    return f"mdp-{_hash_markdown_node_id_seed(source)}-{occurrence}"
+    #
+    # This does not reuse `_hash_markdown_node_id_seed`, whose 32 bits mirror the frontend's own
+    # hash for component ids. Two prose blocks that collide there share an id, and an edit meant
+    # for one lands on the other, so prose takes a width where a collision cannot be constructed.
+    digest = hashlib.blake2b(source.encode("utf-8"), digest_size=8).digest()
+    return f"mdp-{_to_base36(int.from_bytes(digest, 'big'))}-{occurrence}"
 
 
 def _hash_markdown_node_id_seed(value: str) -> str:

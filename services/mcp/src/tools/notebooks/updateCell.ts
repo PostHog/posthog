@@ -137,6 +137,12 @@ async function updateProseCell(
     // that read, and an identical block inserted above in between shifts every later occurrence
     // by one. The id would still resolve, and the fresh offsets would still validate, so the edit
     // would land on a block the caller never saw.
+    const sameId = state.cells.filter((cell) => cell.node_id === params.node_id)
+    if (sameId.length > 1) {
+        throw new Error(
+            `Cell ${params.node_id} names ${sameId.length} blocks in notebook ${params.notebook_id}, so it cannot name one of them. Re-read the notebook with notebooks-get.`
+        )
+    }
     const sameText = state.cells.filter((cell) => cell.cell_type === 'markdown' && cell.code === block.code)
     if (sameText.length > 1) {
         throw new Error(

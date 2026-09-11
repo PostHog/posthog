@@ -435,12 +435,15 @@ class NotebookCellStateSerializer(serializers.Serializer):
         ),
     )
     start = serializers.IntegerField(
-        help_text="Character offset where the cell's source starts in the notebook's markdown."
+        help_text=(
+            "Offset where the cell's source starts in the notebook's markdown, in UTF-16 code "
+            "units, the same unit the collaboration diffs use."
+        )
     )
     end = serializers.IntegerField(
         help_text=(
-            "Character offset just past the cell's source in the notebook's markdown, excluding the "
-            "blank lines that separate it from the next cell."
+            "Offset just past the cell's source, in UTF-16 code units, excluding the blank lines "
+            "that separate it from the next cell."
         )
     )
     status = serializers.CharField(

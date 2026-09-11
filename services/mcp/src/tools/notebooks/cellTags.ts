@@ -126,11 +126,17 @@ export function buildCellTag(tagName: string, props: Record<string, unknown>): s
  * is the case that corrupts a document, so a guard built on the parser would pass exactly the
  * input it must reject.
  */
+/**
+ * Characters Python's `str.strip()` and `\s` treat as whitespace and JavaScript's do not. The
+ * backend parses the tag grammar, so a line it reads as `<Tag …` must not read as prose here.
+ */
+const PYTHON_ONLY_WHITESPACE = /[\x1c-\x1f\x85]/g
+
 export function startsComponentTag(line: string): boolean {
-    const trimmed = line.trim()
+    const normalized = line.replace(PYTHON_ONLY_WHITESPACE, ' ').trim()
     // The backend recovers a multiline tag written as `\<Tag …>`, so the escaped form opens a
     // runnable cell exactly like the bare one.
-    return TAG_START_REGEX.test(trimmed) || ESCAPED_TAG_START_REGEX.test(trimmed)
+    return TAG_START_REGEX.test(normalized) || ESCAPED_TAG_START_REGEX.test(normalized)
 }
 
 export function parseCellTags(markdown: string): CellTagBlock[] {

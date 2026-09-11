@@ -151,6 +151,14 @@ class TestMarkdownBlockSpans(SimpleTestCase):
         assert len(before - after) == 1
         assert len(after - before) == 1
 
+    def test_spans_are_utf16_offsets(self) -> None:
+        markdown = "Chart 📊 here.\n\nSecond paragraph."
+        blocks = list(iter_markdown_blocks(markdown))
+        encoded = markdown.encode("utf-16-le")
+        assert [encoded[block.start * 2 : block.end * 2].decode("utf-16-le") for block in blocks] == [
+            block.source for block in blocks
+        ]
+
     def test_identical_prose_blocks_get_distinct_ids(self) -> None:
         blocks = list(iter_markdown_blocks("Same text.\n\nSame text."))
         assert len({block.node_id for block in blocks}) == 2
