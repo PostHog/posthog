@@ -283,22 +283,28 @@ class TestCountAutocaptureEventsOrNone(SimpleTestCase):
 
 class TestReportRoundtrip(SimpleTestCase):
     def test_save_load_and_diff(self) -> None:
+        measured = {"old_original": 10, "new_original": 10, "old_rewritten": 10, "new_rewritten": 10}
         open_row = make_row(action_id=1, bucket=BUCKET_SAFE_REWRITE)
         fixed_row = make_row(action_id=2, bucket=BUCKET_NO_FAITHFUL_FIX)
+        edited_row = make_row(action_id=4, bucket=BUCKET_SAFE_REWRITE)
+        unmeasured_row = make_row(action_id=5, bucket=BUCKET_SAFE_REWRITE)
         with TemporaryDirectory() as tmp:
             path = str(Path(tmp) / "audit.json")
-            report = build_report([open_row, fixed_row], {1: 100}, {"days": 7}, "old")
+            report = build_report([open_row, fixed_row, edited_row, unmeasured_row], {1: 100}, {"days": 7}, "old")
             csv_path = save_report(path, report)
             assert load_report(path) == report
-            assert Path(csv_path).read_text().count("\n") == 3
+            assert Path(csv_path).read_text().count("\n") == 5
 
             rerun_rows = [
                 make_row(action_id=1, bucket=BUCKET_SAFE_REWRITE),
-                make_row(action_id=2, bucket=BUCKET_UNCHANGED),
+                make_row(action_id=2, bucket=BUCKET_UNCHANGED, counts=dict(measured)),
                 make_row(action_id=3, bucket=BUCKET_DEPLOY_DAY_REWRITE),
+                make_row(action_id=4, selector=".edited-since-the-last-run"),
+                make_row(action_id=5),
             ]
             diff = diff_reports(report, rerun_rows)
             assert [key.split(":")[1] for key in diff["fixed"]] == ["2"]
+            assert [key.split(":")[1] for key in diff["lost"]] == ["4", "5"]
             assert [key.split(":")[1] for key in diff["still_open"]] == ["1"]
             assert [key.split(":")[1] for key in diff["new"]] == ["3"]
 
@@ -310,6 +316,8 @@ class TestReportRoundtrip(SimpleTestCase):
                 data_row = list(csv.reader(file))[1]
         assert data_row[2] == '\'=HYPERLINK("https://example.com")'
         assert data_row[4] == "'-moz-only > span"
+
+    def test_carry_over_keeps_apply_history_and_discovery_measurements(self) -> None:
         counts = {"old_original": 10, "new_original": 1, "old_rewritten": 10, "new_rewritten": 10}
         previous_row = make_row(bucket=BUCKET_SAFE_REWRITE, counts=counts, applied_at="2026-01-01T00:00:00Z")
         previous = build_report([previous_row], {}, {"days": 7}, "old")

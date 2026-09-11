@@ -332,9 +332,13 @@ def decide_bucket(row: Row, tolerance: float, gain_tolerance: float = 0.1) -> No
         row["suggestion"] = {"selector": closest[0], "new_count": closest[1]}
 
 
+def has_counts(row: Row) -> bool:
+    return all(row["counts"].get(key) is not None for key in COUNT_KEYS)
+
+
 def measured_row_count(report: Optional[Report]) -> int:
     """How many rows in a report carry a complete set of counts."""
-    return sum(1 for row in iter_report_rows(report) if all(row["counts"].get(key) is not None for key in COUNT_KEYS))
+    return sum(1 for row in iter_report_rows(report) if has_counts(row))
 
 
 def prefill_counts_from_previous(rows: list[Row], previous: Optional[Report]) -> int:
@@ -496,14 +500,25 @@ def carry_over_previous(rows: list[Row], previous: Optional[Report], keep_measur
 
 
 def diff_reports(previous: Optional[Report], rows: list[Row]) -> dict[str, list[str]]:
-    """Actionable-row movement between runs: fixed, still open, newly actionable."""
+    """Actionable-row movement between runs: fixed, lost, still open, newly actionable."""
     previous_actionable = {
         row_key(row) for row in iter_report_rows(previous) if row.get("bucket") in ACTIONABLE_BUCKETS
     }
     current_by_key = {row_key(row): row for row in rows}
     current_actionable = {key for key, row in current_by_key.items() if row["bucket"] in ACTIONABLE_BUCKETS}
+
+    fixed, lost = [], []
+    for key in previous_actionable - current_actionable:
+        current = current_by_key.get(key)
+        # Counts are the only thing that moves a row out of the actionable
+        # buckets, so a row this run did not measure says nothing about whether
+        # the selector still loses events. Reporting it as fixed overstates how
+        # much of the fleet has been dealt with. The key carries the selector,
+        # so an edited selector arrives here as a row that disappeared.
+        (fixed if current is not None and has_counts(current) else lost).append(key)
     return {
-        "fixed": sorted(previous_actionable - current_actionable),
+        "fixed": sorted(fixed),
+        "lost": sorted(lost),
         "still_open": sorted(previous_actionable & current_actionable),
         "new": sorted(current_actionable - previous_actionable),
     }

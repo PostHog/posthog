@@ -211,4 +211,13 @@ class Command(BaseCommand):
                 log(f"  fixed: {key}")
             for key in diff["new"]:
                 log(f"  new: {key}")
+            if diff["lost"]:
+                log(
+                    self.style.WARNING(
+                        f"{len(diff['lost'])} previously actionable selector steps are no longer measured, because "
+                        "the step was deleted or its selector edited since the last run; measure again to re-check them"
+                    )
+                )
+                for key in diff["lost"]:
+                    log(f"  lost: {key}")
         log(f"report written to {output_target} and {csv_path}")
