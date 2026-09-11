@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
 import pytest
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -33,6 +33,7 @@ from posthog.hogql.database.database import Database
 from posthog import redis
 from posthog.api.cohort import BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS, get_cohort_actors_for_feature_flag
 from posthog.api.services.flags_service import FlagVersionConflictError, PropertyMatchingVersionConflictError
+from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
 from posthog.models import TaggedItem, User
 from posthog.models.group.util import create_group, raw_create_group_ch
@@ -63,6 +64,7 @@ from products.feature_flags.backend.api.feature_flag import (
     FLAG_FILTERS_WRITE_COUNTER,
     FeatureFlagSerializer,
     FeatureFlagStatusResponseSerializer,
+    _flag_write_source,
     parse_created_by_ids,
 )
 from products.feature_flags.backend.encrypted_flag_payloads import (
@@ -1011,7 +1013,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response.json()["detail"], "groups[0].properties[0].group_type_index: A valid integer is required."
         )
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag(self, mock_report_user_action):
         response = self.client.post(
@@ -1734,7 +1736,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {"name": "original name", "key": "a-feature-flag-that-is-updated"},
@@ -1743,7 +1745,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -1874,7 +1876,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_updating_feature_flag_partial(self, mock_report_user_action):
         # Test that we can update a feature flag with only some of the fields
         # And the unchanged fields are not updated
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {
@@ -1904,7 +1906,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -1921,7 +1923,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_with_different_user(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             # Create flag with original user
             original_user = self.user
             response = self.client.post(
@@ -1932,7 +1934,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             # Create and login as different user
             different_user = User.objects.create_and_join(self.organization, "different_user@posthog.com", None)
@@ -1954,7 +1956,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_fails_concurrency_check_when_version_outdated(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             # Create flag with original user: version 0
             original_user = self.user
             response = self.client.post(
@@ -1970,7 +1972,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(feature_flag.version, 1)
             self.assertEqual(feature_flag.last_modified_by, original_user)
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             # Create and login as different user
             different_user = User.objects.create_and_join(self.organization, "different_user@posthog.com", None)
@@ -2040,7 +2042,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     ):
         # If another users saves changes, but my changes don't conflict with those changes,
         # then we should not fail the concurrency check
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             # Create flag with original user: version 0
             original_user = self.user
             response = self.client.post(
@@ -2073,7 +2075,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             flag_id = response.json()["id"]
             original_version = response.json()["version"]
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             # Create and login as different user
             different_user = User.objects.create_and_join(self.organization, "different_user@posthog.com", None)
@@ -2153,7 +2155,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_does_not_fail_when_version_not_in_request(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 data={"name": "original name", "key": "a-feature-flag-that-is-updated"},
@@ -2162,7 +2164,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -2474,7 +2476,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         client.delete(f"posthog:remote_config_requests:{self.team.pk}")
         client.delete(f"posthog:decide_requests:{self.team.pk}")
 
-        with freeze_time("2022-05-07 12:23:07"):
+        with time_machine.travel("2022-05-07 12:23:07", tick=False):
             for _ in range(3):
                 response = self.client.get(
                     f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
@@ -2972,7 +2974,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_treats_null_version_as_zero(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 data={"name": "original name", "key": "a-feature-flag-that-is-updated"},
@@ -2983,7 +2985,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             feature_flag = FeatureFlag.objects.get(id=flag_id)
             feature_flag.version = None
             feature_flag.save()
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -2998,7 +3000,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {"name": "original name", "key": "a-feature-flag-that-is-updated"},
@@ -3008,7 +3010,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             flag_id = response.json()["id"]
             self._generate_usage_dashboard(flag_id)
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -3183,7 +3185,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key_does_not_update_insight_with_changed_description(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {"name": "original name", "key": "a-feature-flag-that-is-updated"},
@@ -3193,7 +3195,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             flag_id = response.json()["id"]
             self._generate_usage_dashboard(flag_id)
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -3273,7 +3275,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key_does_not_update_insight_with_changed_filter(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {"name": "original name", "key": "a-feature-flag-that-is-updated"},
@@ -3283,7 +3285,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             flag_id = response.json()["id"]
             self._generate_usage_dashboard(flag_id)
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -3363,7 +3365,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key_does_not_update_insight_with_removed_filter(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {"name": "original name", "key": "a-feature-flag-that-is-updated"},
@@ -3373,7 +3375,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             flag_id = response.json()["id"]
             self._generate_usage_dashboard(flag_id)
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -3472,7 +3474,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.client.force_login(new_user)
 
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             create_response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {"name": "feature flag with activity", "key": "feature_with_activity"},
@@ -3481,7 +3483,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
             flag_id = create_response.json()["id"]
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             update_response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -3567,7 +3569,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.client.force_login(new_user)
 
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             create_response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {"name": "feature flag with activity", "key": "feature_with_activity"},
@@ -3576,7 +3578,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
             flag_id = create_response.json()["id"]
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             update_response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -3588,7 +3590,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             second_create_response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
@@ -5066,7 +5068,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of unique group calls made on feature flag per variant with key: renamed-group-feature",
         )
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_dashboard_enrichment_fails_if_already_enriched(self, mock_report_user_action):
         response = self.client.post(
@@ -5087,22 +5089,42 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # now enable enriched analytics
         instance.has_enriched_analytics = True
         instance.save()
+        mock_report_user_action.reset_mock()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertNotIn("Sunset", response)
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "enrich_usage_dashboard", "outcome": "success"},
+            team=instance.team,
+            organization=self.organization,
+        )
 
         # now try enriching again
+        mock_report_user_action.reset_mock()
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertNotIn("Sunset", response)
         self.assertEqual(
             response.json(),
             {"error": "Usage dashboard already has enriched data", "success": False},
+        )
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "enrich_usage_dashboard", "outcome": "error"},
+            team=instance.team,
+            organization=self.organization,
         )
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
@@ -5148,21 +5170,29 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag_id = response.json()["id"]
+        flag = FeatureFlag.objects.get(id=flag_id)
+        mock_report_user_action.reset_mock()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertNotIn("Sunset", response)
         self.assertEqual(
             response.json(),
             {
-                "error": (
-                    "Usage dashboard not found. Create one first with "
-                    "POST /api/projects/{project_id}/feature_flags/{id}/dashboard/"
-                ),
+                "error": "Usage dashboard not found. Usage charts are available on the feature flag Usage tab.",
                 "success": False,
             },
+        )
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "enrich_usage_dashboard", "outcome": "error"},
+            team=flag.team,
+            organization=self.organization,
         )
 
     def test_dashboard_endpoint_is_idempotent(self) -> None:
@@ -5183,6 +5213,81 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(instance.usage_dashboard_id, first_dashboard_id)
         self.assertTrue(Dashboard.objects.filter(id=first_dashboard_id, deleted=False).exists())
+
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_dashboard_endpoint_announces_deprecation_and_reports_usage(
+        self, mock_report_user_action: MagicMock
+    ) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="deprecated-dashboard-endpoint")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/dashboard")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertEqual(response["Sunset"], "Fri, 25 Sep 2026 00:00:00 GMT")
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "dashboard", "outcome": "created"},
+            team=flag.team,
+            organization=self.organization,
+        )
+
+        mock_report_user_action.reset_mock()
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/dashboard")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "dashboard", "outcome": "existing"},
+            team=flag.team,
+            organization=self.organization,
+        )
+
+    @patch("products.feature_flags.backend.api.feature_flag.capture_exception")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag._create_usage_dashboard", side_effect=RuntimeError)
+    def test_dashboard_endpoint_deprecation_headers_are_returned_on_error(
+        self,
+        mock_create_usage_dashboard: MagicMock,
+        mock_report_user_action: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="dashboard-generation-error")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/dashboard")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {"success": False, "error": "Unable to generate usage dashboard"})
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertEqual(response["Sunset"], "Fri, 25 Sep 2026 00:00:00 GMT")
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "dashboard", "outcome": "error"},
+            team=flag.team,
+            organization=self.organization,
+        )
+        mock_capture_exception.assert_called_once()
+        mock_create_usage_dashboard.assert_called_once()
+
+    @patch(
+        "products.feature_flags.backend.api.feature_flag.report_user_action",
+        side_effect=RuntimeError("telemetry unavailable"),
+    )
+    def test_dashboard_endpoint_ignores_telemetry_failures(self, mock_report_user_action: MagicMock) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="dashboard-telemetry-error")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/dashboard")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertEqual(response["Sunset"], "Fri, 25 Sep 2026 00:00:00 GMT")
+        flag.refresh_from_db()
+        self.assertIsNotNone(flag.usage_dashboard_id)
+        mock_report_user_action.assert_called_once()
 
     def test_dashboard_endpoint_regenerates_after_dashboard_is_deleted(self) -> None:
         response = self.client.post(
@@ -5214,6 +5319,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("has been deleted", response.json()["error"])
+        self.assertEqual(response["Deprecation"], "true")
+        if endpoint == "dashboard":
+            self.assertEqual(response["Sunset"], "Fri, 25 Sep 2026 00:00:00 GMT")
+        else:
+            self.assertNotIn("Sunset", response)
         flag.refresh_from_db()
         self.assertIsNone(flag.usage_dashboard_id)
 
@@ -5257,7 +5367,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.client.logout()
         # `local_evaluation` is called by logged out clients!
 
-        with freeze_time("2022-05-07 12:23:07"):
+        with time_machine.travel("2022-05-07 12:23:07", tick=False):
             # missing API key
             response = self.client.get(f"/api/feature_flag?token={self.team.api_token}")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -7070,7 +7180,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_get_flags_with_stale_filter(self):
         # Create a stale flag (100% rollout with no properties and 30+ days old)
         # No last_called_at so it falls back to config-based staleness detection
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7090,7 +7200,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Create another non-stale flag (old but not 100% rollout)
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             partial_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7102,7 +7212,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         partial_flag.save()
 
         # Create a non-stale flag (100% rollout but has properties)
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             filtered_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7128,7 +7238,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         filtered_flag.save()
 
         # Create a non-stale flag (100% rollout but has multiple groups, with only 1 group that has 100% rollout)
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             multi_group_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7174,7 +7284,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_get_flags_with_stale_filter_multivariate(self):
         # Create a stale multivariate flag (no last_called_at so it falls back to config-based detection)
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7192,7 +7302,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Create a non-stale multivariate flag (no variant at 100%)
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             active_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7221,7 +7331,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_get_flags_with_stale_filter_multivariate_condition_variant_override(self):
         # Create a stale multivariate flag (no last_called_at so it falls back to config-based detection)
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7240,7 +7350,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Create a multivariate flag with rollout <100% should not be stale
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             low_rollout_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7261,7 +7371,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         low_rollout_flag.save()
 
         # Create a multivariate flag with rollout 100% but has properties filter, should not be stale
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             with_props_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7306,7 +7416,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Regression test: flags created via frontend have explicit multivariate: null
         # The SQL filter should handle both missing key AND explicit null value
         # No last_called_at so it falls back to config-based detection
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7366,7 +7476,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ]
     )
     def test_get_flags_with_stale_filter_jsonb_edge_cases(self, flag_key, flag_filters, expect_stale):
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7491,7 +7601,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(len(response_json["analytics_dashboards"]), 1)
 
-    @freeze_time("2021-01-01")
+    @time_machine.travel("2021-01-01", tick=False)
     @snapshot_clickhouse_queries
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
     def test_creating_static_cohort(self, mock_batch_evaluate):
@@ -8855,7 +8965,91 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
         self.assertEqual(filters_edit.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(filters_edit.json()["attr"], "filters")
 
-    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    # Two cross-field violations that reach the same decision point, so a case can enforce one
+    # and leave the other rolling out. Both are structurally valid; a structural failure would
+    # short-circuit before the cross-field tier runs.
+    _SUM_RULE = "cross_field.variant_rollout_sum_not_100"
+    _VARIANT_RULE = "cross_field.group_variant_not_a_variant"
+    _VIOLATES_SUM: dict = {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "multivariate": {"variants": [{"key": "a", "rollout_percentage": 30}, {"key": "b", "rollout_percentage": 30}]},
+    }
+    _VIOLATES_VARIANT: dict = {
+        "groups": [{"properties": [], "rollout_percentage": 100, "variant": "ghost"}],
+        "multivariate": {"variants": [{"key": "a", "rollout_percentage": 50}, {"key": "b", "rollout_percentage": 50}]},
+    }
+
+    @parameterized.expand(
+        [
+            ("enforced rule rejects", {_SUM_RULE}, _VIOLATES_SUM, status.HTTP_400_BAD_REQUEST),
+            ("rule still rolling out is accepted", {_SUM_RULE}, _VIOLATES_VARIANT, status.HTTP_201_CREATED),
+            ("unset enforces nothing", set(), _VIOLATES_SUM, status.HTTP_201_CREATED),
+            ("wildcard enforces every rule", {"*"}, _VIOLATES_VARIANT, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_only_the_rules_in_the_setting_reject(
+        self, name: str, enforced_rules: set[str], filters: dict, expected_status: int
+    ) -> None:
+        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=enforced_rules):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"key": f"rollout-{abs(hash(name))}", "filters": filters},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={_SUM_RULE})
+    def test_a_rule_still_rolling_out_does_not_reject_by_sharing_a_request(self) -> None:
+        # Both rules are violated but only one is enforced. The write is rejected for that one
+        # alone, so turning on a rule cannot make a second rule's message reach a customer.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "mixed-violations",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100, "variant": "ghost"}],
+                    "multivariate": {
+                        "variants": [{"key": "a", "rollout_percentage": 30}, {"key": "b", "rollout_percentage": 30}]
+                    },
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["code"], self._SUM_RULE)
+        self.assertNotIn("ghost", body["detail"])
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"structural.multivariate.variants[].key.max_length"})
+    def test_structural_tier_also_rejects_only_the_enforced_rule(self) -> None:
+        # The structural tier decides separately from the cross-field one, so it needs its own
+        # case. Both violations are on variant keys, which the serde guard only type-checks, so
+        # they reach the structural tier instead of being rejected before it.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "mixed-structural-violations",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "", "rollout_percentage": 50},
+                            {"key": "x" * 401, "rollout_percentage": 50},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["code"], "structural.multivariate.variants[].key.max_length")
+        self.assertNotIn("blank", body["detail"])
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
     def test_kill_switch_logs_new_rules_but_still_rejects_serde_unsafe_input(self):
         # An empty variant key is structurally invalid but still deserializes as a Rust String,
         # so log-only mode records it without widening the cache-poisoning surface.
@@ -9672,7 +9866,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(set(affected), {"org:0", "org:1", "org:2", "org:3"})
 
-    @freeze_time("2024-01-11")
+    @time_machine.travel("2024-01-11", tick=False)
     def test_user_blast_radius_with_relative_date_filters(self):
         for i in range(8):
             _create_person(
@@ -14460,7 +14654,10 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
         accepted_before = self._write_count("create", "accepted")
         rejected_before = self._write_count("create", "rejected")
         violation_before = FLAG_FILTERS_VIOLATION_COUNTER.labels(
-            stage="merged_structural", rule="structural.groups[].rollout_percentage.max_value", operation="create"
+            stage="merged_structural",
+            rule="structural.groups[].rollout_percentage.max_value",
+            operation="create",
+            source="ui",
         )._value.get()
 
         ok = self.client.post(
@@ -14481,12 +14678,15 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
         self.assertEqual(self._write_count("create", "rejected"), rejected_before + 1)
         self.assertEqual(
             FLAG_FILTERS_VIOLATION_COUNTER.labels(
-                stage="merged_structural", rule="structural.groups[].rollout_percentage.max_value", operation="create"
+                stage="merged_structural",
+                rule="structural.groups[].rollout_percentage.max_value",
+                operation="create",
+                source="ui",
             )._value.get(),
             violation_before + 1,
         )
 
-    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
     def test_bypassed_write_is_not_also_counted_as_accepted(self) -> None:
         accepted_before = self._write_count("create", "accepted")
         bypassed_before = self._write_count("create", "bypassed")
@@ -14507,8 +14707,53 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
         self.assertEqual(self._write_count("create", "bypassed"), bypassed_before + 1)
         self.assertEqual(self._write_count("create", "accepted"), accepted_before)
 
-    def _violation_count(self, stage: str, rule: str, operation: str) -> float:
-        return FLAG_FILTERS_VIOLATION_COUNTER.labels(stage=stage, rule=rule, operation=operation)._value.get()
+    @parameterized.expand(
+        [
+            ("no request at all", None, "internal"),
+            ("facade system write", ServiceRequest(None, is_system=True), "internal"),
+            ("facade write for a user", ServiceRequest(object()), "other"),
+        ]
+    )
+    def test_write_source_of_non_http_callers(self, _name: str, request: object, expected: str) -> None:
+        self.assertEqual(_flag_write_source(request), expected)
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
+    def test_violations_are_attributed_to_the_caller_that_made_them(self) -> None:
+        rule = "cross_field.variant_rollout_sum_not_100"
+        ui_before = self._violation_count("cross_field", rule, "create", "ui")
+        api_before = self._violation_count("cross_field", rule, "create", "api")
+        filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "multivariate": {
+                "variants": [{"key": "a", "rollout_percentage": 30}, {"key": "b", "rollout_percentage": 30}]
+            },
+        }
+
+        session_write = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/", {"key": "from-ui", "filters": filters}, format="json"
+        )
+        self.assertEqual(session_write.status_code, status.HTTP_201_CREATED, session_write.json())
+
+        auth_token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="metrics-source", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token)
+        )
+        self.client.logout()
+        api_write = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "from-api", "filters": filters},
+            format="json",
+            headers={"authorization": f"Bearer {auth_token}"},
+        )
+        self.assertEqual(api_write.status_code, status.HTTP_201_CREATED, api_write.json())
+
+        self.assertEqual(self._violation_count("cross_field", rule, "create", "ui"), ui_before + 1)
+        self.assertEqual(self._violation_count("cross_field", rule, "create", "api"), api_before + 1)
+
+    def _violation_count(self, stage: str, rule: str, operation: str, source: str = "ui") -> float:
+        return FLAG_FILTERS_VIOLATION_COUNTER.labels(
+            stage=stage, rule=rule, operation=operation, source=source
+        )._value.get()
 
     def _create_flag_via_orm(self, key: str, filters: dict) -> FeatureFlag:
         return FeatureFlag.objects.create(team=self.team, created_by=self.user, key=key, name=key, filters=filters)
@@ -14560,7 +14805,7 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
         self.assertEqual(self._write_count("create", "rejected_preexisting"), preexisting_before + 1)
         self.assertEqual(self._write_count("create", "rejected"), rejected_before)
 
-    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
     def test_cross_field_bypass_is_logged_counted_and_persisted(self) -> None:
         # The branch production runs while the switch is off: structurally valid input with a
         # cross-field violation. It marks the write bypassed, counts the rule, and saves anyway.
@@ -14586,7 +14831,7 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
             rule_before + 1,
         )
 
-    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
     def test_structural_failure_records_cross_field_as_not_evaluated(self) -> None:
         # Cross-field checks need structurally valid input, so they never run for these writes.
         # The dashboard has to see that, or a bare zero reads as "nothing left to fix".

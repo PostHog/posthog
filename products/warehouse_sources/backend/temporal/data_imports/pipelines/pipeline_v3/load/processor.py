@@ -394,6 +394,7 @@ async def _handle_partial_data_loading(
         queryable_folder=queryable_folder,
         table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         primary_keys=export_signal.primary_keys,
+        published_file_count=len(new_file_uris),
     )
 
     logger.debug(
@@ -537,7 +538,13 @@ def _is_retryable_temporal_rpc_error(exc: BaseException) -> bool:
     # `workflow.start_child_workflow` they get none of the server-side retry a durable
     # workflow command would have — a bare client RPC timeout would otherwise drop the
     # trigger permanently.
-    return isinstance(exc, RPCError) and exc.status in (RPCStatusCode.DEADLINE_EXCEEDED, RPCStatusCode.UNAVAILABLE)
+    if isinstance(exc, RPCError) and exc.status in (RPCStatusCode.DEADLINE_EXCEEDED, RPCStatusCode.UNAVAILABLE):
+        return True
+
+    # `async_connect()` runs before any service client exists, so a transient failure to
+    # reach the Temporal frontend (DNS blip, connection refused/reset) surfaces as the Rust
+    # bridge's untyped RuntimeError rather than an RPCError — treat it the same way.
+    return isinstance(exc, RuntimeError) and str(exc).startswith("Failed client connect:")
 
 
 def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, prepared_queryable_folder: str) -> None:

@@ -2,9 +2,10 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { AppContext } from '../types'
+import { AppContext, OrganizationType } from '../types'
 import { organizationLogic } from './organizationLogic'
 
 describe('organizationLogic', () => {
@@ -76,6 +77,44 @@ describe('organizationLogic', () => {
             await expectLogic(logic).toMatchValues({
                 currentOrganization: { ...MOCK_DEFAULT_ORGANIZATION },
             })
+        })
+    })
+    describe('when a refresh of the organization fails', () => {
+        const ORGANIZATION_WITH_TEAMS = {
+            ...MOCK_DEFAULT_ORGANIZATION,
+            teams: [
+                { id: 1, name: 'Project one' },
+                { id: 2, name: 'Project two' },
+            ],
+        } as unknown as OrganizationType
+
+        beforeEach(() => {
+            window.POSTHOG_APP_CONTEXT = {
+                current_user: { organization: ORGANIZATION_WITH_TEAMS },
+            } as unknown as AppContext
+            initKeaTests()
+            logic = organizationLogic()
+            logic.mount()
+        })
+
+        it('keeps the organization it already has when the server errors', async () => {
+            useMocks({ get: { '/api/organizations/@current': () => [500, { detail: 'nope' }] } })
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+
+            logic.actions.loadCurrentOrganization()
+
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            expect(logic.values.currentOrganization).toEqual(ORGANIZATION_WITH_TEAMS)
+        })
+
+        it('drops the organization when the server says it is out of reach', async () => {
+            useMocks({ get: { '/api/organizations/@current': () => [403, { detail: 'nope' }] } })
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+
+            logic.actions.loadCurrentOrganization()
+
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            expect(logic.values.currentOrganization).toBeNull()
         })
     })
 })

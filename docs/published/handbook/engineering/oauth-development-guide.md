@@ -322,6 +322,32 @@ tokens = token_response.json()
 print(tokens)
 ```
 
+## Self-registered client logos
+
+Both self-registration paths accept a `logo_uri`, and PostHog shows it on the consent screen and on the login, signup, and email verification screens. A client that sends none gets the first letter of its name instead.
+
+- Dynamic client registration (`POST /oauth/register/`, RFC 7591): send `logo_uri` alongside `redirect_uris`. The response echoes it back.
+- Client ID metadata documents: put `logo_uri` in the document.
+
+The URI must be `https` and must pass `is_url_allowed`, the same SSRF guard the rest of the codebase uses. That rejects a loopback, private, metadata or internal-domain host, and it resolves the name, so a public hostname pointing at a private address is rejected too. A URI that fails either check is dropped and left out of the registration response. It never fails the registration, since a client can complete every OAuth flow without a logo.
+
+The host check protects the visitor rather than PostHog. PostHog never fetches a logo: the browser does, and a self-hosted deployment renders these pages to people inside a trusted network. An unchecked logo would make each of those browsers probe its own network from a PostHog page.
+
+## Signed-out visitors
+
+`/oauth/authorize/` needs a session. A visitor without one is redirected to `/login?next=<the authorize URL>`. The login, signup, and email verification screens keep `next`, so the visitor lands on the consent screen once they have a session, and `/oauth` paths are exempt from the onboarding redirect.
+
+The redirect also sets the `ph_pending_oauth_connection` cookie so those screens can name the application:
+
+- Value: percent-encoded JSON with `client_name` and `client_id`, plus `logo_uri` and `redirect_host` (host of the registered redirect URI, web redirects only) when known. It holds public application metadata only, the same the consent screen shows.
+- Scope: `Domain=posthog.com` on PostHog Cloud, so the website can read it too. Host-only on any other host. `SameSite=Lax`, readable by JavaScript, lifetime 60 minutes.
+- Cleared when the person grants or denies the authorization.
+- A CIMD client seen for the first time has no application row yet, so the cookie carries the host of its `client_id` URL as the name.
+
+While the cookie is present, the signup form pins the data region to the region the form is served from. An OAuth client is registered in one region only, so an account created in the other region could not finish the connection.
+
+Analytics: the frontend captures `oauth pending connection viewed` with a `screen` property (`login`, `signup`, or `verify_email`). `user signed up` carries `signup_oauth_client_name` and `signup_oauth_client_id`, which are also set as person properties, so a signup can be traced back to the application that started it.
+
 ## Endpoints
 
 - **Authorization**: `/oauth/authorize/`

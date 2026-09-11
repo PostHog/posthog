@@ -66,6 +66,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     output_destinations: {},
     structured_output_schema: null,
     mcp_gateway_server_ids: [],
+    write_scopes: [],
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
@@ -446,12 +447,15 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.updatingScoutIds).toEqual([])
     })
 
-    it('starts the chat task server-side and navigates to it', async () => {
+    it('starts the chat task server-side once and navigates to it', async () => {
         mockSignalsScoutChatTasksCreate.mockResolvedValue({ task_id: 'task-1' })
 
         logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
+        // A second press while the first request is out must not mint a second paid task.
+        logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
         await expectLogic(logic).toDispatchActions(['startScoutChatTaskSuccess'])
 
+        expect(mockSignalsScoutChatTasksCreate).toHaveBeenCalledTimes(1)
         expect(mockSignalsScoutChatTasksCreate).toHaveBeenCalledWith(String(MOCK_TEAM_ID), {
             chat_type: 'author_scout',
         })
@@ -912,6 +916,36 @@ describe('scoutFleetLogic', () => {
             expect(logic.values.scoutRunCosts.size).toBe(0)
         })
 
+        it('shows a batch as soon as it lands, and sends the rest of the fleet together', async () => {
+            // Holding every batch back until the last one answers leaves the whole strip costless
+            // for the first seconds after load, which is the window a reader actually looks at.
+            const runIds = Array.from({ length: 401 }, (_, index) => `run-${index}`)
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue(runIds.map((run_id) => makeRun({ run_id })))
+            const held: Array<() => void> = []
+            mockSignalsScoutRunsTokenCosts.mockImplementation(async (_projectId, body) => {
+                const costs = [{ run_id: body.run_ids[0], token_cost_usd: 1 }]
+                if (!body.run_ids.includes('run-0')) {
+                    await new Promise<void>((resolve) => held.push(resolve))
+                }
+                return { costs, available: true }
+            })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'mergeScoutRunCosts'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.scoutRunCosts.get('run-0')).toBe(1)
+            expect(logic.values.scoutRunCostsLoading).toBe(true)
+            expect(held).toHaveLength(2)
+
+            held.forEach((resolve) => resolve())
+            await expectLogic(logic).toDispatchActions(['loadScoutRunCostsSuccess'])
+
+            expect(logic.values.scoutRunCosts.get('run-200')).toBe(1)
+            expect(logic.values.scoutRunCosts.get('run-400')).toBe(1)
+        })
+
         it('keeps the batches that answered when a later batch fails', async () => {
             // A materialized fleet is more run ids than one request carries, so the loader sends
             // several. Discarding the whole load over one failed batch blanks every tooltip in the
@@ -938,6 +972,10 @@ describe('scoutFleetLogic', () => {
         it.each([
             ['a backend fault, which reaches error tracking', 500, true],
             ['a gateway blip, which does not', 503, false],
+            // Deploy skew: a bundle that has the cost feature can reach a backend that does not
+            // have the endpoint yet, and DRF answers 405 when only the method is missing.
+            ['a method the backend does not serve yet, which does not', 405, false],
+            ['a path the backend does not serve yet, which does not', 404, false],
         ])('recovers from %s', async (_name: string, status: number, reported: boolean) => {
             mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'run-priced' })])
             mockSignalsScoutRunsTokenCosts.mockRejectedValue(new ApiError('nope', status))

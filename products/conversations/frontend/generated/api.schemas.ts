@@ -492,35 +492,48 @@ export const BulkUpdateTagsActionEnumApi = {
     Set: 'set',
 } as const
 
-export interface BulkUpdateTagsRequestApi {
+/**
+ * Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).
+ */
+export interface BulkUpdateTagsUUIDRequestApi {
     /**
-     * List of object IDs to update tags on.
+     * List of object UUIDs to update tags on.
      * @maxItems 500
      */
-    ids: number[]
+    ids: string[]
     /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
      *
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
     action: BulkUpdateTagsActionEnumApi
-    /** Tag names to add, remove, or set. */
+    /**
+     * Tag names to add, remove, or set.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
     tags: string[]
 }
 
-export interface BulkUpdateTagsItemApi {
-    id: number
+export interface BulkUpdateTagsUUIDItemApi {
+    /** UUID of the object whose tags were updated. */
+    id: string
+    /** The object's full tag list after the update. */
     tags: string[]
 }
 
-export interface BulkUpdateTagsErrorApi {
-    id: number
+export interface BulkUpdateTagsUUIDErrorApi {
+    /** UUID of the object that was skipped. */
+    id: string
+    /** Why the object was skipped, e.g. 'Not found'. */
     reason: string
 }
 
-export interface BulkUpdateTagsResponseApi {
-    updated: BulkUpdateTagsItemApi[]
-    skipped: BulkUpdateTagsErrorApi[]
+export interface BulkUpdateTagsUUIDResponseApi {
+    /** Objects whose tags were successfully updated. */
+    updated: BulkUpdateTagsUUIDItemApi[]
+    /** Objects that were skipped, with a reason each. */
+    skipped: BulkUpdateTagsUUIDErrorApi[]
 }
 
 export interface ComposeTicketApi {
@@ -682,7 +695,7 @@ export interface TicketViewFiltersApi {
     sla?: TicketSlaFilterEnumApi
     /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. */
     aiTriageResult?: AiTriageResultEnumApi[]
-    /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list. */
+    /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter. */
     assignee?: TicketViewFiltersApiAssigneeItem[]
     /** Tag names to match, combined according to tagsMatch. */
     tags?: string[]
@@ -764,13 +777,20 @@ export interface UserBasicApi {
 }
 
 export interface TicketViewApi {
+    /** Internal UUID of the view. */
     readonly id: string
+    /** Stable short identifier for the view. Use it to address the view in this API, to open it at /support/tickets?view=<short_id>, and as the `view` parameter when listing tickets. */
     readonly short_id: string
-    /** @maxLength 400 */
+    /**
+     * Display name of the view, as it appears in the ticket views list.
+     * @maxLength 400
+     */
     name: string
     /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
     filters?: TicketViewFiltersApi
+    /** When the view was created. */
     readonly created_at: string
+    /** The user who created this view. */
     readonly created_by: UserBasicApi
     /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
     is_favorited?: boolean
@@ -786,13 +806,20 @@ export interface PaginatedTicketViewListApi {
 }
 
 export interface PatchedTicketViewApi {
+    /** Internal UUID of the view. */
     readonly id?: string
+    /** Stable short identifier for the view. Use it to address the view in this API, to open it at /support/tickets?view=<short_id>, and as the `view` parameter when listing tickets. */
     readonly short_id?: string
-    /** @maxLength 400 */
+    /**
+     * Display name of the view, as it appears in the ticket views list.
+     * @maxLength 400
+     */
     name?: string
     /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
     filters?: TicketViewFiltersApi
+    /** When the view was created. */
     readonly created_at?: string
+    /** The user who created this view. */
     readonly created_by?: UserBasicApi
     /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
     is_favorited?: boolean

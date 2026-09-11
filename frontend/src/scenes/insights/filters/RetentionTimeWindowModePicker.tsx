@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { RETENTION_TIME_WINDOW_MODE_OPTIONS } from 'scenes/retention/constants'
 
 import { RetentionFilter } from '~/queries/schema/schema-general'
 import { insightLogic } from '~/scenes/insights/insightLogic'
 import { insightVizDataLogic } from '~/scenes/insights/insightVizDataLogic'
+
+import { RETENTION_TIME_WINDOW_MODE_OPTIONS } from 'products/product_analytics/frontend/insights/retention/constants'
 
 export function RetentionTimeWindowModePicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

@@ -42,6 +42,7 @@ from products.metrics.backend.facade.contracts import (
     MAX_CLAUSES_PER_QUERY,
     METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
     METRICS_FEATURE_FLAG,
+    METRICS_FUNDAMENTALS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
     MetricQueryClause,
@@ -466,6 +467,17 @@ class _MetricNameSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Metric name as it appears in the team's data.")
     metric_type = serializers.CharField(
         help_text="OTel metric type (gauge, sum, histogram, summary, exponential_histogram)."
+    )
+    unit = serializers.CharField(
+        required=False, allow_blank=True, help_text="Unit of the metric value, if any (e.g. 'ms', 'By')."
+    )
+    last_seen = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="When the newest datapoint for this metric arrived, ISO 8601."
+    )
+    sparkline = serializers.ListField(
+        child=serializers.FloatField(),
+        required=False,
+        help_text="A small downsampled series of the metric's recent shape, for a sparkline.",
     )
 
 
@@ -1103,6 +1115,20 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         """Take one chart point apart into the series and samples behind it,
         and recompute it independently so the plotted number can be checked
         rather than trusted."""
+        # The class-level gate admits every team on the metrics alpha, which is wider
+        # than this action should be. Fundamentals is a correctness tool for the people
+        # who build the viewer, so it carries its own flag. Without this check the tab
+        # is hidden in the UI but the data behind it stays one POST away.
+        if not posthog_feature_flag_enabled(
+            METRICS_FUNDAMENTALS_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise PermissionDenied(
+                f"This action requires feature flag {METRICS_FUNDAMENTALS_FEATURE_FLAG!r} to be enabled for your organization."
+            )
+
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         body = _MetricExplainRequestSerializer(data=request.data)

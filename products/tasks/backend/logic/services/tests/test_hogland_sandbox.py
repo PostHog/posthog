@@ -24,6 +24,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxConfig,
     SandboxStatus,
     SandboxTemplate,
+    build_agent_runtime_env_prefix,
     get_sandbox_class_for_sandbox_id,
 )
 
@@ -91,6 +92,18 @@ class TestHoglandSandboxCreate:
         assert kwargs["env"]["IS_SANDBOX"] == "override"
         assert sandbox.id == "box-abc123def456"
         assert config.snapshot_restored is False
+
+    def test_create_bounds_tags_to_the_hogland_length_limit(self):
+        # Hogland rejects the whole create when any tag exceeds 64 characters, and a task
+        # workflow id is longer than that on its own.
+        workflow_id = f"task-processing-{'a' * 36}-{'b' * 36}"
+        config = SandboxConfig(name="sandbox-task-1", metadata={"task_id": "t1", "workflow_id": workflow_id})
+        _sandbox, client = self._create(config)
+
+        tags = client.create.call_args.kwargs["tags"]
+        assert all(len(tag) <= 64 for tag in tags)
+        assert "task_id=t1" in tags
+        assert f"workflow_id={workflow_id[:52]}" in tags
 
     def test_create_records_the_read_back_box_shape_for_the_ledger(self):
         # The box ignores per-task overrides, so the ledger must reflect the shape the box
@@ -330,3 +343,20 @@ class TestHoglandAuthPrecedence:
 
         with override_settings(HOGLAND_API_TOKEN_FILE=file_setting, HOGLAND_API_TOKEN=static_token):
             assert get_hogland_api_token() == expected
+
+
+class TestHoglandBedrockDisabled:
+    def test_hogland_opts_out_of_direct_bedrock(self):
+        # hogland boxes boot with the bedrock feature (CLAUDE_CODE_USE_BEDROCK=1);
+        # the sandbox opts in to unsetting it so the agent uses the LLM gateway.
+        assert HoglandSandbox.disable_direct_bedrock is True
+
+    def test_env_prefix_unsets_bedrock_vars_when_requested(self):
+        prefix = build_agent_runtime_env_prefix(unset_bedrock=True)
+        assert "-u CLAUDE_CODE_USE_BEDROCK" in prefix
+        assert "-u AWS_CONTAINER_CREDENTIALS_FULL_URI" in prefix
+
+    def test_env_prefix_keeps_bedrock_vars_by_default(self):
+        prefix = build_agent_runtime_env_prefix()
+        assert "CLAUDE_CODE_USE_BEDROCK" not in prefix
+        assert "AWS_CONTAINER_CREDENTIALS_FULL_URI" not in prefix

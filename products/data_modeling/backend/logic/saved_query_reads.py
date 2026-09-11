@@ -8,6 +8,7 @@ from django.conf import settings
 from ..facade.contracts import SavedQuerySummary
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.node import Node
+from .saved_query_freshness import saved_query_materialized_at
 
 
 def _clickhouse_type(entry: object) -> str | None:
@@ -51,7 +52,7 @@ def get_saved_query_summary(team_id: int, saved_query_id: UUID | str) -> SavedQu
         id=str(saved_query.id),
         team_id=saved_query.team_id,
         name=saved_query.name,
-        last_run_at=saved_query.last_run_at,
+        last_run_at=saved_query_materialized_at(saved_query),
     )
 
 

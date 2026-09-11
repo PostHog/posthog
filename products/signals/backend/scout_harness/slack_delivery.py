@@ -12,6 +12,7 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web import SlackResponse, WebClient
 
 from posthog.dataclasses import frozen
+from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.redis import get_client
 
@@ -24,14 +25,12 @@ from products.signals.backend.scout_harness.slack_charts import (
     strip_chart_blocks,
 )
 from products.signals.backend.slack_formatting import (
-    SLACK_MARKDOWN_TEXT_MAX_LEN,
     chunk_slack_text,
     defuse_slack_tokens,
     escape_slack_mrkdwn,
     group_segments_to_limit,
     prepare_slack_markdown,
     slack_channel_id_from_target,
-    slack_markdown_block,
     split_markdown_by_headings,
     strip_chart_references,
 )
@@ -492,11 +491,11 @@ def build_scout_report_thread_slack_messages(
 def build_scout_report_note_slack_message(
     report: SignalReport, run: SignalScoutRun, note: str
 ) -> tuple[list[dict], str]:
-    """Render a note-only report edit as the note itself, framed as an update.
+    """Render an edit that added to a report — a note, fresh evidence, or both — as the addition itself.
 
-    A note-only edit leaves the title and summary the report message shows unchanged, so re-sending
+    Such an edit leaves the title and summary the report message shows unchanged, so re-sending
     `build_scout_report_slack_message` would post a message identical to the one already in the
-    channel. The note is what's new, so that's what gets delivered."""
+    channel. The addition is what's new, so that's what gets delivered."""
     scout_name = _prettify_scout_name(run.skill_name)
     header = _report_header(report)
     blocks: list[dict] = [
@@ -505,7 +504,7 @@ def build_scout_report_note_slack_message(
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"*Scout · {escape_slack_mrkdwn(scout_name)}* added a note to an existing report",
+                    "text": f"*Scout · {escape_slack_mrkdwn(scout_name)}* posted an update on an existing report",
                 }
             ],
         },
@@ -518,7 +517,7 @@ def build_scout_report_note_slack_message(
         blocks.append(slack_markdown_block(rendered_note))
 
     blocks.append(_report_link_block(report))
-    fallback = f"Scout · {escape_slack_mrkdwn(scout_name)} added a note to: {escape_slack_mrkdwn(header[:200])}"
+    fallback = f"Scout · {escape_slack_mrkdwn(scout_name)} posted an update on: {escape_slack_mrkdwn(header[:200])}"
     return blocks, fallback
 
 

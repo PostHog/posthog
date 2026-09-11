@@ -22,10 +22,13 @@ The work splits in two, because recordings queries build their AST separately fr
 
 Queries can additionally narrow the population's sessions to the ones carrying in-session
 exposure evidence (:func:`exposed_session_ids_select`). What counts as evidence comes from the
-shared session-exposure resolution, so this surface, the session buckets, and the watch shelf
-all mean the same thing by "exposed in this session". Whether the narrowing can answer for an
-experiment at all resolves through :func:`resolve_in_session_exposure_semantics`, which the
-scope control reads too, so the tab disables exactly what a query would be refused for.
+shared session-exposure resolution, so this narrowing and the session buckets, the two
+remaining readers of session-scoped evidence, mean the same thing by "exposed in this
+session". The watch shelf instead reads the person-scoped population through
+:func:`exposed_persons_select`, the same population the recordings list joins. Whether the
+narrowing can answer for an experiment at all resolves through
+:func:`resolve_in_session_exposure_semantics`, which the scope control reads too, so the tab
+disables exactly what a query would be refused for.
 
 The exposure scan window is deliberately the full experiment window, unbounded. Narrowing it
 would change who counts as exposed relative to the analysis. The expensive cases are handled
@@ -40,6 +43,7 @@ stamped-property fallback flavor (the read with no event name to prune on) is re
 precomputing teams rather than left to time out.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -66,6 +70,8 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     ensure_precomputed,
 )
+from products.experiments.backend.facade.contracts import TargetableExperiment
+from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
@@ -180,8 +186,7 @@ class ExperimentExposureLinkage:
     # Resolved only when the query narrows to in-session exposure evidence; None otherwise.
     # Carries which event and property the evidence reads and whether the stamped-property
     # fallback applies, resolved through the shared session-exposure seam so this surface
-    # can't disagree with the session buckets and the watch shelf on what "exposed in this
-    # session" means.
+    # can't disagree with the session buckets on what "exposed in this session" means.
     session_exposure: SessionExposure | None = None
 
 
@@ -266,6 +271,52 @@ def resolve_in_session_exposure_semantics(team: Team, experiment: Experiment) ->
     return InSessionExposureSemantics(session_exposure=session_exposure, unavailable_reason=None)
 
 
+def _requestable_variant_keys(experiment: Experiment) -> list[str]:
+    """The variant keys a caller may narrow an exposed population to, in the flag's own order."""
+    excluded_variants = set(experiment.excluded_variants or [])
+    return [
+        variant_definition["key"]
+        for variant_definition in experiment.feature_flag.variants or []
+        if variant_definition.get("key") and variant_definition["key"] not in excluded_variants
+    ]
+
+
+def targetable_experiments(team: Team, *, experiment_ids: Sequence[int]) -> list[TargetableExperiment]:
+    """The experiments among `experiment_ids` a replay surface can narrow to, each with its variants.
+
+    For a surface that offers experiments to pick from before it has a query to run: Postgres reads
+    only, and it applies the same refusals `resolve_exposure_linkage` raises on — deleted, no flag,
+    not launched, group-aggregated, no variants — so an experiment listed here is one the exposure
+    filter will accept rather than a ValidationError once a query runs.
+
+    Object-level access is the caller's job: pass ids the principal may already read.
+    """
+    if not experiment_ids:
+        return []
+    experiments = Experiment.objects.filter(id__in=experiment_ids, team=team, deleted=False).select_related(
+        "feature_flag"
+    )
+    targetable = []
+    for experiment in experiments:
+        flag = getattr(experiment, "feature_flag", None)
+        if flag is None or experiment.start_date is None:
+            continue
+        if (flag.filters or {}).get("aggregation_group_type_index") is not None:
+            continue
+        variants = _requestable_variant_keys(experiment)
+        if not variants:
+            continue
+        targetable.append(
+            TargetableExperiment(
+                id=experiment.id,
+                name=experiment.name,
+                description=experiment.description or "",
+                variants=tuple(variants),
+            )
+        )
+    return targetable
+
+
 def resolve_exposure_linkage(
     team: Team, *, experiment_id: int, variant: str | None, in_session: bool = False
 ) -> ExperimentExposureLinkage:
@@ -294,12 +345,7 @@ def resolve_exposure_linkage(
             "This experiment aggregates by group, so its exposures can't be matched to persons' recordings."
         )
 
-    excluded_variants = set(experiment.excluded_variants or [])
-    variant_keys = [
-        variant_definition["key"]
-        for variant_definition in flag.variants or []
-        if variant_definition.get("key") and variant_definition["key"] not in excluded_variants
-    ]
+    variant_keys = _requestable_variant_keys(experiment)
     if not variant_keys:
         raise ValidationError("This experiment's feature flag defines no variants.")
     if variant is not None:
@@ -444,6 +490,30 @@ def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.Selec
     Pure AST construction; :func:`resolve_exposure_linkage` carries the validation and the
     precompute decision, so callers can build query ASTs without side effects.
     """
+    return _exposed_population_select(linkage, project_attribution=False, variants=list(linkage.requested_variants))
+
+
+def exposed_persons_select(linkage: ExperimentExposureLinkage, *, include_multiple_variant: bool) -> ast.SelectQuery:
+    """One row per exposed distinct id, with the person and the attributed variant projected:
+    (distinct_id, person_id, variant, first_exposure_time).
+
+    The variant is the analysis's attribution over the whole experiment window, so a surface
+    that groups this population by person buckets each person the way the experiment's results
+    do. With ``include_multiple_variant`` the rows attributed MULTIPLE_VARIANT_KEY under
+    "exclude" handling stay in, so a surface can count the people the analysis set aside; the
+    key never names a real variant, so callers comparing variants skip those rows naturally.
+
+    Pure AST construction, like :func:`exposed_distinct_ids_select`.
+    """
+    variants = list(linkage.requested_variants)
+    if include_multiple_variant:
+        variants.append(MULTIPLE_VARIANT_KEY)
+    return _exposed_population_select(linkage, project_attribution=True, variants=variants)
+
+
+def _exposed_population_select(
+    linkage: ExperimentExposureLinkage, *, project_attribution: bool, variants: list[str]
+) -> ast.SelectQuery:
     exposure_select = ExposureQueryBuilder(
         context=linkage.context,
         preaggregation_job_ids=linkage.preaggregation_job_ids,
@@ -460,9 +530,10 @@ def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.Selec
     # superset (it ignores variant and reassignment), and the join keeps only candidates whose
     # latest person really is exposed.
     #
-    # The WHERE on variant also drops entities attributed MULTIPLE_VARIANT_KEY under "exclude"
-    # handling, matching who the analysis counts. Both join sides are pre-grouped, so each
-    # distinct id carries exactly one exposure row and min() merely satisfies the GROUP BY.
+    # The WHERE on variant drops entities attributed MULTIPLE_VARIANT_KEY under "exclude"
+    # handling, matching who the analysis counts, unless the caller passed the key back in via
+    # `variants`. Both join sides are pre-grouped, so each distinct id carries exactly one
+    # exposure row and min() merely satisfies the GROUP BY.
     query = parse_select(
         """
         SELECT
@@ -491,10 +562,17 @@ def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.Selec
         placeholders={
             "team_id": ast.Constant(value=linkage.context.team.pk),
             "prefilter_team_id": ast.Constant(value=linkage.context.team.pk),
-            "requested_variants": ast.Constant(value=linkage.requested_variants),
+            "requested_variants": ast.Constant(value=variants),
         },
     )
     assert isinstance(query, ast.SelectQuery)
+    if project_attribution:
+        # Exact, not arbitrary picks: pdi is grouped by distinct_id and exposures by entity_id,
+        # so each output row sees one person and one attributed variant.
+        query.select[1:1] = [
+            ast.Alias(alias="person_id", expr=ast.Call(name="any", args=[ast.Field(chain=["pdi", "person_id"])])),
+            ast.Alias(alias="variant", expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "variant"])])),
+        ]
     # Both the prefilter and the join read the exposed population, and ClickHouse substitutes a
     # plain CTE at each reference rather than computing it once, so a bare `WITH` would scan the
     # exposure source twice. MATERIALIZED computes it once and reuses the result, which keeps the

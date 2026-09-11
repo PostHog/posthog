@@ -12,6 +12,7 @@ from celery.exceptions import Retry
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
+from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.redis import get_client
@@ -28,7 +29,6 @@ from products.signals.backend.scout_harness.slack_delivery import (
     post_scout_emission_to_slack,
 )
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
-from products.signals.backend.slack_formatting import SLACK_MARKDOWN_TEXT_MAX_LEN
 from products.signals.backend.tasks import deliver_scout_slack_output, enqueue_scout_slack_delivery
 
 
@@ -237,7 +237,7 @@ class TestScoutSlackDelivery(BaseTest):
         call = fake_client.chat_postMessage.call_args_list[0].kwargs
         assert call["client_msg_id"] == delivery_id
         context = call["blocks"][0]["elements"][0]["text"]
-        assert "added a note to an existing report" in context
+        assert "posted an update on an existing report" in context
         assert call["blocks"][1]["text"]["text"] == "Checkout failures"
         markdown = call["blocks"][2]["text"]
         assert "**error rate**" in markdown

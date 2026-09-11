@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from django.db import models
@@ -48,6 +49,16 @@ MAX_VARIABLE_NAME_CHARS = 200
 MAX_VARIABLE_VALUE_CHARS = 1_000
 
 
+def _is_absolute_date(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        datetime.fromisoformat(value.strip())
+    except ValueError:
+        return False
+    return True
+
+
 class NotebookVariableSerializer(serializers.Serializer):
     """One notebook-level variable. Shared by the notebook's own `variables` field and a run body."""
 
@@ -64,16 +75,32 @@ class NotebookVariableSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=(
-            "The variable's current value. A 'date' accepts an absolute date or a relative "
-            "expression ('-7d', 'mStart'), resolved against the project timezone."
+            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form "
+            "('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
         ),
     )
 
     def validate_value(self, value: Any) -> Any:
-        # Only scalars are ever bound, so anything longer than this is not a value someone typed.
-        if isinstance(value, str) and len(value) > MAX_VARIABLE_VALUE_CHARS:
+        if value is None:
+            return value
+        # Only scalars are ever bound. A dict or a list binds as its Python repr, which the
+        # state endpoint prints again for every cell that reads the name.
+        if not isinstance(value, str | int | float | bool):
+            raise serializers.ValidationError("Use a string, a number, a boolean, or null.")
+        # The printed form is what a run and a state read carry, so bound that rather than the
+        # string alone. A long number reaches the engine the same way a long string does.
+        if len(str(value)) > MAX_VARIABLE_VALUE_CHARS:
             raise serializers.ValidationError(f"A variable value can be at most {MAX_VARIABLE_VALUE_CHARS} characters.")
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # The editor's date picker only writes absolute dates, and a relative one would re-resolve
+        # against the clock on every read, so a cell reading it could never compare equal to the
+        # value its last run bound.
+        value = attrs.get("value")
+        if attrs.get("type") == "date" and value is not None and not _is_absolute_date(value):
+            raise serializers.ValidationError({"value": "Use an absolute date, like 2025-01-31."})
+        return attrs
 
     def validate_name(self, value: str) -> str:
         name = value.strip()
@@ -457,6 +484,13 @@ class NotebookSQLV2StateResponseSerializer(serializers.Serializer):
         ),
     )
     kernel = NotebookKernelStateSerializer(help_text="The notebook's kernel runtime state and compute config.")
+    variables = NotebookVariableSerializer(
+        many=True,
+        help_text=(
+            "The notebook's declared variables, in display order. A SQL cell reads one as a `{name}` "
+            "placeholder and a Python cell as a global; a cell that reads an undeclared name fails to run."
+        ),
+    )
     cells = NotebookCellStateSerializer(
         many=True,
         help_text="Every cell in document order, with its dependency edges and derived run state.",
