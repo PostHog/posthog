@@ -9,7 +9,7 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 
 import { FUNNEL_STEP_COUNT_LIMIT } from './FunnelsQuerySteps'
 
-export function Attribution({ insightProps }: EditorFilterProps): JSX.Element {
+export function FunnelAttribution({ insightProps }: EditorFilterProps): JSX.Element {
     const { insightFilter, steps } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 

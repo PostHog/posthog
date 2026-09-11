@@ -14,4 +14,8 @@ Suggestion review, dismissal, restoration, batch review, capability filters, res
 `marketing analytics setup sync retry completed` reports requested and failed counts; it measures scheduling retries, not completed syncs.
 Payloads exclude suggestion IDs, titles, evidence, goal names and UTM values. Source navigation measures entry into connection flows; existing warehouse connection events measure their completion.
 
+## Acquisition preview
+
+With `new-marketing-analytics-dashboard` enabled, the dashboard shows visitors, sessions and pageviews using the existing Web Overview query and metric cards. The date range, comparison and saved test-account filter apply to both the summary and channel table. Reload summary refreshes only the summary. The legacy dashboard remains available when the flag is off.
+
 The new dashboard embeds the existing Attribution explorer as Conversion when `marketing-analytics-attribution` is enabled. It keeps goal selection, attribution models, conversion paths and the explorer’s date and test-account filters.
