@@ -89,6 +89,7 @@ import {
     isSessionsQuery,
     isTracesQuery,
     isWebStatsTableQuery,
+    responseHasResults,
 } from '~/queries/utils'
 import { TeamType } from '~/types'
 
@@ -889,7 +890,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     props({ query: {}, variablesOverride: undefined, autoLoad: true } as DataNodeLogicProps),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
         }
@@ -929,8 +930,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
             actions.loadData(refreshType)
         } else if (props.cachedResults) {
-            // Use cached results if available, otherwise this logic will load the data again
-            actions.setResponse(props.cachedResults)
+            // A dashboard passes its cached tile payload down as `cachedResults` on every re-render.
+            // If this logic already loaded a response with rows, do not overwrite it with an emptier
+            // cached payload, because that blanks a good chart with nobody touching the tile. Replace
+            // only when the current response has no rows, or the incoming cached results do carry rows.
+            if (
+                !responseHasResults(values.response) ||
+                responseHasResults(props.cachedResults as Record<string, any>)
+            ) {
+                actions.setResponse(props.cachedResults)
+            }
         }
     }),
     actions({
