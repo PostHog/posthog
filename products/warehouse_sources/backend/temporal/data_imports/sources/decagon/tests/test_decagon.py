@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import HTTPError, Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.decagon import (
     DECAGON_BASE_URL,
@@ -22,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.se
     DECAGON_ENDPOINTS,
     DecagonEndpointConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.source import DecagonSource
 
 DECAGON_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.decagon.decagon"
 SETTINGS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.decagon.settings"
@@ -600,8 +602,13 @@ class TestArticleTables:
         manager = _fresh_manager()
         responses = [_make_response({"unexpected": {"id": 1}, "total": 12})]
 
-        with pytest.raises(DecagonContractError):
+        with pytest.raises(DecagonContractError) as excinfo:
             _drive_rows(manager, responses, endpoint="articles")
+
+        # The failure is deterministic, so the source must classify the message it actually
+        # raises. An unclassified message repeats this identical request for the whole attempt
+        # budget, reports it every time, and leaves the schema enabled for the next schedule.
+        assert error_message_matches(str(excinfo.value), DecagonSource().get_non_retryable_errors())
 
     def test_an_empty_knowledge_base_still_completes(self) -> None:
         manager = _fresh_manager()

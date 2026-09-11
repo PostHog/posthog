@@ -48,6 +48,12 @@ class DecagonRetryableError(Exception):
     pass
 
 
+# Stable opening of the DecagonContractError message. The rest of the message names the
+# endpoint and the reported total, so `DecagonSource.get_non_retryable_errors` needs a fixed
+# fragment to match the failure on.
+CONTRACT_MISMATCH_ERROR = "Decagon imported no rows against a nonzero reported total"
+
+
 class DecagonContractError(Exception):
     """The response does not match the contract the endpoint is configured against."""
 
@@ -425,7 +431,7 @@ def get_rows(
         and reported_total > 0
     ):
         raise DecagonContractError(
-            f"Decagon: {endpoint} imported no rows although the endpoint reports {reported_total}. "
+            f"{CONTRACT_MISMATCH_ERROR}: {endpoint} reports {reported_total} rows and the walk kept none. "
             f"Check the response envelope against the endpoint config."
         )
 
