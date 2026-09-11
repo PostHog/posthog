@@ -475,7 +475,7 @@ def _call_and_parse(
                         "error": outcome.error,
                     }
                 )
-                tool_urls.update(outcome.urls)
+                tool_urls.update(_normalize_url(url) for url in outcome.urls)
                 messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(outcome.result)})
                 if outcome.error in TRANSIENT_TOOL_ERRORS:
                     raise TransientToolError(f"tool {outcome.name!r} hit a transient error: {outcome.error}")

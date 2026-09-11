@@ -285,6 +285,21 @@ class TestClassifyPayloadToolLoop(SimpleTestCase):
         assert stored["name"] == "fetch_page"
         assert stored["result"] == {"url": "https://example.com/pricing", "chars": len(markdown)}
 
+    def test_a_cited_url_matching_a_fetched_page_with_a_trailing_slash_is_kept(self):
+        config = self._config()
+        url = "https://blog.example.org/post/"
+        client = _ScriptedClient(
+            _FakeResponse(tool_calls=[_fetch_tool_call(url=url)]),
+            _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": url})),
+        )
+        page = FirecrawlScrape(url=url, markdown="# Post", status_code=200)
+
+        with patch(f"{_TOOLS_MODULE}.scrape", return_value=page):
+            result = classify_payload(config, {"name": "Acme"}, "acme.com", cast(OpenAI, client))
+
+        assert result["evidence_url"] == url
+        assert "evidence_url_rejected" not in result["meta"]
+
     def test_usage_tokens_are_summed_across_tool_turns(self):
         config = self._config()
         client = _ScriptedClient(
