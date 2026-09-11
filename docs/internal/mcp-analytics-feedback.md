@@ -24,7 +24,7 @@ The cooldown uses local storage; it does not follow the user across browsers or 
 Create the API survey in draft with partial responses enabled and an Always schedule.
 The questions are:
 
-1. Did this session help you find what you needed? Choices: Yes, Partly, No.
+1. Did this session help you find what you needed? Choices: Yes and No, displayed as thumbs up and thumbs down.
 2. What did you learn, or what was missing? Optional open text.
 
 The ID in `MCP_ANALYTICS_USEFULNESS_SURVEY_ID` selects this survey.
@@ -56,7 +56,7 @@ The SDK's existing viewer identity and group context remain available for cohort
 
 Filter reporting to this survey ID and use distinct submission IDs for response rate: submissions with a first answer divided by shown submissions.
 Do not count both the partial and completed events as separate responses.
-Report Yes, Partly, and No separately, including partial submissions with a first answer.
+Report thumbs up (Yes) and thumbs down (No) separately, including partial submissions with a first answer.
 For adoption analysis, also report unique responding viewers and organizations rather than treating repeat responses as independent customers.
 Do not interpret a missing impression event as a zero response rate.
 

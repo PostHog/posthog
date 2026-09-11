@@ -1,11 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { SurveyQuestionType } from 'posthog-js'
 
+import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonLabel, LemonTextArea } from '@posthog/lemon-ui'
 
 import { userLogic } from 'scenes/userLogic'
 
 import { mcpAnalyticsFeedbackLogic } from './mcpAnalyticsFeedbackLogic'
+
+const answerIcons: Record<string, JSX.Element> = { Yes: <IconThumbsUp />, No: <IconThumbsDown /> }
 
 export function MCPAnalyticsFeedbackPrompt({ sessionId }: { sessionId: string }): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -73,10 +76,13 @@ export function MCPAnalyticsFeedbackPrompt({ sessionId }: { sessionId: string })
                                     type="secondary"
                                     size="small"
                                     loading={submitting}
+                                    icon={answerIcons[choice]}
+                                    aria-label={choice}
+                                    tooltip={choice}
                                     onClick={() => submitResponse(choice, false)}
                                     data-attr="mcp-analytics-feedback-answer"
                                 >
-                                    {choice}
+                                    {answerIcons[choice] ? null : choice}
                                 </LemonButton>
                             ))}
                         </div>

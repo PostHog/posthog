@@ -31,7 +31,7 @@ const survey: Survey = {
             id: 'example-choice',
             type: SurveyQuestionType.SingleChoice,
             question: 'Did this session help you find what you needed?',
-            choices: ['Yes', 'Partly', 'No'],
+            choices: ['Yes', 'No'],
         },
         {
             id: 'example-detail',
@@ -64,10 +64,10 @@ const meta: Meta<typeof MCPAnalyticsFeedbackPrompt> = {
                 }
                 logic.actions.showPrompt(survey, Date.now(), 'example-submission')
                 if (context.parameters.feedbackStage === 'followup') {
-                    logic.actions.responseQueued('Partly', false)
+                    logic.actions.responseQueued('No', false)
                 }
                 if (context.parameters.feedbackStage === 'error') {
-                    logic.actions.responseQueued('Partly', false)
+                    logic.actions.responseQueued('No', false)
                     logic.actions.setDetail('Found a tool call that needs a clearer error message.')
                     logic.actions.responseFailed()
                 }

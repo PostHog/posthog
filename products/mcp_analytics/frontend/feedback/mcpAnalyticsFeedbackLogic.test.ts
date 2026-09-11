@@ -33,7 +33,7 @@ describe('mcpAnalyticsFeedbackLogic', () => {
                 id: 'example-choice',
                 type: SurveyQuestionType.SingleChoice,
                 question: 'Was this useful?',
-                choices: ['Yes', 'Partly', 'No'],
+                choices: ['Yes', 'No'],
             },
             { id: 'example-detail', type: SurveyQuestionType.Open, question: 'What did you learn?', optional: true },
         ],
@@ -157,21 +157,21 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         (detail) => {
             loadSurvey()
             jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
-            logic.actions.submitResponse('Partly', false)
+            logic.actions.submitResponse('No', false)
             logic.actions.submitResponse('Yes', false)
-            expect(logic.values.answer).toBe('Partly')
+            expect(logic.values.answer).toBe('No')
             expect(posthog.capture).toHaveBeenCalledWith(
                 'survey sent',
                 expect.objectContaining({
                     $survey_id: survey.id,
                     $survey_completed: false,
-                    '$survey_response_example-choice': 'Partly',
+                    '$survey_response_example-choice': 'No',
                 })
             )
             const submissionId = logic.values.submissionId
             logic.actions.setDetail(detail)
-            logic.actions.submitResponse('Partly', true)
-            logic.actions.submitResponse('Partly', true)
+            logic.actions.submitResponse('No', true)
+            logic.actions.submitResponse('No', true)
             expect(logic.values.completed).toBe(true)
             expect(logic.values.submitting).toBe(false)
             const sent = jest.mocked(posthog.capture).mock.calls.filter(([name]) => name === 'survey sent')
@@ -180,7 +180,7 @@ describe('mcpAnalyticsFeedbackLogic', () => {
                 expect.objectContaining({
                     $survey_submission_id: submissionId,
                     $survey_completed: true,
-                    '$survey_response_example-choice': 'Partly',
+                    '$survey_response_example-choice': 'No',
                     ...(detail ? { '$survey_response_example-detail': detail } : {}),
                 })
             )
