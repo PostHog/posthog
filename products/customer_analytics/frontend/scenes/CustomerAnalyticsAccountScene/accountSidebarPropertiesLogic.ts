@@ -51,6 +51,7 @@ export interface AccountSidebarPropertiesLogicProps {
 }
 
 export type AccountPropertiesPanelState = 'loading' | 'failed' | 'ready'
+export type AccountPropertyEditSource = 'account_sidebar' | 'list_expansion'
 
 export interface RelationshipEditBaseline {
     propertyKey: string
@@ -117,11 +118,13 @@ export interface accountSidebarPropertiesLogicActions {
     }: {
         definitionId: string
         propertyKey: string
+        source: AccountPropertyEditSource
         value: AccountCustomPropertyValue
     }) => {
         propertyKey: string
         definitionId: string
         value: AccountCustomPropertyValue
+        source: AccountPropertyEditSource
     }
     persistCustomPropertyFailure: (
         error: string,
@@ -136,6 +139,7 @@ export interface accountSidebarPropertiesLogicActions {
             propertyKey: string
             definitionId: string
             value: AccountCustomPropertyValue
+            source: AccountPropertyEditSource
         }
     ) => {
         savedPropertyKey: string
@@ -143,6 +147,7 @@ export interface accountSidebarPropertiesLogicActions {
             propertyKey: string
             definitionId: string
             value: AccountCustomPropertyValue
+            source: AccountPropertyEditSource
         }
     }
     persistRelationship: ({
@@ -157,12 +162,14 @@ export interface accountSidebarPropertiesLogicActions {
         memberIds: number[]
         propertyKey: string
         singleHolder: boolean
+        source: AccountPropertyEditSource
     }) => {
         propertyKey: string
         definitionId: string
         memberIds: number[]
         singleHolder: boolean
         baseline: RelationshipEditBaseline
+        source: AccountPropertyEditSource
     }
     persistRelationshipFailure: (
         error: string,
@@ -179,6 +186,7 @@ export interface accountSidebarPropertiesLogicActions {
             memberIds: number[]
             singleHolder: boolean
             baseline: RelationshipEditBaseline
+            source: AccountPropertyEditSource
         }
     ) => {
         savedPropertyKey: string
@@ -188,6 +196,7 @@ export interface accountSidebarPropertiesLogicActions {
             memberIds: number[]
             singleHolder: boolean
             baseline: RelationshipEditBaseline
+            source: AccountPropertyEditSource
         }
     }
     recordRelationshipAddition: (
@@ -210,17 +219,21 @@ export interface accountSidebarPropertiesLogicActions {
     }
     saveCustomProperty: (
         propertyKey: string,
-        value: AccountCustomPropertyValue
+        value: AccountCustomPropertyValue,
+        source?: AccountPropertyEditSource
     ) => {
         propertyKey: string
+        source: AccountPropertyEditSource
         value: AccountCustomPropertyValue
     }
     saveRelationship: (
         propertyKey: string,
-        memberIds: number[]
+        memberIds: number[],
+        source?: AccountPropertyEditSource
     ) => {
         memberIds: number[]
         propertyKey: string
+        source: AccountPropertyEditSource
     }
     setRelationshipEditBaseline: (baseline: RelationshipEditBaseline) => {
         baseline: RelationshipEditBaseline
@@ -289,8 +302,16 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
         actions({
             editProperty: (property: AccountSidebarProperty) => ({ property }),
             cancelEditing: true,
-            saveCustomProperty: (propertyKey: string, value: AccountCustomPropertyValue) => ({ propertyKey, value }),
-            saveRelationship: (propertyKey: string, memberIds: number[]) => ({ propertyKey, memberIds }),
+            saveCustomProperty: (
+                propertyKey: string,
+                value: AccountCustomPropertyValue,
+                source: AccountPropertyEditSource = 'account_sidebar'
+            ) => ({ propertyKey, value, source }),
+            saveRelationship: (
+                propertyKey: string,
+                memberIds: number[],
+                source: AccountPropertyEditSource = 'account_sidebar'
+            ) => ({ propertyKey, memberIds, source }),
             setRelationshipEditBaseline: (baseline: RelationshipEditBaseline) => ({ baseline }),
             recordRelationshipRemoval: (propertyKey: string, memberId: number, assignmentId: string) => ({
                 propertyKey,
@@ -331,6 +352,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                         propertyKey: string
                         definitionId: string
                         value: AccountCustomPropertyValue
+                        source: AccountPropertyEditSource
                     }): Promise<string> => {
                         await api.accountsCustomPropertyValuesCreate(String(props.projectId), props.accountId, {
                             definition: definitionId,
@@ -350,6 +372,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                         memberIds: number[]
                         singleHolder: boolean
                         baseline: RelationshipEditBaseline
+                        source: AccountPropertyEditSource
                     }): Promise<string> => {
                         const projectId = String(props.projectId)
                         const current = await api.accountsRelationshipsList(projectId, props.accountId)
@@ -554,7 +577,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                         actions.ensureAllMembersLoaded()
                     }
                 },
-                saveCustomProperty: ({ propertyKey, value }) => {
+                saveCustomProperty: ({ propertyKey, value, source }) => {
                     const property = values.sidebarProperties.find((row) => row.key === propertyKey)
                     if (
                         values.savingPropertyKey ||
@@ -564,9 +587,9 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                     ) {
                         return
                     }
-                    actions.persistCustomProperty({ propertyKey, definitionId: property.definition.id, value })
+                    actions.persistCustomProperty({ propertyKey, definitionId: property.definition.id, value, source })
                 },
-                saveRelationship: ({ propertyKey, memberIds }) => {
+                saveRelationship: ({ propertyKey, memberIds, source }) => {
                     const property = values.sidebarProperties.find((row) => row.key === propertyKey)
                     if (values.savingPropertyKey || property?.kind !== 'relationship' || property.editable === false) {
                         return
@@ -594,16 +617,17 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                         memberIds: selected,
                         singleHolder: property.definition.is_single_holder !== false,
                         baseline,
+                        source,
                     })
                 },
-                persistCustomPropertySuccess: ({ savedPropertyKey }) => {
+                persistCustomPropertySuccess: ({ savedPropertyKey, payload }) => {
                     const property = values.sidebarProperties.find((row) => row.key === savedPropertyKey)
                     if (property?.kind === 'custom') {
                         // The property name and value stay out because they can hold customer data.
                         posthog.capture(AccountsEvents.CustomPropertyUpdated, {
                             display_type: property.definition.display_type,
                             workflow_reference: property.definition.has_workflow_reference,
-                            source: 'account_sidebar',
+                            source: payload?.source ?? 'account_sidebar',
                         })
                     }
                     refresh()
@@ -616,7 +640,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                             role: ROLE_KEY_BY_NAME[property.definition.name] ?? property.definition.name,
                             is_assigned: memberIds.length > 0,
                             assigned_user_id: memberIds.length === 1 ? memberIds[0] : null,
-                            source: 'account_sidebar',
+                            source: payload?.source ?? 'account_sidebar',
                         })
                     }
                     refresh()

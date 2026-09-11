@@ -19,28 +19,28 @@ const saveFeatureFlag = async (page: Page): Promise<void> => {
 }
 
 const expectFlagEnabled = async (page: Page, name: string): Promise<void> => {
-    await expect(page.getByText(`Feature flag enabled for: ${name}`)).toBeVisible()
+    await expect(page.getByRole('link', { name, exact: true })).toBeVisible()
 }
 
 const expectVariant = async (page: Page, variant?: string): Promise<void> => {
     if (!variant) {
-        return await expect(page.locator('.LemonTag').getByText('variant:')).not.toBeVisible()
+        return await expect(page.getByText('Variant', { exact: true })).not.toBeVisible()
     }
 
-    await expect(page.locator('.LemonTag').getByText(`variant: ${variant}`)).toBeVisible()
+    await expect(page.getByText(variant, { exact: true })).toBeVisible()
 }
 
 const expectEvents = async (page: Page, events: string[]): Promise<void> => {
     if (events.length === 0) {
-        return await expect(page.getByText('When the user sends the following events')).not.toBeVisible()
+        return await expect(page.getByText('Events', { exact: true })).not.toBeVisible()
     }
 
-    const eventsSpan = page.getByText('When the user sends the following events')
+    const eventsSpan = page.getByText('Events', { exact: true })
     const eventsSection = eventsSpan.locator('..')
 
     await expect(eventsSpan).toBeVisible()
     for (const event of events) {
-        await expect(eventsSection.locator('.LemonTag').getByText(event)).toBeVisible()
+        await expect(eventsSection.getByText(event, { exact: true })).toBeVisible()
     }
 }
 
@@ -68,8 +68,9 @@ const clickCreateSurvey = async (page: Page, name: string): Promise<void> => {
     await page.locator('[data-attr="create-survey"]').click()
 }
 
-const goToSurveyOverview = async (page: Page): Promise<void> => {
-    await page.locator('.LemonTabs__tab').getByText('Overview').click()
+const openSurveyDetails = async (page: Page): Promise<void> => {
+    await page.locator('#main-content').getByTestId('open-context-panel-button').click()
+    await expect(page.getByRole('tab', { name: 'Details', exact: true })).toBeVisible()
 }
 
 const launchSurvey = async (page: Page, name: string): Promise<void> => {
@@ -129,7 +130,7 @@ test.describe('Quick create survey from feature flag', () => {
 
         await launchSurvey(page, name)
 
-        await goToSurveyOverview(page)
+        await openSurveyDetails(page)
         await expectFlagEnabled(page, name)
         await expectVariant(page, undefined)
         await expectEvents(page, [])
@@ -143,7 +144,7 @@ test.describe('Quick create survey from feature flag', () => {
 
         await launchSurvey(page, name)
 
-        await goToSurveyOverview(page)
+        await openSurveyDetails(page)
         await expectFlagEnabled(page, name)
         await expectVariant(page, undefined)
         await expectEvents(page, [])
@@ -160,7 +161,7 @@ test.describe('Quick create survey from feature flag', () => {
         await page.getByText(`Only users in the test-1 variant`).locator('..').locator('input').click()
 
         await launchSurvey(page, name)
-        await goToSurveyOverview(page)
+        await openSurveyDetails(page)
         await expectFlagEnabled(page, name)
         await expectVariant(page, 'test-1')
         await expectEvents(page, [])
@@ -178,7 +179,7 @@ test.describe('Quick create survey from feature flag', () => {
         await autocaptureOption.click()
 
         await launchSurvey(page, name)
-        await goToSurveyOverview(page)
+        await openSurveyDetails(page)
         await expectFlagEnabled(page, name)
         await expectVariant(page, undefined)
         await expectEvents(page, ['$autocapture'])
@@ -188,9 +189,9 @@ test.describe('Quick create survey from feature flag', () => {
         await saveFeatureFlag(page)
         await clickCreateSurvey(page, name)
         await launchSurvey(page, name)
-        await goToSurveyOverview(page)
+        await openSurveyDetails(page)
 
-        const ffLink = page.getByText(`Feature flag enabled for: ${name}`).locator('a[href]')
+        const ffLink = page.getByRole('link', { name, exact: true })
         await expect(ffLink).toBeVisible()
         const ffUrl = await ffLink.getAttribute('href')
         // Don't wait for networkidle — PostHog polls continuously, so it rarely settles. goto
@@ -214,9 +215,9 @@ test.describe('Quick create survey from feature flag', () => {
         await page.getByText(`Only users in the test-2 variant`).locator('..').locator('input').click()
         await launchSurvey(page, name)
 
-        await goToSurveyOverview(page)
+        await openSurveyDetails(page)
 
-        const ffLink = page.getByText(`Feature flag enabled for: ${name}`).locator('a[href]')
+        const ffLink = page.getByRole('link', { name, exact: true })
         await expect(ffLink).toBeVisible()
         const ffUrl = await ffLink.getAttribute('href')
         // Don't wait for networkidle — PostHog polls continuously, so it rarely settles. goto

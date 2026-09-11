@@ -21,33 +21,46 @@ import pandas as pd
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import FEATURE_NAMES, feature_frame
+from products.signals.backend.ranking.features import NO_EXTRAS, Extras, FeatureSet
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
 from products.signals.dags.inbox_ranking.dataset.dag import label_provenance_ok
 from products.signals.dags.inbox_ranking.dataset.queries import LABEL_DEFAULTS
 from products.signals.dags.inbox_ranking.training.heads import Head
 
-# Report-state columns an example carries, besides the features. `report_age_hours` is the
-# snapshot's own clock and becomes the `age_hours` feature.
-STATE_COLUMNS = (
-    "report_created_at",
-    "report_age_hours",
-    "signal_count",
-    "total_weight",
-    "run_count",
-    "title_chars",
-    "summary_chars",
-    "priority",
-    "actionability",
-)
+# Report-state columns every example needs, whatever the feature set: the report's creation time
+# (the holdout is cut on it), its age at the snapshot (`report_age_hours`, which becomes the
+# `age_hours` every set may read), and `signal_count`, which marks a row that carries state at all.
+BASE_STATE_COLUMNS = ("report_created_at", "report_age_hours", "signal_count")
 # Inputs of the label provenance cross-check, read next to the features and labels.
 PROVENANCE_STATE_COLUMNS = ("report_team_id", "status", "pg_updated_at")
 PROVENANCE_LABEL_COLUMNS = ("latest_status_event", "status_event_team_id")
-EXAMPLE_COLUMNS = ("head", "report_id", "snapshot_date", "report_created_at", *FEATURE_NAMES, "label")
+
 
 # A forward run stamps features_observed_at a few hours after the snapshot end. Anything read later
 # than this is a backfill that carries current Postgres state, not the state as of the snapshot.
 STATE_LAG_LIMIT = datetime.timedelta(days=2)
+
+
+def state_columns(feature_set: FeatureSet) -> tuple[str, ...]:
+    """The report-state columns to read for `feature_set`: the base ones plus its own."""
+    return (*BASE_STATE_COLUMNS, *(name for name in feature_set.state_columns if name not in BASE_STATE_COLUMNS))
+
+
+def example_columns(feature_set: FeatureSet) -> tuple[str, ...]:
+    """The examples Parquet columns for `feature_set`. One object per set, because two sets carry
+    different feature columns."""
+    return ("head", "report_id", "snapshot_date", "report_created_at", *feature_set.feature_names, "label")
+
+
+def state_rows(state: pd.DataFrame, feature_set: FeatureSet) -> pd.DataFrame:
+    """The `feature_set` slice of `state`, with the snapshot's `report_age_hours` as `age_hours`.
+
+    Both the example builder and the unseen scorer go through this, so a report scored on the day
+    it is born sees the vector it would have seen as a training example.
+    """
+    rows = state[list(state_columns(feature_set))].copy()
+    rows["age_hours"] = rows.pop("report_age_hours").astype(float)
+    return rows
 
 
 @frozen
@@ -114,10 +127,15 @@ def _flag_or_true(labels: pd.DataFrame, column: str) -> pd.Series:
     return labels[column].fillna(False).astype(bool) if column in labels else pd.Series(True, index=labels.index)
 
 
-def build_examples(snapshots: Mapping[datetime.date, Snapshot], head: Head) -> pd.DataFrame:
+def build_examples(
+    snapshots: Mapping[datetime.date, Snapshot],
+    head: Head,
+    feature_set: FeatureSet,
+    extras: Extras = NO_EXTRAS,
+) -> pd.DataFrame:
     """Every (report, snapshot) scoring moment for `head` whose label can be read, as one frame
-    with EXAMPLE_COLUMNS. Snapshots whose `horizon_days`-later snapshot is missing contribute no
-    examples (the label is unknowable), so a gap in the partitions simply thins the data."""
+    with `feature_set`'s example columns. Snapshots whose `horizon_days`-later snapshot is missing
+    contribute no examples (the label is unknowable), so a gap in the partitions thins the data."""
     frames: list[pd.DataFrame] = []
     for date in sorted(snapshots):
         later = snapshots.get(date + datetime.timedelta(days=head.horizon_days))
@@ -145,9 +163,8 @@ def build_examples(snapshots: Mapping[datetime.date, Snapshot], head: Head) -> p
             )
         if not keep.any():
             continue
-        rows = state.loc[keep, list(STATE_COLUMNS)].copy()
-        rows["age_hours"] = rows.pop("report_age_hours").astype(float)
-        features = feature_frame(rows)
+        rows = state_rows(state.loc[keep], feature_set)
+        features = feature_set.build_matrix(rows, extras)
         examples = pd.DataFrame(
             {
                 "head": head.name,
@@ -156,13 +173,14 @@ def build_examples(snapshots: Mapping[datetime.date, Snapshot], head: Head) -> p
                 "report_created_at": pd.to_datetime(rows["report_created_at"], utc=True).to_numpy(),
             }
         )
-        for name in FEATURE_NAMES:
+        for name in feature_set.feature_names:
             examples[name] = features[name].to_numpy()
         examples["label"] = head.label(labels_later.loc[keep]).astype(int).to_numpy()
         frames.append(examples)
+    columns = list(example_columns(feature_set))
     if not frames:
-        return pd.DataFrame(columns=list(EXAMPLE_COLUMNS))
-    return pd.concat(frames, ignore_index=True)[list(EXAMPLE_COLUMNS)]
+        return pd.DataFrame(columns=columns)
+    return pd.concat(frames, ignore_index=True)[columns]
 
 
 def holdout_mask(examples: pd.DataFrame, holdout_days: int) -> pd.Series:

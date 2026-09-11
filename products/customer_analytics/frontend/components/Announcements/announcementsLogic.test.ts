@@ -164,22 +164,38 @@ describe('announcementsLogic', () => {
         expect(logic.values.selectedChannelIds).toEqual(['C9'])
     })
 
-    it('treats "my accounts" as the current user and keeps assigned/unassigned mutually exclusive', async () => {
+    it.each([
+        ['assigned', { assignedOnly: true }],
+        ['unassigned', { allRolesUnassigned: true }],
+    ] as const)('maps the %s status to the accounts query', async (status, expectedFilter) => {
+        mockPerformQuery.mockResolvedValue({ columns: ['name', 'slack_channel_id'], results: [] })
+        logic = announcementsLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.setAssignmentStatus(status)
+        }).toDispatchActions(['loadFilteredAccountChannelsSuccess'])
+
+        expect(mockPerformQuery).toHaveBeenCalledWith(expect.objectContaining(expectedFilter))
+    })
+
+    it('treats "my accounts" as the current user and keeps assignment state canonical', async () => {
         mockPerformQuery.mockResolvedValue({ columns: ['name', 'slack_channel_id'], results: [] })
         logic = announcementsLogic()
         logic.mount()
         userLogic.actions.loadUserSuccess({ id: 7, email: 'me@example.com' } as UserType)
 
         logic.actions.setMyAccounts(true)
+        expect(logic.values.assignmentStatus).toBe('assigned')
         expect(logic.values.assignedTo).toEqual([7])
         expect(logic.values.assignedToCurrentUser).toBe(true)
 
-        logic.actions.setAllUnassigned(true)
+        logic.actions.setAssignmentStatus('unassigned')
         expect(logic.values.assignedTo).toEqual([])
         expect(logic.values.assignedToCurrentUser).toBe(false)
 
         logic.actions.setAssignedTo([9])
-        expect(logic.values.allUnassigned).toBe(false)
+        expect(logic.values.assignmentStatus).toBe('assigned')
     })
 
     it('does not submit while a send is already in flight', async () => {
