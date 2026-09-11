@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useAsyncActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconPlus } from '@posthog/icons'
@@ -12,6 +12,11 @@ import {
     validateProposedUrl,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
@@ -29,14 +34,27 @@ function deriveAuthorizationCandidate(dataUrl: string): string | null {
     }
 }
 
+function authorizationDisabledReason(): string | null {
+    if (inStorybook() || inStorybookTestRunner()) {
+        return null
+    }
+    return getAccessControlDisabledReason(
+        AccessControlResourceType.WebAnalytics,
+        AccessControlLevel.Editor,
+        undefined,
+        false
+    )
+}
+
 export function HeatmapsForbiddenURL(): JSX.Element {
     const { dataUrl } = useValues(heatmapsBrowserLogic)
+    const { currentTeamLoading } = useValues(teamLogic)
     const logic = authorizedUrlListLogic({
         ...defaultAuthorizedUrlProperties,
         type: AuthorizedUrlListType.TOOLBAR_URLS,
     })
     const { authorizedUrls } = useValues(logic)
-    const { addUrl } = useActions(logic)
+    const { addUrl } = useAsyncActions(logic)
 
     const { urlToAuthorize, validationError } = useMemo(() => {
         if (!dataUrl) {
@@ -50,6 +68,8 @@ export function HeatmapsForbiddenURL(): JSX.Element {
         return { urlToAuthorize: candidate, validationError: error ?? null }
     }, [dataUrl, authorizedUrls])
 
+    const disabledReason = authorizationDisabledReason()
+
     return (
         <div className="my-2">
             <LemonBanner
@@ -59,9 +79,15 @@ export function HeatmapsForbiddenURL(): JSX.Element {
                         ? {
                               children: 'Authorize URL',
                               icon: <IconPlus />,
-                              onClick: () => {
-                                  addUrl(urlToAuthorize)
-                                  lemonToast.success(`Authorized ${urlToAuthorize}`)
+                              loading: currentTeamLoading,
+                              disabledReason,
+                              onClick: async () => {
+                                  await addUrl(urlToAuthorize)
+                                  // The save can be rejected, so only claim success once the URL
+                                  // is really on the project's authorized list.
+                                  if (logic.values.authorizedUrls.includes(urlToAuthorize)) {
+                                      lemonToast.success(`Authorized ${urlToAuthorize}`)
+                                  }
                               },
                               'data-attr': 'heatmaps-authorize-url',
                           }
@@ -70,6 +96,7 @@ export function HeatmapsForbiddenURL(): JSX.Element {
             >
                 {dataUrl} is not an authorized URL.
                 {validationError ? <> {validationError}.</> : null}
+                {disabledReason ? <> Ask a web analytics editor to authorize it.</> : null}
             </LemonBanner>
         </div>
     )

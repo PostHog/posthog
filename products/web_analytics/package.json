@@ -13,6 +13,7 @@
         "query-selector-shadow-dom": "catalog:"
     },
     "devDependencies": {
+        "@testing-library/react": "^14.3.1",
         "@types/query-selector-shadow-dom": "catalog:",
         "kea-test-utils": "catalog:"
     },
@@ -21,10 +22,13 @@
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
         "@storybook/react": "catalog:",
+        "@testing-library/react": "*",
         "@types/react": "*",
+        "@types/react-dom": "*",
         "clsx": "*",
         "fuse.js": "*",
         "react": "*",
+        "react-dom": "*",
         "use-debounce": "*",
         "use-resize-observer": "*"
     }
