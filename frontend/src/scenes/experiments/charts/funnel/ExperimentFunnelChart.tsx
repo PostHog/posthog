@@ -71,7 +71,9 @@ export function ExperimentFunnelChart({
         [result.baseline, result.variant_results]
     )
 
-    const numMetricSteps = Math.max(metric.series.length, ...variants.map((v) => v.step_counts?.length ?? 0))
+    // A result computed before someone removed a step still carries the old step counts, and a band
+    // past the metric's series has no name to show and no actors query the backend will accept.
+    const numMetricSteps = metric.series.length
 
     const steps = useMemo(() => {
         const isUnordered = metric.funnel_order_type === StepOrderValue.UNORDERED
@@ -81,7 +83,7 @@ export function ExperimentFunnelChart({
                 isUnordered ? `Completed ${i + 1} ${i === 0 ? 'step' : 'steps'}` : getStepName(metric.series[i], i + 1)
             ),
         ]
-    }, [metric.funnel_order_type, metric.series, numMetricSteps])
+    }, [metric.funnel_order_type, metric.series])
 
     const series = useMemo<Series<VariantFunnelMeta>[]>(() => {
         const flagVariants = getExperimentVariants(experiment)
