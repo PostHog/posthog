@@ -210,6 +210,21 @@ class TestProperty(BaseTest):
             self._parse_expr("toString(group_0.key) ilike 'org_1%' or toString(group_0.key) ilike 'org_2%'"),
         )
 
+    def test_property_to_expr_group_key_prints_the_group_join(self):
+        # The AST tests above stop at `group_0.key`; this proves the resolver reaches the groups table's
+        # key column through the events lazy join and does not fall back to a JSON extract.
+        where = self._property_to_expr({"type": "group", "group_type_index": 0, "key": "$group_key", "value": "org_1"})
+        query = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=where,
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql, _ = prepare_and_print_ast(query, context=context, dialect="clickhouse")
+        assert "groups" in sql
+        assert "group_key" in sql
+        assert "group_properties" not in sql
+
     def test_property_to_expr_group_booleans(self):
         PropertyDefinition.objects.create(
             team=self.team,
