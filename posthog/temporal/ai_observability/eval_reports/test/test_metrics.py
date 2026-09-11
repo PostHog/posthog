@@ -35,3 +35,5 @@ def test_record_coordinator_poll_emits_saturation_and_progress_signals() -> None
     assert "llma_eval_reports_coordinator_selected" in metric_names
     assert "llma_eval_reports_coordinator_oldest_due_age_seconds" in metric_names
     assert "llma_eval_reports_coordinator_last_successful_poll_timestamp_seconds" in metric_names
+    meter.create_gauge_float.return_value.set.assert_any_call(3_600.0)
+    meter.create_gauge_float.return_value.set.assert_any_call(1_789_128_000.0)

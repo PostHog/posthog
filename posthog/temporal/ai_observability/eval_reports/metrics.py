@@ -159,12 +159,14 @@ def record_coordinator_poll(
         "llma_eval_reports_coordinator_selected",
         "Evaluation reports selected for processing by coordinators.",
     ).add(selected_count)
-    if oldest_due_at is not None:
-        get_metric_meter({"trigger_type": trigger_type}).create_histogram_float(
-            "llma_eval_reports_coordinator_oldest_due_age_seconds",
-            "Age of the oldest scheduled evaluation report selected by a coordinator.",
-            "s",
-        ).record(max(0.0, (dt.datetime.now(tz=dt.UTC) - oldest_due_at).total_seconds()))
+    oldest_due_age_seconds = (
+        max(0.0, (dt.datetime.now(tz=dt.UTC) - oldest_due_at).total_seconds()) if oldest_due_at is not None else 0.0
+    )
+    get_metric_meter({"trigger_type": trigger_type}).create_gauge_float(
+        "llma_eval_reports_coordinator_oldest_due_age_seconds",
+        "Age of the oldest scheduled evaluation report selected by a coordinator.",
+        "s",
+    ).set(oldest_due_age_seconds)
     get_metric_meter({"trigger_type": trigger_type}).create_gauge_float(
         "llma_eval_reports_coordinator_last_successful_poll_timestamp_seconds",
         "Unix timestamp of the last successful evaluation report coordinator poll.",
