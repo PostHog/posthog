@@ -1,12 +1,12 @@
 from collections.abc import Iterable
 from typing import Any, Literal, Optional, Union, cast
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
-from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -2721,9 +2721,11 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
         assert self._kept(filter, self.EXCEPTION_EVENT) == expected_kept
 
 
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-# $active_feature_flags is a native Array(String) subcolumn on the new events schema, so its negative
-# multi-value filters compile through the arrayExists optimizer rather than a scalar comparison. These
+@pytest.mark.skipif(
+    not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="Requires test-new-events-schema CI label (#63448)"
+)
+# $active_feature_flags is derived from the native feature-flags map, and its negative multi-value
+# filters compile through the arrayExists optimizer rather than a scalar comparison. These
 # execute against ClickHouse to prove the optimized path returns the right rows, not only the right SQL.
 class TestNegativeArrayOperatorNullParityWithData(APIBaseTest):
     EVENT = "purchase"
@@ -2735,13 +2737,13 @@ class TestNegativeArrayOperatorNullParityWithData(APIBaseTest):
             team=cls.team,
             event=cls.EVENT,
             distinct_id="has_alpha",
-            properties={"$active_feature_flags": ["alpha", "gamma"]},
+            properties={"$feature_flags": {"alpha": "true", "gamma": "true"}},
         )
         _create_event(
             team=cls.team,
             event=cls.EVENT,
             distinct_id="no_alpha",
-            properties={"$active_feature_flags": ["beta", "gamma"]},
+            properties={"$feature_flags": {"beta": "true", "gamma": "true"}},
         )
         _create_event(team=cls.team, event=cls.EVENT, distinct_id="missing", properties={})
 

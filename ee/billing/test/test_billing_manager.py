@@ -118,6 +118,7 @@ class TestFundingStatusParsing(SimpleTestCase):
 
 
 class TestBillingManager(BaseTest):
+    @patch("ee.billing.billing_manager.BILLING_SERVICE_URL", "https://billing.posthog.com")
     @patch(
         "ee.billing.billing_manager.http_session.get",
         return_value=MagicMock(

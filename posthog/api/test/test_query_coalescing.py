@@ -20,6 +20,7 @@ from posthog.api.query_coalescer import (
     QueryCoalescer,
     query_coalesce_counter,
 )
+from posthog.models.scoping import get_current_team_id
 
 
 class TestQueryCoalescer(TestCase):
@@ -308,7 +309,8 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("test_event", events)
         mock_coalescer.wait_for_signal.assert_not_called()
 
-    def test_follower_gets_replayed_success_response(self):
+    @parameterized.expand([("query", "query/", "post"), ("insight", "insights/trend/", "get")])
+    def test_follower_gets_replayed_success_response(self, _name: str, path: str, method: str) -> None:
         mock_coalescer = mock.MagicMock()
         mock_coalescer.try_acquire.return_value = False
         mock_coalescer._dry_run = False
@@ -323,8 +325,9 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
             mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
             mock.patch("posthog.api.query_coalescer.QueryCoalescer", return_value=mock_coalescer),
         ):
-            response = self.client.post(self._query_url(), self._query_payload())
+            response = getattr(self.client, method)(f"/api/projects/{self.team.id}/{path}", self._query_payload())
 
+        self.assertIsNone(get_current_team_id())
         self.assertEqual(response.status_code, 200)
         self.assertIn("test_event", response.json()["results"][0][0])
 

@@ -867,10 +867,10 @@ class ErrorTrackingQueryBuilder:
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.Gt,
                             left=ast.Call(
-                                name="position",
+                                name="multiSearchAnyCaseInsensitive",
                                 args=[
-                                    ast.Call(name="lower", args=[ast.Field(chain=[*chain_prefix, property_name])]),
-                                    ast.Call(name="lower", args=[ast.Constant(value=token)]),
+                                    ast.Field(chain=[*chain_prefix, property_name]),
+                                    ast.Array(exprs=[ast.Constant(value=token)]),
                                 ],
                             ),
                             right=ast.Constant(value=0),

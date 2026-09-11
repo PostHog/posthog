@@ -24,6 +24,7 @@ import posthog.hogql.compiler.bytecode  # noqa: F401
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, LightweightDeleteMutationRunner
+from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
 from posthog.dags.common import JobOwners
 from posthog.dags.deletes import deletes_job
 from posthog.models.data_deletion_request import (
@@ -145,12 +146,25 @@ def _property_filter_clause(props: list[str], prefix: str = "fp_", column: str =
 
 
 def _json_property_filter_clause(props: list[str], column: str = "properties") -> str:
-    """Presence clause for the native-JSON events tables, where JSONHas over the JSON column does
-    not see typed paths or nested objects — subcolumn reads are the reliable form."""
+    """Find retained copies in native properties, mutation instructions, and quarantine."""
     exprs = [json_property_presence_expr(column, prop) for prop in props]
-    if len(exprs) == 1:
-        return exprs[0]
+    # Malformed quarantine can contain any requested value, so its presence prevents verifying removal.
+    exprs.append(json_property_presence_expr(column, UNPARSEABLE_PROPERTIES_KEY))
+    temporary_props = (
+        props
+        if column == "properties"
+        else [f"{instruction}.{prop}" for instruction in ("$set", "$set_once") for prop in props]
+    )
+    exprs.extend(json_property_presence_expr("temporary_properties", prop) for prop in temporary_props)
     return f"({' OR '.join(exprs)})"
+
+
+def _json_mutation_keys(props: list[str]) -> list[str]:
+    """Keys for JSONDropKeys on the native-JSON events table. The ingest cleaner folds every
+    `$feature/<flag>` property into the `$feature_flags` map, so the stored path is the map entry."""
+    return [
+        f"$feature_flags.{prop.removeprefix('$feature/')}" if prop.startswith("$feature/") else prop for prop in props
+    ]
 
 
 def _property_filter_params(props: list[str], prefix: str = "fp_") -> dict:
@@ -485,7 +499,7 @@ def _refuse_property_removal_unsweepable(
         )
         if not request.properties and not request.person_properties:
             return None
-        return _property_removal_where(request, inserted_at_max=marker_str)
+        return _property_removal_where(request, inserted_at_max=marker_str, json_schema=target.uses_new_events_schema)
 
     _refuse_unsweepable(
         cluster, unsweepable, deletion_request, predicate_for, reason=_PROPERTY_REWRITE_UNSWEEPABLE_REASON
@@ -925,7 +939,7 @@ def process_property_removal_shard(
         if properties:
             properties_read = "toJSONString(properties)" if json_schema else "properties"
             update_parts.append(f"properties = JSONDropKeys(%(keys)s)({properties_read})")
-            mutation_params["keys"] = properties
+            mutation_params["keys"] = _json_mutation_keys(properties) if json_schema else properties
         if person_properties:
             person_properties_read = "toJSONString(person_properties)" if json_schema else "person_properties"
             update_parts.append(f"person_properties = JSONDropKeys(%(person_keys)s)({person_properties_read})")

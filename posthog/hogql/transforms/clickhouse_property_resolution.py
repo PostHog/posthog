@@ -21,18 +21,22 @@ so it treats both an empty string and the literal text `"null"` as "not set". Th
 exist in the blob" test, but tightening it would change query results.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, cast
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
-from posthog.hogql.restricted_properties import mirrored_property_for_column, restricted_property_keys_for_table_type
+from posthog.hogql.restricted_properties import (
+    mirrored_property_for_column,
+    native_property_path_overlaps_restriction,
+    restricted_property_keys_for_table_type,
+)
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
     comparison_compatibility,
@@ -55,7 +59,7 @@ from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
 # In non-nullable materialized columns these stored strings are treated as NULL.
 MAT_COL_NULL_SENTINELS = ["", "null"]
 
-# Leave the $ai_* bloom-filter columns to the printer: its comparison code already keeps them index-eligible
+# Leave the legacy $ai_* bloom-filter columns to the printer: its comparison code already keeps them index-eligible
 # (`COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING`, imported above so the two lists stay in sync). The value-read side skips
 # their nullIf scrubbing for the same reason, via `AI_BLOOM_FILTER_PROPERTIES` (the same columns, named as properties).
 
@@ -110,7 +114,9 @@ def resolve_materialized_property_source(
     # read, comparison, key-existence). The column holds the raw value, so a comparison like `WHERE properties.x = 'y'`
     # could otherwise read it and probe the value. Declining here makes the comparison optimizers fall back; the read
     # itself becomes a constant NULL in `_substitute_value_read`.
-    if property_name in restricted_property_keys_for_table_type(field_type.table_type, context):
+    if property_name in restricted_property_keys_for_table_type(
+        field_type.table_type, context
+    ) or native_property_path_overlaps_restriction(property_name, field_type.table_type, context):
         return None
 
     table_type = _unwrap_to_table_type(field_type)
@@ -166,7 +172,7 @@ def resolve_materialized_property_source(
 def resolve_json_subcolumn_source(
     field_type: ast.FieldType, table_name: str, field_name: str, property_name: str, context: HogQLContext
 ) -> MaterializedPropertySource | None:
-    if property_name in restricted_property_keys_for_table_type(field_type.table_type, context):
+    if native_property_path_overlaps_restriction(property_name, field_type.table_type, context):
         return None
     if not context.uses_new_events_schema():
         return None
@@ -462,7 +468,7 @@ def _json_subcolumn_value_expr(
     source: MaterializedPropertySource,
     as_json: bool = False,
 ) -> ast.Expr:
-    value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=source.is_nullable)
+    value: ast.Expr = _json_subcolumn_access(field_type, keys, source=source, is_nullable=source.is_nullable)
     if _is_dynamic_json_source(source):
         object_value = _dynamic_json_object_string_expr(field_type, keys, source=source)
         object_present = _call("notEquals", [clone_expr(object_value), _sentinel("{}")])
@@ -485,9 +491,15 @@ def _json_subcolumn_value_expr(
             ],
             type=ast.StringType(nullable=True),
         )
+    if _is_string_column(source) and not source.is_nullable:
+        # A declared String path stores '' for a missing property. Read '' as NULL, the same as a non-nullable
+        # materialized column, so that IS NULL and is-set filters on the path see the missing value.
+        value = ast.Call(name="nullIf", args=[value, _sentinel("")], type=ast.StringType(nullable=True))
     if as_json:
         serialized = ast.Call(
-            name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=source.is_nullable)
+            name="toJSONString",
+            args=[clone_expr(value)],
+            type=ast.StringType(nullable=source.is_nullable or _is_string_column(source)),
         )
         if _is_json_container_column(source) and not source.is_nullable:
             # Declared arrays and maps cannot distinguish a missing path from an explicitly empty value.
@@ -575,6 +587,10 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
             remaining_keys = deeper_keys[index:]
             break
 
+        # A dynamic parent can contain declared children with concrete types.
+        source = resolve_materialized_property_source(field_type, ".".join(subcolumn_keys), context)
+        if source is None:
+            return ast.Constant(value=None, type=ast.StringType(nullable=True))
         subcolumn_head = _json_subcolumn_value_expr(
             field_type,
             subcolumn_keys,
@@ -799,6 +815,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         # Depth of `indexHint(...)` calls above the node being visited. A hint is an optimizer directive only, so a
         # comparison inside one must not grow a second, nested hint.
         self._index_hint_depth = 0
+        self._in_grouped_clause = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         scope: set[int] = set()
@@ -810,9 +827,18 @@ class ClickHousePropertyResolver(CloningVisitor):
                 table_type = getattr(table_type, "table_type", None)
             join = join.next_join
         self._tables_in_scope.append(scope)
+        was_in_grouped_clause = self._in_grouped_clause
+        self._in_grouped_clause = False
         try:
-            return super().visit_select_query(node)
+            if not node.group_by and node.group_by_mode != "all":
+                return super().visit_select_query(node)
+            result = super().visit_select_query(replace(node, having=None, order_by=None))
+            self._in_grouped_clause = True
+            result.having = self.visit(node.having)
+            result.order_by = [self.visit(expr) for expr in node.order_by] if node.order_by else None
+            return result
         finally:
+            self._in_grouped_clause = was_in_grouped_clause
             self._tables_in_scope.pop()
 
     def _property_table_in_scope(self, field_type: ast.FieldType) -> bool:
@@ -846,6 +872,9 @@ class ClickHousePropertyResolver(CloningVisitor):
         Only a single-key access (`properties.x`, no deeper `.a.b`) maps to one backing column. A multi-key access reads
         the column and then JSON-extracts deeper, so it can't use the bare-column comparison rewrites.
         """
+        # Bare-column rewrites after aggregation can reference a column absent from GROUP BY.
+        if self._in_grouped_clause:
+            return None
         node = self._lowered_property_operand(expr)
         if node is not None and len(node.keys) == 1:
             field_type = _blob_field_type_of(node)
@@ -1082,12 +1111,16 @@ class ClickHousePropertyResolver(CloningVisitor):
         first_key = first_key_arg.value
         if first_key in restricted_property_keys_for_table_type(field_type.table_type, self.context):
             return ast.Constant(value=False, type=ast.BooleanType(nullable=False))
+        if native_property_path_overlaps_restriction(first_key, field_type.table_type, self.context):
+            # Read the masked document so nested and computed keys cannot inspect a restricted child.
+            return None
 
         source = resolve_json_subcolumn_source(
             field_type, table_type.table.to_printed_clickhouse(self.context), field.name, first_key, self.context
         )
-        if source is None:
-            return None
+        # Every key on the JSON tables resolves to a declared or Dynamic subcolumn. Leaving the call on the blob
+        # would serialize the whole document per row, so a missing source is a bug, not a fallback.
+        assert source is not None
 
         if len(node.args) > 2:
             json_value = _json_subcolumn_value_expr(
@@ -1126,9 +1159,11 @@ class ClickHousePropertyResolver(CloningVisitor):
                     _call("notEquals", [object_value, _sentinel("{}")]),
                 ],
             )
-        if source.is_nullable or _is_dynamic_json_source(source):
+        if source.is_nullable:
             return _call("isNotNull", [subcolumn])
-        if _is_string_array_column(source):
+        # A non-nullable declared path stores its type default when the property is missing, so presence is
+        # "not the default": non-empty for arrays, maps, and tuples, and non-empty text for strings.
+        if _is_json_container_column(source):
             return _call("notEmpty", [subcolumn])
         if _is_string_column(source):
             return ast.Call(
@@ -1136,7 +1171,9 @@ class ClickHousePropertyResolver(CloningVisitor):
                 args=[_call("length", [subcolumn]), _const(0)],
                 type=ast.BooleanType(nullable=False),
             )
-        return None
+        raise ImpossibleASTError(
+            f"JSONHas has no presence rule for the declared JSON path type {source.column_type!r} ({first_key})"
+        )
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         # Try each skip-index comparison rewrite in order. Each one consumes the property operand and returns the
@@ -1325,7 +1362,10 @@ class ClickHousePropertyResolver(CloningVisitor):
 
     @staticmethod
     def _is_ai_column(source: MaterializedPropertySource) -> bool:
-        return source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
+        return (
+            source.kind != "json_subcolumn"
+            and source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
+        )
 
     # --- property-group optimizers ---
 

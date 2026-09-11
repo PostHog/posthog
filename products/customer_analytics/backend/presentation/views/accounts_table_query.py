@@ -47,8 +47,8 @@ class AccountsTableQueryRequest(BaseModel):
 
 
 class AccountsTableQueryViewSet(
-    QueryCoalescingMixin,
     TeamAndOrgViewSetMixin,
+    QueryCoalescingMixin,
     PydanticModelMixin,
     viewsets.ViewSet,
 ):

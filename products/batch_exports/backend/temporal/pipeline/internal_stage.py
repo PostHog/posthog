@@ -160,13 +160,9 @@ def _uses_object_storage_endpoint() -> bool:
 
 
 def _get_s3_endpoint_url() -> str:
-    """Get the S3 endpoint URL for the Temporal worker.
-
-    When running the stack locally, the local object storage runs in Docker but the Temporal workers run outside, so we need to pass in
-    localhost URL rather than the hostname of the container.
-    """
+    """Get the S3 endpoint reachable by the Temporal worker."""
     if _is_local_dev_or_test():
-        return "http://localhost:19000"
+        return settings.OBJECT_STORAGE_ENDPOINT
     return settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
 
 

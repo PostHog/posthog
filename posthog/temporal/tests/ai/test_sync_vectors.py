@@ -137,7 +137,7 @@ def azure_mock():
 
 
 def _query_pg_embeddings() -> list[tuple]:
-    return sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+    return sync_execute("SELECT * FROM pg_embeddings ORDER BY toUInt64(id)")
 
 
 @pytest.mark.django_db

@@ -1,11 +1,13 @@
 import json
+from concurrent.futures import Future
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from uuid import uuid4
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings as django_settings
 from django.utils import timezone
@@ -15,12 +17,16 @@ from clickhouse_driver import Client
 from dagster import build_op_context
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
-from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner, Query
 from posthog.dags.data_deletion_requests import (
     DataDeletionRequestConfig,
     DeletionRequestContext,
     PersonRemovalContext,
+    _json_mutation_keys,
     _property_removal_where,
+    _refuse_property_removal_unsweepable,
     auto_approve_deletion_requests_job,
     auto_approve_deletion_requests_schedule,
     data_deletion_request_event_removal,
@@ -49,10 +55,16 @@ from posthog.models.data_deletion_request import (
 )
 from posthog.models.deletion_targets import (
     EVENTS,
+    EVENTS_JSON,
     DeletionTarget,
     TargetPlacement,
     UnreachableTargetError,
     placement_for,
+)
+from posthog.models.event.sql import (
+    EVENTS_PROPERTIES_JSON_TYPE,
+    PERSON_PROPERTIES_JSON_TYPE,
+    json_property_presence_expr,
 )
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.test.persons import create_person
@@ -2516,6 +2528,63 @@ def _property_removal_ctx(**overrides) -> DeletionRequestContext:
     return replace(base, **overrides)
 
 
+@pytest.mark.parametrize(
+    "properties,person_properties,column,document,refuses",
+    [
+        (["$groups.organization"], [], "properties", '{"$groups":{"organization":"secret"}}', True),
+        (["$feature/beta"], [], "properties", '{"$feature_flags":{"beta":"secret"}}', True),
+        (["$set"], [], "temporary_properties", '{"$set":{"email":"a@example.com"}}', True),
+        (["$feature_flag_request_id"], [], "temporary_properties", '{"$feature_flag_request_id":"id"}', True),
+        (["secret"], [], "properties", '{"$unparseable_properties":"malformed secret"}', True),
+        ([], ["secret"], "person_properties", '{"$unparseable_properties":"malformed secret"}', True),
+        ([], ["email"], "temporary_properties", '{"$set_once":{"email":"a@example.com"}}', True),
+        (["secret"], [], "temporary_properties", '{"$set":{"email":"a@example.com"}}', False),
+        (["secret"], [], "properties", '{"other":"value"}', False),
+    ],
+)
+def test_native_property_removal_gate_checks_retained_copies(
+    properties: list[str], person_properties: list[str], column: str, document: str, refuses: bool
+) -> None:
+    marker_time = datetime(2026, 1, 1, tzinfo=UTC)
+    marker = marker_time.strftime("%Y-%m-%d %H:%M:%S.%f")
+    request = _property_removal_ctx(
+        properties=properties,
+        person_properties=person_properties,
+        start_time=marker_time - timedelta(days=1),
+        end_time=marker_time + timedelta(days=1),
+    )
+    stored = {"properties": "{}", "person_properties": "{}", "temporary_properties": "{}", column: document}
+
+    def execute_query(query: Query, _role: NodeRole) -> Future[list[tuple[object, ...]]]:
+        assert isinstance(query.parameters, dict)
+        result: Future[list[tuple[object, ...]]] = Future()
+        result.set_result(
+            sync_execute(
+                """WITH events_json AS (
+                SELECT %(team_id)s AS team_id, '$pageview' AS event,
+                    toDateTime64(%(inserted_at_max)s, 6, 'UTC') AS timestamp,
+                    timestamp - INTERVAL 1 SECOND AS inserted_at, 1 AS _row_exists,
+                    CAST(%(properties)s, %(event_type)s) AS properties,
+                    CAST(%(person_properties)s, %(person_type)s) AS person_properties,
+                    CAST(%(temporary_properties)s, 'JSON(max_dynamic_paths=32)') AS temporary_properties
+            ) """
+                + query.query,
+                {
+                    **query.parameters,
+                    **stored,
+                    "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
+                    "person_type": PERSON_PROPERTIES_JSON_TYPE(),
+                },
+            )
+        )
+        return result
+
+    cluster = Mock(spec=ClickhouseCluster)
+    cluster.any_host_by_role.side_effect = execute_query
+    with pytest.raises(dagster.Failure, match="cannot be deleted") if refuses else nullcontext():
+        _refuse_property_removal_unsweepable(cluster, [EVENTS_JSON], request, marker)
+
+
 def test_property_removal_where_scopes_to_events_by_default():
     sql, params = _property_removal_where(_property_removal_ctx())
     assert "AND event IN %(events)s" in sql
@@ -2526,3 +2595,49 @@ def test_property_removal_where_omits_event_filter_when_delete_all_events():
     sql, params = _property_removal_where(_property_removal_ctx(events=[], delete_all_events=True))
     assert "event IN" not in sql
     assert "events" not in params
+
+
+@pytest.mark.parametrize(
+    "document,prop,expected",
+    [
+        ('{"$browser":"Chrome"}', "$groups.organization", 0),
+        ('{"$browser":"Chrome"}', "$groups", 0),
+        ('{"$groups":{"organization":"org1"}}', "$groups.organization", 1),
+        ('{"$groups":{"custom_group":"g"}}', "$groups", 1),
+        ('{"$browser":""}', "$browser", 0),
+        ('{"custom":""}', "custom", 0),
+        ('{"custom":{"a":""}}', "custom", 0),
+        ('{"custom":{"a":"y"}}', "custom", 1),
+    ],
+)
+def test_json_property_presence_expr_treats_empty_values_as_absent(document: str, prop: str, expected: int):
+    predicate = json_property_presence_expr("properties", prop)
+    [(present,)] = sync_execute(
+        f"SELECT toUInt8({predicate}) FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties)",
+        {"raw": document, "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+    )
+
+    assert present == expected
+
+
+@pytest.mark.parametrize(
+    "requested,absent_after,present_after",
+    [
+        (["$feature/beta"], ["$feature/beta"], ["$feature/other", "custom"]),
+        (["custom"], ["custom"], ["$feature/beta", "$feature/other"]),
+    ],
+)
+def test_json_mutation_keys_drop_folded_feature_flags(
+    requested: list[str], absent_after: list[str], present_after: list[str]
+):
+    document = '{"$feature_flags":{"beta":"control","other":"x"},"custom":"y"}'
+    presence = ", ".join(
+        f"toUInt8({json_property_presence_expr('properties', prop)})" for prop in absent_after + present_after
+    )
+    [row] = sync_execute(
+        f"SELECT {presence} FROM (SELECT CAST(JSONDropKeys(%(keys)s)(toJSONString(CAST(%(raw)s, %(json_type)s))), "
+        "%(json_type)s) AS properties)",
+        {"keys": _json_mutation_keys(requested), "raw": document, "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+    )
+
+    assert list(row) == [0] * len(absent_after) + [1] * len(present_after)
