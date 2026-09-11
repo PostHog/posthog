@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { captureInboxRunOpened } from '../../inboxAnalytics'
 import { SignalRun } from '../../types'
+import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { resolveRunVariant, RunStatusIndicator } from './runStatusVariant'
@@ -58,7 +59,7 @@ export function SignalRunCard({ run }: { run: SignalRun }): JSX.Element {
             {run.report_id && (
                 <div className="flex items-center shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                     <Link
-                        to={urls.inboxReport('reports', run.report_id)}
+                        to={inboxReportDetailUrl(run.report_id, urls.inboxRuns())}
                         className="text-xs font-medium text-accent no-underline"
                     >
                         View report

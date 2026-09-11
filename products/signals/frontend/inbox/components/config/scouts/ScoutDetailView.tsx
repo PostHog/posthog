@@ -207,7 +207,12 @@ function ScoutReportsSection({ skillName }: { skillName: string }): JSX.Element 
                 </div>
             ) : (
                 reportRows.map(({ report, action }) => (
-                    <ScoutReportCard key={report.id} report={report} action={action} />
+                    <ScoutReportCard
+                        key={report.id}
+                        report={report}
+                        action={action}
+                        backUrl={urls.inboxScout(skillName)}
+                    />
                 ))
             )}
         </div>
@@ -272,6 +277,7 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
                         // mark the newest matching emission — rows are newest-first — to keep the
                         // highlight/scroll deterministic for a single shared link.
                         isDeepLinked={emission.id === deepLinkedEmissionId}
+                        backUrl={urls.inboxScout(skillName)}
                     />
                 ))
             )}

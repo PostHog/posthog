@@ -5,6 +5,7 @@ import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonSkeleton } from
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import {
     FINDINGS_SCOUT_FILTER_ALL,
@@ -190,6 +191,7 @@ export function FindingsPanel(): JSX.Element {
                                         report={row.report}
                                         action={row.action}
                                         skillName={row.skillName}
+                                        backUrl={urls.inboxFindings()}
                                     />
                                 ))
                             )}
@@ -222,6 +224,7 @@ export function FindingsPanel(): JSX.Element {
                                         run={row.run}
                                         report={row.report}
                                         showScout
+                                        backUrl={urls.inboxFindings()}
                                     />
                                 ))
                             )}

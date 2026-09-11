@@ -1,6 +1,11 @@
 import { urls } from 'scenes/urls'
 
-import { inboxReportDetailUrl, inboxTabRedirectPath } from './inboxReportUrls'
+import {
+    inboxReportBackPath,
+    inboxReportDetailUrl,
+    inboxReportReturnPath,
+    inboxTabRedirectPath,
+} from './inboxReportUrls'
 
 describe('inbox report urls', () => {
     describe('inboxReportDetailUrl', () => {
@@ -16,6 +21,37 @@ describe('inbox report urls', () => {
 
         it('addresses the report through its legacy tab when asked', () => {
             expect(inboxReportDetailUrl('r1', undefined, 'pulls')).toBe(urls.inboxReport('pulls', 'r1'))
+        })
+    })
+
+    // The back path decides where the report's back button and its verdict actions leave to. It is
+    // read from a URL param that reaches the app from anywhere, so a non-internal value is rejected
+    // to keep it from becoming an open redirect.
+    describe('inboxReportBackPath', () => {
+        it.each<[string, any, string | null]>([
+            ['an internal path', '/inbox/scouts/signals-scout-general', '/inbox/scouts/signals-scout-general'],
+            ['no back param', undefined, null],
+            ['an absolute url', 'https://evil.test/phish', null],
+            ['a protocol-relative url', '//evil.test/phish', null],
+            ['a non-string value', 42, null],
+        ])('honors %s', (_label, back, expected) => {
+            expect(inboxReportBackPath({ back })).toBe(expected)
+        })
+    })
+
+    describe('inboxReportReturnPath', () => {
+        it('returns to the surface a report was opened from', () => {
+            expect(inboxReportReturnPath({ back: '/inbox/scouts/signals-scout-general' }, 'reports')).toBe(
+                '/inbox/scouts/signals-scout-general'
+            )
+        })
+
+        it('falls back to the active list tab for a report opened straight off a list', () => {
+            expect(inboxReportReturnPath({}, 'reports')).toBe(urls.inbox('reports'))
+        })
+
+        it('ignores a non-internal back path and falls back to the list', () => {
+            expect(inboxReportReturnPath({ back: 'https://evil.test' }, 'reports')).toBe(urls.inbox('reports'))
         })
     })
 
