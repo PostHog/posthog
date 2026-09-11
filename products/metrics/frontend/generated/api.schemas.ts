@@ -40,7 +40,7 @@ export interface _MetricAttributeValuesResponseApi {
 export interface _MetricAttributeKeyApi {
     /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
     name: string
-    /** Number of distinct series with this attribute in the time window. */
+    /** Number of distinct recent series with this attribute, based on series metadata. */
     series_count: number
 }
 

@@ -1,6 +1,6 @@
 """Attribute key/value autocomplete for the metrics filter bar.
 
-Keys count distinct series with data in the selected window.
+Keys count distinct series from recent metadata, without reading raw samples.
 Values use the `metric_attributes` aggregate table.
 Both queries merge metric attributes and resource attributes.
 """
@@ -17,7 +17,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
-from products.metrics.backend.metric_query_runner import time_range_expr
 from products.metrics.backend.search import ilike_pattern
 
 # The OTel service name is a first-class column on `metric_attributes` (extracted
@@ -57,7 +56,7 @@ def _validate_limit(limit: int) -> int:
 
 
 class MetricAttributeKeysQueryRunner:
-    """Attribute keys ordered by distinct series count in the selected window."""
+    """Attribute keys ordered by distinct recent series count."""
 
     def __init__(
         self,
@@ -84,11 +83,6 @@ class MetricAttributeKeysQueryRunner:
                     uniqExact(series_fingerprint) AS series_count
                 FROM posthog.metric_series
                 WHERE last_seen >= {date_from}
-                  AND series_fingerprint IN (
-                      SELECT series_fingerprint
-                      FROM posthog.metrics
-                      WHERE {time_range}
-                  )
                   AND (attribute_key ILIKE {search_pattern}
                        OR (attribute_key = 'service_name' AND 'service.name' ILIKE {search_pattern}))
                 GROUP BY attribute_key
@@ -97,7 +91,6 @@ class MetricAttributeKeysQueryRunner:
             """,
             placeholders={
                 "date_from": ast.Constant(value=self.date_from),
-                "time_range": time_range_expr(self.date_from, self.date_to),
                 "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
                 "limit": ast.Constant(value=self.limit),
             },

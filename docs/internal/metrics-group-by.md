@@ -6,8 +6,11 @@ Hover over a count to show the "Number of series with this attribute" tooltip.
 Attributes with the same count appear in alphabetical order.
 Search keeps this order.
 
-The count includes distinct series that report data in the selected time window, across the project.
-It does not count repeated data points or limit the results to the selected metric.
+The count uses distinct series whose latest metadata timestamp is at or after the selected start time, across the project.
+It does not read raw metric samples or enforce the selected end time.
+Counts are informational and most useful for recent series.
+Metadata updates can lag samples, so this is not an exact count for the selected time window.
+It does not limit the results to the selected metric.
 The count includes both metric attributes and resource attributes.
 An attribute that occurs in both scopes counts once per series.
 The `service_name` item uses the same count and order as other attributes.

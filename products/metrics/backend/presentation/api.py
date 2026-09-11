@@ -552,7 +552,7 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
     )
     series_count = serializers.IntegerField(
-        help_text="Number of distinct series with this attribute in the time window."
+        help_text="Number of distinct recent series with this attribute, based on series metadata."
     )
 
 
