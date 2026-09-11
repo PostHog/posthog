@@ -6023,7 +6023,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         assert result.clickhouse
 
         # Native String paths and materialized string columns use empty strings for missing values.
-        nullifies_empty_string = is_materialized or (
+        materialized_column_nullifies_empty_string = is_materialized or (
             settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             and poe_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
         )
@@ -6031,9 +6031,9 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             (distinct_id_with_email, "test@example.com", 0, 0),
             (
                 distinct_id_with_empty,
-                None if nullifies_empty_string else "",
-                1 if nullifies_empty_string else 0,
-                1 if nullifies_empty_string else 0,
+                None if materialized_column_nullifies_empty_string else "",
+                1 if materialized_column_nullifies_empty_string else 0,
+                1 if materialized_column_nullifies_empty_string else 0,
             ),
             (distinct_id_with_null, None, 1, 1),
             (distinct_id_without, None, 1, 1),

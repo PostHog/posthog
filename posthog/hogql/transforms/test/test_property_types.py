@@ -78,7 +78,7 @@ def _normalize_snapshot_sql(sql: str) -> str:
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-class TestNewEventsSchemaPropertySubcolumns(SimpleTestCase):
+class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
     def _context(self) -> HogQLContext:
         team = Team(id=1, project_id=1)
         context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True)
