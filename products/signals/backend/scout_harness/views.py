@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -119,6 +120,7 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutCreateResponseSerializer,
     SignalScoutCreateSerializer,
     SignalScoutEmissionSerializer,
+    SignalScoutManualRunRequestSerializer,
     SignalScoutManualRunSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
@@ -301,6 +303,16 @@ def _reject_if_manual_run_suppressed(team_id: int) -> None:
     rejection = check_fleet_gates(team_id)
     if rejection is not None:
         _raise_rejection(rejection)
+
+
+def _manual_run_note(raw: object) -> str:
+    """The one-off steering note on a `run` request, normalized to bare text.
+
+    Whitespace-only is nothing at all, so a note of blanks neither escalates the required scopes
+    nor reaches the run: both the scope hook (reading the raw body) and the action (reading the
+    validated body) resolve a note through here, so they can never disagree on whether one is set.
+    """
+    return raw.strip() if isinstance(raw, str) else ""
 
 
 def _parse_run_id_or_404(kwargs: dict) -> uuid.UUID:
@@ -1825,11 +1837,38 @@ def _upsert_scout_config(
     if created or not tunables:
         return config, created
 
+    update_data = tunables
+    request_data = getattr(request, "data", {})
+    if isinstance(request_data, Mapping):
+        nested_config = request_data.get("config")
+        raw_config = nested_config if isinstance(nested_config, Mapping) else request_data
+        raw_destinations = raw_config.get("output_destinations")
+        raw_slack = raw_destinations.get("slack") if isinstance(raw_destinations, Mapping) else None
+        thread_reports_was_supplied = isinstance(raw_slack, Mapping) and "thread_reports" in raw_slack
+
+        incoming_destinations = tunables.get("output_destinations")
+        incoming_slack = incoming_destinations.get("slack") if isinstance(incoming_destinations, dict) else None
+        current_slack = config.output_destinations.get("slack") if config.output_destinations else None
+        if (
+            not thread_reports_was_supplied
+            and isinstance(incoming_destinations, dict)
+            and isinstance(incoming_slack, dict)
+            and isinstance(current_slack, dict)
+            and current_slack.get("thread_reports") is False
+        ):
+            update_data = {
+                **tunables,
+                "output_destinations": {
+                    **incoming_destinations,
+                    "slack": {**incoming_slack, "thread_reports": False},
+                },
+            }
+
     # The coordinator or another caller may have won the create race. Apply only
     # fields supplied by this request so omitted settings remain untouched.
     update = SignalScoutConfigUpdateSerializer(
         config,
-        data=tunables,
+        data=update_data,
         partial=True,
         context=serializer_context,
     )
@@ -2265,6 +2304,13 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return ["signal_scout:write", "llm_skill:write"]
         if action == "partial_update" and self._sets_structured_output_schema(request):
             return ["signal_scout:write", "llm_skill:write"]
+        # Running a scout drives spend, so a bare trigger is a config write. A trigger carrying a
+        # `note` puts prose in front of a privileged agent, so it escalates to the scopes leaving a
+        # scout note needs. An oversized note escalates here too, then the serializer rejects it.
+        if action == "run":
+            if _manual_run_note(request.data.get("note") if isinstance(request.data, dict) else None):
+                return ["signal_scout:write", "llm_skill:write"]
+            return ["signal_scout:write"]
         return None
 
     @staticmethod
@@ -2292,6 +2338,14 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.PermissionDenied(
                 "Setting structured_output_schema requires editor access to skills, since the schema "
                 "is read verbatim by the scout agent."
+            )
+
+    def _assert_can_author_run_note(self) -> None:
+        if not self._has_skill_editor_access():
+            raise exceptions.PermissionDenied(
+                "Adding a note to a run requires editor access to skills, since the scout agent "
+                "reads it verbatim. Run the scout without one, or ask an admin for skill editing "
+                "access."
             )
 
     @validated_request(
@@ -2474,14 +2528,17 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         context = scout_config_context(team, [instance.skill_name], request)
         return Response(SignalScoutConfigSerializer(instance, context=context).data)
 
-    @extend_schema(
-        request=None,
+    @validated_request(
+        request_serializer=SignalScoutManualRunRequestSerializer,
         responses={
             202: OpenApiResponse(
                 response=SignalScoutManualRunSerializer,
                 description="A run was dispatched. It executes asynchronously; poll the scout's runs for the result.",
             ),
-            403: OpenApiResponse(description="Signals scouts are not enabled for this project."),
+            400: OpenApiResponse(description="The note is longer than the limit."),
+            403: OpenApiResponse(
+                description="Signals scouts are not enabled for this project, or the caller may not steer a run with a note."
+            ),
             404: OpenApiResponse(description="Config not found for this project (or the scout is withheld)."),
             409: OpenApiResponse(description="A run for this scout is already in progress."),
             429: OpenApiResponse(
@@ -2501,7 +2558,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "budget as scheduled runs, so repeated manual runs of the same scout can exhaust the "
             "project's daily allowance. A manual run does not change the scout's schedule or "
             "`last_run_at`. A disabled scout can still be run this way (to test before enabling). "
-            "Returns immediately with the workflow id — poll the scout's runs for the result."
+            "Pass an optional `note` to steer this one run without leaving a scout note that would "
+            "steer every later run too. Returns immediately with the workflow id: poll the scout's "
+            "runs for the result."
         ),
         operation_id="signals_scout_config_run",
     )
@@ -2509,11 +2568,15 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="run",
-        # Running a scout drives spend, so this is a write — same scope as enabling a config.
-        required_scopes=["signal_scout:write"],
+        # No `required_scopes` here: it would win over `dangerously_get_required_scopes`, which is
+        # where a run carrying a `note` escalates to the skill-authoring scopes.
     )
-    def run(self, request: Request, *args, **kwargs) -> Response:
+    def run(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
+        # A note clears the same RBAC bar as leaving a scout note. A plain trigger does not.
+        note = _manual_run_note(request.validated_data.get("note"))
+        if note:
+            self._assert_can_author_run_note()
         config_id = _parse_run_id_or_404(kwargs)
         config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
         if config is None:
@@ -2560,7 +2623,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
         try:
-            workflow_id = start_manual_signals_scout_run(sync_connect(), team_id=team_id, skill_name=skill_name)
+            workflow_id = start_manual_signals_scout_run(
+                sync_connect(), team_id=team_id, skill_name=skill_name, run_note=note or None
+            )
         except WorkflowAlreadyStartedError:
             # A run for this scout was dispatched between the in-flight check and the start call —
             # the Temporal server's id-conflict policy single-flights it. Surface the same 409.
@@ -2572,6 +2637,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             skill_name=skill_name,
             workflow_id=workflow_id,
             user_id=request.user.pk,
+            # Whether the run was steered, never the steering itself.
+            has_note=bool(note),
         )
         return Response(
             SignalScoutManualRunSerializer(
