@@ -28,7 +28,7 @@ export const forSnapshot = (
     if (typeof obj === 'string') {
         let jsonObj: any = null
         try {
-            // eslint-disable-next-line no-restricted-syntax
+            // eslint-disable-next-line posthog/no-json-parse
             jsonObj = JSON.parse(obj)
         } catch {}
 
