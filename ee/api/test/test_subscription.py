@@ -309,6 +309,27 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["title"], "Updated title")
 
+    def test_metadata_update_does_not_restore_a_stale_next_delivery_date(self):
+        sub_id = self._create_subscription().json()["id"]
+        stale_subscription = Subscription.objects.get(id=sub_id)
+        assert stale_subscription.next_delivery_date is not None
+        advanced_next_delivery_date = stale_subscription.next_delivery_date + timedelta(days=7)
+        Subscription.objects.filter(id=sub_id).update(next_delivery_date=advanced_next_delivery_date)
+        self.mock_temporal_client.start_workflow.reset_mock()
+
+        # Reproduce an API request that loaded the row before the scheduler advanced it.
+        with patch("ee.api.subscription.SubscriptionViewSet.get_object", return_value=stale_subscription):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+                {"title": "Updated without clobbering the schedule"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        stale_subscription.refresh_from_db()
+        assert stale_subscription.title == "Updated without clobbering the schedule"
+        assert stale_subscription.next_delivery_date == advanced_next_delivery_date
+        self.mock_temporal_client.start_workflow.assert_not_called()
+
     def test_can_create_new_subscription_without_invite_message(self):
         response = self._create_subscription(invite_message=None)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
