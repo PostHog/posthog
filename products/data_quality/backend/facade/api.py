@@ -30,7 +30,14 @@ from ..logic.notifications import notify_materialization_blocked
 from ..logic.permissions import authorized_subject_types, restrict_subject_types, writable_subjects
 from ..logic.registry import UnknownCheckTypeError, list_check_types
 from ..logic.run_records import record_check_run
-from ..logic.schedules import MetricCheckSchedule, ScheduleUnavailableError, get_schedule, set_schedule
+from ..logic.schedule_service import get_schedule_with_history, schedule_with_history, update_schedule
+from ..logic.schedules import (
+    MetricCheckSchedule,
+    ScheduleUnavailableError,
+    ScheduleUpdateResult,
+    get_schedule,
+    set_schedule,
+)
 from ..logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
 from ..logic.subject_access import (
     DenialContext,
@@ -56,6 +63,7 @@ __all__ = [
     "log_metric_schedule_change",
     "MetricCheckSchedule",
     "ScheduleUnavailableError",
+    "ScheduleUpdateResult",
     "CheckConfigError",
     "CheckEditConflict",
     "CheckStatusRow",
@@ -88,6 +96,7 @@ __all__ = [
     "from_config_entry",
     "get_gate_config",
     "get_schedule",
+    "get_schedule_with_history",
     "list_check_types",
     "notify_materialization_blocked",
     "quality_audit_mode",
@@ -98,6 +107,7 @@ __all__ = [
     "roll_up_health",
     "set_gate_materialization_on_checks",
     "set_schedule",
+    "schedule_with_history",
     "soft_delete_check",
     "start_check_suite",
     "subject_health",
@@ -105,6 +115,7 @@ __all__ = [
     "suites_backing_unreadable_runs_q",
     "to_config_entry",
     "unreadable_suites_q",
+    "update_schedule",
     "upsert_check",
     "validate_check",
     "visible_checks",

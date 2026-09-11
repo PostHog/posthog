@@ -9,7 +9,6 @@ a suite-run handle to poll.
 
 from collections import defaultdict
 from collections.abc import Callable, Sequence
-from dataclasses import replace
 from functools import cached_property
 from typing import TYPE_CHECKING, ClassVar, cast
 from uuid import UUID
@@ -36,7 +35,7 @@ from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..facade import api
-from ..facade.enums import CheckRunStatus, SubjectStatus, SubjectType, SuiteRunTrigger
+from ..facade.enums import CheckRunStatus, SubjectStatus, SubjectType
 from ..facade.flags import is_data_quality_checks_enabled
 from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .serializers import (
@@ -597,45 +596,33 @@ class MetricCheckViewSet(_BaseCheckViewSet):
     def schedule(self, request: Request, **kwargs) -> Response:
         if not self._subject_checks().exists():
             raise NotFound("Add a check to create this metric's schedule.")
+        authorization_context = self._denial_context() if self._can_be_object_denied() else None
         if request.method == "PATCH":
             self._require_enabled_check_access()
             serializer = DataQualityCheckScheduleUpdateSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
         try:
-            before = api.get_schedule(self.team_id, self.subject_type, self.subject_uuid)
-            if before is None:
-                raise api.ScheduleUnavailableError()
             if request.method == "PATCH":
-                api.set_schedule(self.team_id, self.subject_type, self.subject_uuid, **serializer.validated_data)
-            schedule = (
-                api.get_schedule(self.team_id, self.subject_type, self.subject_uuid)
-                if request.method == "PATCH"
-                else before
-            )
+                schedule = api.update_schedule(
+                    self.team_id,
+                    self.subject_type,
+                    self.subject_uuid,
+                    user=cast(User, request.user),
+                    authorization_context=authorization_context,
+                    **serializer.validated_data,
+                )
+            else:
+                schedule = api.get_schedule_with_history(
+                    self.team_id, self.subject_type, self.subject_uuid, authorization_context
+                )
             if schedule is None:
                 raise api.ScheduleUnavailableError()
         except api.ScheduleUnavailableError as error:
             raise ScheduleUnavailableAPIError() from error
-        if request.method == "PATCH":
-            api.log_metric_schedule_change(self.team_id, self.subject_uuid, before, schedule, cast(User, request.user))
-        return Response(DataQualityCheckScheduleSerializer(self._with_schedule_history(schedule)).data)
+        return Response(DataQualityCheckScheduleSerializer(schedule).data)
 
     def _subject_checks(self) -> QuerySet[DataQualityCheck]:
         return DataQualityCheck.objects.for_team(self.team_id).filter(metric_id=self.subject_uuid)
-
-    def _with_schedule_history(self, schedule: api.MetricCheckSchedule) -> api.MetricCheckSchedule:
-        suites = DataQualitySuiteRun.objects.for_team(self.team_id).filter(
-            subject_type=self.subject_type, subject_uuid=self.subject_uuid, trigger=SuiteRunTrigger.SCHEDULED
-        )
-        if self._can_be_object_denied():
-            context = self._denial_context()
-            suites = suites.exclude(api.unreadable_suites_q(context)).exclude(
-                api.suites_backing_unreadable_runs_q(self.team_id, context)
-            )
-        last_suite = suites.order_by("-started_at", "-id").first()
-        if last_suite is None:
-            return schedule
-        return replace(schedule, last_run_at=last_suite.started_at, last_suite_run=last_suite.id)
 
 
 class _BaseSuiteRunViewSet(
