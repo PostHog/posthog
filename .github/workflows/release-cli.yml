@@ -411,6 +411,25 @@ jobs:
                   message: 'Release pull request created: ${{ steps.release-pr.outputs.url }}'
                   emoji_reaction: 'eyes'
 
+            # A separate release App approves the generated version bump. The PR still waits
+            # for its checks and the merge queue before it can reach master.
+            - name: Get release approval token
+              id: release-approval-token
+              if: steps.release-pr.outputs.url != ''
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
+
+            - name: Approve and queue release pull request
+              if: steps.release-approval-token.outputs.token != ''
+              env:
+                  GH_TOKEN: ${{ steps.release-approval-token.outputs.token }}
+                  RELEASE_PR: ${{ steps.release-pr.outputs.url }}
+              run: |
+                  gh pr review "$RELEASE_PR" --approve --body 'Automated approval for the generated CLI release version bump.'
+                  gh pr merge "$RELEASE_PR" --auto --squash
+
             - name: Send failure event to PostHog
               if: ${{ failure() }}
               continue-on-error: true
