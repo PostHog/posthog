@@ -2647,18 +2647,20 @@ class TaskRun(models.Model):
     # expiry — user history must not silently vanish after 30 days.
     DEFAULT_LOG_TTL_DAYS = 30
 
-    def append_log(self, entries: list[dict], *, ttl_days: int | None = DEFAULT_LOG_TTL_DAYS):
+    def append_log(self, entries: list[dict], *, ttl_days: int | None = DEFAULT_LOG_TTL_DAYS, lock_attempts: int = 3):
         """Append log entries to S3 storage.
 
         `ttl_days` tags a newly-created log file for expiry; pass `None` to write a log that is
         never auto-expired. The tag is only applied on
         first write — re-tagging an existing log would not change a TTL already in flight.
+        `lock_attempts` is how often to wait for the per-log append lock before raising
+        TaskRunLogAppendUnserialized; a caller that retries the append itself passes 1.
         """
         entries = [e for e in entries if not self._is_agent_message_chunk(e)]
         if not entries:
             return
 
-        is_new_file = append_jsonl_object(self.log_url, entries)
+        is_new_file = append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts)
 
         self._mirror_logs_to_posthog_logs(entries)
 

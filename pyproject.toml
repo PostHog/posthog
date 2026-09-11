@@ -327,6 +327,9 @@ profile = "black"
 
 [tool.ruff]
 line-length = 120
+# Pinned apart from requires-python. Raising it to py314 makes ruff format drop the parentheses
+# in `except (A, B):` (PEP 758) across the repo, and makes UP037 flag every quoted annotation.
+target-version = "py313"
 force-exclude = true
 exclude = [
     ".git",
