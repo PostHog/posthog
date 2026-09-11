@@ -37,7 +37,9 @@ export const PullRequestNumberWidth: Story = {
   render: () => (
     <div className="flex flex-col items-start gap-4 text-[13px]">
       <div className="flex flex-col gap-1">
-        <span className="text-(--gray-11)">Before</span>
+        <span className="text-(--gray-11)">
+          Without preservation: the number ellipsizes
+        </span>
         <div className="w-[22ch]">
           <GithubRefChipLink
             href="https://github.com/example-org/example-repo/pull/123456789"
@@ -49,7 +51,9 @@ export const PullRequestNumberWidth: Story = {
         </div>
       </div>
       <div className="flex flex-col gap-1">
-        <span className="text-(--gray-11)">After</span>
+        <span className="text-(--gray-11)">
+          With preservation: the number stays whole
+        </span>
         <div className="w-[22ch]">
           <GithubRefChipLink
             href="https://github.com/example-org/example-repo/pull/123456789"

@@ -19,6 +19,7 @@ exception is ``soft_delete_tables``: consumers may not iterate the model to call
 """
 
 from collections.abc import Collection
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db.models import Prefetch, QuerySet
@@ -60,6 +61,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 from . import contracts
 
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+
 __all__ = [
     # capability functions
     "get_source",
@@ -73,6 +77,7 @@ __all__ = [
     "get_queryable_table",
     "resolve_object_by_name",
     "direct_access_table_ids",
+    "allowed_table_ids",
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
@@ -373,6 +378,56 @@ def direct_access_table_ids(team_id: int) -> set[UUID]:
         .values_list("id", flat=True)
     )
     return set(rows)
+
+
+def allowed_table_ids(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    *,
+    required_level: "AccessControlLevel" = "viewer",
+    ids: Collection[UUID] | None = None,
+) -> frozenset[UUID]:
+    """The queryable tables this caller may reach at ``required_level``.
+
+    ``ids`` narrows the objects loaded before their access controls are read, so a caller asking
+    about one table does not pay for the whole warehouse. ``None`` asks about every table; an empty
+    collection asks about none.
+    """
+    if ids is not None and not ids:
+        return frozenset()
+    if ids is None:
+        return user_access_control.allowed_object_ids(
+            "warehouse_table",
+            team_id,
+            required_level,
+            lambda: _resolve_allowed_table_ids(team_id, user_access_control, required_level, None),
+        )
+    return _resolve_allowed_table_ids(team_id, user_access_control, required_level, ids)
+
+
+def _resolve_allowed_table_ids(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    required_level: "AccessControlLevel",
+    ids: Collection[UUID] | None,
+) -> frozenset[UUID]:
+    candidates = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)
+    if ids is not None:
+        candidates = candidates.filter(id__in=ids)
+    tables = list(
+        candidates.select_related("external_data_source").only(
+            "id", "created_by_id", "external_data_source_id", "external_data_source__id"
+        )
+    )
+    sources = {
+        table.external_data_source_id: table.external_data_source
+        for table in tables
+        if table.external_data_source is not None
+    }
+    user_access_control.preload_object_access_controls([*tables, *sources.values()])
+    return frozenset(
+        table.id for table in tables if user_access_control.check_access_level_for_object(table, required_level)
+    )
 
 
 def list_tables_for_source(source_id: UUID, team_id: int) -> list[contracts.DataWarehouseTable]:
