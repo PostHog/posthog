@@ -31,8 +31,8 @@ The schedule starts `alerts-product-check-due` with `{}` on the evaluation queue
 It uses SKIP overlap, a one-minute catchup window, a 50-second workflow execution timeout,
 and one workflow attempt. Creation does not trigger an immediate run; the next minute starts it.
 Delivery has no schedule: evaluation starts its delivery child.
-Existing schedules are updated to this policy on registration, including the default unpaused state.
-To stop the smoke test, pause the schedule in Temporal; a later registration resets that pause.
+New schedules start unpaused. Registration updates existing schedules to this policy while retaining their state from Temporal, including manual pauses.
+To stop future smoke-test ticks, pause the schedule in Temporal; resume it there when ready. Pausing does not stop workflows already running.
 Disabling registration alone does not remove an existing Temporal schedule.
 
 Verify the Postgres activity result and the delivery child's completion separately.

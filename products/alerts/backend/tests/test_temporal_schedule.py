@@ -1,11 +1,11 @@
 import datetime as dt
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
-from temporalio.client import Client, ScheduleActionStartWorkflow, ScheduleOverlapPolicy
+from temporalio.client import Client, ScheduleActionStartWorkflow, ScheduleOverlapPolicy, ScheduleState
 
 from products.alerts.backend.temporal.schedule import SCHEDULE_ID, create_alerts_product_check_due_schedule
 
@@ -30,9 +30,13 @@ async def test_schedule_does_not_access_temporal_outside_dev(deployment: str | N
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("already_exists", [False, True])
-async def test_dev_schedule_creates_or_updates_with_bounded_policy(already_exists: bool) -> None:
+@pytest.mark.parametrize("already_exists, paused", [(False, False), (True, False), (True, True)])
+async def test_dev_schedule_creates_or_updates_with_bounded_policy(already_exists: bool, paused: bool) -> None:
     client = MagicMock(spec=Client)
+    state = ScheduleState(paused=paused, note="Operator-controlled state")
+    client.get_schedule_handle.return_value.describe = AsyncMock(
+        return_value=MagicMock(schedule=MagicMock(state=state))
+    )
     with (
         override_settings(CLOUD_DEPLOYMENT="DEV", ALERTS_PRODUCT_EVALUATION_TASK_QUEUE="evaluation-test-queue"),
         patch(f"{MODULE}.a_schedule_exists", return_value=already_exists) as exists,
@@ -63,4 +67,10 @@ async def test_dev_schedule_creates_or_updates_with_bounded_policy(already_exist
     assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
     assert schedule.policy.catchup_window == dt.timedelta(minutes=1)
     assert not schedule.policy.pause_on_failure
-    assert not schedule.state.paused
+    assert schedule.state.paused is paused
+    if already_exists:
+        client.get_schedule_handle.assert_called_once_with(SCHEDULE_ID)
+        client.get_schedule_handle.return_value.describe.assert_awaited_once()
+        assert schedule.state == state
+    else:
+        client.get_schedule_handle.assert_not_called()
