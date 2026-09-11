@@ -17,12 +17,17 @@ from posthog.models.utils import (
 
 REDACTED = "[redacted]"
 
+# Per-run AI gateway token the sandbox receives as AI_GATEWAY_TOKEN (minted in
+# products/tasks/backend/temporal/process_task/ai_gateway_token.py, which has no prefix constant).
+_AI_GATEWAY_TOKEN_PREFIX = "phe_"
+
 # Project API tokens (`phc_`) are public by design and stay out of this list.
 _POSTHOG_SECRET_PREFIXES = (
     PERSONAL_API_KEY_PREFIX,
     SECRET_API_TOKEN_PREFIX,
     OAUTH_ACCESS_TOKEN_PREFIX,
     OAUTH_REFRESH_TOKEN_PREFIX,
+    _AI_GATEWAY_TOKEN_PREFIX,
 )
 
 _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (

@@ -480,7 +480,7 @@ def _post_github_review(
         scrubbed.append({**comment, "body": comment_body})
     comments = scrubbed
     if redacted:
-        logger.warning(f"Redacted {redacted} credential-shaped value(s) from the review for {owner}/{repo}#{pr_number}")
+        logger.warning(f"Redacted {redacted} value(s) from the review for {owner}/{repo}#{pr_number} before posting")
 
     review_payload: dict[str, Any] = {"body": body, "event": "COMMENT"}
     if head_sha:

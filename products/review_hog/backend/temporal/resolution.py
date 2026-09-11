@@ -491,7 +491,7 @@ def _deliver_side_effects(
         body, redacted = redact_secrets(body)
         if redacted:
             logger.warning(
-                "Redacted %d credential-shaped value(s) from the reply for thread %s", redacted, updated.thread_id
+                "Redacted %d value(s) from the reply for thread %s before posting", redacted, updated.thread_id
             )
         comment_id, comment_url = reply_to_thread(
             token=token, thread_id=updated.thread_id, body=body, installation_id=installation_id

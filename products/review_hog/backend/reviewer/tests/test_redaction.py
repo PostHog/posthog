@@ -14,6 +14,7 @@ class TestRedactSecrets:
                 "[redacted] and [redacted]",
                 2,
             ),
+            ("ai_gateway_token", "AI_GATEWAY_TOKEN=phe_AbCdEfGhIjKlMnOpQrStUv", "AI_GATEWAY_TOKEN=[redacted]", 1),
             ("github_installation_token", "GH_TOKEN=ghs_abcdefghijklmnopqrstuvwxyz0123", "GH_TOKEN=[redacted]", 1),
             ("github_fine_grained_pat", "github_pat_11ABCDEFG0123456789_abcdefghijklmnop", "[redacted]", 1),
             (
