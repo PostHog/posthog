@@ -1001,15 +1001,16 @@ export function formatScoutScheduleShort(config: ScoutScheduleFields): string {
 }
 
 /**
- * Whether the schedule pins the run to an hour of the day. Only such a schedule is resolved in
- * the project timezone, so only it needs the timezone said next to it: a rolling cadence and a
- * cron that runs through the day fire at the same instants whatever the timezone.
+ * Whether the schedule picks hours of the day, and so needs the project timezone said next to it.
+ * A stepped hour field counts: it anchors on midnight in the project timezone, so it lands on
+ * other hours elsewhere. Only a cron that runs in every hour, and a rolling cadence, read the
+ * same in any timezone.
  */
 export function scoutScheduleNamesClockTime(
   config: ScoutScheduleFields,
 ): boolean {
   const hours = config.run_cron_schedule?.trim().split(/\s+/)[1];
-  return hours !== undefined && hours !== "*" && !hours.startsWith("*/");
+  return hours !== undefined && hours !== "*";
 }
 
 /**

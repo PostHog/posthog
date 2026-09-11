@@ -164,9 +164,10 @@ function ScoutTableRowInner({
       </TableCell>
 
       <TableCell>
-        <div className="flex min-w-0 flex-col gap-0.5">
-          {/* Wraps rather than truncates: a clipped cadence loses the timezone first, which is
-              the part a reader cannot guess. */}
+        {/* Wraps rather than truncates: a clipped cadence loses the timezone first, which is the
+            part a reader cannot guess. Breaking inside a word covers a hand-written cron whose
+            comma list holds no space to wrap at. */}
+        <div className="flex min-w-0 flex-col gap-0.5 break-words">
           <span className="text-[12.5px] text-gray-12">
             <ScoutCadenceLabel config={config} />
           </span>

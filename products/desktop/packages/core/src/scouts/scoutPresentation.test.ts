@@ -758,6 +758,7 @@ describe("schedule modes", () => {
     ["a plain daily cron", "0 9 * * *", 1440, true],
     ["a weekly cron", "30 8 * * 4", 1440, true],
     ["a cron the presets cannot name", "0 9 * * 1-5", 1440, true],
+    ["a cron stepped by the hour", "0 */3 * * *", 1440, true],
     ["a cron running through the day", "*/30 * * * *", 1440, false],
   ])(
     "tells whether %s states a clock time",
