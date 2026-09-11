@@ -33,11 +33,24 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     engine = models.CharField(max_length=20, choices=Engine, default=Engine.CLICKHOUSE)
     # Null: recorded before run modes existed, or the run failed before the write plan resolved.
     run_mode = models.CharField(max_length=20, choices=RunMode, null=True, blank=True)
+    full_refresh_reason = models.CharField(max_length=200, null=True, blank=True)
     rows_materialized = models.IntegerField(default=0)
     error = models.TextField(null=True, blank=True)
     workflow_id = models.CharField(max_length=400, null=True, blank=True)
     workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
     parent_workflow_id = models.CharField(max_length=400, null=True, blank=True)
+    # Distinct from `created_by`, which copies the saved query's author onto every run of it. Null
+    # on a scheduled run and on one the product started for its own reasons, so a value here means
+    # a person is waiting on this result.
+    manually_triggered_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        # posthog_user is read on nearly every request, and a real constraint would lock it.
+        db_constraint=False,
+    )
     last_run_at = models.DateTimeField(default=timezone.now)
     rows_expected = models.IntegerField(null=True, blank=True, help_text="Total rows expected to be materialized")
     storage_delta_mib = models.FloatField(null=True, blank=True, default=0)

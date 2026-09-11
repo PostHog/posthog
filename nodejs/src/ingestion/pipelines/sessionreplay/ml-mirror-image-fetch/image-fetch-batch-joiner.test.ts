@@ -26,30 +26,35 @@ describe('ImageFetchBatchJoiner', () => {
     beforeEach(() => jest.useFakeTimers())
     afterEach(() => jest.useRealTimers())
 
-    it('joins batches from two consumers before processing', async () => {
+    it.each([2, 16])('joins batches from %i consumers before processing', async (consumerCount) => {
         const processBatch = jest.fn(() => Promise.resolve())
-        const joiner = new ImageFetchBatchJoiner(2, processBatch)
+        const joiner = new ImageFetchBatchJoiner(consumerCount, processBatch)
 
-        const first = joiner.handleBatch([message(0)])
+        const messages = Array.from({ length: consumerCount }, (_, partition) => message(partition))
+        const pending = messages.slice(0, -1).map((item) => joiner.handleBatch([item]))
         expect(processBatch).not.toHaveBeenCalled()
-        const second = joiner.handleBatch([message(1)])
+        pending.push(joiner.handleBatch([messages[consumerCount - 1]]))
 
-        await Promise.all([first, second])
-        expect(processBatch).toHaveBeenCalledWith([message(0), message(1)])
+        await Promise.all(pending)
+        expect(processBatch).toHaveBeenCalledTimes(1)
+        expect(processBatch).toHaveBeenCalledWith(messages)
     })
 
-    it('processes one available batch when the join window ends', async () => {
-        const processBatch = jest.fn(() => Promise.resolve())
-        const joiner = new ImageFetchBatchJoiner(2, processBatch)
+    it.each([2, 16])(
+        'processes a partial batch with a target of %i when the join window ends',
+        async (consumerCount) => {
+            const processBatch = jest.fn(() => Promise.resolve())
+            const joiner = new ImageFetchBatchJoiner(consumerCount, processBatch)
 
-        const pending = joiner.handleBatch([message(0)])
-        await jest.advanceTimersByTimeAsync(IMAGE_FETCH_BATCH_JOIN_TIMEOUT_MS - 1)
-        expect(processBatch).not.toHaveBeenCalled()
-        await jest.advanceTimersByTimeAsync(1)
+            const pending = joiner.handleBatch([message(0)])
+            await jest.advanceTimersByTimeAsync(IMAGE_FETCH_BATCH_JOIN_TIMEOUT_MS - 1)
+            expect(processBatch).not.toHaveBeenCalled()
+            await jest.advanceTimersByTimeAsync(1)
 
-        await pending
-        expect(processBatch).toHaveBeenCalledWith([message(0)])
-    })
+            await pending
+            expect(processBatch).toHaveBeenCalledWith([message(0)])
+        }
+    )
 
     it('rejects active and pending consumers when processing fails', async () => {
         const error = new Error('fetch pass failed')
