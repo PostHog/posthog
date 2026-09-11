@@ -22,21 +22,58 @@ async def _validate(hogql_query: str, team) -> None:
     "hogql_query",
     [
         "SELECT event AS event, distinct_id AS distinct_id FROM events",
-        "SELECT event AS event FROM events UNION ALL SELECT event AS event FROM events",
-        "SELECT event AS event, timestamp AS timestamp FROM events "
-        "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}",
+        """
+        SELECT event AS event
+        FROM events
+        UNION ALL
+        SELECT event AS event
+        FROM events
+        """,
+        """
+        SELECT
+            event AS event,
+            timestamp AS timestamp
+        FROM events
+        WHERE
+            timestamp >= {data_interval_start}
+            AND timestamp < {data_interval_end}
+        """,
         # the placeholders may feed any expression, not only a plain comparison
-        "SELECT event AS event FROM events "
-        "WHERE timestamp >= {data_interval_start} - INTERVAL 2 DAY AND timestamp < {data_interval_end}",
+        """
+        SELECT event AS event
+        FROM events
+        WHERE
+            timestamp >= {data_interval_start} - INTERVAL 2 DAY
+            AND timestamp < {data_interval_end}
+        """,
         # each member of a UNION must resolve on its own, and placeholders may appear in any of them
-        "SELECT event AS event, timestamp AS timestamp FROM events "
-        "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end} "
-        "UNION ALL SELECT event AS event, timestamp AS timestamp FROM events "
-        "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}",
+        """
+        SELECT
+            event AS event,
+            timestamp AS timestamp
+        FROM events
+        WHERE
+            timestamp >= {data_interval_start}
+            AND timestamp < {data_interval_end}
+        UNION ALL
+        SELECT
+            event AS event,
+            timestamp AS timestamp
+        FROM events
+        WHERE
+            timestamp >= {data_interval_start}
+            AND timestamp < {data_interval_end}
+        """,
         # placeholders inside a CTE are found and replaced too
-        "WITH bounded AS (SELECT event AS event FROM events "
-        "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}) "
-        "SELECT event AS event FROM bounded",
+        """
+        WITH bounded AS (
+           SELECT event AS event FROM events
+           WHERE
+               timestamp >= {data_interval_start}
+               AND timestamp < {data_interval_end}
+           )
+        SELECT event AS event FROM bounded
+        """,
     ],
     ids=[
         "no-placeholders",
