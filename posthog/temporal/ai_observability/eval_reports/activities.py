@@ -9,7 +9,7 @@ from itertools import batched
 from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
-from django.db.models import F, Q, Window
+from django.db.models import F, Min, Q, Window
 from django.db.models.functions import RowNumber
 
 import temporalio.activity
@@ -39,6 +39,7 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
     target_event_predicate,
 )
 from posthog.temporal.ai_observability.eval_reports.types import (
+    DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORT_GROUPS_PER_RUN,
     DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN,
     CheckCountTriggeredEvalReportInput,
     CheckCountTriggeredEvalReportOutput,
@@ -73,9 +74,9 @@ class _FetchedDueEvalReports:
     has_more: bool
 
 
-def _count_trigger_page_index(poll_number: int, page_count: int) -> int:
+def _scheduler_page_index(poll_number: int, page_count: int, namespace: str) -> int:
     """Select a deterministic page without aliasing against skipped schedule intervals."""
-    digest = hashlib.blake2s(str(poll_number).encode(), digest_size=8).digest()
+    digest = hashlib.blake2s(f"{namespace}:{poll_number}".encode(), digest_size=8).digest()
     return int.from_bytes(digest, "big") % page_count
 
 
@@ -84,12 +85,13 @@ async def fetch_due_eval_reports_activity(
     inputs: ScheduleAllEvalReportsWorkflowInputs,
 ) -> FetchDueEvalReportsOutput:
     """Return a list of time-based evaluation report IDs that are due for delivery."""
-    now_with_buffer = dt.datetime.now(tz=dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
+    poll_time = dt.datetime.now(tz=dt.UTC)
+    now_with_buffer = poll_time + dt.timedelta(minutes=inputs.buffer_minutes)
 
     fetched = await database_sync_to_async(
         _fetch_due_eval_report_ids,
         thread_sensitive=False,
-    )(now_with_buffer, inputs.max_reports_per_run)
+    )(now_with_buffer, inputs.max_reports_per_run, poll_time=poll_time)
     await logger.ainfo(
         "llma_eval_reports_coordinator_scheduled_poll",
         reports_found=len(fetched.report_ids),
@@ -117,13 +119,15 @@ async def fetch_due_eval_reports_activity(
 def _fetch_due_eval_report_ids(
     now_with_buffer: dt.datetime,
     max_reports_per_run: int,
+    *,
+    poll_time: dt.datetime | None = None,
 ) -> _FetchedDueEvalReports:
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
     if max_reports_per_run <= 0:
         raise ValueError("max_reports_per_run must be greater than zero")
 
-    rows = list(
+    candidates = (
         EvaluationReport.objects.deliverable()
         .filter(next_delivery_date__lte=now_with_buffer)
         .exclude(frequency=EvaluationReport.Frequency.EVERY_N)
@@ -135,15 +139,28 @@ def _fetch_due_eval_report_ids(
             )
         )
         .order_by("_team_rank", "next_delivery_date", "team_id", "id")
-        .values_list("id", "next_delivery_date")[: max_reports_per_run + 1]
+        .values_list("id", "next_delivery_date")
     )
-    has_more = len(rows) > max_reports_per_run
-    selected_rows = rows[:max_reports_per_run]
-    oldest_due_at = min((next_delivery_date for _, next_delivery_date in selected_rows), default=None)
+    candidate_count = candidates.count()
+    if candidate_count == 0:
+        return _FetchedDueEvalReports(report_ids=[], oldest_due_at=None, has_more=False)
+
+    page_count = math.ceil(candidate_count / max_reports_per_run)
+    effective_poll_time = poll_time or now_with_buffer
+    poll_number = int(effective_poll_time.timestamp() // dt.timedelta(hours=1).total_seconds())
+    page_index = _scheduler_page_index(poll_number, page_count, "scheduled")
+    offset = page_index * max_reports_per_run
+    selected_rows = list(candidates[offset : offset + max_reports_per_run])
+    oldest_due_at = (
+        EvaluationReport.objects.deliverable()
+        .filter(next_delivery_date__lte=now_with_buffer)
+        .exclude(frequency=EvaluationReport.Frequency.EVERY_N)
+        .aggregate(oldest_due_at=Min("next_delivery_date"))["oldest_due_at"]
+    )
     return _FetchedDueEvalReports(
         report_ids=[str(report_id) for report_id, _ in selected_rows],
         oldest_due_at=oldest_due_at,
-        has_more=has_more,
+        has_more=candidate_count > len(selected_rows),
     )
 
 
@@ -158,6 +175,7 @@ async def fetch_count_triggered_eval_report_candidates_activity(
     def get_report_id_groups() -> tuple[list[list[str]], int]:
         return _fetch_count_triggered_eval_report_candidate_groups(
             max_reports_per_run=inputs.max_reports_per_run,
+            max_groups_per_run=inputs.max_groups_per_run,
         )
 
     report_id_groups, candidate_count = await get_report_id_groups()
@@ -168,6 +186,7 @@ async def fetch_count_triggered_eval_report_candidates_activity(
         total_checked=len(report_ids),
         candidate_count=candidate_count,
         max_reports_per_run=inputs.max_reports_per_run,
+        max_groups_per_run=inputs.max_groups_per_run,
         has_more=has_more,
     )
     from posthog.temporal.ai_observability.eval_reports.metrics import (
@@ -220,6 +239,7 @@ async def check_count_triggered_eval_reports_activity(
 
 def _fetch_count_triggered_eval_report_candidate_groups(
     max_reports_per_run: int = DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN,
+    max_groups_per_run: int = DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORT_GROUPS_PER_RUN,
     now: dt.datetime | None = None,
 ) -> tuple[list[list[str]], int]:
     """Return candidate report ids grouped one team per group, each group at most
@@ -229,6 +249,8 @@ def _fetch_count_triggered_eval_report_candidate_groups(
 
     if max_reports_per_run <= 0:
         raise ValueError("max_reports_per_run must be greater than zero")
+    if max_groups_per_run <= 0:
+        raise ValueError("max_groups_per_run must be greater than zero")
 
     candidates = (
         EvaluationReport.objects.deliverable()
@@ -257,20 +279,19 @@ def _fetch_count_triggered_eval_report_candidate_groups(
     # modulo when Temporal skips overlapping ticks (for example, every second tick
     # with two pages). The activity need not be replay-deterministic, but a stable
     # mapping keeps selection observable and testable.
-    page_index = _count_trigger_page_index(poll_number, page_count)
+    page_index = _scheduler_page_index(poll_number, page_count, "count-reports")
     offset = page_index * max_reports_per_run
 
     ids_by_team: dict[int, list[str]] = defaultdict(list)
     for pk, team_id in candidates[offset : offset + max_reports_per_run]:
         ids_by_team[team_id].append(str(pk))
-    return (
-        [
-            list(chunk)
-            for ids in ids_by_team.values()
-            for chunk in batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)
-        ],
-        candidate_count,
-    )
+    groups = [
+        list(chunk) for ids in ids_by_team.values() for chunk in batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)
+    ]
+    group_page_count = math.ceil(len(groups) / max_groups_per_run)
+    group_page_index = _scheduler_page_index(poll_number, group_page_count, "count-groups")
+    group_offset = group_page_index * max_groups_per_run
+    return groups[group_offset : group_offset + max_groups_per_run], candidate_count
 
 
 def _load_count_triggered_report(report_id: str) -> "EvaluationReport | None":

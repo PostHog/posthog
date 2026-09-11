@@ -137,8 +137,10 @@ async def test_count_coordinator_uses_bounded_input_and_fire_and_forget_dispatch
 
     assert execute_activity.await_args is not None
     assert execute_activity.await_args.args[1].max_reports_per_run == 800
+    assert execute_activity.await_args.args[1].max_groups_per_run == 15
     assert patched.call_args_list == [
         call("eval-report-count-bounded-input-2026-09"),
+        call("eval-report-count-group-bounded-input-2026-09"),
         call("eval-report-count-fire-and-forget-2026-09"),
     ]
     start_child.assert_awaited_once()
@@ -163,6 +165,30 @@ async def test_count_coordinator_preserves_empty_fetch_payload_during_legacy_rep
     patched.assert_called_once_with("eval-report-count-bounded-input-2026-09")
     assert execute_activity.await_args is not None
     assert execute_activity.await_args.args[1] == {}
+
+
+@pytest.mark.asyncio
+async def test_count_coordinator_preserves_report_only_bound_during_intermediate_replay() -> None:
+    execute_activity = AsyncMock(return_value=FetchDueEvalReportsOutput(report_ids=[]))
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=execute_activity,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
+            side_effect=[True, False],
+        ) as patched,
+    ):
+        await CheckCountTriggeredReportsWorkflow().run(CheckCountTriggeredReportsWorkflowInputs())
+
+    assert patched.call_args_list == [
+        call("eval-report-count-bounded-input-2026-09"),
+        call("eval-report-count-group-bounded-input-2026-09"),
+    ]
+    assert execute_activity.await_args is not None
+    assert execute_activity.await_args.args[1] == {"max_reports_per_run": 800}
 
 
 @pytest.mark.asyncio

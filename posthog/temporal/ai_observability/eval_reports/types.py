@@ -9,6 +9,10 @@ DEFAULT_MAX_SCHEDULED_EVAL_REPORTS_PER_RUN = 300
 # Leaves room below Temporal's recommendation of at most 1,000 children per parent
 # while rotating through larger candidate inventories over subsequent polls.
 DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN = 800
+# With five groups checked concurrently, 15 groups require at most three serial
+# windows. Even if every activity exhausts its three 120-second attempts and
+# retry backoffs, that leaves useful headroom inside the 30-minute coordinator.
+DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORT_GROUPS_PER_RUN = 15
 
 
 @dataclasses.dataclass(frozen=True)
@@ -20,6 +24,7 @@ class ScheduleAllEvalReportsWorkflowInputs:
 @dataclasses.dataclass(frozen=True)
 class CheckCountTriggeredReportsWorkflowInputs:
     max_reports_per_run: int = DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN
+    max_groups_per_run: int = DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORT_GROUPS_PER_RUN
 
 
 @dataclasses.dataclass

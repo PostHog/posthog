@@ -118,11 +118,17 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: CheckCountTriggeredReportsWorkflowInputs) -> None:
-        fetch_inputs = (
-            inputs
-            if temporalio.workflow.patched("eval-report-count-bounded-input-2026-09")
-            else cast(CheckCountTriggeredReportsWorkflowInputs, {})
-        )
+        if temporalio.workflow.patched("eval-report-count-bounded-input-2026-09"):
+            fetch_inputs = (
+                inputs
+                if temporalio.workflow.patched("eval-report-count-group-bounded-input-2026-09")
+                else cast(
+                    CheckCountTriggeredReportsWorkflowInputs,
+                    {"max_reports_per_run": inputs.max_reports_per_run},
+                )
+            )
+        else:
+            fetch_inputs = cast(CheckCountTriggeredReportsWorkflowInputs, {})
         result = await temporalio.workflow.execute_activity(
             fetch_count_triggered_eval_report_candidates_activity,
             fetch_inputs,

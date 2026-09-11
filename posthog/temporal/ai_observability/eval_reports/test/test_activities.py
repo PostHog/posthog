@@ -642,6 +642,30 @@ class TestCountTriggeredReportChecks(BaseTest):
 
         self.assertEqual(selected_ids, report_ids)
 
+    def test_fetch_candidates_caps_and_rotates_query_groups(self):
+        teams = [self.team]
+        teams.extend(Team.objects.create(organization=self.organization, name=f"other-{index}") for index in range(3))
+        report_ids = {str(self._create_report(team=team).id) for team in teams}
+
+        selected_ids: set[str] = set()
+        for group_page_index in range(2):
+            with patch(
+                "posthog.temporal.ai_observability.eval_reports.activities._scheduler_page_index",
+                side_effect=lambda _poll, _pages, namespace, group_page_index=group_page_index: (
+                    0 if namespace == "count-reports" else group_page_index
+                ),
+            ):
+                groups, candidate_count = _fetch_count_triggered_eval_report_candidate_groups(
+                    max_reports_per_run=4,
+                    max_groups_per_run=2,
+                )
+
+            self.assertEqual(candidate_count, 4)
+            self.assertEqual(len(groups), 2)
+            selected_ids.update(report_id for group in groups for report_id in group)
+
+        self.assertEqual(selected_ids, report_ids)
+
     def test_fetch_scheduled_reports_limits_fairly_across_teams(self):
         other_team = Team.objects.create(organization=self.organization, name="other")
         reports = [
@@ -657,7 +681,11 @@ class TestCountTriggeredReportChecks(BaseTest):
         due_at = timezone.now() - dt.timedelta(minutes=30)
         EvaluationReport.objects.filter(id__in=[report.id for report in reports]).update(next_delivery_date=due_at)
 
-        fetched = _fetch_due_eval_report_ids(timezone.now(), max_reports_per_run=2)
+        with patch(
+            "posthog.temporal.ai_observability.eval_reports.activities._scheduler_page_index",
+            return_value=0,
+        ):
+            fetched = _fetch_due_eval_report_ids(timezone.now(), max_reports_per_run=2)
 
         selected_team_ids = set(
             EvaluationReport.objects.filter(id__in=fetched.report_ids).values_list("team_id", flat=True)
@@ -665,6 +693,35 @@ class TestCountTriggeredReportChecks(BaseTest):
         self.assertEqual(selected_team_ids, {self.team.id, other_team.id})
         self.assertEqual(fetched.oldest_due_at, due_at)
         self.assertTrue(fetched.has_more)
+
+    def test_fetch_scheduled_reports_rotates_past_a_stuck_page(self):
+        reports = [
+            self._create_report(
+                frequency=EvaluationReport.Frequency.SCHEDULED,
+                rrule="FREQ=HOURLY",
+                starts_at=timezone.now() - dt.timedelta(hours=5),
+                trigger_threshold=None,
+            )
+            for _ in range(4)
+        ]
+        report_ids = {str(report.id) for report in reports}
+        due_at = timezone.now() - dt.timedelta(minutes=30)
+        EvaluationReport.objects.filter(id__in=report_ids).update(next_delivery_date=due_at)
+
+        selected_ids: set[str] = set()
+        for page_index in range(2):
+            with patch(
+                "posthog.temporal.ai_observability.eval_reports.activities._scheduler_page_index",
+                return_value=page_index,
+            ):
+                fetched = _fetch_due_eval_report_ids(timezone.now(), max_reports_per_run=2)
+
+            self.assertEqual(len(fetched.report_ids), 2)
+            self.assertTrue(fetched.has_more)
+            self.assertEqual(fetched.oldest_due_at, due_at)
+            selected_ids.update(fetched.report_ids)
+
+        self.assertEqual(selected_ids, report_ids)
 
     def test_check_report_returns_due_when_threshold_is_crossed(self):
         report = self._create_report(trigger_threshold=100)

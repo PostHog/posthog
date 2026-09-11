@@ -23,7 +23,7 @@ from posthog.temporal.ai_observability.eval_reports.schedule import (
         ),
         (
             create_count_trigger_schedule,
-            {"max_reports_per_run": 800},
+            {"max_reports_per_run": 800, "max_groups_per_run": 15},
             timedelta(minutes=30),
             timedelta(minutes=5),
         ),
