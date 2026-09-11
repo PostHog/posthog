@@ -2,15 +2,15 @@
 # isort: skip_file
 # common_pb2 must be imported before any proto that depends on common.proto
 # (cohort, group, person all reference it in their serialized descriptors)
-from posthog.personhog_client.proto.generated.personhog.types.v1.common_pb2 import (
+from personhog.types.v1.common_pb2 import (
     CONSISTENCY_LEVEL_EVENTUAL,
     CONSISTENCY_LEVEL_STRONG,
     GroupIdentifier,
     GroupKey,
     ReadOptions,
 )
-from posthog.personhog_client.proto.generated.personhog.service.v1.service_pb2_grpc import PersonHogServiceStub
-from posthog.personhog_client.proto.generated.personhog.types.v1.cohort_pb2 import (
+from personhog.service.v1.service_pb2_grpc import PersonHogServiceStub
+from personhog.types.v1.cohort_pb2 import (
     CheckCohortMembershipRequest,
     CohortMembership,
     CohortMembershipResponse,
@@ -25,11 +25,11 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.cohort_pb2 impo
     ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse,
 )
-from posthog.personhog_client.proto.generated.personhog.types.v1.feature_flag_pb2 import (
+from personhog.types.v1.feature_flag_pb2 import (
     DeleteHashKeyOverridesByTeamsRequest,
     DeleteHashKeyOverridesByTeamsResponse,
 )
-from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 import (
+from personhog.types.v1.group_pb2 import (
     CountGroupTypeMappingsRequest,
     CountGroupTypeMappingsResponse,
     CreateGroupRequest,
@@ -65,7 +65,7 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 impor
     UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse,
 )
-from posthog.personhog_client.proto.generated.personhog.types.v1.person_pb2 import (
+from personhog.types.v1.person_pb2 import (
     DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse,
     DeletePersonsRequest,

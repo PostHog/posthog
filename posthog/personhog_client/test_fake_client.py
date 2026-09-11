@@ -2,8 +2,9 @@ import json
 
 import pytest
 
+from personhog.types.v1 import cohort_pb2, common_pb2, group_pb2, person_pb2
+
 from posthog.personhog_client.fake_client import FakePersonHogClient, fake_personhog_client
-from posthog.personhog_client.proto.generated.personhog.types.v1 import cohort_pb2, common_pb2, group_pb2, person_pb2
 
 
 class TestFakePersonHogClientPersons:

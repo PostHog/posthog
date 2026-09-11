@@ -29,6 +29,7 @@ hogql-parser-rs = false
 [manifest]
 members = [
     "hogli",
+    "personhog-proto",
     "posthog",
     "posthog-owners",
 ]
@@ -5398,6 +5399,21 @@ wheels = [
 ]
 
 [[package]]
+name = "personhog-proto"
+version = "0.1.0"
+source = { editable = "common/personhog_proto" }
+dependencies = [
+    { name = "grpcio" },
+    { name = "protobuf" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "grpcio" },
+    { name = "protobuf" },
+]
+
+[[package]]
 name = "pex"
 version = "2.42.2"
 source = { registry = "https://pypi.org/simple" }
@@ -5698,6 +5714,7 @@ dependencies = [
     { name = "ormsgpack" },
     { name = "pandas" },
     { name = "paramiko" },
+    { name = "personhog-proto" },
     { name = "pillow" },
     { name = "pixelhog" },
     { name = "playwright" },
@@ -5982,6 +5999,7 @@ requires-dist = [
     { name = "ormsgpack", specifier = "~=1.12" },
     { name = "pandas", specifier = "~=2.3.3" },
     { name = "paramiko", specifier = "~=3.5.0" },
+    { name = "personhog-proto", editable = "common/personhog_proto" },
     { name = "pillow", specifier = "==12.3.0" },
     { name = "pixelhog", specifier = "~=1.3.0" },
     { name = "playwright", specifier = "~=1.60.0" },

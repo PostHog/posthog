@@ -41,9 +41,8 @@ jobs:
                   filters: |
                       proto:
                         - 'proto/**'
-                        - 'posthog/personhog_client/proto/generated/**'
+                        - 'common/personhog_proto/**'
                         - 'bin/generate_personhog_proto.sh'
-                        - 'bin/helpers/relativize_proto_imports.py'
                         - 'nodejs/src/common/generated/personhog/**'
                         - 'nodejs/src/common/generated/ingestion-worker/**'
                         - 'nodejs/buf.gen.yaml'
@@ -133,8 +132,8 @@ jobs:
             - name: Check for diff
               run: |
                   # Intent-to-add so brand-new generated files show up in git diff
-                  git add -N posthog/personhog_client/proto/generated/
-                  if ! git diff --exit-code posthog/personhog_client/proto/generated/; then
+                  git add -N common/personhog_proto/
+                  if ! git diff --exit-code common/personhog_proto/; then
                     echo ""
                     echo "ERROR: Generated Python proto stubs are out of date."
                     echo "Run 'bash bin/generate_personhog_proto.sh' and commit the result."

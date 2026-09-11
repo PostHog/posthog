@@ -4,7 +4,10 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
+import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { MarketingAnalyticsCell } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/shared'
 import { webAnalyticsDataTableQueryContext } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -79,6 +82,7 @@ const QUERY_CONTEXT: QueryContext = {
 // Scaffold for the redesigned marketing analytics dashboard, gated behind the
 // `new-marketing-analytics-dashboard` feature flag.
 export function NewMarketingAnalyticsDashboard(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { dateFilter, compareFilter, shouldFilterTestAccounts } = useValues(marketingAnalyticsLogic)
     const { setDates, setCompareFilter } = useActions(marketingAnalyticsLogic)
     const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
@@ -94,9 +98,6 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
     const { response, responseLoading, responseError } = useValues(overviewLogic)
     const { loadData } = useActions(overviewLogic)
     const overview = response as WebOverviewQueryResponse | undefined
-    const items = ['visitors', 'sessions', 'views'].flatMap((key) =>
-        (overview?.results?.filter((item) => item.key === key) ?? []).map((item) => ({ ...item, value: item.value }))
-    )
 
     return (
         <div className="mt-4 flex flex-col gap-4">
@@ -107,20 +108,38 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                     Reload summary
                 </LemonButton>
             </div>
-            <h2 className="mb-0">Acquisition</h2>
             {responseError ? (
                 <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadData('force_async') }}>
-                    Could not load acquisition metrics. Try again.
+                    Could not load traffic metrics. Try again.
                 </LemonBanner>
             ) : (
-                <OverviewMetricCardGrid
-                    items={items}
-                    loading={responseLoading}
-                    numSkeletons={3}
-                    samplingRate={overview?.samplingRate}
-                    preComputeStrategy={overview?.preComputeStrategy}
-                    labelFromKey={labelFromKey}
-                />
+                [
+                    { title: 'Acquisition', keys: ['visitors', 'sessions', 'views'] },
+                    { title: 'Engagement', keys: ['session duration', 'bounce rate'] },
+                ].map(({ title, keys }) => (
+                    <section key={title} className="flex flex-col gap-2" aria-label={title}>
+                        <h2 className="mb-0">{title}</h2>
+                        <OverviewMetricCardGrid
+                            items={keys.flatMap((key) =>
+                                (overview?.results?.filter((item) => item.key === key) ?? []).map((item) => ({
+                                    ...item,
+                                    value: item.value,
+                                }))
+                            )}
+                            loading={responseLoading}
+                            numSkeletons={keys.length}
+                            samplingRate={overview?.samplingRate}
+                            preComputeStrategy={overview?.preComputeStrategy}
+                            labelFromKey={labelFromKey}
+                        />
+                    </section>
+                ))
+            )}
+            {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION] && (
+                <section aria-label="Conversion" className="flex flex-col gap-2">
+                    <h2 className="mb-0">Conversion</h2>
+                    <AttributionTab />
+                </section>
             )}
             <Query
                 query={{

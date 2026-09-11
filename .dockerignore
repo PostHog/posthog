@@ -12,6 +12,7 @@
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
 !common/tailwind
+!common/personhog_proto
 !packages/quill
 !packages/llm-normalizer
 !dags

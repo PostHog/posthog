@@ -149,6 +149,7 @@ dependencies = [
     # reads a repo's team -> Slack channel registry through it (products/stamphog/backend/logic/
     # channel_resolution.py). Adds no third-party code — its own deps, pyyaml and click, are here.
     "posthog-owners",
+    "personhog-proto",
     "umap-learn~=0.5.0",
     "tbb==2022.3.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "whitenoise~=6.10.0",
@@ -312,11 +313,12 @@ exclude-newer = "7 days"
 exclude-newer-package = { granian = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
-members = ["tools/hogli", "tools/owners"]
+members = ["tools/hogli", "tools/owners", "common/personhog_proto"]
 
 [tool.uv.sources]
 hogli = { workspace = true }
 posthog-owners = { workspace = true }
+personhog-proto = { workspace = true }
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
 # pytest-split: pinned to PostHog's fork (immutable tag) for the order-preserving
 # optimal_chunks split. Fork: PostHog/pytest-split (of jerry-git/pytest-split).
@@ -386,12 +388,9 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# bin/relativize_proto_imports.py generates .pyi stubs with re-exports (e.g. `from . import person_pb2`)
-# that type checkers need to resolve the package structure.
-# protobuf _pb2.py files have side-effect-only imports that load dependency
-# descriptors into the pool before AddSerializedFile() — ruff must not strip them.
-"posthog/personhog_client/proto/generated/**/*.pyi" = ["F401"]
-"posthog/personhog_client/proto/generated/**/*_pb2.py" = ["F401", "E402"]
+# protoc's _pb2.py files import dependencies for the side effect of loading their descriptors
+# into the pool before AddSerializedFile(). ruff must not strip or move those imports.
+"common/personhog_proto/**/*_pb2.py" = ["F401", "E402"]
 # deltalite's test suite bootstraps its harness/planner via sys.path (the package is a
 # maturin-built extension living under rust/, not part of the Django app), so imports
 # are necessarily lazy / post-path-insert (PLC0415, E402); the planner's small CLI
@@ -489,7 +488,7 @@ exclude_gitignore = true
 # (both resolve to top-level module "conftest")
 # rust/deltalite/python: pytest suite for the maturin-built extension; nothing Django
 # imports it and it has its own CI (ci-deltalite-python.yml).
-exclude = ["^(bin/.*|tools/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
+exclude = ["^(bin/.*|tools/.*|common/personhog_proto/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"
@@ -526,7 +525,7 @@ exclude = [
     "bin/**",
     "manage.py",
     "posthog/hogql/grammar/**",
-    "posthog/personhog_client/proto/generated/**",
+    "common/personhog_proto/**",
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
