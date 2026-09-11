@@ -20,6 +20,7 @@ import type {
 import { ConventionalCommitScopeTag } from "@posthog/ui/features/inbox/components/ConventionalCommitScopeTag";
 import {
   InboxCardActions,
+  InboxCardSelectToggle,
   InboxCardTimestamp,
   inboxCardBodyClassName,
   inboxCardClassName,
@@ -35,17 +36,25 @@ import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/componen
 import { hasKnownSourceProduct } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import {
+  type ReportCardSelection,
+  reportCardLinkClickHandler,
+} from "@posthog/ui/features/inbox/utils/reportSelection";
 import { Button as UiButton } from "@posthog/ui/primitives/Button";
 import {
   navigationSourceHref,
   reportNavigationState,
 } from "@posthog/ui/router/reportNavigation";
 import { Link, useNavigate } from "@tanstack/react-router";
-import type { HTMLAttributes, MouseEvent, ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 interface ReportCardViewBaseProps {
   report: SignalReport;
   isSelected?: boolean;
+  /** True once the list has a selection, which pins the checkbox open on every card. */
+  selectionMode?: boolean;
+  /** Draws the gutter checkbox. Omitted where the list offers no multi-select. */
+  onToggleSelected?: () => void;
   /** Wraps the card body; the container passes the detail-route Link. */
   renderBody: (body: ReactNode, className: string) => ReactNode;
   rootProps?: HTMLAttributes<HTMLDivElement>;
@@ -78,7 +87,14 @@ export type ReportCardViewProps =
   | ArchivedReportCardViewProps;
 
 export function ReportCardView(props: ReportCardViewProps) {
-  const { report, isSelected = false, renderBody, rootProps } = props;
+  const {
+    report,
+    isSelected = false,
+    selectionMode = false,
+    onToggleSelected,
+    renderBody,
+    rootProps,
+  } = props;
   const isArchived = props.variant === "archived";
   // Resolved reports are terminal (their implementation PR merged): shown in the
   // Archive tab for reference, badged as resolved, with no restore action.
@@ -297,7 +313,17 @@ export function ReportCardView(props: ReportCardViewProps) {
       })}
       {...rootProps}
     >
-      {renderBody(body, inboxCardBodyClassName)}
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        {onToggleSelected && (
+          <InboxCardSelectToggle
+            cardTitle={cardTitle}
+            isSelected={isSelected}
+            selectionMode={selectionMode}
+            onToggle={onToggleSelected}
+          />
+        )}
+        {renderBody(body, inboxCardBodyClassName)}
+      </div>
       {actions && <InboxCardActions>{actions}</InboxCardActions>}
     </div>
   );
@@ -305,8 +331,8 @@ export function ReportCardView(props: ReportCardViewProps) {
 
 interface BaseReportCardProps {
   report: SignalReport;
-  isSelected?: boolean;
-  onRowClick?: (event: MouseEvent) => void;
+  /** Multi-select wiring from the list. Absent on lists that do not offer it. */
+  selection?: ReportCardSelection;
 }
 
 interface DefaultReportCardProps extends BaseReportCardProps {
@@ -325,7 +351,7 @@ interface ArchivedReportCardProps extends BaseReportCardProps {
 export type ReportCardProps = DefaultReportCardProps | ArchivedReportCardProps;
 
 export function ReportCard(props: ReportCardProps) {
-  const { report, isSelected = false, onRowClick } = props;
+  const { report, selection } = props;
   const isArchived = props.variant === "archived";
 
   const source = navigationSourceHref();
@@ -353,14 +379,8 @@ export function ReportCard(props: ReportCardProps) {
       {...detailRoute}
       state={reportNavigationState}
       preload="intent"
-      onClick={(event) => {
-        onRowClick?.(event);
-        if (event.metaKey || event.ctrlKey || event.shiftKey) {
-          event.preventDefault();
-          return;
-        }
-        prefetch();
-      }}
+      {...selection?.holdHandlers}
+      onClick={reportCardLinkClickHandler(selection, prefetch)}
       className={className}
     >
       {body}
@@ -372,7 +392,6 @@ export function ReportCard(props: ReportCardProps) {
       <ReportCardView
         variant="archived"
         report={report}
-        isSelected={isSelected}
         onRestore={props.onRestore}
         isRestorePending={props.isRestorePending}
         renderBody={renderBody}
@@ -384,7 +403,11 @@ export function ReportCard(props: ReportCardProps) {
   return (
     <ReportCardView
       report={report}
-      isSelected={isSelected}
+      isSelected={selection?.isSelected ?? false}
+      selectionMode={selection?.selectionMode ?? false}
+      onToggleSelected={
+        selection ? () => selection.toggle("checkbox") : undefined
+      }
       repoSlug={repoSlug}
       artefacts={artefactsResp ?? null}
       onDismiss={props.onDismiss}
