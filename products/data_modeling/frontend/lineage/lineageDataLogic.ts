@@ -27,6 +27,7 @@ async function loadAllPages<T>(loadFirstPage: () => Promise<PaginatedResponse<T>
     let response = await loadFirstPage()
     const results = [...response.results]
     while (response.next) {
+        // nosemgrep: prefer-codegen-api -- Generated list helpers cannot follow the opaque URL returned by the API.
         response = await api.get<PaginatedResponse<T>>(response.next)
         results.push(...response.results)
     }
