@@ -5,19 +5,27 @@ This page records what actually binds a caller, because "raise my session record
 
 ## What binds a request
 
-Every request to `/api/environments/:id/session_recordings` and its `snapshots` action passes through the general ClickHouse throttles.
-Personal API key requests pass through a tier-aware replay throttle on top, and that is almost always the ceiling that blocks them.
+Every limit on this page applies only to a request that carries a personal API key.
+The throttle classes all extend `PersonalApiKeyRateThrottle`, which lets an authenticated request through when it carries no personal API key.
+App traffic is session-authenticated, so it meets none of these limits.
+That is the usual reason a script with a personal API key gets a 429 while the same account's browser traffic does not.
+
+A personal API key request to `/api/environments/:id/session_recordings` or its `snapshots` action passes through the general ClickHouse throttles.
+On the list and `snapshots` actions a tier-aware replay throttle applies on top, and that is almost always the ceiling that blocks the caller.
+
+Sharing-token requests are the exception.
+They get one per-token cap that replaces the general ClickHouse throttles instead of stacking on top of them.
 
 | Limit | Applies to | Burst | Sustained |
 | --- | --- | --- | --- |
-| `clickhouse_burst` / `clickhouse_sustained` | All requests to the viewset | 240/minute | 1200/hour |
+| `clickhouse_burst` / `clickhouse_sustained` | Personal API key, every action | 240/minute | 1200/hour |
 | `listing_*` (recording list) | Personal API key, free plan | 12/minute | 60/hour |
 | `listing_*` (recording list) | Personal API key, paid plan | 60/minute | 300/hour |
 | `listing_*` (recording list) | Personal API key, enterprise plan | 100/minute | 400/hour |
 | `snapshots_*` | Personal API key, free plan | 12/minute | 60/hour |
 | `snapshots_*` | Personal API key, paid plan | 60/minute | 300/hour |
 | `snapshots_*` | Personal API key, enterprise plan | 100/minute | 400/hour |
-| `replay_sharing_token` | Sharing-token requests, per token | 600/minute | none |
+| `replay_sharing_token` | Sharing-token requests, per token, instead of the limits above | 600/minute | none |
 
 The tier comes from `Organization.get_plan_tier()`, cached for 12 hours per team.
 A tier the rate table does not name resolves to `free`.
@@ -49,7 +57,11 @@ The recording list widget on a dashboard reports the same message through `get_r
 
 There is no per-team replay override.
 `Team.api_query_rate_limit` looks like one but `load_team_rate_limit` only reads it for the HogQL query scope, so it has no effect here.
-The only instance-level lever is `RATE_LIMITING_ALLOW_LIST_TEAMS`, which skips throttling altogether rather than raising a ceiling.
+Two instance-level levers exist, and neither raises a ceiling:
+
+- `RATE_LIMITING_ALLOW_LIST_TEAMS` skips throttling for the teams it names.
+- `RATE_LIMIT_ENABLED` turns off every limit on this page for the whole deployment.
+  Each throttle reads it through `is_rate_limit_enabled`, and it defaults to off, so a deployment that never set it applies none of these limits.
 
 For bulk retrieval, point the customer at batch exports rather than a higher request rate.
 
