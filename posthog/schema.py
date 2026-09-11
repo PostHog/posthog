@@ -6648,15 +6648,13 @@ class QueryScanSummary(BaseModel):
     mode: QueryScanMode
     project_share: float | None = Field(
         default=None,
-        description=(
-            "Share of the granules across all the project's events that the query read,"
-            " 0 to 1, written by the analysis."
-        ),
+        description=("How much of all the project's events the query read, 0 to 1. Set once the analysis is done."),
     )
     range_share: float | None = Field(
         default=None,
         description=(
-            "Share of the granules in the query's date range that the query read, 0 to 1, written by the analysis."
+            "How much of the project's events in the query's date range the query read,"
+            " 0 to 1. Set once the analysis is done."
         ),
     )
     rows_read: int = Field(

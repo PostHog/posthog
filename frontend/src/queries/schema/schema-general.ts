@@ -609,9 +609,9 @@ export interface QueryScanSummary {
     duration_ms: integer
     /** Absent when the run was too fast to analyze. */
     status?: QueryScanStatus
-    /** Share of the granules in the query's date range that the query read, 0 to 1, written by the analysis. */
+    /** How much of the project's events in the query's date range the query read, 0 to 1. Set once the analysis is done. */
     range_share?: number
-    /** Share of the granules across all the project's events that the query read, 0 to 1, written by the analysis. */
+    /** How much of all the project's events the query read, 0 to 1. Set once the analysis is done. */
     project_share?: number
 }
 
