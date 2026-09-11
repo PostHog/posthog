@@ -5,13 +5,16 @@ from datetime import datetime
 from products.business_knowledge.backend.learning.contracts import EvidenceBundle, EvidenceRef, evidence_key_for
 from products.business_knowledge.backend.learning.providers import get_learning_provider, register_learning_provider
 from products.business_knowledge.backend.models.constants import LearningProvider
-from products.conversations.backend.facade.api import get_public_human_replies, list_resolved_ticket_revisions
 
 
 class ConversationsLearningProvider:
-    name = LearningProvider.CONVERSATIONS
+    name: str = LearningProvider.CONVERSATIONS
 
     def collect(self, team_id: int, *, since: datetime, limit: int) -> list[EvidenceRef]:
+        from products.conversations.backend.facade.api import (  # noqa: PLC0415 — keeps temporalio off the startup path
+            list_resolved_ticket_revisions,
+        )
+
         return [
             EvidenceRef(
                 evidence_key=evidence_key_for(revision.ticket_id, revision.resolution_comment_id),
@@ -27,6 +30,10 @@ class ConversationsLearningProvider:
         ]
 
     def load(self, ref: EvidenceRef) -> EvidenceBundle | None:
+        from products.conversations.backend.facade.api import (  # noqa: PLC0415 — keeps temporalio off the startup path
+            get_public_human_replies,
+        )
+
         replies = get_public_human_replies(
             ref.source_team_id,
             ref.ticket_id,
