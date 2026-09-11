@@ -100,6 +100,7 @@ import { isShowActionsItem } from "@posthog/ui/features/sessions/components/sess
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
 import { splitUserMessage } from "@posthog/ui/features/sessions/components/session-update/userMessageDisplay";
 import { useVisibleInjectedBlocks } from "@posthog/ui/features/sessions/components/session-update/useVisibleInjectedBlocks";
+import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
 import {
   CHAT_CONTENT_MAX_WIDTH,
   CHAT_CONTENT_PADDING_INLINE,
@@ -117,7 +118,10 @@ import {
   useTurnFeedback,
 } from "@posthog/ui/features/sessions/sessionViewStore";
 import { useThreadScrollRequest } from "@posthog/ui/features/sessions/threadNavigationStore";
-import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMessageTypes";
+import {
+  NO_ATTACHMENTS,
+  type UserMessageAttachment,
+} from "@posthog/ui/features/sessions/userMessageTypes";
 import {
   SessionTaskIdProvider,
   useSessionTaskId,
@@ -520,7 +524,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 function UserBubble({
   content,
   timestamp,
-  attachments = [],
+  attachments = NO_ATTACHMENTS,
   keyboardFocused = false,
 }: {
   content: string;
@@ -532,9 +536,14 @@ function UserBubble({
   // message (start-aligned, outlined, provenance chip) instead of masquerading
   // as something this run's user typed. The envelope boilerplate never renders;
   // only the sender-authored body flows into the normal pipeline below.
-  const { peerAgentMessage, blocks, displayContent } = useMemo(
-    () => splitUserMessage(content),
-    [content],
+  const {
+    peerAgentMessage,
+    blocks,
+    displayContent,
+    attachments: visibleAttachments,
+  } = useMemo(
+    () => splitUserMessage(content, attachments),
+    [content, attachments],
   );
   const visibleBlocks = useVisibleInjectedBlocks(blocks);
   // Provenance is never flag-gated: a peer message must not read as the user's.
@@ -548,7 +557,7 @@ function UserBubble({
       <ChatMessage align={peerAgentMessage ? "start" : "end"} className="group">
         <ChatMessageContent className="gap-1">
           {showHeaderChips && (
-            <ChatMessageHeader className="flex-wrap gap-1">
+            <ChatMessageHeader className="flex-wrap gap-1 px-0">
               {peerAgentMessage && (
                 <MentionChip
                   icon={<Robot size={12} />}
@@ -558,8 +567,13 @@ function UserBubble({
               <InjectedBlockChips blocks={visibleBlocks} taskId={taskId} />
             </ChatMessageHeader>
           )}
+          {visibleAttachments.length > 0 && (
+            <div className={peerAgentMessage ? "self-start" : "self-end"}>
+              <UserMessageAttachments attachments={visibleAttachments} />
+            </div>
+          )}
           {/* The brief is the whole message, so stripping it leaves nothing to put in a bubble. */}
-          {(!!displayContent || attachments.length > 0) && (
+          {!!displayContent && (
             <ChatBubble
               align={peerAgentMessage ? "start" : "end"}
               variant={peerAgentMessage ? "outline" : "default"}
@@ -569,10 +583,7 @@ function UserBubble({
               )}
             >
               <ChatBubbleContent>
-                <UserMessageBody
-                  content={displayContent}
-                  attachments={attachments}
-                />
+                <UserMessageBody content={displayContent} />
               </ChatBubbleContent>
             </ChatBubble>
           )}
