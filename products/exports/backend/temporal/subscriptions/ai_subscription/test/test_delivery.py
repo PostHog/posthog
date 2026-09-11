@@ -471,6 +471,7 @@ class TestBuildAITeamsCard:
                     }
                 ),
             ),
+            patch(f"{_ACTIVITIES}._creator_can_access_delivery_context", return_value=True),
             patch(f"{_ACTIVITIES}.build_chart_image_urls", return_value=[_CHART]),
             patch(
                 f"{_ACTIVITIES}.deliver_teams_webhook",
