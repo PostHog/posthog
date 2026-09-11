@@ -53888,8 +53888,17 @@ export namespace Schemas {
       readonly downstream_count: number;
       /** @nullable */
       readonly last_run_at: string | null;
-      /** @nullable */
+      /**
+         * Skipped runs are written straight to the job table and never reach the stored status,
+       * so a blocked model would keep reporting the success before it.
+         * @nullable
+         */
       readonly last_run_status: string | null;
+      /**
+         * Error of the run that last_run_status describes, so the two never disagree.
+         * @nullable
+         */
+      readonly last_run_error: string | null;
       /** @nullable */
       readonly user_tag: string | null;
       /** @nullable */
@@ -66865,8 +66874,17 @@ export namespace Schemas {
       readonly downstream_count?: number;
       /** @nullable */
       readonly last_run_at?: string | null;
-      /** @nullable */
+      /**
+         * Skipped runs are written straight to the job table and never reach the stored status,
+       * so a blocked model would keep reporting the success before it.
+         * @nullable
+         */
       readonly last_run_status?: string | null;
+      /**
+         * Error of the run that last_run_status describes, so the two never disagree.
+         * @nullable
+         */
+      readonly last_run_error?: string | null;
       /** @nullable */
       readonly user_tag?: string | null;
       /** @nullable */
@@ -96212,7 +96230,26 @@ export namespace Schemas {
      */
     offset?: number;
     saved_query_id?: string;
+    /**
+     * * `Cancelled` - Cancelled
+     * * `Completed` - Completed
+     * * `Failed` - Failed
+     * * `Running` - Running
+     * * `Skipped` - Skipped
+     */
+    status?: DataModelingJobsListStatus;
     };
+
+    export type DataModelingJobsListStatus = typeof DataModelingJobsListStatus[keyof typeof DataModelingJobsListStatus];
+
+
+    export const DataModelingJobsListStatus = {
+      Cancelled: 'Cancelled',
+      Completed: 'Completed',
+      Failed: 'Failed',
+      Running: 'Running',
+      Skipped: 'Skipped',
+    } as const;
 
     export type DataModelingNodesListParams = {
     /**
