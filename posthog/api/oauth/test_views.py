@@ -5558,6 +5558,7 @@ class TestOpenIDProviderMetadata(SimpleTestCase):
 
     def test_does_not_advertise_scopes_an_oauth_client_cannot_obtain(self):
         scopes = openid_provider_metadata("https://us.posthog.com")["scopes_supported"]
+        assert isinstance(scopes, list)
 
         self.assertNotIn("*", scopes)
         self.assertNotIn("llm_gateway:read", scopes)

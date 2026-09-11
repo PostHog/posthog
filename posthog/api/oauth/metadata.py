@@ -4,13 +4,18 @@ Both documents describe one server, and a client reads whichever one its stack s
 so they are built here rather than separately.
 """
 
-from typing import Any
+from collections.abc import Mapping, Sequence
 
 from posthog.api import id_jag
 from posthog.api.oauth.claims import OIDC_CLAIMS
 from posthog.dataclasses import frozen
 from posthog.models.oauth import TokenEndpointAuthMethod
 from posthog.scopes import get_oauth_scopes_supported, get_scope_descriptions
+
+# What a discovery document holds: JSON, nested to whatever depth the field needs. The containers
+# are covariant so a field can hold a concrete `list[str]`.
+type JsonValue = str | bool | int | None | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
+type Document = dict[str, JsonValue]
 
 SUPPORTED_GRANT_TYPES = [
     "authorization_code",
@@ -29,7 +34,7 @@ SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS = [
 SERVICE_DOCUMENTATION = "https://posthog.com/docs/api"
 
 
-def _shared_metadata(base_url: str) -> dict[str, Any]:
+def _shared_metadata(base_url: str) -> Document:
     return {
         "issuer": base_url,
         "authorization_endpoint": f"{base_url}/oauth/authorize/",
@@ -52,7 +57,7 @@ def _shared_metadata(base_url: str) -> dict[str, Any]:
     }
 
 
-def openid_provider_metadata(base_url: str) -> dict[str, Any]:
+def openid_provider_metadata(base_url: str) -> Document:
     """OpenID Provider Metadata (OpenID Connect Discovery 1.0)."""
     return {
         **_shared_metadata(base_url),
@@ -63,7 +68,7 @@ def openid_provider_metadata(base_url: str) -> dict[str, Any]:
     }
 
 
-def authorization_server_metadata(base_url: str, region_info: dict | None = None) -> dict[str, Any]:
+def authorization_server_metadata(base_url: str, region_info: Document | None = None) -> Document:
     """OAuth 2.0 Authorization Server Metadata (RFC 8414)."""
     return {
         **_shared_metadata(base_url),
@@ -87,7 +92,7 @@ def authorization_server_metadata(base_url: str, region_info: dict | None = None
     }
 
 
-def protected_resource_metadata(base_url: str) -> dict[str, Any]:
+def protected_resource_metadata(base_url: str) -> Document:
     """OAuth 2.0 Protected Resource Metadata (RFC 9728).
 
     Reached through the `WWW-Authenticate: Bearer resource_metadata=...` header on 401
