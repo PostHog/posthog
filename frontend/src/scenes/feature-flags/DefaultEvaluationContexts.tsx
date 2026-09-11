@@ -3,17 +3,15 @@ import { useActions, useValues } from 'kea'
 import { IconBolt, IconPlus, IconPlusSmall, IconX } from '@posthog/icons'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
 
-export function DefaultEvaluationContexts(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
+export function DefaultEvaluationContexts(): JSX.Element {
     const { contexts, isEnabled, canAddMoreContexts, newContextInput, defaultEvaluationContextsLoading, isAdding } =
         useValues(defaultEvaluationContextsLogic)
     const { addContext, removeContext, toggleEnabled, setNewContextInput, setIsAdding } =
@@ -22,10 +20,6 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-
-    if (!featureFlags[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]) {
-        return null
-    }
 
     const handleAddContext = (): void => {
         const trimmed = newContextInput.trim().toLowerCase()
