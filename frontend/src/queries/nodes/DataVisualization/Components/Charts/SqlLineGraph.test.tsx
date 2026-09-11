@@ -116,6 +116,16 @@ const renderLine = (
     })
 
 describe('SqlLineGraph', () => {
+    it.each([true, false])('sizes the SQL chart for embedded=%s', async (embedded) => {
+        const { container } = renderDataVisualization({ response: twoSeries(), embedded })
+
+        await waitFor(() => expect(getHogChart()).not.toBeNull())
+
+        const chartContainer = container.querySelector('.DataVisualization .bg-surface-primary')
+        expect(chartContainer).toHaveClass(embedded ? 'h-full' : 'h-[60vh]')
+        expect(chartContainer).not.toHaveClass(embedded ? 'h-[60vh]' : 'h-full')
+    })
+
     describe('annotations', () => {
         it('renders annotations when enabled', async () => {
             renderDataVisualization({
