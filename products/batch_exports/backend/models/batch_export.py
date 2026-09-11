@@ -336,8 +336,9 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        # No index: nothing reads by source, and the forward traversal resolves on the
-        # source table primary key.
+        # No index: the only reader traverses the FK forward, which resolves on the
+        # source table primary key. The SET_NULL cascade filters on source_id, but it
+        # runs only when a team is deleted.
         db_index=False,
         help_text="The source of the data to export. When set, takes precedence over `model`.",
     )
@@ -706,8 +707,9 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        # No index: nothing reads by source, and the forward traversal resolves on the
-        # source table primary key.
+        # No index: the only reader traverses the FK forward, which resolves on the
+        # source table primary key. The SET_NULL cascade filters on source_id, but it
+        # runs only when a team is deleted.
         db_index=False,
         help_text="The source of the data to export. When set, takes precedence over `model`.",
     )

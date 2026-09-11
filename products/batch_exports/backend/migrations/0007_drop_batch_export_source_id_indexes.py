@@ -13,9 +13,10 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Django's automatic ForeignKey indexes on `source_id`. Nothing reads by source:
-        # the only reader traverses the FK forward, which resolves on the source table's
-        # primary key, so both indexes only cost write-time maintenance and disk.
+        # Django's automatic ForeignKey indexes on `source_id`. The only reader traverses
+        # the FK forward, which resolves on the source table's primary key. The SET_NULL
+        # cascade filters on `source_id`, but it runs only when a team is deleted, so both
+        # indexes cost more in write-time maintenance and disk than they save.
         migrations.SeparateDatabaseAndState(
             state_operations=[
                 migrations.AlterField(
