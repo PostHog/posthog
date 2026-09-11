@@ -2248,6 +2248,15 @@ SLACK_MEMBER_TARGET_ERROR = (
 )
 
 
+_SCOUT_SLACK_THREAD_REPORTS_HELP = (
+    "When true, post a report as a thread: a short lead in the channel and the rest split "
+    "into replies at the summary's section labels, which can be Markdown headings or bold "
+    "labels. Keeps a long summary from being clipped at Slack's section limit. On by "
+    "default; set it false to post a single message, which can truncate a long summary. "
+    "It does not change how findings post."
+)
+
+
 class SignalScoutSlackDestinationSerializer(serializers.Serializer):
     integration_id = serializers.IntegerField(
         min_value=1,
@@ -2291,13 +2300,8 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
 
     thread_reports = serializers.BooleanField(
         required=False,
-        default=False,
-        help_text=(
-            "When true, post a report as a thread: a short lead in the channel and the rest split "
-            "into replies at the summary's section labels, which can be Markdown headings or bold "
-            "labels. Keeps a long summary from being clipped at Slack's section limit. Off by "
-            "default, and it does not change how findings post."
-        ),
+        default=True,
+        help_text=_SCOUT_SLACK_THREAD_REPORTS_HELP,
     )
 
     def validate_users(self, value: list[str] | None) -> list[str] | None:
@@ -2324,6 +2328,13 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
         return attrs
 
 
+class SignalScoutSlackDestinationUpdateSerializer(SignalScoutSlackDestinationSerializer):
+    thread_reports = serializers.BooleanField(
+        required=False,
+        help_text=_SCOUT_SLACK_THREAD_REPORTS_HELP,
+    )
+
+
 class SignalScoutWebhookDestinationSerializer(serializers.Serializer):
     hog_function_id = serializers.CharField(
         help_text=(
@@ -2347,6 +2358,14 @@ class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
             "omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the "
             "reference lives here so the owning product can manage the destination's lifecycle."
         ),
+    )
+
+
+class SignalScoutOutputDestinationsUpdateSerializer(SignalScoutOutputDestinationsSerializer):
+    slack = SignalScoutSlackDestinationUpdateSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.",
     )
 
 
@@ -2902,7 +2921,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "apart. Set null to return to the rolling interval schedule."
         ),
     )
-    output_destinations = SignalScoutOutputDestinationsSerializer(
+    output_destinations = SignalScoutOutputDestinationsUpdateSerializer(
         required=False,
         help_text="Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.",
     )
@@ -2962,6 +2981,16 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         return _validate_write_scopes(value)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
+        output_destinations = validated_data.get("output_destinations")
+        current_slack = instance.output_destinations.get("slack") if instance.output_destinations else None
+        incoming_slack = output_destinations.get("slack") if output_destinations else None
+        if (
+            isinstance(current_slack, dict)
+            and current_slack.get("thread_reports") is False
+            and isinstance(incoming_slack, dict)
+            and "thread_reports" not in incoming_slack
+        ):
+            incoming_slack["thread_reports"] = False
         # Re-anchor the coordinator's cron due-check only when the schedule actually changes —
         # an emit/enabled-only save must not defer an already-overdue scheduled run.
         schedule_fields = ("run_interval_minutes", "run_cron_schedule")
