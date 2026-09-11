@@ -22903,6 +22903,54 @@ export namespace Schemas {
     }
 
     /**
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     */
+    export type DataQualityScheduleIntervalEnum = typeof DataQualityScheduleIntervalEnum[keyof typeof DataQualityScheduleIntervalEnum];
+
+
+    export const DataQualityScheduleIntervalEnum = {
+      '1hour': '1hour',
+      '6hour': '6hour',
+      '12hour': '12hour',
+      '24hour': '24hour',
+      '7day': '7day',
+    } as const;
+
+    export interface DataQualityCheckSchedule {
+      /** Schedule identifier. */
+      readonly id: string;
+      /** How often the checks run.
+       *
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day */
+      readonly interval: DataQualityScheduleIntervalEnum;
+      /** Whether the schedule runs automatically. */
+      readonly enabled: boolean;
+      /**
+         * Next scheduled execution time, if enabled.
+         * @nullable
+         */
+      readonly next_run_at: string | null;
+      /**
+         * Most recent visible scheduled suite execution time.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /**
+         * Most recent visible scheduled suite.
+         * @nullable
+         */
+      readonly last_suite_run: string | null;
+    }
+
+    /**
      * JSON schema the config object is validated against.
      */
     export type DataQualityCheckTypeConfigSchema = { [key: string]: unknown };
@@ -36506,9 +36554,9 @@ export namespace Schemas {
       considered_metrics: ExperimentSessionBucketMetric[];
       /** Requested metrics left out of the bucket because they can never match a recording, with the reason. They are reported rather than silently producing an empty result. */
       excluded_metrics: ExperimentSessionBucketExcludedMetric[];
-      /** Start of the window scanned: the experiment's run window, clamped to its most recent 30 days. Matches outside it are not returned. */
+      /** Start of the window scanned, never before the experiment started. At most 30 days before date_to when the scan found an exposure to anchor on. When it found none, how far back the search for one reached, which the project's recording retention bounds. Matches outside the window are not returned. */
       date_from: string;
-      /** End of the window scanned: the experiment's end date, or now while it runs. */
+      /** End of the window scanned: 24 hours after the latest exposure captured in a session, capped at the experiment's end date or now. The pad covers the metric events a session fires after its exposure. The scan ends at the experiment's end date, or now while it runs, when that exposure can't be located, so an experiment whose exposures stopped long ago is still scanned where its sessions are. */
       date_to: string;
       /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
       filter_test_accounts: boolean;
@@ -63878,6 +63926,19 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    export interface PatchedDataQualityCheckScheduleUpdate {
+      /** How often all enabled checks on the metric run.
+       *
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day */
+      interval?: DataQualityScheduleIntervalEnum;
+      /** Whether checks run automatically on this schedule. */
+      enabled?: boolean;
     }
 
     /**
@@ -94342,6 +94403,7 @@ export namespace Schemas {
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
+     * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -94440,6 +94502,7 @@ export namespace Schemas {
       Metric: 'Metric',
       TableCertification: 'TableCertification',
       DataQualityCheck: 'DataQualityCheck',
+      DataQualityCheckSchedule: 'DataQualityCheckSchedule',
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
@@ -94524,6 +94587,7 @@ export namespace Schemas {
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
+     * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -94610,6 +94674,7 @@ export namespace Schemas {
       Metric: 'Metric',
       TableCertification: 'TableCertification',
       DataQualityCheck: 'DataQualityCheck',
+      DataQualityCheckSchedule: 'DataQualityCheckSchedule',
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
