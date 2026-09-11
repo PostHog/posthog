@@ -13,6 +13,7 @@ interface Capturable {
 export interface DetachedElementTrackingState {
     currentPath: string | null
     previousDetachedCount: number | null
+    previousPersistedCount: number | null
     routeBaselineDetachedCount: number | null
     routeBaselinePersistedCount: number | null
 }
@@ -31,6 +32,7 @@ export function createDetachedElementTrackingState(): DetachedElementTrackingSta
     return {
         currentPath: null,
         previousDetachedCount: null,
+        previousPersistedCount: null,
         routeBaselineDetachedCount: null,
         routeBaselinePersistedCount: null,
     }
@@ -60,6 +62,7 @@ export function getDetachedElementTrackingContext(
         nextState: {
             currentPath,
             previousDetachedCount: currentCount,
+            previousPersistedCount: persistedCount,
             routeBaselineDetachedCount: routeBaselineDetachedElements,
             routeBaselinePersistedCount: routeBaselinePersistedElements,
         },
@@ -115,14 +118,37 @@ export function measureDetachedPersistence(
     return { persistedCount, persistedComponents, seenNow }
 }
 
-export function shouldCaptureDetachedElements(currentCount: number, previousCount: number | null): boolean {
+export function shouldCaptureDetachedElements(
+    currentCount: number,
+    previousCount: number | null,
+    persistedCount: number,
+    previousPersistedCount: number | null
+): boolean {
     if (currentCount === 0) {
         return false
     }
     if (previousCount === null) {
         return true
     }
-    return currentCount !== previousCount
+    // A steady leak holds the total still while its elements survive scan after scan, so gating on
+    // the total alone would drop every scan that carries a persisted count.
+    return currentCount !== previousCount || persistedCount !== previousPersistedCount
+}
+
+/** Drop the persistence series while keeping the whole-tab series intact.
+ *
+ *  MemLens's `stop()` discards its tracked element references, so a scanner restarted after the tab
+ *  was hidden begins a new series from nothing. A persisted count is a comparison against the
+ *  previous scan, so its baseline has to restart too, or a route delta is measured against a series
+ *  that no longer exists. The detached totals are re-derived from a fresh walk on every scan, so
+ *  their route baseline stays valid across the restart. */
+export function restartPersistenceSeries(state: DetachedElementTrackingState): DetachedElementTrackingState {
+    return {
+        ...state,
+        previousDetachedCount: null,
+        previousPersistedCount: null,
+        routeBaselinePersistedCount: null,
+    }
 }
 
 export function mapToTopN(map: Map<string, number>, limit: number): Record<string, number> {
@@ -183,7 +209,13 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                     persistence.persistedCount
                 )
 
-                if (!shouldCaptureDetachedElements(result.totalDetachedElements, trackingState.previousDetachedCount)) {
+                const shouldCapture = shouldCaptureDetachedElements(
+                    result.totalDetachedElements,
+                    trackingState.previousDetachedCount,
+                    persistence.persistedCount,
+                    trackingState.previousPersistedCount
+                )
+                if (!shouldCapture) {
                     trackingState = trackingContext.nextState
                     return
                 }
@@ -211,7 +243,8 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                 if (document.hidden) {
                     scan.stop()
                 } else {
-                    trackingState = { ...trackingState, previousDetachedCount: null }
+                    elementsDetachedAtLastScan = new WeakSet()
+                    trackingState = restartPersistenceSeries(trackingState)
                     scan.start()
                 }
             }
