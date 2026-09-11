@@ -132,8 +132,8 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> resumed email sending for
-                    the {objectNoun}: {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                    <ActivityLogUserName logItem={logItem} /> resumed email sending for the {objectNoun}:{' '}
+                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
         }
