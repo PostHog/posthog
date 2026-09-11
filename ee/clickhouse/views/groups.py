@@ -51,9 +51,12 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.notebooks.backend.facade import api as notebooks
 from products.notebooks.backend.facade.content import (
+    build_markdown_notebook_content,
+    convert_notebook_content_to_markdown,
     create_bullet_list,
-    create_empty_paragraph,
     create_heading_with_text,
+    create_paragraph_with_content,
+    create_paragraph_with_text,
     create_text_content,
 )
 
@@ -871,15 +874,19 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         )
 
     def _create_notebook_for_group(self, group: Group):
-        group_name = group.group_properties.get("name", "")
+        # A group name is customer data and can hold line breaks. Markdown escapes inline syntax
+        # but keeps line breaks, so a second line starts its own block — a heading, a list, or a
+        # live component. Collapse the name to one line, which is what a title is anyway.
+        group_name = " ".join(str(group.group_properties.get("name") or "").split())
         notebook_title = f"{group_name} Notes" if group_name else "Notes"
-        notebook_content = [
+        template_nodes = [
             create_heading_with_text(text=notebook_title, level=1),
-            create_text_content(
-                text="This is a place for you and your team to write collaborative notes about this group"
+            create_paragraph_with_text(
+                "This is a place for you and your team to write collaborative notes about this group"
             ),
-            create_empty_paragraph(),
-            create_text_content(text="Here's a template to get you started", is_italic=True),
+            create_paragraph_with_content(
+                [create_text_content(text="Here's a template to get you started", is_italic=True)]
+            ),
             create_heading_with_text(text="Quick context", level=2),
             create_bullet_list(items=["Industry: ", "Key contacts: ", "Tech stack: "]),
             create_heading_with_text(text="Usage patterns", level=2),
@@ -887,6 +894,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             create_heading_with_text(text="Last interaction", level=2),
             create_bullet_list(items=["Date: ", "Context: ", "Next steps: "]),
         ]
+        # The shared converter escapes inline markdown syntax, so the group name renders as text.
+        notebook_content = build_markdown_notebook_content(
+            convert_notebook_content_to_markdown({"type": "doc", "content": template_nodes})
+        )
         notebooks.create_group_notebook(self.team.id, group.id, title=notebook_title, content=notebook_content)
 
 
