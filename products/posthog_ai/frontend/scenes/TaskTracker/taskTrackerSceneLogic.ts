@@ -214,8 +214,8 @@ export interface taskTrackerSceneLogicActions {
     toggleHistory: () => {
         value: true
     } // runnerPanelLogic
-    consumeWarm: () => {
-        value: true
+    consumeWarm: (runId: string | null) => {
+        runId: string | null
     } // taskWarmLogic
     noteDraft: (
         hasText: boolean,
@@ -223,6 +223,9 @@ export interface taskTrackerSceneLogicActions {
     ) => {
         hasText: boolean
         request: import('../../logics/taskWarmLogic').TaskWarmRequest
+    } // taskWarmLogic
+    prepareSubmit: () => {
+        value: true
     } // taskWarmLogic
     releaseWarm: () => {
         value: true
@@ -384,7 +387,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             composerSeedLogic(props),
             ['consumeSeed', 'setSeed'],
             taskWarmLogic({ panelId: props.panelId }),
-            ['noteDraft', 'consumeWarm', 'releaseWarm'],
+            ['noteDraft', 'prepareSubmit', 'consumeWarm', 'releaseWarm'],
         ],
     })),
 
@@ -619,6 +622,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
             const disposables = cache.disposables
             cache.submittingTask = disposables
+            actions.prepareSubmit()
 
             // Optimistically open the thread on send: a `runStreamLogic` keyed by a client `streamKey`, seeded
             // with the typed message + provisioning indicator, rendered by the pending `RunSurface` (the
@@ -714,9 +718,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     (options) => tasksCreate(projectId, taskData, options),
                     disposables
                 )
-                // Whatever happened, this submit owns the warm now: drop the lease without cancelling it,
-                // since the Run it points at is the one the create just activated.
-                actions.consumeWarm()
+                actions.consumeWarm(newTask.latest_run?.id ?? null)
 
                 if (!disposables.isDisposed && values.activeCreation?.streamKey === streamKey) {
                     interaction.props.flushDraft?.()

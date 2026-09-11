@@ -491,6 +491,13 @@ The flow, driven from the PostHog Desktop Environments → Cloud tab:
    falling back to the standard base if the image can't be loaded.
    Repo-setup snapshots are skipped for custom-image runs; resume snapshots still apply.
 
+## Composer prewarming
+
+The task composer can warm a sandbox while the user types.
+Submission stops pending warm-up timers before creating a task or resuming a run, so a delayed warm-up cannot create an extra task after the backend has checked the warm pool.
+Once submission returns, the composer keeps the activated run and releases any unused warm-up, including one whose response arrives later.
+Releases use `only_if_awaiting_first_message` so another composer's activated run is protected.
+
 ## Continuing after sandbox inactivity
 
 When a sandbox expires, a new user message starts the next turn with the preserved

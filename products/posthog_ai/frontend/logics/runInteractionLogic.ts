@@ -1053,6 +1053,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 !props.runId ||
                 !values.isTerminal ||
                 !values.dataProcessingAccepted ||
+                values.startingRun ||
                 values.draftRecovery ||
                 cache.restoringTaskDraft
             ) {
@@ -1391,7 +1392,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                             pending_user_message: wrapWithPosthogContext(content, pendingContext),
                         }
                     )
-                    getWarmLogic()?.actions.consumeWarm()
+                    getWarmLogic()?.actions.prepareSubmit()
                     actions.beginTaskDraftDelivery(content)
                     actions.resetComposerForm()
                     actions.startOptimisticResume(content)
@@ -1400,6 +1401,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         (options) => tasksRunCreate(projectId, taskId, createRequest, options),
                         disposables
                     )
+                    getWarmLogic()?.actions.consumeWarm(result.latest_run?.id ?? null)
                     if (!isCurrent()) {
                         return
                     }
