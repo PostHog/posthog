@@ -1568,7 +1568,10 @@ export class PiSessionController {
       this.submissionsInFlight.has(taskId) ||
       session.isBashRunning ||
       session.authRestoring ||
-      turnState?.phase === "active"
+      // A turn that already recorded a failure receives no turn_completed, so it
+      // is finished, not in flight. A recovering turn clears the failure on its
+      // next activity event.
+      (turnState?.phase === "active" && turnState.stopReason === undefined)
     ) {
       return true;
     }

@@ -914,6 +914,28 @@ describe("PiSessionController", () => {
     expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
+  it("releases an inactive session after a failed turn ends it", async () => {
+    const session = createSession();
+    const unsubscribe = vi.fn();
+    let onEvent: (event: AgentConversationEvent) => void = () => {};
+    vi.mocked(session.onConversationEvent).mockImplementation((handler) => {
+      onEvent = handler;
+      return unsubscribe;
+    });
+    const controller = createController(session);
+
+    await controller.connect("task-1");
+    onEvent({
+      type: "runtime_error",
+      timestamp: 1,
+      errorType: "agent_server_crash",
+      message: "Agent crashed",
+    });
+    controller.release("task-1");
+
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
   it("does not reclaim view ownership when a retry outlives its view", async () => {
     const session = createSession();
     let liveSubscriptions = 0;
