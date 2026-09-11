@@ -2023,9 +2023,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
         loadDataFailure: ({ errorObject }) => {
             actions.collectionNodeLoadDataFailure(props.key)
-            // A cancel is the user's own action, and it looks the same as a dropped request
-            cache.pollUntilSuccess =
-                isRequestTimeoutFailure(errorObject?.status, errorObject?.duration) && !isAbortedRequest(errorObject)
+            // A cancel is the user's own action, and it looks the same as a dropped request, so it
+            // clears the flag. A failure of any other kind says nothing about how long the query
+            // runs, so it leaves the flag as it is instead of sending the next retry back to a
+            // request the edge drops again.
+            if (isAbortedRequest(errorObject)) {
+                cache.pollUntilSuccess = false
+            } else if (isRequestTimeoutFailure(errorObject?.status, errorObject?.duration)) {
+                cache.pollUntilSuccess = true
+            }
         },
         loadNewDataSuccess: ({ response }) => {
             props.onData?.(response as Record<string, unknown> | null | undefined)
