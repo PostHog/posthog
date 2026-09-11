@@ -586,6 +586,11 @@ export namespace Schemas {
       readonly generated_at: string;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type AccountCustomPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export type PropertyOperator = typeof PropertyOperator[keyof typeof PropertyOperator];
 
 
@@ -631,6 +636,8 @@ export namespace Schemas {
     } as const;
 
     export interface AccountCustomPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: AccountCustomPropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator: PropertyOperator;
@@ -1858,7 +1865,14 @@ export namespace Schemas {
       Year: 'year',
     } as const;
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type EventPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface EventPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: EventPropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator?: PropertyOperator | null;
@@ -1867,7 +1881,14 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type PersonPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface PersonPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: PersonPropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator: PropertyOperator;
@@ -1876,7 +1897,14 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type PersonMetadataPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface PersonMetadataPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: PersonMetadataPropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator: PropertyOperator;
@@ -1895,7 +1923,14 @@ export namespace Schemas {
       Selector: 'selector',
     } as const;
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type ElementPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface ElementPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: ElementPropertyFilterGroupKeyNames;
       key: Key10;
       label?: string | null;
       operator: PropertyOperator;
@@ -1903,7 +1938,14 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type EventMetadataPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface EventMetadataPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: EventMetadataPropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator: PropertyOperator;
@@ -1911,7 +1953,14 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type SessionPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface SessionPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: SessionPropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator: PropertyOperator;
@@ -1919,8 +1968,15 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type CohortPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface CohortPropertyFilter {
       cohort_name?: string | null;
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: CohortPropertyFilterGroupKeyNames;
       key?: 'id';
       label?: string | null;
       operator?: PropertyOperator | null;
@@ -1937,7 +1993,14 @@ export namespace Schemas {
       InactiveSeconds: 'inactive_seconds',
     } as const;
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type RecordingPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface RecordingPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: RecordingPropertyFilterGroupKeyNames;
       key: DurationType | string;
       label?: string | null;
       operator: PropertyOperator;
@@ -1945,7 +2008,14 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type LogEntryPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface LogEntryPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: LogEntryPropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator: PropertyOperator;
@@ -1953,9 +2023,13 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
     export type GroupPropertyFilterGroupKeyNames = {[key: string]: string} | null;
 
     export interface GroupPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
       group_key_names?: GroupPropertyFilterGroupKeyNames;
       group_type_index?: number | null;
       key: string;
@@ -1965,7 +2039,14 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type FeaturePropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface FeaturePropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: FeaturePropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator: PropertyOperator;
@@ -1974,7 +2055,14 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type FlagPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface FlagPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: FlagPropertyFilterGroupKeyNames;
       /** The key should be the flag ID */
       key: string;
       label?: string | null;
@@ -1986,7 +2074,14 @@ export namespace Schemas {
       value: boolean | string;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type HogQLPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface HogQLPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: HogQLPropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       type?: 'hogql';
@@ -1998,7 +2093,14 @@ export namespace Schemas {
     } as const;
     export type EmptyPropertyFilter = typeof EmptyPropertyFilterValue;
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type DataWarehousePropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface DataWarehousePropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: DataWarehousePropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator: PropertyOperator;
@@ -2006,7 +2108,14 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type DataWarehousePersonPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface DataWarehousePersonPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: DataWarehousePersonPropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator: PropertyOperator;
@@ -2014,7 +2123,14 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type ErrorTrackingIssueFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface ErrorTrackingIssueFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: ErrorTrackingIssueFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator: PropertyOperator;
@@ -2031,7 +2147,14 @@ export namespace Schemas {
       LogResourceAttribute: 'log_resource_attribute',
     } as const;
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type LogPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface LogPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: LogPropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator: PropertyOperator;
@@ -2039,7 +2162,14 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type MetricPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface MetricPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: MetricPropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator: PropertyOperator;
@@ -2056,7 +2186,14 @@ export namespace Schemas {
       SpanResourceAttribute: 'span_resource_attribute',
     } as const;
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type SpanPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface SpanPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: SpanPropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator: PropertyOperator;
@@ -2064,7 +2201,14 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type RevenueAnalyticsPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface RevenueAnalyticsPropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: RevenueAnalyticsPropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator: PropertyOperator;
@@ -2072,7 +2216,14 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type WorkflowVariablePropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface WorkflowVariablePropertyFilter {
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: WorkflowVariablePropertyFilterGroupKeyNames;
       key: string;
       label?: string | null;
       operator: PropertyOperator;
@@ -2106,6 +2257,11 @@ export namespace Schemas {
       PerformedEventMultiple: 'performed_event_multiple',
     } as const;
 
+    /**
+     * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+     */
+    export type BehavioralPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
     export interface BehavioralPropertyFilter {
       /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
       event_filters?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | FeaturePropertyFilter | HogQLPropertyFilter)[] | null;
@@ -2113,6 +2269,8 @@ export namespace Schemas {
       /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
       explicit_datetime?: string | null;
       explicit_datetime_to?: string | null;
+      /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+      group_key_names?: BehavioralPropertyFilterGroupKeyNames;
       /** Event name, or action id when event_type is 'actions' */
       key: string;
       label?: string | null;

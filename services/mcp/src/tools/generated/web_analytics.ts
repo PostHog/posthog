@@ -467,6 +467,12 @@ const PropertyFilterBaseValue = z.union([z.string(), z.number(), z.boolean()])
 const PropertyFilterValue = z.union([PropertyFilterBaseValue, z.array(PropertyFilterBaseValue), z.null()])
 
 const EventPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator.default('exact'),
@@ -475,6 +481,12 @@ const EventPropertyFilter = z.object({
 })
 
 const PersonPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -483,6 +495,12 @@ const PersonPropertyFilter = z.object({
 })
 
 const SessionPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -492,6 +510,12 @@ const SessionPropertyFilter = z.object({
 
 const CohortPropertyFilter = z.object({
     cohort_name: z.string().optional(),
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.literal('id').default('id'),
     label: z.string().optional(),
     operator: PropertyOperator.default('in'),
