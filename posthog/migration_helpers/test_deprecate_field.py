@@ -15,6 +15,7 @@ from django.db import models
 from parameterized import parameterized
 
 from posthog.migration_helpers.deprecate_field import DeprecatedField, FieldDeprecatedError, deprecate_field
+from posthog.models.personal_api_key import PersonalAPIKey
 
 
 @parameterized.expand([("makemigrations",), ("analyze_migration_risk",)])
@@ -39,3 +40,36 @@ def test_a_migration_command_in_a_later_argument_does_not_count() -> None:
 def test_a_non_nullable_field_is_refused() -> None:
     with pytest.raises(FieldDeprecatedError, match="null=True"):
         deprecate_field(models.CharField(max_length=8, null=False))
+
+
+class _Holder:
+    field = DeprecatedField()
+
+
+class _StrictHolder:
+    field = DeprecatedField(raise_on_access=True)
+
+
+def test_a_read_returns_none() -> None:
+    with pytest.warns(DeprecationWarning, match="_Holder.field"):
+        assert _Holder().field is None
+
+
+def test_a_write_is_dropped() -> None:
+    holder = _Holder()
+
+    with pytest.warns(DeprecationWarning, match="writing to deprecated field"):
+        holder.field = "kept nowhere"
+
+    with pytest.warns(DeprecationWarning):
+        assert holder.field is None
+
+
+def test_raise_on_access_raises_instead_of_warning() -> None:
+    with pytest.raises(FieldDeprecatedError, match="_StrictHolder.field"):
+        _ = _StrictHolder().field
+
+
+def test_a_model_field_reports_its_own_name() -> None:
+    with pytest.warns(DeprecationWarning, match="PersonalAPIKey.value"):
+        assert PersonalAPIKey().value is None

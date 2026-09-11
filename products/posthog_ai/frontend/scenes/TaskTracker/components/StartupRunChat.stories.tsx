@@ -36,7 +36,7 @@ const meta: Meta = {
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
                 '/api/projects/:team/tasks/@me/config/': { ai_run_preferences: {}, resolved_ai_run_defaults: {} },
-                '/api/environments/:team/integrations/': { results: [] },
+                '/api/projects/:team/integrations/': { results: [] },
             },
         }),
     ],

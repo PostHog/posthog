@@ -56,10 +56,10 @@ _CONSTRAINT_NAMES_SQL = """
     JOIN pg_class tgt ON tgt.oid = con.confrelid
     JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = ANY(con.conkey)
     WHERE con.contype = 'f'
-      AND src.relname = %s
+      AND src.relname = %(table)s
       AND pg_table_is_visible(src.oid)
-      AND (%s IS NULL OR tgt.relname = %s)
-      AND (%s IS NULL OR att.attname = %s)
+      AND (%(to_table)s IS NULL OR tgt.relname = %(to_table)s)
+      AND (%(column)s IS NULL OR att.attname = %(column)s)
 """
 
 
@@ -121,6 +121,6 @@ class DropForeignKey(Operation):
         with schema_editor.connection.cursor() as cursor:
             cursor.execute(
                 _CONSTRAINT_NAMES_SQL,
-                [self.table, self.to_table, self.to_table, self.column, self.column],
+                {"table": self.table, "to_table": self.to_table, "column": self.column},
             )
             return sorted({row[0] for row in cursor.fetchall()})

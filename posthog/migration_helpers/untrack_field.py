@@ -23,6 +23,11 @@ def untrack_field(
     Use deprecate_field() instead when you would rather keep the field on the model and
     write no migration at all.
 
+    The field must already be null=True, for the same reason deprecate_field() refuses a
+    field that is not. Django stops naming the column in INSERTs once the field leaves state,
+    so a NOT NULL column with no database default rejects every insert the next release
+    writes. This helper takes field names rather than fields, so it cannot check that for you.
+
     Args:
         model_name: The model the fields belong to, lowercase, as migrations spell it.
         field_names: One or more fields to take out of model state.

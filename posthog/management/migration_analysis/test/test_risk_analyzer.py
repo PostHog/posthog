@@ -554,6 +554,15 @@ class TestRunSQLOperations:
         assert risk.score == 2
         assert risk.level == RiskLevel.NEEDS_REVIEW
 
+    def test_drop_foreign_key_helper_scores_safe(self):
+        op = DropForeignKey("posthog_mymodel", column="owner_id")
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 1
+        assert risk.level == RiskLevel.SAFE
+        assert "Unknown operation" not in risk.reason
+
     def test_run_sql_drop_constraint(self):
         """Test DROP CONSTRAINT - fast but needs deployment safety review (score 2)."""
         op = create_mock_operation(
@@ -1191,12 +1200,20 @@ class TestDropTableValidation:
         assert migration_risk.level == RiskLevel.BLOCKED
         assert migration_risk.max_score == 5
 
-    def test_drop_column_with_prior_state_removal(self):
+    @parameterized.expand(
+        [
+            ("scalar_column", "prompt", "prompt"),
+            # A foreign key is where the two names disagree: state calls the field `owner`,
+            # and the column Django made for it is `owner_id`.
+            ("foreign_key_column", "owner", "owner_id"),
+        ]
+    )
+    def test_drop_column_with_prior_state_removal(self, _name: str, state_field_name: str, column_name: str):
         """
         Valid pattern: Prior migration removes field from state, then drop column.
 
-        Migration 0006: SeparateDatabaseAndState removes Evaluation.prompt
-        Migration 0007: ALTER TABLE ... DROP COLUMN IF EXISTS prompt
+        Migration 0006: SeparateDatabaseAndState removes Evaluation.<field>
+        Migration 0007: ALTER TABLE ... DROP COLUMN IF EXISTS <column>
         """
         # Create mock migration graph with proper staging
         mock_migration = MagicMock()
@@ -1207,7 +1224,7 @@ class TestDropTableValidation:
         # Create the DROP COLUMN operation
         drop_op = create_mock_operation(
             migrations.RunSQL,
-            sql="ALTER TABLE llm_analytics_evaluation DROP COLUMN IF EXISTS prompt;",
+            sql=f"ALTER TABLE llm_analytics_evaluation DROP COLUMN IF EXISTS {column_name};",
         )
         mock_migration.operations = [drop_op]
 
@@ -1216,7 +1233,7 @@ class TestDropTableValidation:
         parent_migration.app_label = "llm_analytics"
         parent_migration.name = "0006_remove_evaluation_prompt"
 
-        remove_field_op = create_mock_operation(migrations.RemoveField, model_name="Evaluation", name="prompt")
+        remove_field_op = create_mock_operation(migrations.RemoveField, model_name="Evaluation", name=state_field_name)
         separate_op = create_mock_operation(
             migrations.SeparateDatabaseAndState,
             state_operations=[remove_field_op],

@@ -617,6 +617,15 @@ class ErrorTrackingStackFrame(UUIDTModel):
             # Recent-frames-per-team scans, such as the source maps recommendation. Without
             # created_at in the index, a 24h window has to visit every frame the team ever stored.
             models.Index(fields=["team", "created_at"], name="et_frame_team_created_at_idx"),
+            # Covers the source maps recommendation's count of recent JavaScript frames. The
+            # predicate holds the language test, so Postgres answers the count from the index
+            # and never detoasts the wide `contents` column.
+            models.Index(
+                fields=["team", "created_at"],
+                include=["resolved"],
+                condition=models.Q(contents__lang="javascript"),
+                name="et_frame_team_created_js_idx",
+            ),
         ]
 
         constraints = [

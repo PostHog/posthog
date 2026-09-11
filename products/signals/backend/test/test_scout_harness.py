@@ -1645,7 +1645,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort",
+    "resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort, expected_service_tier",
     [
         # Gate resolved, no pin: the gate's triple reaches the sandbox as-is — the runtime (and
         # optional effort) travel with the model so the agent server can route it.
@@ -1655,6 +1655,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "@cf/zai-org/glm-5.2",
             "codex",
             "high",
+            None,
         ),
         # Gate resolved AND a fleet-wide pin present: the gate wins — a pin silently swallowing a
         # configured model trial is the production bug this ordering exists to prevent.
@@ -1664,6 +1665,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "@cf/zai-org/glm-5.2",
             "codex",
             None,
+            None,
         ),
         # Gate unallocated remainder: falls through to the pin's whole triple (the fleet default).
         (
@@ -1672,17 +1674,67 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "gpt-5.5",
             "codex",
             "high",
+            None,
         ),
         # Neither configured: agent-server default.
-        (ScoutModel(model=None, runtime_adapter=None), AgentRuntime(), None, None, None),
+        (ScoutModel(model=None, runtime_adapter=None), AgentRuntime(), None, None, None, None),
+        # The tier travels with the model it was configured beside. A slice pinned to flex asks for
+        # flex even when the pipeline pin names the same model untiered, so a same-model flex arm can
+        # run against the remainder's standard queue. Dropping this leaves the arm on standard and the
+        # comparison measures nothing.
+        (
+            ScoutModel(model="gpt-5.6-terra", runtime_adapter="codex", reasoning_effort="medium", service_tier="flex"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", reasoning_effort="medium"),
+            "gpt-5.6-terra",
+            "codex",
+            "medium",
+            "flex",
+        ),
+        # The unallocated remainder runs the pin's model, so it takes the pin's tier with it.
+        (
+            ScoutModel(model=None, runtime_adapter=None),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", service_tier="flex"),
+            "gpt-5.6-terra",
+            "codex",
+            None,
+            "flex",
+        ),
+        # A slice with no tier of its own does NOT inherit the pin's: the pin's tier was paired with
+        # the pin's model, and some models reject the field outright.
+        (
+            ScoutModel(model="gpt-5.6-luna", runtime_adapter="codex"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", service_tier="priority"),
+            "gpt-5.6-luna",
+            "codex",
+            None,
+            None,
+        ),
+        # A claude runtime joins no OpenAI queue: a tier on its slice (or the pin) is dropped rather
+        # than stamped, so the flex readout never counts a Claude run as a flex run.
+        (
+            ScoutModel(model="claude-sonnet-5", runtime_adapter="claude", service_tier="flex"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", service_tier="flex"),
+            "claude-sonnet-5",
+            "claude",
+            None,
+            None,
+        ),
     ],
 )
 async def test_run_pins_sandbox_to_resolved_scout_model(
-    ateam, aerrors_skill, resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort
+    ateam,
+    aerrors_skill,
+    resolved,
+    pin,
+    expected_model,
+    expected_runtime_adapter,
+    expected_reasoning_effort,
+    expected_service_tier,
 ):
     # The `scouts-model-selection` gate is the per-run experiment layer and wins when it resolves a
     # model; the `signals-pipeline-models` pin is the default layer beneath it. Either way one
-    # source supplies the whole runtime/model/effort triple.
+    # source supplies the whole runtime/model/effort triple. The OpenAI service tier travels with
+    # it: the selected slice's own tier, or the pin's when the pin's model runs, codex only.
     # The routed model must also ride on both lifecycle events (omitted on the default path), so
     # run outcomes are sliceable by model without joining through $ai_generation.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
@@ -1719,6 +1771,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
     assert captured["context"].model == expected_model
     assert captured["context"].runtime_adapter == expected_runtime_adapter
     assert captured["context"].reasoning_effort == expected_reasoning_effort
+    assert captured["context"].service_tier == expected_service_tier
     # The routed triple is also stamped on the bridge row's `metadata` (keys omitted when unset,
     # nothing at the top level on the default path) — the native API-side record of which model
     # served the run.
@@ -1729,6 +1782,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
             ("model", expected_model),
             ("runtime_adapter", expected_runtime_adapter),
             ("reasoning_effort", expected_reasoning_effort),
+            ("service_tier", expected_service_tier),
         )
         if value is not None
     }
@@ -1750,6 +1804,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
         else:
             assert props["model"] == expected_model
             assert props["runtime_adapter"] == expected_runtime_adapter
+        assert props.get("service_tier") == expected_service_tier
 
 
 @pytest.mark.asyncio
@@ -2564,7 +2619,7 @@ def test_to_summary_and_detail_surface_task_url_from_bridge():
         assert detail.task_url == summary.task_url
 
 
-_ROUTED_MODEL_KEYS = ("model", "runtime_adapter", "reasoning_effort")
+_ROUTED_MODEL_KEYS = ("model", "runtime_adapter", "reasoning_effort", "service_tier")
 
 
 class TestRunRowProvenanceStamps(BaseTest):

@@ -52,6 +52,12 @@ ACTIVE_CAMPAIGN_ENDPOINTS: dict[str, ActiveCampaignEndpointConfig] = {
         path="/dealGroups",
         data_selector="dealGroups",
     ),
+    "deal_activities": ActiveCampaignEndpointConfig(
+        name="deal_activities",
+        path="/dealActivities",
+        data_selector="dealActivities",
+        partition_key="cdate",
+    ),
     "campaigns": ActiveCampaignEndpointConfig(
         name="campaigns",
         path="/campaigns",
@@ -81,6 +87,15 @@ ACTIVE_CAMPAIGN_ENDPOINTS: dict[str, ActiveCampaignEndpointConfig] = {
         name="automations",
         path="/automations",
         data_selector="automations",
+    ),
+    "contact_automations": ActiveCampaignEndpointConfig(
+        name="contact_automations",
+        path="/contactAutomations",
+        data_selector="contactAutomations",
+        partition_key="adddate",
+        # `adddate` is the only documented sort on this collection that never changes
+        # once a row exists, so it keeps offset pages from shifting mid-sync.
+        extra_params={"orders[adddate]": "ASC"},
     ),
     "custom_fields": ActiveCampaignEndpointConfig(
         name="custom_fields",
@@ -118,4 +133,8 @@ ENDPOINTS = tuple(ACTIVE_CAMPAIGN_ENDPOINTS.keys())
 # (rather than being silently ignored), we ship every endpoint as full refresh per
 # the implementing-warehouse-sources guidance. Enable incremental per endpoint only
 # after confirming the server-side filter against the live API.
+# `contact_automations` documents `filters[adddate]` with comparison operators, but a
+# row keeps changing after it is added (status, remdate, lastdate all move when the
+# contact finishes the automation), so filtering on the entry date would freeze those
+# rows at their first-seen state.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

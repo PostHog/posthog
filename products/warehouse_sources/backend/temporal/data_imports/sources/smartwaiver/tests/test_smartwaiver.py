@@ -2,7 +2,7 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from parameterized import parameterized
@@ -168,7 +168,7 @@ class TestWaivers:
             ("within_current_hour", "2026-07-08 15:30:00", _HOUR_BOUNDARY),
         ]
     )
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_cursor_added_and_clamped(self, _name, cursor, expected, MockSession) -> None:
         source, params, _manager = _source(
@@ -189,7 +189,7 @@ class TestWaivers:
 
 
 class TestCheckins:
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_sync_uses_default_window(self, MockSession) -> None:
         source, params, _manager = _source(
@@ -205,7 +205,7 @@ class TestCheckins:
         assert params[0]["limit"] == PAGE_SIZE
         assert params[0]["offset"] == 0
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_sync_starts_window_at_watermark(self, MockSession) -> None:
         source, params, _manager = _source(
@@ -219,7 +219,7 @@ class TestCheckins:
         assert params[0]["fromDts"] == "2026-06-01T08:00:00"
         assert params[0]["toDts"] == _HOUR_BOUNDARY
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_while_more_checkins_and_saves_state(self, MockSession) -> None:
         source, params, manager = _source(
