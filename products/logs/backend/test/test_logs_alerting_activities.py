@@ -145,16 +145,37 @@ class TestNotifiedAlertCollection(APIBaseTest):
         assert notified[0].alert_id == str(alert.id)
         assert notified[0].team_id == self.team.id
         assert notified[0].result_count == 250
-        assert notified[0].alert_name == ""
+        assert notified[0].alert_name == "Checkout 5xx"
         assert notified[0].threshold_count == 100
         assert notified[0].threshold_operator == "above"
         assert notified[0].window_minutes == 5
-        assert notified[0].filters == {}
+        assert notified[0].filters == {"serviceNames": ["checkout"]}
+
+    def test_build_notified_from_saved_keeps_a_bounded_rolling_deploy_fallback(self):
+        alert = self._make_alert()
+        alert.name = "🚨" * 100
+        alert.filters = {
+            "serviceNames": ["s" * 100, "ignored"],
+            "severityLevels": ["critical" * 10],
+            "arbitraryUnboundedFilter": ["never crosses the activity boundary"],
+        }
+
+        notified = _build_notified_from_saved([self._dispatched(alert, NotificationAction.FIRE, False)])
+
+        assert len(notified[0].alert_name.encode("utf-8")) == 48
+        assert notified[0].alert_name == "🚨" * 12
+        assert notified[0].filters == {
+            "serviceNames": ["s" * 16],
+            "severityLevels": ["criticalcritical"],
+        }
 
     def test_notified_payloads_stay_within_the_scheduler_wire_budget(self):
         alert = self._make_alert()
-        alert.name = "n" * 255
-        alert.filters = {"serviceNames": ["s" * 10_000]}
+        alert.name = "🚨" * 255
+        alert.filters = {
+            "serviceNames": ["s" * 10_000],
+            "severityLevels": ["critical" * 10_000],
+        }
         notification = _build_notified_from_saved([self._dispatched(alert, NotificationAction.FIRE, False)])[0]
 
         evaluation_size = asyncio.run(

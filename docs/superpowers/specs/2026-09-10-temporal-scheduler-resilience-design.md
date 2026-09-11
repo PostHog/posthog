@@ -94,21 +94,21 @@ Temporal can buffer work, but a growing queue is not a recovery strategy. Every 
 
 Every recurring coordinator defines and tests these values:
 
-| Control                        | Purpose                                                        |
-| ------------------------------ | -------------------------------------------------------------- |
-| `page_size`                    | Maximum items returned by one discovery activity               |
-| `max_pages_per_tick`           | Maximum pages admitted by one scheduled invocation             |
-| `max_concurrent_pages`         | Maximum pages creating downstream load together                |
-| `max_in_flight_items`          | Maximum aggregate item work across overlapping runs            |
-| `max_in_flight_per_tenant`     | Maximum permits one tenant can hold                            |
-| `payload_budget_bytes`         | Internal serialized payload operating budget                   |
-| `hydrated_config_budget_bytes` | Maximum serialized configuration after activity-side hydration |
-| `dispatch_lease_timeout`       | Time before an unconfirmed item can be selected again          |
-| `execution_timeout`            | Maximum coordinator lifetime                                   |
-| `overlap_policy`               | Intentional behavior when a prior run is open                  |
-| `catchup_window`               | Maximum schedule backlog Temporal may replay                   |
-| `retry_policy`                 | Bounded retries that cannot occupy the full worker pool        |
-| `freshness_objective`          | Maximum acceptable oldest-due age                              |
+| Control                        | Purpose                                                                |
+| ------------------------------ | ---------------------------------------------------------------------- |
+| `page_size`                    | Maximum items returned by one discovery activity                       |
+| `max_pages_per_tick`           | Maximum pages admitted by one scheduled invocation                     |
+| `max_concurrent_pages`         | Maximum pages creating downstream load together                        |
+| `max_in_flight_items`          | Durable aggregate cap across ticks; `not_enforced` until permits exist |
+| `max_in_flight_per_tenant`     | Maximum permits one tenant can hold                                    |
+| `payload_budget_bytes`         | Internal serialized payload operating budget                           |
+| `hydrated_config_budget_bytes` | Maximum serialized configuration after activity-side hydration         |
+| `dispatch_lease_timeout`       | Time before an unconfirmed item can be selected again                  |
+| `execution_timeout`            | Maximum coordinator lifetime                                           |
+| `overlap_policy`               | Intentional behavior when a prior run is open                          |
+| `catchup_window`               | Maximum schedule backlog Temporal may replay                           |
+| `retry_policy`                 | Bounded retries that cannot occupy the full worker pool                |
+| `freshness_objective`          | Maximum acceptable oldest-due age                                      |
 
 Each coordinator must also answer:
 
@@ -185,7 +185,7 @@ Recovery of every expired active claim, including a reserved claim whose parent 
 
 If Temporal execution state cannot be read, recovery retains the claim and alerts. It never assumes that an unreachable workflow is finished.
 
-Coordinators without a durable claim mechanism use `SKIP` and one page per tick until claims exist. Deterministic child IDs are a second idempotency layer, not a replacement for admission ownership.
+Coordinators without a durable claim mechanism use `SKIP` and one page per tick until claims exist. This is a transitional rate bound, not an aggregate concurrency bound: `SKIP` serializes coordinator runs only, while `ABANDON` children can continue after the coordinator closes and accumulate across ticks. Such a coordinator records `max_in_flight_items` as `not_enforced`, cannot enable multi-page admission or `ALLOW_ALL`, and must either keep child execution below its schedule interval or accept the explicitly monitored interim risk. Deterministic child IDs are a second idempotency layer, not a replacement for admission ownership.
 
 External manifests use encrypted storage, bounded retention, and idempotent cleanup. A manifest reference does not grant broader access than the workflow already has.
 

@@ -1660,6 +1660,27 @@ def _finalize_alert(dispatched: _DispatchedAlert, elapsed_ms: int, stats: dict[s
             increment_state_transition(state_before_enum, committed_state)
 
 
+_SIGNAL_COMPAT_ALERT_NAME_BYTES = 48
+_SIGNAL_COMPAT_FILTER_VALUE_BYTES = 16
+
+
+def _truncate_utf8(value: str, max_bytes: int) -> str:
+    return value.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore")
+
+
+def _signal_compat_filters(filters: dict) -> dict:
+    """Keep a tiny, bounded scope for old emit workers during a rolling deploy."""
+
+    bounded: dict[str, list[str]] = {}
+    for key in ("serviceNames", "severityLevels"):
+        values = filters.get(key)
+        if isinstance(values, list):
+            first_value = next((value for value in values if isinstance(value, str) and value), None)
+            if first_value is not None:
+                bounded[key] = [_truncate_utf8(first_value, _SIGNAL_COMPAT_FILTER_VALUE_BYTES)]
+    return bounded
+
+
 def _build_notified_from_saved(saved: list[_DispatchedAlert]) -> list[NotifiedAlert]:
     """Map saved+notified dispatched alerts to serialisable signal descriptors.
 
@@ -1680,7 +1701,10 @@ def _build_notified_from_saved(saved: list[_DispatchedAlert]) -> list[NotifiedAl
             NotifiedAlert(
                 alert_id=str(alert.id),
                 team_id=alert.team_id,
-                alert_name="",
+                # A new emit worker hydrates the full presentation fields from Postgres.
+                # Keep a bounded fallback for an old worker that receives this activity
+                # during a rolling deploy, so it never persists a blank signal record.
+                alert_name=_truncate_utf8(alert.name, _SIGNAL_COMPAT_ALERT_NAME_BYTES),
                 action=action,
                 weight=weight,
                 threshold_count=alert.threshold_count,
@@ -1688,7 +1712,7 @@ def _build_notified_from_saved(saved: list[_DispatchedAlert]) -> list[NotifiedAl
                 window_minutes=alert.window_minutes,
                 result_count=d.evaluation.check_result.result_count,
                 consecutive_failures=d.evaluation.outcome.consecutive_failures,
-                filters={},
+                filters=_signal_compat_filters(alert.filters),
             )
         )
     return notified
