@@ -2323,9 +2323,9 @@ export interface ExperimentSessionBucketResponseApi {
     considered_metrics: ExperimentSessionBucketMetricApi[]
     /** Requested metrics left out of the bucket because they can never match a recording, with the reason. They are reported rather than silently producing an empty result. */
     excluded_metrics: ExperimentSessionBucketExcludedMetricApi[]
-    /** Start of the window scanned: the experiment's run window, clamped to its most recent 30 days. Matches outside it are not returned. */
+    /** Start of the window scanned, never before the experiment started. At most 30 days before date_to when the scan found an exposure to anchor on. When it found none, how far back the search for one reached, which the project's recording retention bounds. Matches outside the window are not returned. */
     date_from: string
-    /** End of the window scanned: the experiment's end date, or now while it runs. */
+    /** End of the window scanned: 24 hours after the latest exposure captured in a session, capped at the experiment's end date or now. The pad covers the metric events a session fires after its exposure. The scan ends at the experiment's end date, or now while it runs, when that exposure can't be located, so an experiment whose exposures stopped long ago is still scanned where its sessions are. */
     date_to: string
     /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
     filter_test_accounts: boolean

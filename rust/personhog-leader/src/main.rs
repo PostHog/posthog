@@ -201,6 +201,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
             (
+                Matcher::Full("personhog_leader_release_phase_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fallback_pool_acquire_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
                 Matcher::Full("grpc_server_request_duration_ms".into()),
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
@@ -296,13 +304,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             statement_timeout_ms: Some(5_000),
             ..Default::default()
         };
-        Some(PgFallback {
+        let fallback = PgFallback {
             pool: common_database::get_pool_with_config(
                 &config.fallback_database_url,
                 pool_config,
             )?,
             table: config.fallback_table.clone(),
-        })
+        };
+        personhog_common::spawn_pool_monitor(
+            vec![personhog_common::MonitoredPool {
+                pool: fallback.pool.clone(),
+                label: "fallback".to_string(),
+                max_connections: config.fallback_pg_max_connections,
+            }],
+            Duration::from_secs(10),
+        );
+        Some(fallback)
     };
 
     // Connect to etcd for coordination and the partition count
