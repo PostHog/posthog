@@ -188,7 +188,7 @@ export function SnapshotCard({
                         {area}
                     </LemonTag>
                     {hasMeta && (
-                        <div className="flex items-center gap-2 shrink-0 tabular-nums leading-none">
+                        <div className="flex flex-wrap items-center justify-end gap-2 tabular-nums leading-none">
                             {driftVisible && (
                                 <Tooltip
                                     title={`Average pixel drift over the last ${RECENT_DRIFT_WINDOW} default-branch runs: ${driftPct.toFixed(
