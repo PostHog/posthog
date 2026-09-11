@@ -103,7 +103,7 @@ Report triage mechanics live in `inbox-exploration`; what matters here is how ac
   The discussion and rating paths demand the full notes-write authorization (skill-editor access plus the `signal_scout:write` / `llm_skill:write` key scopes), so a note typed by someone without it is not forwarded: a discussion question still lives on the report's thread, but a rating note survives only in the analytics event, so if it must reach the scout, have someone authorized leave it as a scout note.
 - **Reports route to people.** A scout that can name a plausible owner sets `suggested_reviewers`, and the inbox floats those reports to the top of that person's view.
   A reviewer is a PostHog user: a scout routes by `user_uuid` (any org member, no GitHub account needed) or by `github_login` (matched against the member's linked GitHub identity), and `is_suggested_reviewer` flips for the viewer on either match.
-  If reports for a surface keep landing unrouted or misrouted, that's fixable: correct the reviewers on the report itself (the correction is forwarded as above), leave a routing note for the research stage (`posthog:scout-notes-create` with `skill_name: "pipeline:report-research"`, "route billing-adjacent reports to Dana"), or steer the scout (note or skill edit) toward the right owner for the area.
+  If reports for a surface keep landing unrouted or misrouted, that's fixable: correct the reviewers on the report itself (the correction is forwarded as above), leave a fleet-wide routing note (`posthog:scout-notes-create` with no `skill_name`, "route billing-adjacent reports to Dana"), or steer the scout (note or skill edit) toward the right owner for the area. A `pipeline:report-research` note steers only the reports the pipeline builds from clustered signals; a scout that authors reports directly sets `suggested_reviewers` itself and never reads that audience.
 
 ## The steering ladder
 
@@ -117,7 +117,7 @@ When you want a scout to behave differently, climb this ladder from cheapest to 
 3. **Leave a note** (`posthog:scout-notes-create`, per-scout or fleet-wide, optionally time-boxed with `expires_at`).
    Right for: feedback, pointers, and context with a shelf life — "the spike you keep flagging is known noise", "dig into EU signups this week", "new checkout shipped Tuesday".
    Notes are advisory: they direct attention but never lower the evidence bar or force a report.
-   Address `skill_name: "pipeline:report-research"` to steer how reports get researched, judged, and routed instead of any scout: the right target for routing rules and research preferences that no single scout owns.
+   Address `skill_name: "pipeline:report-research"` to steer how the pipeline researches, judges, and routes the reports it builds from clustered signals. Scout-authored reports never pass through that stage, so a routing rule for them goes in a fleet-wide note (no `skill_name`) or a per-scout note.
 4. **Tune the config** (`posthog:scout-config-update`).
    Right for: _when, whether, and where_ it runs, not _what it looks at_; slow a chatty scout (`run_interval_minutes`; if the config carries a `run_cron_schedule`, that takes precedence, so update or clear it too), pause one (`enabled=false`), dry-run a risky one (`emit=false`), grant external reach (`network_access=full`), exempt a deliberately quiet watchdog from auto-pause (`auto_pause_exempt=true`), deliver its reports to a Slack channel or DM as well as the inbox (`output_destinations.slack`), or pin the model it runs on (`model`).
 5. **Edit the skill body, or author a new scout** (via `authoring-scouts`).
@@ -160,7 +160,7 @@ Every few weeks (or when someone says "are the scouts even worth it?"), run a ca
    The search returns the 20 newest matches by default — raise `limit` (or walk back with `date_to`) so a big fleet's older suggestions aren't silently missed.
 3. **Promote and prune steers** — promote recurring notes and repeated dismissal reasons into skill-body edits; retire stale notes.
 4. **Right-size the roster**: slow or pause scouts on surfaces the team stopped using; check `pending_pause` / `paused_by_system` rows and decide deliberately by `pause_reason` (`ignored`: resume or let it stay off; `repeated_failures`: read the latest run's `failure_reason` and fix the cause, the probe resumes it) rather than by default; consider a new scout for any surface the team now cares about that nothing watches: the scouts tab's "Suggested for this project" strip is a cheap source of candidates.
-5. **Check the routing**: if reports pool in the shared inbox unclaimed, fix reviewer routing so findings reach the person who'll act: correct reviewers on the misrouted reports (forwarded to the fleet), leave a `pipeline:report-research` note with the ownership rule, and steer scouts toward known owners.
+5. **Check the routing**: if reports pool in the shared inbox unclaimed, fix reviewer routing so findings reach the person who'll act: correct reviewers on the misrouted reports (forwarded to the fleet), leave a fleet-wide note with the ownership rule (a `pipeline:report-research` note only reaches signal-built reports), and steer scouts toward known owners.
 
 ## Common asks, routed
 
@@ -174,7 +174,7 @@ Every few weeks (or when someone says "are the scouts even worth it?"), run a ca
 | "Focus on X this week"                                 | A time-boxed note (`expires_at`)                                                                          |
 | "Check X right now"                                    | `posthog:scout-run-now` with a one-run `note`                                                             |
 | "Send this scout's reports to Slack"                   | `posthog:scout-config-update` with `output_destinations.slack`; mechanics in `authoring-scouts`           |
-| "Route these reports to <person>"                      | Fix the reviewers on the report; a `pipeline:report-research` note for the standing rule                  |
+| "Route these reports to <person>"                      | Fix the reviewers on the report; a fleet-wide or per-scout note for the standing rule                     |
 | "The scouts are too noisy / too quiet"                 | Calibration pass above; then the steering ladder against the specific offender                            |
 | "Write / edit / retune a scout"                        | `authoring-scouts`                                                                                        |
 | "Why did the scout stop flagging X?"                   | Scratchpad first (`noise:` / `addressed:` / `dedupe:` / `allowlist:`), then notes, then config            |
