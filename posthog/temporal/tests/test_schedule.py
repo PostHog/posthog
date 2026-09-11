@@ -17,7 +17,7 @@ from posthog.temporal.schedule import (
 
 
 @pytest.mark.asyncio
-async def test_subscription_schedule_uses_bounded_default_and_execution_timeout() -> None:
+async def test_subscription_schedule_uses_configurable_page_size_without_chain_timeout() -> None:
     create_schedule = mock.AsyncMock()
 
     with (
@@ -28,8 +28,9 @@ async def test_subscription_schedule_uses_bounded_default_and_execution_timeout(
 
     assert create_schedule.await_args is not None
     schedule = create_schedule.await_args.args[2]
-    assert schedule.action.args == [{"buffer_minutes": 15, "max_subscriptions_per_run": 500}]
-    assert schedule.action.execution_timeout.total_seconds() == 600
+    assert schedule.action.args == [{"buffer_minutes": 15, "subscriptions_page_size": 100}]
+    assert schedule.action.execution_timeout is None
+    assert schedule.action.run_timeout.total_seconds() == 600
     assert schedule.policy.catchup_window.total_seconds() == 900
 
 

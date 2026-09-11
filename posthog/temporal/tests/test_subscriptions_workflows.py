@@ -48,6 +48,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     deliver_subscription,
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
+    fetch_due_subscriptions_page_activity,
     notify_subscription_delivery_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
@@ -71,10 +72,12 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliveryStatus,
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
+    FetchDueSubscriptionsPageActivityInputs,
     GenerateAIReportInputs,
     NoExportableInsightsReason,
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
+    SubscriptionSchedulerCursor,
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
@@ -231,6 +234,7 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
     [
         fetch_due_subscriptions_activity,
+        fetch_due_subscriptions_page_activity,
         create_delivery_record,
         validate_subscription_for_delivery,
         create_export_assets,
@@ -2416,6 +2420,57 @@ async def test_fetch_due_subscriptions_limits_fairly_across_teams(team, user):
 
     assert len(result) == 2
     assert {subscription.team_id for subscription in result} == {team.id, other_team.id}
+
+
+async def test_fetch_due_subscriptions_page_uses_stable_keyset_cursor(team, user):
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="scheduled dashboard", created_by=user)
+    now = datetime.now(tz=ZoneInfo("UTC"))
+    subscriptions = [
+        await sync_to_async(Subscription.objects.create)(
+            team=team,
+            dashboard=dashboard,
+            title=f"due subscription {index}",
+            target_type="email",
+            target_value="subscriber@example.com",
+            frequency="daily",
+            start_date=now,
+            enabled=True,
+            created_by=user,
+        )
+        for index in range(3)
+    ]
+    await sync_to_async(Subscription.objects.filter(id__in=[sub.id for sub in subscriptions]).update)(
+        next_delivery_date=now,
+    )
+
+    first_page = await ActivityEnvironment().run(
+        fetch_due_subscriptions_page_activity,
+        FetchDueSubscriptionsPageActivityInputs(due_before=(now + timedelta(minutes=15)).isoformat(), page_size=2),
+    )
+
+    assert [subscription.subscription_id for subscription in first_page.subscriptions] == [
+        subscriptions[0].id,
+        subscriptions[1].id,
+    ]
+    assert first_page.total_count == 3
+    assert first_page.remaining_count == 1
+    assert first_page.next_cursor == SubscriptionSchedulerCursor(
+        next_delivery_date=now.isoformat(),
+        subscription_id=subscriptions[1].id,
+    )
+
+    second_page = await ActivityEnvironment().run(
+        fetch_due_subscriptions_page_activity,
+        FetchDueSubscriptionsPageActivityInputs(
+            due_before=(now + timedelta(minutes=15)).isoformat(),
+            page_size=2,
+            cursor=first_page.next_cursor,
+        ),
+    )
+
+    assert [subscription.subscription_id for subscription in second_page.subscriptions] == [subscriptions[2].id]
+    assert second_page.remaining_count == 0
+    assert second_page.next_cursor is None
 
 
 @patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription")

@@ -7,6 +7,16 @@ SCHEDULER_RUNS = "subscriptions_scheduler_runs"
 SCHEDULER_SELECTED = "subscriptions_scheduler_selected"
 SCHEDULER_OLDEST_DUE_AGE_SECONDS = "subscriptions_scheduler_oldest_due_age_seconds"
 SCHEDULER_LAST_SUCCESSFUL_FETCH_TIMESTAMP_SECONDS = "subscriptions_scheduler_last_successful_fetch_timestamp_seconds"
+SCHEDULER_COHORT_TOTAL = "subscriptions_scheduler_cohort_total"
+SCHEDULER_COHORT_PROCESSED = "subscriptions_scheduler_cohort_processed"
+SCHEDULER_COHORT_REMAINING = "subscriptions_scheduler_cohort_remaining"
+SCHEDULER_COHORT_PAGE = "subscriptions_scheduler_cohort_page"
+SCHEDULER_PAGES = "subscriptions_scheduler_pages"
+SCHEDULER_CHILDREN_STARTED = "subscriptions_scheduler_children_started"
+SCHEDULER_CHILDREN_ALREADY_RUNNING = "subscriptions_scheduler_children_already_running"
+SCHEDULER_COHORTS_STARTED = "subscriptions_scheduler_cohorts_started"
+SCHEDULER_COHORTS_COMPLETED = "subscriptions_scheduler_cohorts_completed"
+SCHEDULER_LAST_COMPLETED_TIMESTAMP_SECONDS = "subscriptions_scheduler_last_completed_timestamp_seconds"
 
 
 def record_scheduler_fetch(
@@ -36,3 +46,60 @@ def record_scheduler_fetch(
         SCHEDULER_LAST_SUCCESSFUL_FETCH_TIMESTAMP_SECONDS,
         "Unix timestamp of the last successful subscription scheduler fetch.",
     ).set(time.time())
+
+
+def record_scheduler_progress(
+    *,
+    total_count: int,
+    processed_count: int,
+    remaining_count: int,
+    page_number: int,
+    started_count: int,
+    already_running_count: int,
+    completed: bool,
+    completed_at: datetime | None = None,
+) -> None:
+    """Record bounded scheduler progress without workflow- or subscription-ID labels."""
+    meter = get_metric_meter()
+    meter.create_gauge_float(
+        SCHEDULER_COHORT_TOTAL,
+        "Total subscriptions in the frozen due cohort when the scheduler started.",
+    ).set(float(total_count))
+    meter.create_gauge_float(
+        SCHEDULER_COHORT_PROCESSED,
+        "Subscriptions traversed in the current frozen due cohort.",
+    ).set(float(processed_count))
+    meter.create_gauge_float(
+        SCHEDULER_COHORT_REMAINING,
+        "Subscriptions still to traverse in the current frozen due cohort.",
+    ).set(float(remaining_count))
+    meter.create_gauge_float(
+        SCHEDULER_COHORT_PAGE,
+        "Current page number in the frozen due cohort.",
+    ).set(float(page_number))
+    meter.create_counter(
+        SCHEDULER_PAGES,
+        "Subscription scheduler pages processed.",
+    ).add(1)
+    meter.create_counter(
+        SCHEDULER_CHILDREN_STARTED,
+        "Subscription child workflows accepted for dispatch.",
+    ).add(started_count)
+    meter.create_counter(
+        SCHEDULER_CHILDREN_ALREADY_RUNNING,
+        "Subscription child workflows skipped because that subscription was already running.",
+    ).add(already_running_count)
+    if page_number == 1:
+        meter.create_counter(
+            SCHEDULER_COHORTS_STARTED,
+            "Subscription scheduler cohorts started.",
+        ).add(1)
+    if completed and completed_at is not None:
+        meter.create_counter(
+            SCHEDULER_COHORTS_COMPLETED,
+            "Subscription scheduler cohorts that reached zero remaining.",
+        ).add(1)
+        meter.create_gauge_float(
+            SCHEDULER_LAST_COMPLETED_TIMESTAMP_SECONDS,
+            "Unix timestamp when a subscription scheduler cohort last reached zero remaining.",
+        ).set(completed_at.timestamp())

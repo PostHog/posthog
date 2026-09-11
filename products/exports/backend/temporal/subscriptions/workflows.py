@@ -42,11 +42,13 @@ from products.exports.backend.temporal.subscriptions.activities import (
     deliver_subscription,
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
+    fetch_due_subscriptions_page_activity,
     notify_subscription_delivery_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
+from products.exports.backend.temporal.subscriptions.metrics import record_scheduler_progress
 from products.exports.backend.temporal.subscriptions.retry_policy import (
     SUBSCRIPTION_DELIVER_ATTEMPT_TIMEOUT,
     SUBSCRIPTION_DELIVER_RETRY_POLICY,
@@ -64,12 +66,15 @@ from products.exports.backend.temporal.subscriptions.types import (
     DueSubscription,
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
+    FetchDueSubscriptionsPageActivityInputs,
+    FetchDueSubscriptionsPageActivityResult,
     GenerateAIReportInputs,
     NoExportableInsightsErrorDetails,
     ProcessSubscriptionWorkflowInputs,
     RecipientResult,
     ScheduleAllSubscriptionsWorkflowInputs,
     SnapshotInsightsInputs,
+    SubscriptionSchedulerCursor,
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
@@ -147,6 +152,32 @@ def _subscription_child_workflow(
     return ProcessSubscriptionWorkflow.run, f"process-subscription-{subscription.subscription_id}"
 
 
+def _tracked_subscription_inputs(subscription: DueSubscription) -> TrackedSubscriptionInputs:
+    return TrackedSubscriptionInputs(
+        subscription_id=subscription.subscription_id,
+        team_id=subscription.team_id,
+        distinct_id=subscription.distinct_id,
+        trigger_type=SubscriptionTriggerType.SCHEDULED,
+        scheduled_at=subscription.next_delivery_date,
+        resource_type=subscription.resource_type,
+        slo=SloConfig(
+            operation=SloOperation.SUBSCRIPTION_DELIVERY,
+            area=SloArea.ANALYTIC_PLATFORM,
+            team_id=subscription.team_id,
+            resource_id=str(subscription.subscription_id),
+            distinct_id=subscription.distinct_id,
+            start_properties={
+                "resource_type": subscription.resource_type,
+                "trigger_type": SubscriptionTriggerType.SCHEDULED,
+            },
+            completion_properties={
+                "resource_type": subscription.resource_type,
+                "trigger_type": SubscriptionTriggerType.SCHEDULED,
+            },
+        ),
+    )
+
+
 def _summarize_export_failure_details(errors: list[ExportError]) -> dict[str, str | int | list[str]]:
     """Summarize per-asset failure dimensions onto one subscription SLO event."""
 
@@ -203,21 +234,26 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             return ScheduleAllSubscriptionsWorkflowInputs()
 
         loaded = json.loads(inputs[0])
+        if isinstance(loaded.get("cursor"), dict):
+            loaded["cursor"] = SubscriptionSchedulerCursor(**loaded["cursor"])
         return ScheduleAllSubscriptionsWorkflowInputs(**loaded)
 
     @temporalio.workflow.run
     async def run(self, inputs: ScheduleAllSubscriptionsWorkflowInputs) -> None:
-        fetch_inputs = (
-            FetchDueSubscriptionsActivityInputs(
-                buffer_minutes=inputs.buffer_minutes,
-                max_subscriptions_per_run=inputs.max_subscriptions_per_run,
-            )
-            if temporalio.workflow.patched("subscription-scheduler-bounded-input-2026-09")
-            else cast(FetchDueSubscriptionsActivityInputs, {"buffer_minutes": inputs.buffer_minutes})
+        if not temporalio.workflow.patched("subscription-scheduler-pagination-2026-09"):
+            await self._run_legacy(inputs)
+            return
+
+        due_before = (
+            inputs.due_before or (temporalio.workflow.now() + dt.timedelta(minutes=inputs.buffer_minutes)).isoformat()
         )
-        subscription_infos: list[DueSubscription] = await temporalio.workflow.execute_activity(
-            fetch_due_subscriptions_activity,
-            fetch_inputs,
+        page: FetchDueSubscriptionsPageActivityResult = await temporalio.workflow.execute_activity(
+            fetch_due_subscriptions_page_activity,
+            FetchDueSubscriptionsPageActivityInputs(
+                due_before=due_before,
+                page_size=inputs.subscriptions_page_size,
+                cursor=inputs.cursor,
+            ),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
@@ -227,65 +263,25 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             ),
         )
 
-        # Fan-out child workflows — one per subscription, fully isolated.
-        # Deterministic ID (no run_id suffix) prevents duplicate deliveries when
-        # schedule runs overlap: Temporal guarantees no two open workflows can
-        # share the same ID, so a still-running child rejects the duplicate start.
-        # Existing executions must keep their original wait-for-results command history.
-        # New executions only wait for Temporal to accept each child start.
-        fire_and_forget = temporalio.workflow.patched("subscription-scheduler-fire-and-forget-2026-09")
+        # Await only Temporal's acceptance of each start. The ABANDON policy lets accepted
+        # children continue after this coordinator page closes via Continue-As-New.
+        # Stable IDs preserve the per-subscription no-overlap guarantee across scheduler runs.
         failed_ids: list[int] = []
-        legacy_tasks = []
-        for sub in subscription_infos:
-            tracked = TrackedSubscriptionInputs(
-                subscription_id=sub.subscription_id,
-                team_id=sub.team_id,
-                distinct_id=sub.distinct_id,
-                trigger_type=SubscriptionTriggerType.SCHEDULED,
-                scheduled_at=sub.next_delivery_date,
-                resource_type=sub.resource_type,
-                slo=SloConfig(
-                    operation=SloOperation.SUBSCRIPTION_DELIVERY,
-                    area=SloArea.ANALYTIC_PLATFORM,
-                    team_id=sub.team_id,
-                    resource_id=str(sub.subscription_id),
-                    distinct_id=sub.distinct_id,
-                    start_properties={
-                        "resource_type": sub.resource_type,
-                        "trigger_type": SubscriptionTriggerType.SCHEDULED,
-                    },
-                    completion_properties={
-                        "resource_type": sub.resource_type,
-                        "trigger_type": SubscriptionTriggerType.SCHEDULED,
-                    },
-                ),
-            )
-            # AI-prompt subs run a dedicated workflow; distinct child-ID prefixes keep the
-            # overlapping-duplicate guarantee per type.
+        started_count = 0
+        already_running_count = 0
+        for sub in page.subscriptions:
             workflow, child_id = _subscription_child_workflow(sub)
-            if not fire_and_forget:
-                legacy_tasks.append(
-                    temporalio.workflow.execute_child_workflow(
-                        workflow,
-                        tracked,
-                        id=child_id,
-                        parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                        execution_timeout=dt.timedelta(hours=2),
-                    )
-                )
-                continue
-
             try:
                 await temporalio.workflow.start_child_workflow(
                     workflow,
-                    tracked,
+                    _tracked_subscription_inputs(sub),
                     id=child_id,
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(hours=2),
                 )
+                started_count += 1
             except WorkflowAlreadyStartedError:
-                # A previous schedule run's child is still processing this
-                # subscription — not a failure, just skip it.
+                already_running_count += 1
                 temporalio.workflow.logger.info(
                     "process_subscription.already_running",
                     extra={"subscription_id": sub.subscription_id},
@@ -297,25 +293,101 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                     extra={"subscription_id": sub.subscription_id, "error": str(error)},
                 )
 
-        if not fire_and_forget and legacy_tasks:
-            results = await asyncio.gather(*legacy_tasks, return_exceptions=True)
-            for sub, result in zip(subscription_infos, results):
-                if isinstance(result, WorkflowAlreadyStartedError):
-                    temporalio.workflow.logger.info(
-                        "process_subscription.already_running",
-                        extra={"subscription_id": sub.subscription_id},
-                    )
-                elif isinstance(result, BaseException):
-                    failed_ids.append(sub.subscription_id)
-                    temporalio.workflow.logger.warning(
-                        "process_subscription.child_workflow_error",
-                        extra={"subscription_id": sub.subscription_id, "error": str(result)},
-                    )
+        total_count = inputs.total_count if inputs.total_count is not None else page.total_count
+        processed_count = inputs.processed_count + len(page.subscriptions) - len(failed_ids)
+        remaining_count = page.remaining_count + len(failed_ids)
+        page_number = inputs.page_number + 1
+        completed = page.next_cursor is None and not failed_ids
+        completed_at = temporalio.workflow.now() if completed else None
+        record_scheduler_progress(
+            total_count=total_count,
+            processed_count=processed_count,
+            remaining_count=remaining_count,
+            page_number=page_number,
+            started_count=started_count,
+            already_running_count=already_running_count,
+            completed=completed,
+            completed_at=completed_at,
+        )
+
+        temporalio.workflow.logger.info(
+            "subscription_scheduler.page_processed",
+            extra={
+                "total_count": total_count,
+                "processed_count": processed_count,
+                "remaining_count": remaining_count,
+                "page_number": page_number,
+                "started_count": started_count,
+                "already_running_count": already_running_count,
+                "completed": completed,
+            },
+        )
 
         if failed_ids:
-            failure_action = "failed to start" if fire_and_forget else "failed"
             raise ApplicationError(
-                f"Subscription deliveries {failure_action} for IDs: {failed_ids}",
+                f"Subscription deliveries failed to start for IDs: {failed_ids}",
+                non_retryable=True,
+            )
+
+        if page.next_cursor is not None:
+            temporalio.workflow.continue_as_new(
+                ScheduleAllSubscriptionsWorkflowInputs(
+                    buffer_minutes=inputs.buffer_minutes,
+                    subscriptions_page_size=inputs.subscriptions_page_size,
+                    due_before=due_before,
+                    cursor=page.next_cursor,
+                    total_count=total_count,
+                    processed_count=processed_count,
+                    page_number=page_number,
+                )
+            )
+
+    async def _run_legacy(self, inputs: ScheduleAllSubscriptionsWorkflowInputs) -> None:
+        subscription_infos: list[DueSubscription] = await temporalio.workflow.execute_activity(
+            fetch_due_subscriptions_activity,
+            cast(FetchDueSubscriptionsActivityInputs, {"buffer_minutes": inputs.buffer_minutes}),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(minutes=5),
+                maximum_attempts=3,
+                non_retryable_error_types=[],
+            ),
+        )
+        tasks = []
+        for sub in subscription_infos:
+            workflow, child_id = _subscription_child_workflow(sub)
+            tasks.append(
+                temporalio.workflow.execute_child_workflow(
+                    workflow,
+                    _tracked_subscription_inputs(sub),
+                    id=child_id,
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    execution_timeout=dt.timedelta(hours=2),
+                )
+            )
+
+        if not tasks:
+            return
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        failed_ids: list[int] = []
+        for sub, result in zip(subscription_infos, results):
+            if isinstance(result, WorkflowAlreadyStartedError):
+                temporalio.workflow.logger.info(
+                    "process_subscription.already_running",
+                    extra={"subscription_id": sub.subscription_id},
+                )
+            elif isinstance(result, BaseException):
+                failed_ids.append(sub.subscription_id)
+                temporalio.workflow.logger.warning(
+                    "process_subscription.child_workflow_error",
+                    extra={"subscription_id": sub.subscription_id, "error": str(result)},
+                )
+
+        if failed_ids:
+            raise ApplicationError(
+                f"Subscription deliveries failed for IDs: {failed_ids}",
                 non_retryable=True,
             )
 

@@ -41,9 +41,12 @@ from products.exports.backend.temporal.subscriptions.types import (
     DueSubscription,
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
+    FetchDueSubscriptionsPageActivityInputs,
+    FetchDueSubscriptionsPageActivityResult,
     NoExportableInsightsContext,
     NoExportableInsightsReason,
     RecipientResult,
+    SubscriptionSchedulerCursor,
     UpdateDeliveryRecordInputs,
 )
 from products.product_analytics.backend.facade.models import Insight
@@ -265,6 +268,99 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     )
 
     return fetched.subscriptions
+
+
+@temporalio.activity.defn
+async def fetch_due_subscriptions_page_activity(
+    inputs: FetchDueSubscriptionsPageActivityInputs,
+) -> FetchDueSubscriptionsPageActivityResult:
+    """Fetch one stable page from the due cohort frozen by the coordinator workflow."""
+    due_before = dt.datetime.fromisoformat(inputs.due_before)
+    await LOGGER.ainfo(
+        "Fetching due subscriptions page",
+        due_before=due_before,
+        page_size=inputs.page_size,
+        cursor=dataclasses.asdict(inputs.cursor) if inputs.cursor else None,
+    )
+
+    @database_sync_to_async(thread_sensitive=False)
+    def get_page() -> tuple[FetchDueSubscriptionsPageActivityResult, datetime | None]:
+        subscriptions_query = (
+            Subscription.objects.filter(next_delivery_date__lte=due_before, deleted=False, enabled=True)
+            .exclude(dashboard__deleted=True)
+            .exclude(insight__deleted=True)
+            # Skip relationless subs — derive_resource_type raises on them, and one bad row would fail the whole page.
+            .exclude(
+                Q(insight_id__isnull=True) & Q(dashboard_id__isnull=True) & (Q(prompt__isnull=True) | Q(prompt=""))
+            )
+        )
+        if inputs.cursor is not None:
+            cursor_date = dt.datetime.fromisoformat(inputs.cursor.next_delivery_date)
+            subscriptions_query = subscriptions_query.filter(
+                Q(next_delivery_date__gt=cursor_date)
+                | Q(next_delivery_date=cursor_date, id__gt=inputs.cursor.subscription_id)
+            )
+
+        remaining_before_page = subscriptions_query.count()
+        rows = list(
+            subscriptions_query.order_by("next_delivery_date", "id").values(
+                "id",
+                "team_id",
+                "created_by__distinct_id",
+                "next_delivery_date",
+                "insight_id",
+                "dashboard_id",
+                "prompt",
+            )[: inputs.page_size]
+        )
+        subscriptions = [
+            DueSubscription(
+                subscription_id=sub["id"],
+                team_id=sub["team_id"],
+                distinct_id=str(sub["created_by__distinct_id"])
+                if sub["created_by__distinct_id"]
+                else str(sub["team_id"]),
+                next_delivery_date=typing.cast(datetime, sub["next_delivery_date"]).isoformat(),
+                resource_type=Subscription.derive_resource_type(sub["insight_id"], sub["dashboard_id"], sub["prompt"]),
+            )
+            for sub in rows
+        ]
+        remaining_after_page = max(0, remaining_before_page - len(subscriptions))
+        last_row = rows[-1] if rows else None
+        next_cursor = (
+            SubscriptionSchedulerCursor(
+                next_delivery_date=typing.cast(datetime, last_row["next_delivery_date"]).isoformat(),
+                subscription_id=last_row["id"],
+            )
+            if last_row is not None and remaining_after_page > 0
+            else None
+        )
+        return (
+            FetchDueSubscriptionsPageActivityResult(
+                subscriptions=subscriptions,
+                next_cursor=next_cursor,
+                total_count=remaining_before_page,
+                remaining_count=remaining_after_page,
+            ),
+            rows[0]["next_delivery_date"] if rows else None,
+        )
+
+    page, oldest_due_at = await get_page()
+    record_scheduler_fetch(
+        selected_count=len(page.subscriptions),
+        oldest_due_at=oldest_due_at,
+        now=dt.datetime.now(dt.UTC),
+        has_more=page.next_cursor is not None,
+    )
+    await LOGGER.ainfo(
+        "Fetched due subscriptions page",
+        count=len(page.subscriptions),
+        page_size=inputs.page_size,
+        total_count=page.total_count,
+        remaining_count=page.remaining_count,
+        has_more=page.next_cursor is not None,
+    )
+    return page
 
 
 @temporalio.activity.defn
