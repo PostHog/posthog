@@ -1,16 +1,22 @@
 import io
 import re
 import csv
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import IO, Any, cast
 from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.settings import APPSFLYER_ENDPOINTS
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.settings import (
+    APPSFLYER_ENDPOINTS,
+    AppsFlyerEndpointConfig,
+    AppsFlyerReportKind,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -20,10 +26,36 @@ MAX_WINDOW_DAYS = 999
 # AppsFlyer doesn't finalize data until ~48h after the UTC day; re-fetch the
 # trailing days each incremental run (merge dedupes on the dimension key).
 LOOKBACK_DAYS = 2
+# Raw-data pulls are refused beyond a 90-day historical lookback ("Raw reports historical
+# lookback is limited to 90 days"), so never ask for a window that starts earlier.
+RAW_MAX_LOOKBACK_DAYS = 89
+# Raw reports are truncated server-side at this many rows; ask for the larger of the two
+# allowed caps and warn when a window fills it, because the rest is dropped silently.
+RAW_MAX_ROWS = 1_000_000
+# Raw reports are pulled in chronological windows rather than one long range, so the stream is
+# ascending across windows even though AppsFlyer documents no order within one. Keep the window
+# wide enough that a 90-day backfill stays inside the account's daily report quota.
+RAW_MAX_REQUEST_DAYS = 7
+# An incremental run must be able to re-cover a whole window, because a worker shutdown can
+# interrupt one mid-way and rows within it are not ordered. So never look back less than a window.
+RAW_LOOKBACK_DAYS = RAW_MAX_REQUEST_DAYS
+# The Master API serves at most 31 days per call, so a backfill walks it in windows.
+MASTER_MAX_REQUEST_DAYS = 31
+# Each window is one call against the account's daily report quota, so bound the backfill.
+MASTER_MAX_LOOKBACK_DAYS = 365
+# Master API KPIs are LTV measures that keep accruing after install day, so an incremental run
+# re-pulls the trailing month. That also covers a whole request window, as above.
+MASTER_LOOKBACK_DAYS = MASTER_MAX_REQUEST_DAYS
 REQUEST_TIMEOUT_SECONDS = 300
 MAX_RETRY_ATTEMPTS = 5
 # Yield rows in chunks so huge reports don't build one giant list.
 CHUNK_SIZE = 5000
+
+
+@frozen
+class _ReportWindow:
+    start: date
+    end: date
 
 
 class AppsFlyerRetryableError(Exception):
@@ -65,8 +97,10 @@ def _to_date(value: Any) -> date:
     return date.fromisoformat(str(value)[:10])
 
 
-def _parse_csv_rows(text: str, logger: FilteringBoundLogger | None = None) -> Iterator[dict[str, Any]]:
-    reader = csv.reader(io.StringIO(text))
+def _parse_csv_rows(
+    source: str | Iterable[str], logger: FilteringBoundLogger | None = None
+) -> Iterator[dict[str, Any]]:
+    reader = csv.reader(io.StringIO(source) if isinstance(source, str) else source)
     headers: list[str] | None = None
     for row in reader:
         if headers is None:
@@ -85,6 +119,109 @@ def _parse_csv_rows(text: str, logger: FilteringBoundLogger | None = None) -> It
                 )
             continue
         yield dict(zip(headers, row))
+
+
+def _report_url(config: AppsFlyerEndpointConfig, app_id: str, params: dict[str, str]) -> str:
+    if config.kind == AppsFlyerReportKind.MASTER:
+        path = f"/api/master-agg-data/v4/app/{quote(app_id)}"
+    elif config.kind == AppsFlyerReportKind.RAW:
+        path = f"/api/raw-data/export/app/{quote(app_id)}/{config.report}/v5"
+    else:
+        path = f"/api/agg-data/export/app/{quote(app_id)}/{config.report}/v5"
+    return f"{APPSFLYER_BASE_URL}{path}?{urlencode(params)}"
+
+
+def _request_params(config: AppsFlyerEndpointConfig, window: _ReportWindow) -> dict[str, str]:
+    params = {"from": window.start.strftime("%Y-%m-%d"), "to": window.end.strftime("%Y-%m-%d")}
+    if config.kind == AppsFlyerReportKind.RAW:
+        params["maximum_rows"] = str(RAW_MAX_ROWS)
+    params.update(config.extra_params)
+    return params
+
+
+def _max_lookback_days(kind: AppsFlyerReportKind) -> int:
+    if kind == AppsFlyerReportKind.RAW:
+        return RAW_MAX_LOOKBACK_DAYS
+    if kind == AppsFlyerReportKind.MASTER:
+        return MASTER_MAX_LOOKBACK_DAYS
+    return MAX_WINDOW_DAYS
+
+
+def _incremental_lookback_days(kind: AppsFlyerReportKind) -> int:
+    if kind == AppsFlyerReportKind.RAW:
+        return RAW_LOOKBACK_DAYS
+    if kind == AppsFlyerReportKind.MASTER:
+        return MASTER_LOOKBACK_DAYS
+    return LOOKBACK_DAYS
+
+
+def _max_request_days(kind: AppsFlyerReportKind) -> int | None:
+    """Days one request may span, or ``None`` when the whole range goes in a single request."""
+    if kind == AppsFlyerReportKind.RAW:
+        return RAW_MAX_REQUEST_DAYS
+    if kind == AppsFlyerReportKind.MASTER:
+        return MASTER_MAX_REQUEST_DAYS
+    return None
+
+
+def _window_start(
+    config: AppsFlyerEndpointConfig,
+    today: date,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> date:
+    earliest = today - timedelta(days=_max_lookback_days(config.kind))
+    if should_use_incremental_field and db_incremental_field_last_value is not None:
+        start = _to_date(db_incremental_field_last_value) - timedelta(days=_incremental_lookback_days(config.kind))
+    else:
+        start = earliest
+    return min(max(start, earliest), today)
+
+
+def _request_windows(kind: AppsFlyerReportKind, start: date, end: date) -> Iterator[_ReportWindow]:
+    span = _max_request_days(kind)
+    if span is None:
+        yield _ReportWindow(start=start, end=end)
+        return
+    window_start = start
+    while window_start <= end:
+        window_end = min(window_start + timedelta(days=span - 1), end)
+        yield _ReportWindow(start=window_start, end=window_end)
+        window_start = window_end + timedelta(days=1)
+
+
+@retry(
+    retry=retry_if_exception_type((AppsFlyerRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+    wait=wait_exponential_jitter(initial=5, max=120),
+    reraise=True,
+)
+def _open_report(session: requests.Session, url: str, logger: FilteringBoundLogger) -> requests.Response:
+    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
+
+    if response.status_code == 429 or response.status_code >= 500:
+        response.close()
+        raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}, url={url}")
+
+    if not response.ok:
+        logger.error(f"AppsFlyer API error: status={response.status_code}, body={response.text[:500]}, url={url}")
+        response.close()
+        response.raise_for_status()
+
+    return response
+
+
+def _iter_report_rows(session: requests.Session, url: str, logger: FilteringBoundLogger) -> Iterator[dict[str, Any]]:
+    response = _open_report(session, url, logger)
+    try:
+        # Read physical lines off the socket rather than buffering the whole body: a raw-data
+        # window can hold a million event rows. Wrapping the stream (instead of `iter_lines`)
+        # keeps the line terminators csv needs for quoted multi-line values.
+        response.raw.decode_content = True
+        stream = io.TextIOWrapper(cast(IO[bytes], response.raw), encoding="utf-8", newline="")
+        yield from _parse_csv_rows(stream, logger)
+    finally:
+        response.close()
 
 
 def validate_credentials(api_token: str, app_id: str) -> bool:
@@ -149,38 +286,26 @@ def get_rows(
     app = _validate_app_id(app_id)
 
     today = datetime.now(UTC).date()
-    if should_use_incremental_field and db_incremental_field_last_value is not None:
-        start = _to_date(db_incremental_field_last_value) - timedelta(days=LOOKBACK_DAYS)
-    else:
-        start = today - timedelta(days=MAX_WINDOW_DAYS)
-    start = min(max(start, today - timedelta(days=MAX_WINDOW_DAYS)), today)
-
-    @retry(
-        retry=retry_if_exception_type((AppsFlyerRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=5, max=120),
-        reraise=True,
-    )
-    def fetch_report() -> str:
-        params = {"from": start.strftime("%Y-%m-%d"), "to": today.strftime("%Y-%m-%d")}
-        url = f"{APPSFLYER_BASE_URL}/api/agg-data/export/app/{quote(app)}/{config.report}/v5?{urlencode(params)}"
-        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}, url={url}")
-
-        if not response.ok:
-            logger.error(f"AppsFlyer API error: status={response.status_code}, body={response.text[:500]}, url={url}")
-            response.raise_for_status()
-
-        return response.text
+    start = _window_start(config, today, should_use_incremental_field, db_incremental_field_last_value)
 
     chunk: list[dict[str, Any]] = []
-    for row in _parse_csv_rows(fetch_report(), logger):
-        chunk.append(row)
-        if len(chunk) >= CHUNK_SIZE:
-            yield chunk
-            chunk = []
+    for window in _request_windows(config.kind, start, today):
+        url = _report_url(config, app, _request_params(config, window))
+        rows_in_window = 0
+        for row in _iter_report_rows(session, url, logger):
+            rows_in_window += 1
+            chunk.append(row)
+            if len(chunk) >= CHUNK_SIZE:
+                yield chunk
+                chunk = []
+        if config.kind == AppsFlyerReportKind.RAW and rows_in_window >= RAW_MAX_ROWS:
+            logger.warning(
+                "AppsFlyer truncated the raw report at its row cap; some rows in this window were not returned",
+                report=endpoint,
+                window_start=window.start.isoformat(),
+                window_end=window.end.isoformat(),
+                row_cap=RAW_MAX_ROWS,
+            )
     if chunk:
         yield chunk
 
@@ -209,8 +334,8 @@ def appsflyer_source(
         partition_count=1,
         partition_size=1,
         partition_mode="datetime",
-        partition_format="month",
-        partition_keys=["date"],
+        partition_format=config.partition_format,
+        partition_keys=[config.partition_key],
         sort_mode="asc",
         # Dimension keys can collide (e.g. blank campaign values) — an expected trait of report
         # data, not something the user can fix. Don't set has_duplicate_primary_keys: that flag

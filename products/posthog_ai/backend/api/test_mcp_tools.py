@@ -3,12 +3,15 @@ from datetime import UTC, datetime
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse
 
 from posthog.event_usage import EventSource
 from posthog.models import Organization, Team
+
+from ee.hogai.mcp_tool import MCPToolResult
 
 
 class TestMCPToolsAPI(APIBaseTest):
@@ -56,9 +59,18 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertFalse(data["success"])
         self.assertIn("validation error", data["content"].lower())
 
+    @parameterized.expand([("text_only", False), ("structured_query", True)])
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
-    def test_invoke_execute_sql_success(self, mock_execute):
-        mock_execute.return_value = "event | cnt\ntest_event | 5"
+    def test_invoke_execute_sql_success(self, _name: str, structured: bool, mock_execute: AsyncMock) -> None:
+        content = "event | cnt\ntest_event | 5"
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT {variables.org}",
+            "variables": {"example-variable": {"variableId": "example-variable", "code_name": "org"}},
+        }
+        mock_execute.return_value = (
+            MCPToolResult(content=content, structured_content={"query": query}) if structured else content
+        )
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
@@ -69,7 +81,11 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertTrue(data["success"])
-        self.assertIn("test_event", data["content"])
+        self.assertEqual(data["content"], content)
+        if structured:
+            self.assertEqual(data["structured_content"], {"query": query})
+        else:
+            self.assertNotIn("structured_content", data)
         mock_execute.assert_called_once()
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")

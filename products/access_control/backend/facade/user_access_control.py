@@ -62,6 +62,7 @@ ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE = 1000
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "customer_analytics",
+    "data_catalog",
     "dashboard",
     "early_access_feature",
     "endpoint",
@@ -414,14 +415,28 @@ class UserAccessControl:
         # object in a list response. The events carry no object id, so these repeats are
         # identical events. Report each distinct divergence once per request.
         self._reported_resolved_access_divergences: set[tuple] = set()
+        # Project-wide object-id resolutions, keyed by (resource, team, level). Each one scans the
+        # resource and preloads its access controls, and one request asks for the same set several
+        # times over. Narrowed lookups are never stored here, only whole-resource ones.
+        self._allowed_object_ids: dict[tuple[str, int, str], frozenset] = {}
 
         if not organization_id and team:
             organization_id = str(team.organization_id)
 
         self._organization_id = organization_id
 
+    def allowed_object_ids(
+        self, resource: str, team_id: int, required_level: str, resolve: Callable[[], frozenset]
+    ) -> frozenset:
+        """Memoize one whole-resource object-id resolution for the life of this request."""
+        key = (resource, team_id, required_level)
+        if key not in self._allowed_object_ids:
+            self._allowed_object_ids[key] = resolve()
+        return self._allowed_object_ids[key]
+
     def _clear_cache(self):
         self._cache = {}
+        self._allowed_object_ids = {}
         # Pop from __dict__ rather than hasattr/delattr
         # hasattr on an un-computed cached_property would re-populate the value we're clearing
         self.__dict__.pop("_cached_access_controls", None)
