@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -92,17 +93,18 @@ class TestTokenBucket(BaseTest):
         assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="debit")._value.get() == debit_before + 1
 
 
-class TestLimitedEventClaim(BaseTest):
+class TestLimitedEventClaim(SimpleTestCase):
     def test_first_claim_per_team_wins_for_an_hour(self):
-        assert claim_limited_event("team-a") is True
-        assert claim_limited_event("team-a") is False
-        assert claim_limited_event("team-b") is True
-        assert get_client().ttl(f"{BUDGET_KEY_PREFIX}limited-event/team-a") == LIMITED_EVENT_INTERVAL_SECONDS
+        team_a, team_b = f"team-{uuid4()}", f"team-{uuid4()}"
+        assert claim_limited_event(team_a) is True
+        assert claim_limited_event(team_a) is False
+        assert claim_limited_event(team_b) is True
+        assert get_client().ttl(f"{BUDGET_KEY_PREFIX}limited-event/{team_a}") == LIMITED_EVENT_INTERVAL_SECONDS
 
     def test_redis_errors_skip_the_event_and_count(self):
         before = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event")._value.get()
         with patch("posthog.api_queries_budget.get_client", side_effect=Exception("redis down")):
-            assert claim_limited_event("team-a") is False
+            assert claim_limited_event(f"team-{uuid4()}") is False
         assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event")._value.get() == before + 1
 
 
