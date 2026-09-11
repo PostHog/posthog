@@ -14,7 +14,6 @@ import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
-import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
@@ -23,6 +22,7 @@ import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { reportAbsoluteUrl } from '../../utils/inboxReportUrls'
 import { canCreateImplementationPr } from '../../utils/reportActions'
 import {
     displayConventionalCommitTitle,
@@ -52,6 +52,7 @@ import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 import { TrackerIssueNote } from './TrackerIssueNote'
+import { ValidateLocallySection } from './ValidateLocallySection'
 
 /**
  * Status / priority / actionability badges for a report's detail header. Mirrors desktop `InboxDetailFrame`.
@@ -251,7 +252,7 @@ export function InboxDetailFrame({
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     // Absolute URL to this report – seeded into the Discuss prompt so the agent can open and read
     // the report directly.
-    const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
+    const reportUrl = reportAbsoluteUrl(report.id)
 
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
@@ -340,6 +341,9 @@ export function InboxDetailFrame({
                     </div>
                 )}
             </div>
+            {/* How to check the finding without trusting the report: last, because a reader reaches
+                for it after reading the summary rather than instead of it. */}
+            <ValidateLocallySection report={report} reportUrl={reportUrl} />
             {/* The rating closes out the report body, pinned to the bottom of the column. */}
             <div className="mt-auto">
                 <ReportFeedbackFooter report={report} align="end" />

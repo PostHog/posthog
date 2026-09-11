@@ -89,6 +89,11 @@ class RunAgenticReportOutput:
     # Resolved impact-metric payload, with the same replay-safe replace/clear/preserve semantics as
     # charts. The transition activity writes it with the matching title and summary.
     metrics: list[dict[str, Any]] | None = None
+    # The local validation prompt to store with the title/summary, or `None` to leave the column
+    # untouched (also the replay-safe default for a history that predates this field). Applied by
+    # the same transition activity as `charts`, for the same reason: it is written against this
+    # run's prose.
+    validation_prompt: str | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -113,7 +118,7 @@ async def _load_previous_research(team_id: int, report_id: str) -> ReportResearc
     """Reconstruct the previous report state."""
     report = (
         await SignalReport.objects.filter(team_id=team_id, id=report_id)
-        .only("title", "summary", "charts", "metrics")
+        .only("title", "summary", "charts", "metrics", "validation_prompt")
         .afirst()
     )
     if report is None or not report.title or not report.summary:
@@ -171,6 +176,9 @@ async def _load_previous_research(team_id: int, report_id: str) -> ReportResearc
         # context rather than failing the run — the agent just won't be offered that one to re-send.
         charts=_parse_stored_charts(report.charts, report_id),
         metrics=_parse_stored_metrics(report.metrics, report_id),
+        # Shown to the re-research the same way, so it can re-send the prompt that still holds
+        # instead of the reader losing it whenever a run rewrites the prose.
+        validation_prompt=report.validation_prompt or "",
         # Reconstructed from already-persisted artefacts, so everything is "old" — a re-research that
         # reuses these writes nothing; only what it changes lands in new_artefacts.
         old_artefacts=[*findings, actionability, *([priority] if priority else [])],
@@ -764,6 +772,10 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             repository=repository,
             charts=charts_payload,
             metrics=metrics_payload,
+            # An empty prompt means the run authored none, which must not wipe a prompt a previous
+            # run wrote against prose this one is keeping — so it skips the write rather than
+            # clearing the column.
+            validation_prompt=result.validation_prompt or None,
         )
     except Exception as error:
         logger.exception(

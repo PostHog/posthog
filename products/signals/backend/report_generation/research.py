@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import asyncio
 import logging
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -30,6 +31,13 @@ from products.signals.backend.report_metrics import (
     MAX_METRIC_SERIES_POINTS,
     MAX_REPORT_METRICS,
     ReportMetric,
+)
+from products.signals.backend.report_validation import (
+    MAX_VALIDATION_PROMPT_LENGTH,
+    VALIDATION_PROMPT_GUIDANCE,
+    normalize_validation_prompt,
+    render_previous_validation_prompt,
+    source_validation_guidance,
 )
 
 # Deferred: importing temporal.types here runs the signals temporal package __init__, which
@@ -119,6 +127,17 @@ Hard rules:
         ),
     )
 
+    validation_prompt: str = Field(
+        default="",
+        description=(
+            "A prompt the reader copies into a coding agent on their own machine to recreate this "
+            "finding and test a fix. Stays on the report and never reaches the pull request, so it "
+            "may name internal hosts, replicas, and tools. Empty when you could not work out how to "
+            f"reproduce the finding. Keep it under {MAX_VALIDATION_PROMPT_LENGTH} characters — a "
+            "longer one is dropped."
+        ),
+    )
+
     @field_validator("title", "summary")
     @classmethod
     def fields_must_not_be_empty(cls, v: str) -> str:
@@ -145,6 +164,12 @@ class ReportResearchOutput(BaseModel):
             "The report's whole typed impact-metric set, replaced with title, summary, and charts. "
             "Every entry has a bounded live EventsNode/ActionsNode Trends query; its snapshot is optional."
         ),
+    )
+    validation_prompt: str = Field(
+        default="",
+        description="The prompt a reader pastes into a local coding agent to recreate the finding "
+        "and test a fix. Normalized — empty when the run authored none, or authored one too long to "
+        "store.",
     )
     research_task_id: str | None = Field(
         default=None,
@@ -721,6 +746,8 @@ def build_report_presentation_prompt(
     previous_metrics: list[ReportMetric] | None = None,
     charts_enabled: bool = False,
     metrics_enabled: bool = False,
+    source_products: Sequence[str] = (),
+    previous_validation_prompt: str | None = None,
 ) -> str:
     schema_dict = ReportPresentationOutput.model_json_schema()
     if not charts_enabled:
@@ -748,10 +775,16 @@ def build_report_presentation_prompt(
             visual_sections.append(previous_charts_context)
     visual_context = "".join(f"\n\n{section}" for section in visual_sections)
 
+    validation_sections = "\n\n" + VALIDATION_PROMPT_GUIDANCE
+    if per_source := source_validation_guidance(source_products):
+        validation_sections += "\n\n" + per_source
+    if previous_context := render_previous_validation_prompt(previous_validation_prompt):
+        validation_sections += "\n\n" + previous_context
+
     return f"""Now write the final **report title and summary** based on your research across all {total_signals} signal(s).
 
 Style rules:
-{previous_presentation_context}{visual_context}
+{previous_presentation_context}{visual_context}{validation_sections}
 
 Respond with a JSON object matching this schema:
 
@@ -996,6 +1029,10 @@ async def run_multi_turn_research(
             previous_metrics=previous_report_research.metrics if previous_report_research else None,
             charts_enabled=charts_enabled,
             metrics_enabled=metrics_enabled,
+            source_products=[signal.source_product for signal in signals],
+            previous_validation_prompt=(
+                previous_report_research.validation_prompt if previous_report_research else None
+            ),
         )
         presentation_result = await session.send_followup(
             presentation_prompt,
@@ -1024,6 +1061,7 @@ async def run_multi_turn_research(
         # future change reintroduces a field into a disabled prompt.
         charts=presentation_result.charts if charts_enabled else [],
         metrics=presentation_result.metrics if metrics_enabled else [],
+        validation_prompt=normalize_validation_prompt(presentation_result.validation_prompt),
         research_task_id=str(session.task.id),
         old_artefacts=old_artefacts,
         new_artefacts=new_artefacts,
