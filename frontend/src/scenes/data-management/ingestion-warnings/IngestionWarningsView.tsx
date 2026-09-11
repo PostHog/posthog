@@ -74,7 +74,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
 // (e.g. set_on_exception's heading is "Invalid set operations on exception events"), which
 // would land the link at the top of the page instead of the relevant section. Types without
 // a documented section are omitted and fall back to the page root.
-export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
+const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     cannot_merge_already_identified: 'refused-to-merge-an-already-identified-user',
     cannot_merge_with_illegal_distinct_id: 'refused-to-merge-with-an-illegal-distinct-id',
     merge_move_limit_exceeded: 'a-merge-exceeded-its-distinct-id-move-limit-and-was-dropped',
@@ -93,8 +93,16 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
 
 // Warning types documented outside the ingestion warnings page. The page has no section for
 // these, so the anchor map cannot reach them and the root fallback tells the reader nothing.
-export const WARNING_TYPE_TO_DOCS_URL: Record<string, string> = {
+const WARNING_TYPE_TO_DOCS_URL: Record<string, string> = {
     event_dropped_by_transformation: 'https://posthog.com/docs/cdp/transformations',
+}
+
+export function warningTypeToDocsUrl(type: string): string {
+    const anchor = WARNING_TYPE_TO_DOCS_ANCHOR[type]
+    return (
+        WARNING_TYPE_TO_DOCS_URL[type] ??
+        `https://posthog.com/docs/data/ingestion-warnings${anchor ? `#${anchor}` : ''}`
+    )
 }
 
 export const WARNING_TYPE_RENDERER = {
@@ -487,10 +495,7 @@ export function IngestionWarningsView(): JSX.Element {
                                         WARNING_TYPE_TO_DESCRIPTION[
                                             summary.type as keyof typeof WARNING_TYPE_TO_DESCRIPTION
                                         ] || summary.type
-                                    const docsAnchor = WARNING_TYPE_TO_DOCS_ANCHOR[summary.type]
-                                    const docsUrl =
-                                        WARNING_TYPE_TO_DOCS_URL[summary.type] ??
-                                        `https://posthog.com/docs/data/ingestion-warnings${docsAnchor ? `#${docsAnchor}` : ''}`
+                                    const docsUrl = warningTypeToDocsUrl(summary.type)
                                     return (
                                         <>
                                             {type} (<Link to={docsUrl}>docs)</Link>
