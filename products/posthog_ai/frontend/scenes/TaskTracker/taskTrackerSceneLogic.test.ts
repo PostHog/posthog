@@ -13,6 +13,8 @@ import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schema
 import { attachedContextLogic, runStreamLogic } from '../../api/logics'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
+import { runInteractionLogic } from '../../logics/runInteractionLogic'
+import { TaskDraftPersistence, taskDraftStorageKey } from '../../logics/taskDraftPersistence'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
@@ -54,6 +56,7 @@ describe('taskTrackerSceneLogic', () => {
     })
 
     beforeEach(() => {
+        localStorage.clear()
         createBody = null
         runBody = null
         useMocks({
@@ -62,7 +65,7 @@ describe('taskTrackerSceneLogic', () => {
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
                 '/api/projects/:team/tasks/@me/config/': myConfigResponse(null),
-                '/api/environments/:team/integrations/': { results: [] },
+                '/api/projects/:team/integrations/': { results: [] },
             },
             post: {
                 '/api/projects/:team/tasks/': async ({ request }) => {
@@ -145,6 +148,8 @@ describe('taskTrackerSceneLogic', () => {
             } else {
                 expect(logic.values.activeCreation).toEqual({
                     streamKey,
+                    interactionKey: streamKey,
+                    composerWasFocused: false,
                     taskId: 'new-task',
                     runId: 'run-1',
                     draft: 'A follow-up draft',
@@ -199,13 +204,26 @@ describe('taskTrackerSceneLogic', () => {
             logic.actions.submitNewTask()
             const streamKey = logic.values.activeCreation!.streamKey
             expect(runStreamLogic({ streamKey }).values.streamPhase).toBe('provisioning')
-            logic.actions.setStartupDraft('Include a weekly comparison')
+            const interaction = runInteractionLogic.findMounted(streamKey)!
+            interaction.actions.enableTaskDraftPersistence('user-1', 997)
+            interaction.actions.setComposerFormValues({ draft: 'Include a weekly comparison' })
+            interaction.actions.submitComposerForm()
+            interaction.actions.setComposerFormValues({ draft: 'Also include a chart' })
+
+            if (failure !== 'task') {
+                await waitFor(() =>
+                    expect(new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, 'new-task')).restore()).toEqual({
+                        draft: 'Explain the example chart\n\nInclude a weekly comparison\n\nAlso include a chart',
+                        recovery: 'unconfirmed',
+                    })
+                )
+            }
 
             await expectLogic(logic, finishRequest).toFinishAllListeners()
 
             expect(logic.values.activeCreation).toBeNull()
             expect(logic.values.newTaskData.description).toBe(
-                'Explain the example chart\n\nInclude a weekly comparison'
+                'Explain the example chart\n\nInclude a weekly comparison\n\nAlso include a chart'
             )
             expect(logic.values.isSubmittingTask).toBe(false)
             expect(router.values.location.pathname).toContain('/tasks/new')
@@ -493,7 +511,7 @@ describe('taskTrackerSceneLogic', () => {
     it('restores the repository integration after a submit so the picker reappears', async () => {
         useMocks({
             get: {
-                '/api/environments/:team/integrations/': {
+                '/api/projects/:team/integrations/': {
                     results: [{ id: 7, kind: 'github', display_name: 'acme/widgets', config: {} }],
                 },
             },
