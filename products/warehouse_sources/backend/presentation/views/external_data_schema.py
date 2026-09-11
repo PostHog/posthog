@@ -679,7 +679,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         validated_data: dict[str, Any],
         original_sync_type_config: dict[str, Any],
     ) -> ExternalDataSchema:
-        """Persist the update, writing only the fields this request changed onto a freshly-locked row.
+        """Persist the update onto a freshly-locked row, writing only the fields this request changed.
 
         super().update() does a full-instance save: every column goes back to the value it held in the
         copy loaded at the start of the request. A PATCH that carries one field therefore reverts every
@@ -702,12 +702,14 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             merged.update(changed)
             for key in removed:
                 merged.pop(key, None)
-            instance.sync_type_config = merged
             validated_data["sync_type_config"] = merged
+            # Apply to the locked row rather than the request's copy. The copy still holds whatever
+            # the other writer replaced, and activity logging diffs the stored row against the
+            # instance it saves, so saving the copy logs a reversal that never reached the database.
             for attr, value in validated_data.items():
-                setattr(instance, attr, value)
-            instance.save(update_fields=_concrete_field_names(validated_data))
-            return instance
+                setattr(locked, attr, value)
+            locked.save(update_fields=_concrete_field_names(validated_data))
+            return locked
 
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.initial_data if isinstance(self.initial_data, dict) else {}

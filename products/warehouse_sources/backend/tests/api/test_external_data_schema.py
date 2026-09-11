@@ -3472,10 +3472,12 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             context={"team_id": self.team.pk, "post_commit_actions": []},
         )
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        saved = serializer.save()
 
         self.schema.refresh_from_db()
         table.refresh_from_db()
+        assert saved.table_id is None
+        assert saved.initial_sync_complete is False
         assert self.schema.should_sync is False
         assert self.schema.table_id is None
         assert self.schema.status is None
