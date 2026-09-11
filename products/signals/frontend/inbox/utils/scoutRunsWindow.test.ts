@@ -7,6 +7,7 @@ import {
     deriveRunOutcome,
     expensiveRunCostThreshold,
     formatRunCost,
+    groupScoutRuns,
     mostRecentEmittedRuns,
     rosterRunCosts,
     runMatchesFilter,
@@ -19,6 +20,8 @@ import {
     scoutCronScheduleError,
     scoutDisplayName,
     scoutReportActivityLabel,
+    scoutRunFailureLine,
+    scoutRunReportLabel,
     weeklyCronToDayTime,
 } from './scoutRunsWindow'
 
@@ -182,6 +185,80 @@ describe('scoutRunsWindow report channel', () => {
             ['no report activity', {}, null],
         ])('%s', (_name, overrides, expected) => {
             expect(scoutReportActivityLabel(makeRun(overrides))).toEqual(expected)
+        })
+    })
+
+    // The row tags read in the report channel's words, and a report both filed and later edited is
+    // one report — the header strip derives it the same way, so the two must not disagree.
+    describe('scoutRunReportLabel', () => {
+        it.each<[string, Partial<SignalScoutRunSummary>, string | null]>([
+            ['filed only', { emitted_report_ids: ['r-1'] }, `Filed ${pluralize(1, 'report')}`],
+            ['added to only', { edited_report_ids: ['r-1', 'r-2'] }, `Added to ${pluralize(2, 'report')}`],
+            [
+                'filed one and added to another',
+                { emitted_report_ids: ['r-1'], edited_report_ids: ['r-2'] },
+                'Filed 1 · added to 1',
+            ],
+            [
+                'filed then edited the same report counts once',
+                { emitted_report_ids: ['r-1'], edited_report_ids: ['r-1'] },
+                `Filed ${pluralize(1, 'report')}`,
+            ],
+            ['no report activity', {}, null],
+        ])('%s', (_name, overrides, expected) => {
+            expect(scoutRunReportLabel(makeRun(overrides))).toEqual(expected)
+        })
+    })
+
+    describe('scoutRunFailureLine', () => {
+        it('takes the first sentence of a close-out, without its markdown heading marker', () => {
+            const run = makeRun({ status: 'failed', summary: '## Stopped mid-plan\nEligibility is healthy. More.' })
+            expect(scoutRunFailureLine(run, NOW)).toBe('Stopped mid-plan')
+        })
+
+        it('names the duration when the run never wrote a close-out', () => {
+            const run = makeRun({
+                status: 'failed',
+                summary: '',
+                started_at: '2026-06-27T21:00:00Z',
+                completed_at: '2026-06-27T21:00:37Z',
+            })
+            expect(scoutRunFailureLine(run, NOW)).toBe('Ended after 37s without a close-out.')
+        })
+    })
+
+    // A scout's history is mostly quiet, so a flat list buries the failures anyone opened it for.
+    describe('groupScoutRuns', () => {
+        const quiet = (id: string): SignalScoutRunSummary => makeRun({ run_id: id })
+        const failed = (id: string): SignalScoutRunSummary => makeRun({ run_id: id, status: 'failed' })
+        const filed = (id: string): SignalScoutRunSummary => makeRun({ run_id: id, emitted_report_ids: ['r-1'] })
+
+        it('folds a run of quiet runs into one group and keeps them in order', () => {
+            const groups = groupScoutRuns([quiet('a'), quiet('b'), quiet('c')])
+            expect(groups).toHaveLength(1)
+            expect(groups[0]).toMatchObject({ kind: 'quiet' })
+            expect(groups[0].kind === 'quiet' && groups[0].runs.map((run) => run.run_id)).toEqual(['a', 'b', 'c'])
+        })
+
+        it('folds consecutive failures into one group', () => {
+            const groups = groupScoutRuns([failed('a'), failed('b'), failed('c')])
+            expect(groups).toHaveLength(1)
+            expect(groups[0].kind === 'failed' && groups[0].runs).toHaveLength(3)
+        })
+
+        it('never merges across a productive run, so a group only spans what it says it does', () => {
+            const groups = groupScoutRuns([quiet('a'), filed('b'), quiet('c'), failed('d'), quiet('e')])
+            expect(groups.map((group) => group.kind)).toEqual(['quiet', 'run', 'quiet', 'failed', 'quiet'])
+        })
+
+        it('never merges a failure into a quiet group', () => {
+            const groups = groupScoutRuns([quiet('a'), failed('b')])
+            expect(groups.map((group) => group.kind)).toEqual(['quiet', 'failed'])
+        })
+
+        it('keeps a lone quiet run as a group of one, so the list does not switch grammar', () => {
+            const groups = groupScoutRuns([quiet('a')])
+            expect(groups[0].kind === 'quiet' && groups[0].runs).toHaveLength(1)
         })
     })
 

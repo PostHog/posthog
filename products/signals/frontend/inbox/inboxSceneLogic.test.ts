@@ -216,6 +216,44 @@ describe('inboxSceneLogic routing', () => {
         expect(opened(logic.values)).toBe(true)
     })
 
+    // The scout page's tabs live in the URL, so a link to a scout's runs has to survive a reload.
+    // Selecting a scout resets the tab, so the URL's tab had to be applied after that reset.
+    describe('the scout page tab in the URL', () => {
+        it('opens the tab a reloaded URL names', () => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'), { tab: 'runs' })
+            expect(logic.values.selectedScoutSkillName).toBe('signals-scout-web-vitals')
+            expect(logic.values.scoutDetailTab).toBe('runs')
+        })
+
+        it('leaves the tab on its default for a bare scout URL', () => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
+            expect(logic.values.scoutDetailTab).toBeNull()
+        })
+
+        it('ignores a tab the page has no pane for', () => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'), { tab: 'nonsense' })
+            expect(logic.values.scoutDetailTab).toBeNull()
+        })
+
+        it('writes the chosen tab back to the URL, and drops it again on the default', () => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
+            logic.actions.setScoutDetailTab('learned')
+            expect(router.values.searchParams.tab).toBe('learned')
+            logic.actions.setScoutDetailTab(null)
+            expect(router.values.searchParams.tab).toBeUndefined()
+        })
+
+        it('opens Signals for a finding deep-link, which is what the link is asking for', () => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals', 'finding-1'))
+            expect(logic.values.scoutDetailTab).toBe('signals')
+        })
+    })
+
     // A held report deep-link still opens the report under the persisted layout, so the page is not
     // empty while flags load; the replay only settles the tab once the layout is known.
     it('before flags resolve /inbox/pulls/<id> opens the report and lands on Reports once the redesign resolves', () => {
