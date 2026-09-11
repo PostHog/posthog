@@ -48,8 +48,9 @@ SEARCH_BUDGET_MS = 15_000
 
 SEARCH_TIMED_OUT_COUNTER = Counter(
     "project_search_entity_timed_out_total",
-    "Project search entity queries cancelled by the per-entity statement timeout.",
-    labelnames=["entity"],
+    "Project search entities that returned nothing, by reason: `cancelled` by the per-entity "
+    "statement timeout, or `skipped` because the search budget was already spent.",
+    labelnames=["entity", "reason"],
 )
 
 T = TypeVar("T")
@@ -278,7 +279,7 @@ def _run_bounded(entity: str, alias: str, deadline: float, run: Callable[[], T])
     """Returns `None` when the database cancels the query, or when the search has no budget left."""
     budget_ms = min(ENTITY_STATEMENT_TIMEOUT_MS, int((deadline - monotonic()) * 1000))
     if budget_ms <= 0:
-        SEARCH_TIMED_OUT_COUNTER.labels(entity=entity).inc()
+        SEARCH_TIMED_OUT_COUNTER.labels(entity=entity, reason="skipped").inc()
         return None
     try:
         with execute_with_timeout(budget_ms, database=alias):
@@ -286,7 +287,7 @@ def _run_bounded(entity: str, alias: str, deadline: float, run: Callable[[], T])
     except OperationalError as error:
         if not is_query_canceled(error):
             raise
-        SEARCH_TIMED_OUT_COUNTER.labels(entity=entity).inc()
+        SEARCH_TIMED_OUT_COUNTER.labels(entity=entity, reason="cancelled").inc()
         return None
 
 

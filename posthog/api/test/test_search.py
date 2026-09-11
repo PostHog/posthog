@@ -328,6 +328,22 @@ class TestSearch(APIBaseTest):
         assert counts["dashboard"] == 1
         assert total_count is None  # the dropped entity's rows are missing from the total too
 
+    def test_a_spent_budget_skips_the_remaining_entities(self):
+        with patch.object(search_module, "SEARCH_BUDGET_MS", 0):
+            results, counts, total_count = search_entities(
+                entities={"insight", "dashboard"},
+                query="sec",
+                project_id=self.team.project_id,
+                view=self._mock_view(),
+                entity_map=ENTITY_MAP,
+            )
+
+        assert results == []
+        assert counts is not None
+        assert counts["insight"] is None
+        assert counts["dashboard"] is None
+        assert total_count is None
+
     def test_the_callers_statement_timeout_survives_the_search(self):
         # `SET LOCAL` lasts until the caller's transaction ends, not until the search returns.
         with connection.cursor() as cursor:
