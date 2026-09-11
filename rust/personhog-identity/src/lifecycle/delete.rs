@@ -40,6 +40,7 @@ use crate::lifecycle::engine::{
     advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
     STEP_COMPLETED,
 };
+use crate::storage::postgres::begin_timed;
 
 /// Bound on concurrent leader calls per step, matching the merge driver.
 const LEADER_CALL_CONCURRENCY: usize = 8;
@@ -199,7 +200,7 @@ fn parse_request(op: &OpRow) -> Result<DeleteRequest, SagaError> {
 async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaError> {
     let request = parse_request(op)?;
     let team_id = op.team_id as i32;
-    let mut tx = pool.begin().await?;
+    let mut tx = begin_timed(pool).await?;
 
     // Rows from a previous attempt of this op (crash between the insert and
     // the advance): whatever they claimed stays claimed.
@@ -431,7 +432,7 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
         }
     }
 
-    let mut tx = pool.begin().await?;
+    let mut tx = begin_timed(pool).await?;
     sqlx::query!(
         r#"
         UPDATE lifecycle_op_person lop
@@ -487,7 +488,7 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
 /// this version.
 async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
     let team_id = op.team_id as i32;
-    let mut tx = pool.begin().await?;
+    let mut tx = begin_timed(pool).await?;
 
     let mut victims: Vec<i64> = sqlx::query_scalar!(
         r#"
@@ -688,7 +689,7 @@ async fn complete(
         result.map_err(SagaError::leader)?;
     }
 
-    let mut tx = pool.begin().await?;
+    let mut tx = begin_timed(pool).await?;
 
     sqlx::query!(
         "UPDATE lifecycle_op_person SET status = $2 WHERE op_id = $1 AND status = 'sealed'",

@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
     ForeignServerUnreachableError,
@@ -454,6 +455,10 @@ class TestPostgresSourceNonRetryableErrors:
             # hit a plan limit. Account-level state only the customer can lift, so retrying re-hits
             # the same refusal — must not keep retrying. Host/port are invented, not a real value.
             'connection failed: connection to server at "db.example.com", port 5432 failed: Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions.',
+            # Supabase/Supavisor trips its circuit breaker after repeated bad credentials. The block
+            # stays until the failing attempts stop, so it's permanent until the customer fixes the
+            # credentials — distinct from the transient credential-fetch variant of the same code.
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are temporarily blocked',
             # The target database has datallowconn off, or a managed provider paused/suspended it
             # (SQLSTATE 57P03). Permanent until the customer restores it, so it must not keep retrying.
             # Distinct from the transient "not yet accepting connections" startup refusal above (which
@@ -2080,7 +2085,7 @@ class TestIsConnectionDroppedError:
             # kept retryable above. Broadening the match to the bare code would wrongly retry a
             # deterministic credential rejection — see `get_non_retryable_errors` in source.py.
             psycopg.OperationalError(
-                'connection failed: connection to server at "18.176.230.146", port 5432 failed: '
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are "
                 "temporarily blocked"
             ),
@@ -2619,11 +2624,6 @@ class _ProductionCloud:
 
 
 class TestConnectToPostgresDialsOnlyValidatedAddresses:
-    @staticmethod
-    # nosemgrep: semgrep.rules.devex.tuple-return-prefer-dataclass -- mirrors socket.getaddrinfo's positional result
-    def _addrinfo(*addresses: str) -> list[tuple[int, int, int, str, tuple[str, int]]]:
-        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 5432)) for address in addresses]
-
     @contextmanager
     def _production_cloud(self, resolver_result: Any) -> Iterator[_ProductionCloud]:
         resolver_kwargs = (
@@ -2664,7 +2664,7 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
     def test_an_internal_address_anywhere_in_the_resolved_set_refuses_the_connect(
         self, addresses: tuple[str, ...]
     ) -> None:
-        with self._production_cloud(self._addrinfo(*addresses)) as cloud:
+        with self._production_cloud(addrinfo(5432, *addresses)) as cloud:
             with pytest.raises(Exception, match="Database host not allowed"):
                 self._connect(team_id=999)
 
@@ -2685,21 +2685,21 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
         cloud.connect.assert_not_called()
 
     def test_a_public_set_is_dialed_whole_with_the_hostname_kept_for_sni(self) -> None:
-        with self._production_cloud(self._addrinfo("2600:1f18::1", "52.1.2.3")) as cloud:
+        with self._production_cloud(addrinfo(5432, "2600:1f18::1", "52.1.2.3")) as cloud:
             self._connect(team_id=999)
 
         assert cloud.connect.call_args.kwargs["host"] == "db.example.com,db.example.com"
         assert cloud.connect.call_args.kwargs["hostaddr"] == "2600:1f18::1,52.1.2.3"
 
     def test_an_allowlisted_team_dials_its_internal_addresses_pinned(self) -> None:
-        with self._production_cloud(self._addrinfo("10.0.0.5")) as cloud:
+        with self._production_cloud(addrinfo(5432, "10.0.0.5")) as cloud:
             self._connect(team_id=2)
 
         assert cloud.connect.call_args.kwargs["host"] == "db.example.com"
         assert cloud.connect.call_args.kwargs["hostaddr"] == "10.0.0.5"
 
     def test_a_missing_team_fails_closed(self) -> None:
-        with self._production_cloud(self._addrinfo("10.0.0.5")) as cloud:
+        with self._production_cloud(addrinfo(5432, "10.0.0.5")) as cloud:
             with pytest.raises(Exception, match="Database host not allowed"):
                 self._connect()
 
@@ -2721,7 +2721,7 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
         cloud.connect.assert_not_called()
 
     def test_a_comma_joined_host_is_refused_before_libpq_sees_it(self) -> None:
-        with self._production_cloud(self._addrinfo("10.0.0.5")) as cloud:
+        with self._production_cloud(addrinfo(5432, "10.0.0.5")) as cloud:
             with pytest.raises(HostNotAllowedError, match="single hostname"):
                 self._connect(host="10.0.0.5,x.postwh.com", team_id=999)
 
@@ -2729,7 +2729,7 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
         cloud.connect.assert_not_called()
 
     def test_an_ip_literal_host_is_dialed_as_is_without_a_lookup(self) -> None:
-        with self._production_cloud(self._addrinfo("127.0.0.1")) as cloud:
+        with self._production_cloud(addrinfo(5432, "127.0.0.1")) as cloud:
             self._connect(host="127.0.0.1", team_id=999)
 
         cloud.getaddrinfo.assert_not_called()
@@ -4444,7 +4444,7 @@ class TestValidateCredentialsErrorMapping:
             # themselves keep being rejected, so it must surface actionable credential guidance
             # instead of falling through to the generic fallback message below.
             (
-                'connection failed: connection to server at "18.176.230.146", port 5432 failed: '
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are "
                 "temporarily blocked",
                 "Your database's connection pooler has temporarily blocked new connections after "
