@@ -12032,6 +12032,8 @@ export namespace Schemas {
     export interface BaselineEntry {
       /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
       quarantine?: BaselineQuarantineSummary | null;
+      /** Accepted variants still recorded against this baseline's current hash. Unlike the 30-day and 90-day counts, this has no time window: an accepted variant keeps matching without a new record. A baseline change resets it to zero. */
+      active_variants_current_baseline: number;
       identifier: string;
       run_type: string;
       /** @nullable */
@@ -12055,6 +12057,8 @@ export namespace Schemas {
 
     export interface BaselineTotals {
       by_run_type: BaselineTotalsByRunType;
+      /** Baselines carrying three or more accepted variants of their current hash. */
+      variant_pileups: number;
       all_snapshots: number;
       recently_tolerated: number;
       frequently_tolerated: number;
@@ -80564,6 +80568,11 @@ export namespace Schemas {
       slack_notification_min_priority?: AutonomyPriorityEnum | BlankEnum | null;
       /** Whether to add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Assignment is additive, so turning it off never removes an assignee from a pull request that already has one. */
       github_assign_on_pull_request?: boolean;
+      /**
+         * Whether implementation pull requests for reports that suggest this user as reviewer open ready for review instead of draft, so the full CI matrix starts right away. Null follows the project's default_open_pull_request_ready. Applies only when the pull request is created; a pull request somebody converts back to draft stays draft.
+         * @nullable
+         */
+      github_open_pull_request_ready?: boolean | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -80593,6 +80602,11 @@ export namespace Schemas {
       slack_notification_min_priority?: AutonomyPriorityEnum | null;
       /** Add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Turning it off stops future assignment and never removes an existing assignee. */
       github_assign_on_pull_request?: boolean;
+      /**
+         * Open implementation pull requests for reports that suggest this user as reviewer ready for review instead of draft, so the full CI matrix runs without anybody clicking Ready. Null follows the project default. A ready pull request runs the full matrix on every push.
+         * @nullable
+         */
+      github_open_pull_request_ready?: boolean | null;
     }
 
     export interface SlackChannel {
