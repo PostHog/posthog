@@ -372,8 +372,13 @@ function ChartSVG({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement>
 
 // Chart controls component
 function ChartControls(): JSX.Element {
-    const { displayOrder, isSecondary, primaryMetricsLengthWithSharedMetrics, setIsModalOpen, metric } =
+    const { displayOrder, isSecondary, primaryMetricsLengthWithSharedMetrics, setIsModalOpen, metric, result } =
         useDeltaChartContext()
+
+    // Every child of the details modal reads the legacy per-variant fields. The new
+    // ExperimentQueryResponse reuses this `kind` but carries `baseline` and `variant_results`
+    // instead, so there is nothing for the modal to show.
+    const hasLegacyVariants = Boolean(result?.variants)
 
     return (
         <>
@@ -395,6 +400,9 @@ function ChartControls(): JSX.Element {
                         size="xsmall"
                         icon={<IconGraph />}
                         onClick={() => setIsModalOpen(true)}
+                        disabledReason={
+                            hasLegacyVariants ? undefined : 'Detailed results are not available for this metric'
+                        }
                     >
                         Details
                     </LemonButton>
