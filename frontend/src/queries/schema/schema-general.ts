@@ -587,34 +587,27 @@ export interface AccessControlFilterWarning {
 }
 
 /**
- * Variant of the `query-scan-warnings` feature flag for the team.
- * `log_only`: the backend measures and analyzes but clients render nothing, so the thresholds can be
- * calibrated on production traffic before anyone sees a finding. `show`: clients may render findings.
+ * Variant of the `query-scan-warnings` flag for the team. `log_only`: analyze but show nothing, to
+ * calibrate the thresholds. `show`: clients may show findings. Clients read it here and never
+ * evaluate the flag themselves.
  */
 export type QueryScanMode = 'log_only' | 'show'
 
 /**
- * Where the analysis of a slow query stands. The analysis runs in the background after the response
- * is sent, so the response that started it says `pending`. `done` means it finished: its findings are
- * `QueryScanWarning` items, returned by the scan endpoint and added to the `warnings` list of any
- * later response for the same query.
+ * The analysis of a slow query runs in the background, so the response that started it says
+ * `pending`. Once `done`, the scan endpoint returns the findings, and later responses for the same
+ * query carry them in their `warnings` list.
  */
 export type QueryScanStatus = 'pending' | 'done'
 
+/** What a query cost and where its analysis stands. Only on responses to a signed-in user of a flagged team. */
 export interface QueryScanSummary {
-    /**
-     * What clients may show for this response. The server evaluated the flag once for this query;
-     * clients and the assistant read this field and never evaluate the flag themselves.
-     */
     mode: QueryScanMode
-    /** Rows ClickHouse read for the last fresh run of this query, all tables included. */
+    /** Rows ClickHouse read for the last fresh run, all tables included. */
     rows_read: integer
-    /** ClickHouse time for the last fresh run, summed over every ClickHouse query the run made. */
+    /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
     duration_ms: integer
-    /**
-     * Where the analysis of this query stands, see `QueryScanStatus`. The analysis only runs when
-     * `duration_ms` is over the threshold in the flag's payload, so the field is absent for a fast query.
-     */
+    /** Absent when the run was too fast to analyze. */
     status?: QueryScanStatus
 }
 

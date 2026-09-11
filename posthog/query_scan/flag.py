@@ -1,14 +1,12 @@
-"""The feature flag that turns query scan warnings on for a team, and the thresholds it carries."""
+"""The `query-scan-warnings` flag: whether a team gets slow query advice, and the thresholds to use."""
 
 from __future__ import annotations
 
 import json
-import threading
 from typing import TYPE_CHECKING, Literal, cast
 
 import structlog
 import posthoganalytics
-from cachetools import TTLCache
 
 from posthog.dataclasses import frozen
 
@@ -18,8 +16,6 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 FLAG_KEY = "query-scan-warnings"
-CACHE_TTL_SECONDS = 60
-CACHE_MAX_TEAMS = 10_000
 
 DEFAULT_FLOOR_MS = 1000
 DEFAULT_EVENT_RATIO = 0.10
@@ -31,81 +27,57 @@ MODES: tuple[QueryScanMode, ...] = ("log_only", "show")
 
 @frozen
 class QueryScanFlag:
-    """What the flag says for one team: how much clients may show, and the thresholds to analyze at."""
+    """The flag's variant for a team, and the thresholds from its payload."""
 
+    # `log_only` analyzes but shows nothing; `show` lets clients show findings.
     mode: QueryScanMode
-    # A run is analyzed only when its ClickHouse time reaches this. Below it the response carries
-    # the run's rows and time and nothing else.
+    # A finished run is analyzed only when its ClickHouse time reaches this. A run ClickHouse
+    # stopped is analyzed at any duration.
     floor_ms: int
-    # A query is told it has no event filter only when it read at least this share of the events
-    # in its date range.
+    # No event filter is reported unless the query read at least this share of its date range's events.
     event_ratio: float
-    # A query is told its persons join is the cost only when the persons tables' read is at least
-    # this fraction of the events read, in rows.
+    # A persons join is reported only when the persons read is at least this fraction of the events read.
     persons_ratio: float
 
-
-_flag_cache: TTLCache[int, QueryScanFlag | None] = TTLCache(maxsize=CACHE_MAX_TEAMS, ttl=CACHE_TTL_SECONDS)
-# cachetools caches are not thread-safe; the lock guards threaded WSGI/Celery workers.
-_flag_cache_lock = threading.Lock()
+    @property
+    def thresholds_fingerprint(self) -> str:
+        """Names the gates an analysis ran under, so one stored under other gates is not served."""
+        return f"{self.event_ratio!r}:{self.persons_ratio!r}"
 
 
 def get_query_scan_flag(team: Team) -> QueryScanFlag | None:
-    """The flag for `team`, or None when query scan warnings are off for it.
-
-    Every blocking query asks, so the answer is held in-process for a minute. Off is cached too,
-    which is what keeps an unflagged team off the flag evaluation path.
-    """
-    with _flag_cache_lock:
-        try:
-            return _flag_cache[team.id]
-        except KeyError:
-            pass
-
-    flag = _evaluate(team)
-
-    with _flag_cache_lock:
-        _flag_cache[team.id] = flag
-    return flag
-
-
-def _evaluate(team: Team) -> QueryScanFlag | None:
-    """Never raises: any failure reads as off.
-
-    Local evaluation sees only the properties passed here, so the flag's conditions must be on the
-    project id.
-    """
+    """The flag for `team`, or None when off. Evaluated locally on the project; a flag outage reads as off."""
     try:
-        distinct_id = str(team.uuid)
-        groups = {"project": str(team.id)}
-        group_properties = {
-            "project": {
-                "id": str(team.id),
-                "created_at": team.created_at.isoformat() if team.created_at else None,
-                "uuid": team.uuid,
-            }
-        }
         result = posthoganalytics.get_feature_flag_result(
             FLAG_KEY,
-            distinct_id,
-            groups=groups,
-            group_properties=group_properties,
+            str(team.uuid),
+            groups={"project": str(team.id)},
+            group_properties={
+                "project": {
+                    "id": str(team.id),
+                    "created_at": team.created_at.isoformat() if team.created_at else None,
+                    "uuid": team.uuid,
+                }
+            },
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
-        if result is None or result.variant not in MODES:
-            return None
-        mode = cast("QueryScanMode", result.variant)
-        return _flag_from_payload(mode, result.payload)
     except Exception:
         logger.warning("query_scan_flag_evaluation_failed", team_id=team.id, exc_info=True)
         return None
+    if result is None or result.variant not in MODES:
+        return None
+    return _parse(cast("QueryScanMode", result.variant), result.payload)
 
 
-def _flag_from_payload(mode: QueryScanMode, payload: object) -> QueryScanFlag:
-    """Thresholds live in the payload so they can move without a deploy, which means somebody types
-    them by hand: a missing or malformed value takes the default."""
-    values = _payload_values(payload)
+def _parse(mode: QueryScanMode, payload: object) -> QueryScanFlag:
+    """The thresholds are typed by hand into the payload, so each field falls back on its own."""
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except ValueError:
+            payload = {}
+    values = payload if isinstance(payload, dict) else {}
     return QueryScanFlag(
         mode=mode,
         floor_ms=_as_int(values.get("floor_ms"), DEFAULT_FLOOR_MS),
@@ -114,29 +86,14 @@ def _flag_from_payload(mode: QueryScanMode, payload: object) -> QueryScanFlag:
     )
 
 
-def _payload_values(payload: object) -> dict[str, object]:
-    if isinstance(payload, str):
-        try:
-            payload = json.loads(payload)
-        except ValueError:
-            return {}
-    return payload if isinstance(payload, dict) else {}
-
-
 def _as_int(value: object, default: int) -> int:
-    # bool is an int in Python, and a true/false threshold is a typo rather than a number.
-    if isinstance(value, bool):
+    # bool is an int in Python, and true/false is a typo here, not a threshold.
+    if isinstance(value, bool) or not isinstance(value, int | float):
         return default
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    return default
+    return int(value)
 
 
 def _as_float(value: object, default: float) -> float:
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, int | float):
         return default
-    if isinstance(value, int | float):
-        return float(value)
-    return default
+    return float(value)

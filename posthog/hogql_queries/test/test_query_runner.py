@@ -230,39 +230,6 @@ class TestQueryRunner(BaseTest):
                 34,
             )
 
-    @parameterized.expand(
-        [
-            ("flag turned off", None, None),
-            ("mode narrowed", _QUERY_SCAN_FLAG_LOG_ONLY, "log_only"),
-        ]
-    )
-    def test_cache_hit_serves_the_current_query_scan_mode(self, _name, flag_at_read, expected_mode):
-        TestQueryRunner = self.setup_test_query_runner_class()
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
-        with (
-            time_machine.travel(datetime(2023, 2, 4, 13, 37, 42), tick=False),
-            mock.patch.object(
-                TestQueryRunner, "_calculate", autospec=True, side_effect=_calculate_recording_clickhouse_stats
-            ),
-        ):
-            with mock.patch(
-                "posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=_QUERY_SCAN_FLAG_SHOW
-            ):
-                runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-            with mock.patch("posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=flag_at_read):
-                response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-
-        assert response.is_cached
-        if expected_mode is None:
-            assert response.query_scan is None
-        else:
-            assert response.query_scan is not None
-            assert (response.query_scan.mode, response.query_scan.rows_read, response.query_scan.duration_ms) == (
-                expected_mode,
-                12,
-                34,
-            )
-
     def test_calculate_runs_validators_before_calculation(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         validation_rule = mock.MagicMock()

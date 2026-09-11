@@ -246,12 +246,10 @@ def _chargeable_query_info(client: Any, query_info_before: Any) -> Optional[Any]
 
 
 def _query_stats_summary(client: Any, query_info_before: Any) -> Optional[QuerySummary]:
-    """What the execution that just ran on `client` read, or None when the client reports nothing.
+    """What the query that just ran on `client` read, or None when nothing was recorded.
 
-    The HTTP client has no `last_query` and reports its own summary instead. A killed query is read
-    back from the stash `ClickHouseClient` keeps, because the disconnect after the error clears
-    `last_query`. The driver only creates a query info once the connection is up, so the identity
-    check against `query_info_before` keeps a pooled client's previous query out of the totals.
+    A stopped query's record is taken from the stash, because the reconnect after the error cleared
+    it. A record unchanged since before the call belongs to an earlier query on the same pooled client.
     """
     if not hasattr(client, "last_query"):
         return getattr(client, "last_query_summary", None)
@@ -269,18 +267,16 @@ def _query_stats_summary(client: Any, query_info_before: Any) -> Optional[QueryS
 
 
 def _record_query_stats(client: Any, query_info_before: Any, execute_start_time: float) -> None:
-    """Add what this execution read to the active query stats scope.
+    """Add what this query read to the request's totals.
 
-    Runs after a failure too: a query the server killed reports its progress before it dies, and
-    that read cost the same as a successful one. Never raises, because the numbers are advisory and
-    a failure to collect them must not fail the query.
+    Also runs after a failure, since a stopped query has still read rows. Never raises: the totals
+    are advisory.
     """
     try:
         summary = _query_stats_summary(client, query_info_before)
         if summary is None:
             return
-        # elapsed_ns is what the server measured. It is 0 on old protocol revisions, so fall back to
-        # the client-side round trip.
+        # elapsed_ns is 0 on old protocol revisions; fall back to the client-side round trip.
         duration_ms = summary.elapsed_ns / 1e6 if summary.elapsed_ns else (perf_counter() - execute_start_time) * 1000
         query_stats.record(rows_read=summary.rows, duration_ms=duration_ms)
     except Exception:
@@ -592,8 +588,8 @@ def sync_execute(
             sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client,
         ):
             query_info_before = getattr(client, "last_query", None)
-            # Separate from `start_time` because that one is taken before the concurrency slot and
-            # the pool checkout, and the query stats fallback must not count that queue wait.
+            # Taken after the concurrency slot and the pool checkout, so the fallback does not count
+            # the queue wait.
             execute_start_time = perf_counter()
             try:
                 result = client.execute(

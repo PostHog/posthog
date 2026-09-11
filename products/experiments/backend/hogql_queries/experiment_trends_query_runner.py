@@ -260,8 +260,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             stats: Optional[QueryStats] = None,
         ):
             try:
-                # A thread starts with an empty context, so the accumulator is handed over
-                # explicitly. Without it the response under-reports what ClickHouse read.
+                # A thread starts with no scope, so the totals are handed over, or the response
+                # under-reports what ClickHouse read.
                 with query_stats.use(stats):
                     result = query_runner.calculate()
                 shared_results[result_key] = result

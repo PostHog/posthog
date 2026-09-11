@@ -1,8 +1,11 @@
-"""Request-scoped totals for what ClickHouse read while serving one query response.
+"""Add up the rows and time ClickHouse spent on one query request.
 
-One response can run several ClickHouse queries, so an inner scope yields the outer accumulator and
-the totals sum. A thread begins with an empty context, so a runner that fans its queries out over
-raw threads hands the accumulator over with ``get_active`` and ``use``.
+One request can run several ClickHouse queries (a trends insight runs one per series). The runner
+opens ``query_stats_scope()`` around the run, ``sync_execute`` calls ``record()`` after each query,
+and the runner reads the totals at the end. With no scope open, ``record()`` does nothing.
+
+A new thread does not see the scope its parent opened, so a runner that runs its queries in threads
+reads the totals with ``get_active()`` and installs them in each thread with ``use()``.
 """
 
 from __future__ import annotations
@@ -10,7 +13,7 @@ from __future__ import annotations
 import threading
 import contextlib
 from collections.abc import Iterator
-from contextvars import ContextVar, Token
+from contextvars import ContextVar
 from dataclasses import field
 
 from posthog.dataclasses import frozen
@@ -18,11 +21,11 @@ from posthog.dataclasses import frozen
 
 @frozen(frozen=False)
 class QueryStats:
-    """Totals for one scope. Mutable because every execution inside the scope adds to it."""
+    """The totals for one request."""
 
     rows_read: int = 0
     duration_ms: float = 0.0
-    # Worker threads add into the one scope they were handed, and `+=` is not atomic.
+    # Runners that record from several threads share one QueryStats.
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def add(self, *, rows_read: int, duration_ms: float) -> None:
@@ -34,34 +37,30 @@ class QueryStats:
 _accumulator: ContextVar[QueryStats | None] = ContextVar("query_stats_accumulator", default=None)
 
 
-def _install() -> tuple[QueryStats, Token[QueryStats | None] | None]:
-    """Return the accumulator to use and the token to reset, which is None inside an outer scope."""
-    current = _accumulator.get()
-    if current is not None:
-        return current, None
-    fresh = QueryStats()
-    return fresh, _accumulator.set(fresh)
-
-
 @contextlib.contextmanager
 def query_stats_scope() -> Iterator[QueryStats]:
-    """Collect what ClickHouse reads inside this block. Always safe to nest."""
-    stats, token = _install()
+    """Add up every ClickHouse query run inside this block. Nested in another scope, it adds to that one."""
+    outer = _accumulator.get()
+    if outer is not None:
+        yield outer
+        return
+    stats = QueryStats()
+    token = _accumulator.set(stats)
     try:
         yield stats
     finally:
-        if token is not None:
-            _accumulator.reset(token)
+        _accumulator.reset(token)
 
 
 def get_active() -> QueryStats | None:
-    """The accumulator of the current context, to hand to a thread that does not inherit it."""
+    """The totals of the open scope, or None when none is open."""
     return _accumulator.get()
 
 
 @contextlib.contextmanager
 def use(stats: QueryStats | None) -> Iterator[None]:
-    """Install an accumulator in a thread that did not inherit it. Does nothing when there is none."""
+    """Record into ``stats`` inside this block, for a thread that does not see its parent's scope.
+    Does nothing for None."""
     if stats is None:
         yield
         return
@@ -73,7 +72,7 @@ def use(stats: QueryStats | None) -> Iterator[None]:
 
 
 def record(*, rows_read: int, duration_ms: float) -> None:
-    """Add one ClickHouse execution to the active accumulator. Does nothing without a scope."""
+    """Add one ClickHouse query to the open scope. Does nothing without one."""
     stats = _accumulator.get()
     if stats is None:
         return

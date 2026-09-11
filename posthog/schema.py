@@ -6641,28 +6641,14 @@ class QueryScanSummary(BaseModel):
     )
     duration_ms: int = Field(
         ...,
-        description=("ClickHouse time for the last fresh run, summed over every ClickHouse query the run made."),
+        description=("ClickHouse time for the last fresh run, summed over its ClickHouse queries."),
     )
-    mode: QueryScanMode = Field(
-        ...,
-        description=(
-            "What clients may show for this response. The server evaluated the flag"
-            " once for this query; clients and the assistant read this field and never"
-            " evaluate the flag themselves."
-        ),
-    )
+    mode: QueryScanMode
     rows_read: int = Field(
         ...,
-        description=("Rows ClickHouse read for the last fresh run of this query, all tables included."),
+        description="Rows ClickHouse read for the last fresh run, all tables included.",
     )
-    status: QueryScanStatus | None = Field(
-        default=None,
-        description=(
-            "Where the analysis of this query stands, see `QueryScanStatus`. The"
-            " analysis only runs when `duration_ms` is over the threshold in the flag's"
-            " payload, so the field is absent for a fast query."
-        ),
-    )
+    status: QueryScanStatus | None = Field(default=None, description="Absent when the run was too fast to analyze.")
 
 
 class QueryStatus(BaseModel):

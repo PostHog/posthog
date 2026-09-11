@@ -74,7 +74,6 @@ from posthog.schema import (
     PathsV2Query,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
-    QueryScanMode,
     QueryStatus,
     QueryStatusResponse,
     QueryTiming,
@@ -2302,18 +2301,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             else:
                                 slo.tag(execution_path="cache_miss", cache_hit=False)
 
-                            # The measurements belong to the run that wrote the entry, but the mode
-                            # does not: an insight entry outlives a flag rollback by days, so re-read
-                            # the flag instead of serving the stamped mode.
                             cached_query_scan = getattr(results, "query_scan", None)
-                            if cached_query_scan is not None:
-                                current_scan_flag = get_query_scan_flag(self.team)
-                                if current_scan_flag is None:
-                                    # setattr because the response type does not declare the field.
-                                    setattr(results, "query_scan", None)  # noqa: B010
-                                    cached_query_scan = None
-                                else:
-                                    cached_query_scan.mode = QueryScanMode(current_scan_flag.mode)
 
                             query_executed_props = {
                                 "insight_id": insight_id,
@@ -2413,7 +2401,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
 
-        # Without a scope `sync_execute` records nothing, so an unflagged team pays for none of this.
         query_scan_flag = get_query_scan_flag(self.team)
         query_stats_context: AbstractContextManager[QueryStats | None] = (
             query_stats_scope() if query_scan_flag is not None else nullcontext(None)
@@ -2507,9 +2494,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     w.model_dump() for w in warnings_accumulator.values()
                 ] + other_warnings
 
-            # Attach before the cache write, so a hit serves the same numbers as the run that
-            # produced them. Guarded like `warnings` above: a response class without the field
-            # would fail pydantic validation on the extra key after the cache was already written.
+            # Stored with the results, so a cache hit carries the numbers of the run that produced
+            # them. Guarded like `warnings` above.
             if query_scan_flag is not None and query_stats is not None and "query_scan" in CachedResponse.model_fields:
                 fresh_response_dict["query_scan"] = {
                     "mode": query_scan_flag.mode,

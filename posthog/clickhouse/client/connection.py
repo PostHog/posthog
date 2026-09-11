@@ -191,21 +191,17 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
 
 @frozen
 class QuerySummary:
-    """What one execution read, in a shape both the native and the HTTP client can report."""
+    """What one ClickHouse query read."""
 
     rows: int = 0
     elapsed_ns: int = 0
 
 
 class ClickHouseClient(SyncClient):
-    """Driver client that keeps what a query the server stopped had read.
+    """Keeps the progress of a query the server stopped.
 
-    The driver disconnects on any exception, and the disconnect clears ``last_query``, which holds
-    the rows and time the server reported. A query the server stopped (timeout, memory limit) has
-    still read those rows, and the scan analysis needs the count: it decides whether the run is
-    over the floor and which of its queries to explain, and the person sees it with the error. The
-    cleared query info is stashed here for ``_query_stats_summary`` to read once. Metering keeps
-    reading ``last_query``, so a stopped query stays unmetered as before.
+    The driver forgets its last query when it reconnects after an error, but a stopped query has
+    already read rows, and the query scan reports them. The record is kept here until read once.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -442,11 +438,8 @@ def default_client(host=settings.CLICKHOUSE_HOST, password=None):
 
 
 class ClickHouseChPool(ChPool):
-    """ChPool whose connections are ClickHouseClient rather than the driver's plain Client.
-
-    ``ChPool._connect`` hardcodes the client class, so the method is repeated here with the
-    subclass and the same bookkeeping.
-    """
+    """A pool of ClickHouseClient. ``ChPool._connect`` hardcodes the driver's client class, so it is
+    repeated here with ours."""
 
     def _connect(self, key: str | None = None) -> ClickHouseClient:
         client = ClickHouseClient(**self.connection_args)
