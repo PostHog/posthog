@@ -37,6 +37,19 @@ export const BusinessKnowledgeGapSuggestionsDismissTopicCreateBody = /* @__PURE_
     resolved_source_id: zod.uuid().nullish().describe('Optional knowledge source to link when accepting.'),
 })
 
+/**
+ * Partially update Business knowledge learning settings. Enabling learn-from-support requires Support to be on in this environment.
+ * @summary Update business knowledge settings
+ */
+export const BusinessKnowledgeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    learn_from_support_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Rejected when Support is off for this environment.'
+        ),
+})
+
 export const businessKnowledgeSourcesCreateBodyNameMax = 255
 
 export const businessKnowledgeSourcesCreateBodyAlwaysIncludeDefault = false

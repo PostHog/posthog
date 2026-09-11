@@ -1774,6 +1774,7 @@ class TestAccessControlDefaultsEndpoint(BaseAccessControlTest):
         assert "dashboard" in data["resource_access_levels"]
         assert "feature_flag" in data["resource_access_levels"]
         assert "insight" in data["resource_access_levels"]
+        assert "data_catalog" in data["resource_access_levels"]
 
     def test_only_returns_current_team_defaults(self):
         """Access controls from other teams are not included."""

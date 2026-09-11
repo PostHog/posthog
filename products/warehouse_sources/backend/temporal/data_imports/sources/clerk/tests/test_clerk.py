@@ -619,6 +619,17 @@ class TestClerkValidateCredentials:
             validate_credentials("sk_test_key")
         assert mock_capture.called is should_capture
 
+    @pytest.mark.parametrize("secret_key", ["sk_live_\u200bkey", "sk_live_\u3042key"])
+    def test_non_ascii_key_is_rejected_before_any_request(self, secret_key: str) -> None:
+        # Such a key can't be encoded into the Authorization header, so dispatching the request
+        # raises UnicodeEncodeError; the guard must catch it first and explain what to do.
+        with patch(_VALIDATE_SESSION) as mock_session:
+            is_valid, message = validate_credentials(secret_key)
+        assert is_valid is False
+        assert "Copy the key again" in (message or "")
+        assert "latin-1" not in (message or "")
+        mock_session.assert_not_called()
+
     def test_network_error_returns_actionable_message_without_leaking_exception(self) -> None:
         with patch(_VALIDATE_SESSION) as mock_session:
             mock_session.return_value.get.side_effect = RequestException("connection reset by peer")
