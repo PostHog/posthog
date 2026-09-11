@@ -888,7 +888,9 @@ describe('exec tool', () => {
         }
 
         it('answers a missing skill with a plain message that points at skill-list', async () => {
-            const exec = createExec([makeSkillTool('skill-get', '{"detail":"Skill with name \'missing-skill\' not found."}')])
+            const exec = createExec([
+                makeSkillTool('skill-get', '{"detail":"Skill with name \'missing-skill\' not found."}'),
+            ])
 
             const result = await exec.handler(mockContext, { command: 'call skill-get {"skill_name":"missing-skill"}' })
 
@@ -903,7 +905,10 @@ describe('exec tool', () => {
 
         it('names the file when the skill exists but a bundled file does not', async () => {
             const exec = createExec([
-                makeSkillTool('skill-file-get', '{"detail":"File \'refs/guide.md\' not found in skill \'real-skill\'."}'),
+                makeSkillTool(
+                    'skill-file-get',
+                    '{"detail":"File \'refs/guide.md\' not found in skill \'real-skill\'."}'
+                ),
             ])
 
             const result = await exec.handler(mockContext, {
