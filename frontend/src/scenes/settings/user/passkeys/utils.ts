@@ -3,6 +3,7 @@ const WEBAUTHN_ERROR_MESSAGES: Record<string, string> = {
     InvalidStateError: 'This passkey is already registered.',
     SecurityError: 'Security error occurred. Please try again.',
     AbortError: 'Operation was cancelled.',
+    OperationError: 'Your device could not complete the passkey. Please try again, or use your password.',
 }
 
 const WEBAUTHN_CANCELLATION_ERROR_NAMES = new Set(['NotAllowedError', 'AbortError'])
