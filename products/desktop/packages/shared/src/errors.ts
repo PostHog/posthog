@@ -113,7 +113,11 @@ const REQUEST_SIZE_ERROR_PATTERNS = [
   "this conversation is too large to continue",
   "request body too large",
   "payload too large",
+  "prompt is too long",
+  "exceeded this model context window limit",
 ] as const;
+
+const REQUEST_SIZE_ERROR_REGEX = /API Error:\s*413\b/i;
 
 /**
  * Transient upstream provider failures, as surfaced by agent adapters in
@@ -283,7 +287,9 @@ export function isFatalSessionError(
 ): boolean {
   if (
     includesAny(errorMessage, REQUEST_SIZE_ERROR_PATTERNS) ||
-    includesAny(errorDetails, REQUEST_SIZE_ERROR_PATTERNS)
+    includesAny(errorDetails, REQUEST_SIZE_ERROR_PATTERNS) ||
+    REQUEST_SIZE_ERROR_REGEX.test(errorMessage) ||
+    REQUEST_SIZE_ERROR_REGEX.test(errorDetails ?? "")
   ) {
     return false;
   }

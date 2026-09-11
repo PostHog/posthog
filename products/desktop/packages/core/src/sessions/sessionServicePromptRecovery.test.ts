@@ -113,12 +113,23 @@ describe("SessionService prompt recovery on fatal session errors", () => {
     );
   });
 
-  it.each(["message", "details"] as const)(
-    "keeps the session connected when a size error is in the %s",
-    async (location) => {
+  it.each(
+    [
+      "This conversation is too large to continue.",
+      "Prompt is too long",
+      "exceeded this model context window limit",
+      'API Error: 413 {"error":{"message":"Request rejected"}}',
+    ].flatMap((message) =>
+      (["message", "details"] as const).map((location) => ({
+        message,
+        location,
+      })),
+    ),
+  )(
+    "keeps the session connected for $message in $location",
+    async ({ message, location }) => {
       const { service, sessions, promptMutate, recoverSpy, usageLimitShow } =
         createHarness();
-      const message = "This conversation is too large to continue.";
       const error =
         location === "message"
           ? new Error(`Internal error: ${message}`)

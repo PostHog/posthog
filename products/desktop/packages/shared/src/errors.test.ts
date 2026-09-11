@@ -226,6 +226,10 @@ describe("isFatalSessionError", () => {
     "This conversation is too large to continue.",
     "API Error: 413 Payload Too Large",
     "Request body too large",
+    "Prompt is too long",
+    "exceeded this model context window limit",
+    'API Error: 413 {"error":{"message":"Request rejected"}}',
+    "api error:413",
   ])("does not treat the request size error %j as fatal", (message) => {
     expect(isFatalSessionError(`Internal error: ${message}`)).toBe(false);
     expect(isFatalSessionError("Internal error", message)).toBe(false);
