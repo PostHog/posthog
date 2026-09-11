@@ -2,12 +2,14 @@ from datetime import timedelta
 
 from posthog.test.base import BaseTest
 
+from django.db import connection
+
 from parameterized import parameterized
 
 from posthog.models import Team
 
 from products.access_control.backend.models.role import Role
-from products.approvals.backend.experiment_policy_sync import sync_experiment_policies
+from products.approvals.backend.experiment_policy_sync import _SYNC_LOCK_KEY, sync_experiment_policies
 from products.approvals.backend.models import ApprovalPolicy
 
 
@@ -91,3 +93,17 @@ class TestSyncExperimentPolicies(BaseTest):
         assert self._mirror("experiment.launch", None)
         assert ApprovalPolicy.objects.filter(id=unrelated.id).exists()
         assert not ApprovalPolicy.objects.filter(action_key="experiment.delete").exists()
+
+    def test_skips_while_another_run_holds_the_lock(self) -> None:
+        self._flag_policy("feature_flag.enable", team=None)
+        other_run = connection.copy()
+        try:
+            with other_run.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_lock(hashtextextended(%s, 0))", [_SYNC_LOCK_KEY])
+            sync_experiment_policies()
+        finally:
+            other_run.close()
+
+        assert not ApprovalPolicy.objects.filter(action_key="experiment.launch").exists()
+        sync_experiment_policies()
+        assert self._mirror("experiment.launch", None)
