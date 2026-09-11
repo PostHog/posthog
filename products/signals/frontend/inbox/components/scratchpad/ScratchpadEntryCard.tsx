@@ -11,8 +11,8 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { scratchpadLogic } from '../../logics/scratchpadLogic'
-import { KIND_TAG_TYPE, scratchpadKindOf } from '../../utils/scratchpadKeys'
 import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
+import { KIND_TAG_TYPE, scratchpadKindOf } from '../../utils/scratchpadKeys'
 
 /**
  * One scratchpad entry, as the scout page's memory panel shows it. Shares the collapse/expand
