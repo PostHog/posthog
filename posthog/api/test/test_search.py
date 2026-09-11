@@ -1,10 +1,11 @@
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from posthog.api import search as search_module
 from posthog.api.search import ENTITY_MAP, class_queryset, search_entities
 from posthog.helpers.full_text_search import build_search_vector, process_query
 from posthog.models import OrganizationMembership, Team, User
@@ -270,16 +271,22 @@ class TestSearch(APIBaseTest):
         self.assertEqual(qs_key_filter.count(), 1)
         self.assertEqual(next(iter(qs_key_filter))["extra_fields"]["key"], "filter_active1")
 
-    def test_search_query_count_with_and_without_counts(self):
+    @staticmethod
+    def _mock_view():
         mock_view = Mock()
         mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
+        return mock_view
 
+    def test_counts_cost_no_extra_queries_when_entities_fit_the_page(self):
+        # Counts used to be a COUNT per entity plus a COUNT over the whole union, all under the one
+        # statement timeout the results were already spending. An entity that fits within the page
+        # has been counted by fetching it, so asking for counts must not add scans of its own.
         with CaptureQueriesContext(connection) as ctx_with:
-            search_entities(
+            _, counts, total_count = search_entities(
                 entities=set(ENTITY_MAP.keys()),
                 query="sec",
                 project_id=self.team.project_id,
-                view=mock_view,
+                view=self._mock_view(),
                 entity_map=ENTITY_MAP,
                 include_counts=True,
             )
@@ -289,13 +296,59 @@ class TestSearch(APIBaseTest):
                 entities=set(ENTITY_MAP.keys()),
                 query="sec",
                 project_id=self.team.project_id,
-                view=mock_view,
+                view=self._mock_view(),
                 entity_map=ENTITY_MAP,
                 include_counts=False,
             )
 
-        assert len(ctx_with) - len(ctx_without) >= 13
-        assert len(ctx_without) == 1
+        assert len(ctx_with) == len(ctx_without)
+        assert counts is not None
+        assert counts["dashboard"] == 1
+        assert total_count == 4
+
+    def test_a_cancelled_entity_drops_out_instead_of_failing_the_search(self):
+        # One entity hitting the statement timeout used to cancel the single union, so the user got
+        # an empty search box. Every other entity must still answer, and the slow one reports no count.
+        def slow_insights(*args, **kwargs):
+            qs, entity_name = class_queryset(*args, **kwargs)
+            if entity_name == "insight":
+                qs = qs.extra(where=["pg_sleep(1) IS NOT NULL"])
+            return qs, entity_name
+
+        with (
+            patch.object(search_module, "class_queryset", slow_insights),
+            patch.object(search_module, "ENTITY_STATEMENT_TIMEOUT_MS", 100),
+        ):
+            results, counts, _ = search_entities(
+                entities={"insight", "dashboard"},
+                query="sec",
+                project_id=self.team.project_id,
+                view=self._mock_view(),
+                entity_map=ENTITY_MAP,
+            )
+
+        assert [result["type"] for result in results] == ["dashboard"]
+        assert counts is not None
+        assert counts["insight"] is None
+        assert counts["dashboard"] == 1
+
+    def test_the_callers_statement_timeout_survives_the_search(self):
+        # The per-entity budgets are `SET LOCAL`, which lasts until the caller's transaction ends.
+        # Left in place they would govern every later query the caller runs.
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL statement_timeout = '7331ms'")
+
+        search_entities(
+            entities=set(ENTITY_MAP.keys()),
+            query="sec",
+            project_id=self.team.project_id,
+            view=self._mock_view(),
+            entity_map=ENTITY_MAP,
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW statement_timeout")
+            assert cursor.fetchone()[0] == "7331ms"
 
     def test_search_entities_returns_total_count(self):
         for i in range(5):
