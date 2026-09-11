@@ -165,7 +165,7 @@
       "uv": {
         "pkg-path": "flox/uv",
         "pkg-group": "uv",
-        "version": "^0.12.5"
+        "version": "^0.12.13"
       },
       "watchman": {
         "pkg-path": "watchman"
@@ -3433,7 +3433,7 @@
       "rev": "83f701280c11df28ebda1e25b09ac18ae7ff0cba",
       "rev_count": 23668,
       "rev_date": "2026-09-11T02:00:24Z",
-      "scrape_date": "2026-09-11T18:07:51.757403Z",
+      "scrape_date": "2026-09-11T18:18:29.293303Z",
       "stabilities": [
         "unstable"
       ],
@@ -3462,7 +3462,7 @@
       "rev": "83f701280c11df28ebda1e25b09ac18ae7ff0cba",
       "rev_count": 23668,
       "rev_date": "2026-09-11T02:00:24Z",
-      "scrape_date": "2026-09-11T18:07:51.757429Z",
+      "scrape_date": "2026-09-11T18:18:29.293317Z",
       "stabilities": [
         "unstable"
       ],
@@ -3491,7 +3491,7 @@
       "rev": "83f701280c11df28ebda1e25b09ac18ae7ff0cba",
       "rev_count": 23668,
       "rev_date": "2026-09-11T02:00:24Z",
-      "scrape_date": "2026-09-11T18:07:51.757430Z",
+      "scrape_date": "2026-09-11T18:18:29.293318Z",
       "stabilities": [
         "unstable"
       ],
