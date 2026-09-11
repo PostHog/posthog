@@ -217,11 +217,18 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                             size="small"
                             tabs={[...mainTabs, ...railTabs]}
                         />
-                        {/* The filters get their own row here rather than the bar's right slot.
-                            This bar carries five tabs, and the slot does not shrink: it pins over
-                            the tab strip and hides the rail tabs behind it. */}
+                        {/* The open pane's control gets its own row here rather than the bar's
+                            right slot. This bar carries five tabs, and the slot does not shrink:
+                            it pins over the tab strip and hides the rail tabs behind it. The note
+                            button is repeated from the rail bar because the rail column itself is
+                            not rendered at this width, which would leave the pane unwritable. */}
                         {tab === 'runs' && (
                             <ScoutRunFilterPills skillName={skillName} filter={runFilter} onChange={setRunFilter} />
+                        )}
+                        {tab === 'told' && (
+                            <div className="flex">
+                                <LeaveScoutNoteButton skillName={skillName} size="xsmall" />
+                            </div>
                         )}
                     </div>
                     <div className="hidden @4xl:block">
