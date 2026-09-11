@@ -8,10 +8,18 @@ import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 
 export type AgentActivityIconKind = "chat" | "check" | "question";
 
+export interface ActivityLastTurn {
+  /** "You", "Agent", or the other person's name. */
+  speaker: string;
+  text: string;
+}
+
 export interface ActivityPresentation {
   agentIcon: AgentActivityIconKind | null;
   metadata: string;
   spaceLabel: string | null;
+  /** The message behind the row, attributed, so the row says what was said. */
+  lastTurn: ActivityLastTurn | null;
 }
 
 interface ActivityEventPresentation {
@@ -105,6 +113,20 @@ function activitySpace(channelName: string | null): string | null {
   return label === PERSONAL_CHANNEL_LABEL ? "Personal" : label;
 }
 
+function activityLastTurn(
+  item: TaskActivityItem,
+  currentUserEmail?: string | null,
+): ActivityLastTurn | null {
+  const text = item.snippet.trim();
+  if (!text) return null;
+  if (!item.author) return { speaker: "Agent", text };
+  const speaker =
+    item.author.email === currentUserEmail
+      ? "You"
+      : userDisplayName(item.author);
+  return { speaker, text };
+}
+
 export function activityPresentation(
   item: TaskActivityItem,
   currentUserEmail?: string | null,
@@ -116,5 +138,6 @@ export function activityPresentation(
     agentIcon: event.agentIcon,
     metadata: [formatRelativeAge(item.activityAt), action].join(" · "),
     spaceLabel,
+    lastTurn: activityLastTurn(item, currentUserEmail),
   };
 }
