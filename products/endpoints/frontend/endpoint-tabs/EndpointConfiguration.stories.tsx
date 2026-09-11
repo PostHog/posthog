@@ -2,6 +2,8 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { getAppContext } from 'lib/utils/getAppContext'
+
 import { mswDecorator } from '~/mocks/browser'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, type EndpointVersionType } from '~/types'
@@ -34,18 +36,31 @@ const endpoint: EndpointVersionType = {
     materialization: { can_materialize: true, enabled: false, ready: false },
 }
 
+function getEndpoint(hibernated: boolean): EndpointVersionType {
+    return {
+        ...endpoint,
+        materialization: {
+            ...endpoint.materialization!,
+            hibernated,
+            hibernated_at: hibernated ? '2026-03-01T00:00:00Z' : null,
+        },
+    }
+}
+
 function ConfigurationStory({ hibernated }: { hibernated: boolean }): JSX.Element {
     const { loadEndpointSuccess } = useActions(endpointLogic)
     useValues(endpointSceneLogic)
     useEffect(() => {
-        loadEndpointSuccess({
-            ...endpoint,
-            materialization: {
-                ...endpoint.materialization!,
-                hibernated,
-                hibernated_at: hibernated ? '2026-03-01T00:00:00Z' : null,
-            },
-        })
+        const appContext = getAppContext()
+        if (!appContext) {
+            return
+        }
+        const originalAccess = appContext.resource_access_control
+        appContext.resource_access_control = { ...originalAccess, endpoint: AccessControlLevel.Editor }
+        loadEndpointSuccess(getEndpoint(hibernated))
+        return () => {
+            appContext.resource_access_control = originalAccess
+        }
     }, [hibernated, loadEndpointSuccess])
     return <EndpointConfiguration />
 }
@@ -59,11 +74,13 @@ const meta: Meta<typeof ConfigurationStory> = {
         testOptions: { snapshotBrowsers: ['chromium'] },
     },
     decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/endpoints/daily_totals/versions/': { results: [endpoint] },
-            },
-        }),
+        (Story, context) =>
+            mswDecorator({
+                get: {
+                    '/api/environments/:team_id/endpoints/daily_totals/': getEndpoint(context.args.hibernated),
+                    '/api/environments/:team_id/endpoints/daily_totals/versions/': { results: [endpoint] },
+                },
+            })(Story, context),
     ],
 }
 export default meta
