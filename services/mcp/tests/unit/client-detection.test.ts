@@ -7,7 +7,6 @@ import {
     CODEX_MAX_RESPONSE_TOKENS,
     CODING_AGENT_CLIENT_NAME_FRAGMENTS,
     DEFAULT_CLIENT_CAPABILITIES,
-    DEFAULT_MAX_RESPONSE_TOKENS,
     MCPClientProfile,
     POSTHOG_CODE_CONSUMER,
     TOOLS_MODE_CLIENT_NAME_FRAGMENTS,
@@ -529,13 +528,15 @@ describe('MCPClientProfile', () => {
     })
 
     describe('capabilities.maxResponseTokens', () => {
+        // A client whose limit we have not measured resolves to no budget, so the
+        // response boundary leaves it the size it gets today.
         it.each([
             ['codex', CODEX_MAX_RESPONSE_TOKENS],
             ['Codex CLI', CODEX_MAX_RESPONSE_TOKENS],
-            ['claude-code', DEFAULT_MAX_RESPONSE_TOKENS],
-            ['cursor', DEFAULT_MAX_RESPONSE_TOKENS],
-            [undefined, DEFAULT_MAX_RESPONSE_TOKENS],
-        ])('resolves %j to %i tokens', (clientName, expected) => {
+            ['claude-code', undefined],
+            ['cursor', undefined],
+            [undefined, undefined],
+        ])('resolves %j to %j', (clientName, expected) => {
             expect(new MCPClientProfile({ clientName }).capabilities.maxResponseTokens).toBe(expected)
         })
 

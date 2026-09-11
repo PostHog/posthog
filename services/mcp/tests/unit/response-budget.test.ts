@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { STRUCTURED_CONTENT_ONLY_TEXT, estimateResponseTokens, type ToolResultPayload } from '@/lib/build-tool-result'
+import { MCPClientProfile } from '@/lib/client-detection'
 import { RESPONSE_TRUNCATION_KEY, capResponseToClientBudget } from '@/lib/response-budget'
 
 const CODEX_BUDGET = 9_000
@@ -28,10 +29,14 @@ describe('capResponseToClientBudget', () => {
         expect(capped.overflowTokens).toBeUndefined()
     })
 
-    it('leaves the response untouched when the client has no budget', () => {
+    it('leaves an oversized response untouched for a client with no known limit', () => {
         const response = textPayload(table(20_000))
+        const { maxResponseTokens } = new MCPClientProfile({ clientName: 'cursor' }).capabilities
 
-        expect(capResponseToClientBudget(response, undefined).response).toBe(response)
+        const capped = capResponseToClientBudget(response, maxResponseTokens)
+
+        expect(capped.response).toBe(response)
+        expect(capped.overflowTokens).toBeUndefined()
     })
 
     it('brings an oversized text response inside the budget and says how to ask for less', () => {

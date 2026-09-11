@@ -207,14 +207,6 @@ export const ANTHROPIC_USER_AGENT_FRAGMENTS = ['claude-user'] as const
 export const ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS = ANTHROPIC_USER_AGENT_FRAGMENTS
 
 /**
- * Ceiling on the model-facing size of one tool result, in estimated tokens. The
- * default matches the trace-compaction cap, which is comfortably below any
- * current agent context window, so clients without an override keep the size
- * they get today.
- */
-export const DEFAULT_MAX_RESPONSE_TOKENS = 125_000
-
-/**
  * Codex truncates a tool result above roughly 10K tokens, and it cuts the
  * serialized JSON mid-value, so the agent pays for a blob it cannot parse.
  * Leave headroom below that limit for the harness's own framing.
@@ -228,13 +220,15 @@ export type ClientCapabilities = {
     supportsInstructions: boolean
     // How much of one tool result the client passes to the model before it
     // truncates. The response boundary shortens anything larger itself, so the
-    // agent reads a bounded, valid result instead of a cut-off one.
-    maxResponseTokens: number
+    // agent reads a bounded, valid result instead of a cut-off one. Set only for
+    // a client whose limit we have measured: an invented ceiling would shorten a
+    // response the client reads whole, including an explicit request for full
+    // results such as `execute-sql` with `truncate: false`.
+    maxResponseTokens?: number
 }
 
 export const DEFAULT_CLIENT_CAPABILITIES: ClientCapabilities = {
     supportsInstructions: true,
-    maxResponseTokens: DEFAULT_MAX_RESPONSE_TOKENS,
 }
 
 type CapabilityOverride = {
