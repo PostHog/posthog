@@ -51,6 +51,9 @@ describe('RecordingService', () => {
 
         mockPostgres = {
             query: jest.fn().mockResolvedValue({ rows: [] }),
+            transaction: jest.fn(async (_usage: unknown, _tag: unknown, cb: (tx: unknown) => Promise<unknown>) =>
+                cb({})
+            ),
         } as unknown as jest.Mocked<PostgresRouter>
 
         mockClickhouse = {
@@ -504,8 +507,8 @@ describe('RecordingService', () => {
 
             await service.deleteRecordings(['session-1', 'session-2'], 1, 'test@example.com')
 
-            // 3 DELETE statements + 1 activity log INSERT
-            expect(mockPostgres.query).toHaveBeenCalledTimes(4)
+            // 3 DELETE statements + activity log (SET LOCAL + INSERT)
+            expect(mockPostgres.query).toHaveBeenCalledTimes(5)
             expect(mockPostgres.query).toHaveBeenCalledWith(
                 expect.anything(),
                 expect.stringContaining('ee_single_session_summary'),
@@ -525,8 +528,8 @@ describe('RecordingService', () => {
 
             await service.deleteRecordings(['new-session', 'already-deleted-session'], 1, 'test@example.com')
 
-            // 3 DELETE statements + 1 activity log INSERT
-            expect(mockPostgres.query).toHaveBeenCalledTimes(4)
+            // 3 DELETE statements + activity log (SET LOCAL + INSERT)
+            expect(mockPostgres.query).toHaveBeenCalledTimes(5)
             expect(mockPostgres.query).toHaveBeenCalledWith(
                 expect.anything(),
                 expect.stringContaining('ee_single_session_summary'),
@@ -592,6 +595,28 @@ describe('RecordingService', () => {
             )
         })
 
+        it('chunks activity log inserts and caps each with a statement timeout', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({
+                status: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'test@example.com',
+            })
+
+            const sessionIds = Array.from({ length: 1500 }, (_, i) => `session-${i}`)
+            await service.deleteRecordings(sessionIds, 1, 'test@example.com')
+
+            const insertCalls = mockPostgres.query.mock.calls.filter(([, , , tag]) => tag === 'logRecordingDeletion')
+            expect(insertCalls).toHaveLength(2)
+            expect(insertCalls[0][2]).toEqual([1, sessionIds.slice(0, 1000), expect.any(String)])
+            expect(insertCalls[1][2]).toEqual([1, sessionIds.slice(1000), expect.any(String)])
+
+            const timeoutCalls = mockPostgres.query.mock.calls.filter(
+                ([, , , tag]) => tag === 'logRecordingDeletionTimeout'
+            )
+            expect(timeoutCalls).toHaveLength(2)
+            expect(timeoutCalls[0][1]).toContain('statement_timeout')
+        })
+
         it('does not insert activity log when all sessions were already deleted', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({
                 status: 'already_deleted',
@@ -610,9 +635,8 @@ describe('RecordingService', () => {
                 deletedAt: 1700000000,
                 deletedBy: 'test@example.com',
             })
-            let callCount = 0
-            mockPostgres.query.mockImplementation((() => {
-                if (++callCount === 4) {
+            mockPostgres.query.mockImplementation(((_target: unknown, _sql: unknown, _values: unknown, tag: string) => {
+                if (tag === 'logRecordingDeletion') {
                     return Promise.reject(new Error('Activity log insert failed'))
                 }
                 return Promise.resolve({ rows: [] })

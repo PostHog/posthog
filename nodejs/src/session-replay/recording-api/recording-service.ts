@@ -31,6 +31,12 @@ export type DeleteRecordingResult =
     | { sessionId: string; ok: true; status: 'already_deleted'; deletedAt: number; deletedBy: string }
     | { sessionId: string; ok: false; status: 'delete_failed' }
 
+// Rows written per activity-log insert. Bounds one statement so a large delete batch
+// cannot become one giant write on the shared common write primary.
+const ACTIVITY_LOG_CHUNK_SIZE = 1000
+// Per-statement cap for the non-fatal activity-log write, in milliseconds.
+const ACTIVITY_LOG_STATEMENT_TIMEOUT_MS = 5000
+
 interface BlockListingRow {
     start_time: string
     block_first_timestamps: string[]
@@ -440,13 +446,28 @@ export class RecordingService {
             return
         }
 
+        const postgres = this.postgres
         const detail = JSON.stringify({ type: 'recording_shredded', deleted_by: deletedBy })
-        await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_activitylog (id, team_id, is_system, activity, item_id, scope, detail, created_at)
-             SELECT gen_random_uuid(), $1, true, 'deleted', unnest($2::text[]), 'Replay', $3::jsonb, now()`,
-            [teamId, sessionIds, detail],
-            'logRecordingDeletion'
-        )
+        // One delete batch can carry thousands of session ids. Chunk the insert so a single
+        // statement stays small, and cap each chunk with a statement timeout so this non-fatal
+        // cleanup write fails fast instead of holding a connection on the shared write primary.
+        for (let i = 0; i < sessionIds.length; i += ACTIVITY_LOG_CHUNK_SIZE) {
+            const chunk = sessionIds.slice(i, i + ACTIVITY_LOG_CHUNK_SIZE)
+            await postgres.transaction(PostgresUse.COMMON_WRITE, 'logRecordingDeletion', async (tx) => {
+                await postgres.query(
+                    tx,
+                    `SET LOCAL statement_timeout = ${ACTIVITY_LOG_STATEMENT_TIMEOUT_MS}`,
+                    undefined,
+                    'logRecordingDeletionTimeout'
+                )
+                await postgres.query(
+                    tx,
+                    `INSERT INTO posthog_activitylog (id, team_id, is_system, activity, item_id, scope, detail, created_at)
+                     SELECT gen_random_uuid(), $1, true, 'deleted', unnest($2::text[]), 'Replay', $3::jsonb, now()`,
+                    [teamId, chunk, detail],
+                    'logRecordingDeletion'
+                )
+            })
+        }
     }
 }
