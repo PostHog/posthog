@@ -78,6 +78,15 @@ def _channel_index_cache_key(organization_id: uuid.UUID | str, head_sha: str) ->
     return f"context_layer:channel-index:{organization_id}:{head_sha}"
 
 
+def is_run_content_path(path: str) -> bool:
+    parts = path.split("/")
+    return (
+        parts[0] in {"org", "areas", "decisions", "projects"}
+        and path.endswith(".md")
+        and not any(part.lower() in {"", ".", "..", "agents.md", "claude.md", "index.md"} for part in parts)
+    )
+
+
 def normalize_page_path(path: str) -> str:
     """Reject anything that could escape the checkout or point at a non-page.
 

@@ -351,7 +351,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # Deterministic credential/config errors from _get_access_token and OAuthMixin.
             # These never resolve on retry — the source needs reconfiguring or reconnecting.
             "Missing GitHub integration ID": "No GitHub account is connected. Connect a GitHub account and try again.",
-            "Missing personal access token": "GitHub personal access token is not configured. Please update the source configuration.",
+            "Missing personal access token": "No GitHub personal access token is set. Enter one, or switch the authentication type to OAuth and connect a GitHub account.",
             "No repositories configured": "No repositories are selected for this source. Please update the source configuration.",
             "resolve to the same warehouse table": "Two selected repositories resolve to the same warehouse table. Please remove or rename one.",
             "Too many repositories configured": "Too many repositories are selected for this source. Please reduce the list and try again.",
