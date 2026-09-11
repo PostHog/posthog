@@ -712,15 +712,17 @@ class TestSchedulerClaimLifecycle(TestCase):
             quarantined_items=1,
         )
 
+        self.assertEqual(self._global_in_flight(), 0)
         result = reserve_scheduler_claims(
             scheduler=SCHEDULER,
             region=REGION,
-            requests=[_request("team:1", "one")],
-            limits=_limits(),
+            requests=[_request("team:1", "one"), _request("team:1", "two")],
+            limits=_limits(global_limit=1, tenant_limit=1),
         )
-        self.assertEqual(result.reservations, ())
+        self.assertEqual([reservation.occurrence_key for reservation in result.reservations], ["two"])
         self.assertEqual(result.already_claimed, 1)
-        self.assertEqual(self._global_in_flight(), 0)
+        self.assertEqual(result.deferred_for_capacity, 0)
+        self.assertEqual(self._global_in_flight(), 1)
 
         quarantined = list_quarantined_scheduler_claims(
             scheduler=SCHEDULER,

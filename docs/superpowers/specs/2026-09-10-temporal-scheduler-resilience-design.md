@@ -180,7 +180,9 @@ Cursors contain stable scalar fields only. If a manifest can exceed the payload 
 
 Fair ranks are mutable when previously selected rows leave the due set. A cursor must therefore not depend on a rank recalculated from the remaining rows.
 
-Discovery claims rows transactionally before returning them. A claim records the scheduler, logical occurrence, source due time, claim token, workflow ID, and expiry. Later pages exclude active claims and use a fixed due-time cutoff from the first page. Retaining the source due time lets freshness monitoring continue after an item leaves the eligible queue.
+Discovery claims rows transactionally before returning them. A claim records the scheduler, logical occurrence, source due time, claim token, workflow ID, and expiry. The page size counts successfully reserved items, not raw candidates. Discovery treats every existing non-`available` claim as unavailable for that logical occurrence: it excludes those claims in the candidate query when that can be expressed safely, and otherwise scans past rejected reservations with bounded refill rounds. Concurrent parents can still invalidate a prefilter, so every implementation must retain the refill path.
+
+Candidate work remains bounded while refilling. The scheduler advances a durable tenant or item cursor across every examined candidate, including active, completed, or quarantined occurrences that admission rejected. If it exhausts the bounded candidate envelope before filling the page, it records the shortfall and backlog health rather than silently restarting at the same rejected prefix. A quarantined occurrence intentionally remains unavailable until operator action, but it must not consume a successful page slot or permanently block healthy work behind it. Later pages use the fixed due-time cutoff from the first page. Retaining the source due time lets freshness monitoring continue after an item leaves the eligible queue.
 
 The parent cannot atomically start a Temporal child and update a database claim. The parent therefore passes the claim token to the child, and the child confirms ownership idempotently before doing work.
 
@@ -216,7 +218,9 @@ Fire-and-forget dispatch uses `start_child_workflow` with `ParentClosePolicy.ABA
 
 `ABANDON` lets accepted children continue after the short-lived coordinator completes or is terminated. A coincident parent treats an already-running child as an accepted transfer, not as a generic success.
 
-A completed or failed child cannot permanently block the same source item. The child either advances the source schedule or records a terminal quarantine outcome before releasing its claim.
+A completed child cannot permanently block the same source item. A failed child either leaves the occurrence retryable or records an explicit terminal quarantine outcome. Quarantine may intentionally block that one occurrence pending operator action, while discovery must scan past it so unrelated source items continue progressing.
+
+A quarantined occurrence stays blocked from automatic reuse on purpose and remains visible to operators. Discovery excludes it when safe or scans past it while advancing rotation state, so it cannot repeatedly consume the tenant's fair share or block healthy work behind it. Clearing a quarantine is an operator action.
 
 Retries for one logical occurrence stay inside the original workflow execution and retry budget. A new workflow ID represents a new occurrence or an explicit recovery generation, not an accidental reuse of a failed ID.
 
@@ -443,6 +447,7 @@ Every coordinator adds regression coverage for:
 - maximum-size supported item configuration;
 - child work taking longer than the schedule interval;
 - one deterministic poison item exhausting its retry budget;
+- a still-due quarantined item ranked ahead of healthy work in the same tenant;
 - a worker outage followed by catch-up;
 - lowering the configured limit while a backlog exists;
 - duplicate schedule starts; and
