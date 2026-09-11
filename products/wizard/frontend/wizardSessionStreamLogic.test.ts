@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { SSE_RECONNECT_MAX_MS } from 'lib/wizard-sync/pollLoop'
+import { EMPTY_POLLS_BEFORE_BACKOFF, SSE_RECONNECT_MAX_MS } from 'lib/wizard-sync/pollLoop'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -45,6 +45,14 @@ function makeSession(overrides: Partial<WizardSessionDTOApi> = {}): WizardSessio
 
 // Max jittered gap for the default 3s interval is 3.6s — advancing past it guarantees the next tick.
 const PAST_MAX_JITTERED_INTERVAL_MS = 4000
+
+// A poll tick settles over several microtasks: the request, the outcome branch, then the next
+// timer. One `Promise.resolve()` is not always enough to see the tick that follows.
+async function flushTicks(): Promise<void> {
+    for (let i = 0; i < 5; i++) {
+        await Promise.resolve()
+    }
+}
 
 // jsdom's `navigator.onLine` is a read-only getter, so a test flips it by redefining the property.
 function setOnLine(value: boolean): void {
@@ -169,6 +177,47 @@ describe('wizardSessionStreamLogic polling mode', () => {
         jest.advanceTimersByTime(2 * PAST_MAX_JITTERED_INTERVAL_MS)
         await Promise.resolve()
         expect(mockLatestRetrieve).toHaveBeenCalledTimes(3)
+    })
+
+    // The kea cache outlives an unmount, so a shared backoff can carry an idle visit's minute-long
+    // empty gap into the next visit — on the surface that has to notice a run starting.
+    it('gives a fresh empty-poll cadence after a consumer disconnects', async () => {
+        mockLatestRetrieve.mockResolvedValue(null)
+
+        logic.actions.connect()
+        await expectLogic(logic).toDispatchActions(['connectionOpened'])
+        for (let tick = 0; tick <= EMPTY_POLLS_BEFORE_BACKOFF; tick++) {
+            jest.advanceTimersByTime(PAST_MAX_JITTERED_INTERVAL_MS)
+            await flushTicks()
+        }
+        const backedOffCalls = mockLatestRetrieve.mock.calls.length
+        jest.advanceTimersByTime(PAST_MAX_JITTERED_INTERVAL_MS)
+        await flushTicks()
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(backedOffCalls)
+
+        logic.actions.disconnect()
+        logic.actions.connect()
+        await flushTicks()
+        const afterReconnect = mockLatestRetrieve.mock.calls.length
+        jest.advanceTimersByTime(PAST_MAX_JITTERED_INTERVAL_MS)
+        await flushTicks()
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(afterReconnect + 1)
+    })
+
+    // A connect before the project resolves bails out before it opens anything, and the refcounted
+    // shares mean a later mount no longer retries on its behalf.
+    it('retries a connect that had no project once the project arrives', async () => {
+        mockLatestRetrieve.mockResolvedValue(makeSession())
+        const currentProject = projectLogic.values.currentProject
+        projectLogic.actions.loadCurrentProjectSuccess(null)
+
+        logic.actions.connect()
+        await expectLogic(logic).toDispatchActions(['connectionErrored'])
+        expect(mockLatestRetrieve).not.toHaveBeenCalled()
+
+        projectLogic.actions.loadCurrentProjectSuccess(currentProject)
+        await expectLogic(logic).toDispatchActions(['connect', 'sessionUpdated'])
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(1)
     })
 
     it('skips ticks while the browser is offline and resumes when it comes back', async () => {

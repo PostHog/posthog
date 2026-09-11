@@ -308,6 +308,16 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
             cache.disposables.dispose('session-reconnect')
             // The next connect is a new cycle, not a continuation of the one that was torn down.
             cache.reconnectScheduled = false
+            // A consumer stopping the transport ends the "nothing to report yet" story, so the next
+            // connect gets a fresh empty cadence: the person has usually acted in between (this
+            // fires when the install step unmounts), and the kea cache outlives an unmount, so the
+            // counter would otherwise carry a minute-long gap into a run that is about to start.
+            // Failure backoff deliberately survives — a client whose requests keep failing has to
+            // keep winding down across exactly this mount churn.
+            const backoff = cache.pollBackoff as PollBackoff | undefined
+            if (backoff) {
+                backoff.consecutiveEmpty = 0
+            }
         },
         sessionUpdated: () => {
             if (cache.transportReadyReported || cache.connectStartedAt === undefined) {
@@ -330,6 +340,20 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
                 workflow_id: props.workflowId,
                 error,
             })
+        },
+        // A connect before the project resolves bails out before it picks a transport, and nothing
+        // else retries it: the flag listener below needs a resolved `cache.syncMode`, and a later
+        // consumer mounting no longer reconnects now that `installationProgressLogic` refcounts its
+        // shares. So the project arriving is the retry. Narrow on purpose — an unset `syncMode` means
+        // no transport was ever opened, which an outage (where the loop is alive and backing off)
+        // never looks like.
+        [projectLogic.actionTypes.loadCurrentProjectSuccess]: () => {
+            if (cache.syncMode !== undefined || values.currentProjectId === null) {
+                return
+            }
+            if (values.connectionStatus === 'error') {
+                actions.connect()
+            }
         },
         // Flags can resolve after a cold-cache connect (posthog-js loads them async), and ops can flip
         // the mode mid-incident. Reconnect when the resolved mode differs from the running transport —
