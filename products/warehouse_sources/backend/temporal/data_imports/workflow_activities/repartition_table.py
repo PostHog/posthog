@@ -88,6 +88,16 @@ def _is_cancellation(error: BaseException) -> bool:
     return isinstance(error, asyncio.CancelledError) or type(error).__name__ == "CancelledError"
 
 
+def _is_native_panic(error: BaseException) -> bool:
+    """Whether `error` is a panic that escaped the native Delta/Arrow stack.
+
+    pyo3 surfaces a Rust panic as `PanicException`, which derives from `BaseException`, so it passes
+    straight through an `except Exception` handler. Matched on the type name because the module that
+    defines it (`pyo3_runtime`) only exists once an extension module has loaded it.
+    """
+    return type(error).__name__ == "PanicException"
+
+
 # Infra noise observed escaping the rewrite as generic OSError/HTTPClientError — none of these are
 # repartition bugs, and the marker-idempotent swap means the next sync simply retries.
 _TRANSIENT_ERROR_SNIPPETS = (
@@ -568,6 +578,22 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         )
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome=failure_outcome).inc()
         return
+    except BaseException as e:
+        if not _is_native_panic(e):
+            raise
+        # A panic in the native stack is a rewrite failure like any other, and has to be recorded like
+        # one. Letting it escape records nothing: the attempt is charged but never reports an outcome,
+        # so the cap is spent by attempts that look like worker deaths and the table is abandoned with
+        # `RepartitionAttemptsExhausted`, which carries none of the panic's detail. The panic is a
+        # property of the table (its delta log overflows an offset the same way on every read), so
+        # failing the activity only re-runs it on the remaining retries and delays the sync behind a
+        # rewrite that cannot finish.
+        logger.error("repartition: the rewrite panicked inside the native delta stack", exc_info=True)
+        DELTA_REPARTITION_TOTAL.labels(
+            team_id=str(inputs.team_id),
+            outcome=_handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger, charged_attempts),
+        ).inc()
+        return
 
     duration = time.monotonic() - start
     DELTA_REPARTITION_DURATION_SECONDS.labels(team_id=str(inputs.team_id), schema_id=inputs.schema_id).observe(duration)
@@ -820,7 +846,7 @@ def _handle_failure(
     schema: ExternalDataSchema,
     pending: dict[str, Any] | None,
     trigger_reason: str,
-    error: Exception,
+    error: BaseException,
     claim_token: str,
     logger: FilteringBoundLogger,
     charged_attempts: int | None = None,

@@ -55,6 +55,12 @@ def _read_only_transaction_error() -> InternalError:
     return error
 
 
+def _panic_exception(message: str) -> BaseException:
+    # Stands in for pyo3's PanicException, which only exists once a rust extension module has loaded
+    # it. Matched by type name in the activity, so the name is what this has to reproduce.
+    return type("PanicException", (BaseException,), {})(message)
+
+
 def _schema(
     *,
     name: str,
@@ -685,6 +691,78 @@ class TestTransientObjectStoreFailure:
         # The marker records the staged scheme and holds this schema's imports; dropping it would let
         # the next sync merge against settings that no longer describe the data.
         schema.clear_repartition_swap.assert_not_called()
+
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_native_panic_is_recorded_instead_of_escaping(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        # The rust side of the delta stack panics on tables whose log is large enough to overflow an
+        # arrow offset, and pyo3 raises that as a BaseException. Escaping the activity records no
+        # outcome at all, so the attempt is charged but never reported: the cap is spent by attempts
+        # that read as worker deaths and the table ends up abandoned with an error carrying none of
+        # the panic's detail. It must be recorded as the failure it is, and it must not fail the
+        # activity — the panic repeats on every read of the same table, so the retries only delay the
+        # sync that would otherwise run on the old layout.
+        schema = _schema(name="public.usages", s3_folder_name="usages")
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.side_effect = _panic_exception("byte array offset overflow")
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        mock_capture_exception.assert_called_once()
+        failed = [c.args[1] for c in mock_capture_event.call_args_list if c.args[0] == "warehouse_repartition_failed"]
+        assert len(failed) == 1
+        assert failed[0]["error_type"] == "PanicException"
+        assert "byte array offset overflow" in failed[0]["error_message"]
+        assert schema.repartition_pending["attempts"] == 1
+
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_worker_shutdown_still_propagates(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        _mock_capture_event: MagicMock,
+    ) -> None:
+        # The panic branch must not swallow the rest of the BaseException hierarchy: a worker being
+        # torn down has to keep unwinding, or the activity reports a failure for a rewrite Temporal is
+        # about to reschedule.
+        schema = _schema(name="public.usages", s3_folder_name="usages")
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.side_effect = KeyboardInterrupt()
+
+        with pytest.raises(KeyboardInterrupt):
+            _maybe_repartition_table(
+                RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+                MagicMock(),
+            )
 
 
 class TestFeatureFlagGate:
