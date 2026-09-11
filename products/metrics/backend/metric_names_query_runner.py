@@ -99,9 +99,9 @@ class MetricNamesQueryRunner:
         # selection: a sender that omits the `service.name` resource attribute
         # lands in the group the overview labels "unknown".
         self.services = tuple(sorted(set(services)))
-        # Sparklines read `metric_samples`, whose ordering puts `timestamp`
-        # behind `series_fingerprint`, so the scan is the expensive part of a
-        # name lookup. Callers that only need the type (anomaly defaults) skip it.
+        # Sparklines read the `metrics` data points, so the scan is the
+        # expensive part of a name lookup. Callers that only need the type
+        # (anomaly defaults) skip it.
         self.include_sparklines = include_sparklines
 
     def _build_query(self) -> ast.SelectQuery:
@@ -204,31 +204,32 @@ class MetricNamesQueryRunner:
     def _sparklines(self, names: Sequence[str]) -> dict[str, list[float]]:
         """A small recent shape per metric, for the catalog cards.
 
-        Reads `metric_samples` (raw emissions) rather than the pre-aggregated
-        `metrics` table, so a series written without a metrics row still draws —
-        the same reason the name list reads `metric_series`. Each metric is
-        bucketed onto a fixed grid and averaged per bucket across its series; a
-        card only shows direction and spikes, so per-series fidelity is not worth
-        the rows it would cost. Only the names this page returned are read, so a
-        scoped picker never scans the whole samples table.
+        Reads the raw `metrics` data points. Each metric is bucketed onto a
+        fixed grid and averaged per bucket across its series; a card only shows
+        direction and spikes, so per-series fidelity is not worth the rows it
+        would cost. Only the names this page returned are read, so a scoped
+        picker never scans the whole table.
         """
         if not names:
             return {}
 
-        # The grid anchors to the query's `now()`: bucket edges land on the
-        # window endpoints, so the window always holds exactly MAX_POINTS buckets
-        # (a bare toStartOfInterval aligns to wall-clock boundaries and a window
-        # starting mid-bucket intersects one extra).
+        # The grid anchors to the window start: bucket edges land on the window
+        # endpoints, so the window always holds exactly MAX_POINTS buckets (a
+        # bare toStartOfInterval aligns to wall-clock boundaries and a window
+        # starting mid-bucket intersects one extra). The anchor is computed here
+        # rather than from the query's `now()` so the predicate below and the
+        # grid agree on the same instant.
         bucket_seconds = max(int(SPARKLINE_WINDOW.total_seconds()) // SPARKLINE_MAX_POINTS, 1)
-        window_seconds = int(SPARKLINE_WINDOW.total_seconds())
+        window_start = dt.datetime.now(dt.UTC) - SPARKLINE_WINDOW
         query = parse_select(
             """
                 SELECT
                     metric_name AS name,
-                    toDateTime(intDiv(toUnixTimestamp(timestamp) - toUnixTimestamp(now() - {window_interval}), {bucket_seconds}) * {bucket_seconds} + toUnixTimestamp(now() - {window_interval})) AS bucket_start,
+                    toDateTime(intDiv(toUnixTimestamp(timestamp) - toUnixTimestamp({window_start}), {bucket_seconds}) * {bucket_seconds} + toUnixTimestamp({window_start})) AS bucket_start,
                     avg(value) AS bucket_value
-                FROM posthog.metric_samples
-                WHERE timestamp > now() - {window_interval}
+                FROM posthog.metrics
+                WHERE timestamp > {window_start}
+                  AND time_bucket >= {bucket_from}
                   AND metric_name IN {names}
                   AND series_fingerprint IN {series_scope}
                 GROUP BY name, bucket_start
@@ -236,7 +237,11 @@ class MetricNamesQueryRunner:
             """,
             placeholders={
                 "bucket_seconds": ast.Constant(value=bucket_seconds),
-                "window_interval": ast.Call(name="toIntervalSecond", args=[ast.Constant(value=window_seconds)]),
+                "window_start": ast.Constant(value=window_start),
+                # `metrics` sorts by `time_bucket` (the UTC hour) before
+                # `timestamp`, so the hour bound is what lets ClickHouse skip
+                # everything older than the window.
+                "bucket_from": ast.Constant(value=window_start.replace(minute=0, second=0, microsecond=0)),
                 "names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names]),
                 # A sample carries no service column; its series_fingerprint is
                 # the link back to the series row that does. Without this scope,

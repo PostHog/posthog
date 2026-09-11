@@ -84,7 +84,7 @@ class TestInvestigate(ClickhouseTestMixin, APIBaseTest):
 
         self.assertFalse(self._verdict(result, "throughput").moved_with_symptom)
         self.assertTrue(self._verdict(result, "error_rate").moved_with_symptom)
-        # No metric_samples rows exist -> the pivot stays empty rather than erroring.
+        # No metrics rows exist -> the pivot stays empty rather than erroring.
         self.assertEqual(result.evidence.trace_exemplars, ())
 
         self.assertEqual(result.confidence, "high")
