@@ -691,7 +691,7 @@ class TestSavedQuery(APIBaseTest):
         assert json["count"] == 150
         assert len(json["results"]) == 150
 
-    def test_list_page_select_reads_neither_the_sql_body_nor_the_activity_log(self):
+    def test_list_request_reads_neither_the_sql_body_nor_the_activity_log(self):
         # The list page returns column metadata, never the SQL body, so reading the body of every
         # view costs a detoast per row. The query-edit activity subquery is dead weight too: only
         # the detail serializer returns `latest_history_id`.
@@ -711,16 +711,18 @@ class TestSavedQuery(APIBaseTest):
             [[column["key"] for column in row["columns"]] for row in response.json()["results"]],
             [["event"], ["event"]],
         )
-        # The page select is the one carrying the list ordering. Other selects on the table, such
-        # as the HogQL database build, do read the SQL body and are not what this test covers.
+        # Every select the request issues has to stay clear of the large columns, not only the
+        # page select. The HogQL database build reads the SQL body of every view in the team, so
+        # the list action must not build one.
         table = DataWarehouseSavedQuery._meta.db_table
-        page_selects = [
-            q["sql"]
-            for q in queries.captured_queries
-            if f'FROM "{table}"' in q["sql"] and f'ORDER BY "{table}"."created_at" DESC' in q["sql"]
-        ]
+        view_selects = [q["sql"] for q in queries.captured_queries if f'FROM "{table}"' in q["sql"]]
+        self.assertTrue(view_selects)
+        for sql in view_selects:
+            for column in ("query", "external_tables", "incremental_state"):
+                self.assertNotIn(f'"{table}"."{column}"', sql)
+
+        page_selects = [sql for sql in view_selects if f'ORDER BY "{table}"."created_at" DESC' in sql]
         self.assertEqual(len(page_selects), 1, page_selects)
-        self.assertNotIn(f'"{table}"."query"', page_selects[0])
         self.assertNotIn(ActivityLog._meta.db_table, page_selects[0])
 
     def test_get_deleted_query(self):

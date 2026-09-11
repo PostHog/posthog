@@ -526,15 +526,9 @@ class DataWarehouseSavedQuerySerializerMixin:
         if not hogql_fields:
             return []
 
-        team_id = self.context["team_id"]  # type: ignore[attr-defined]
-        database = self.context.get("database", None)  # type: ignore[attr-defined]
-        if not database:
-            database = Database.create_for(
-                team_id=team_id,
-                user=cast(User, self.context["request"].user),  # type: ignore[attr-defined]
-            )
-
-        context = HogQLContext(team_id=team_id, database=database)
+        # `hogql_fields` holds concrete `DatabaseField` subclasses only, and `serialize_fields`
+        # reads the context database for none of those, so this needs no HogQL database build.
+        context = HogQLContext(team_id=self.context["team_id"])  # type: ignore[attr-defined]
 
         descriptions = view_annotation_map(view)
         fields = serialize_fields(hogql_fields, context, view.name_chain, table_type="external")
@@ -1532,7 +1526,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         request_data = getattr(self.request, "data", {})
-        should_include_database = self.action in {"create", "list", "retrieve"} or (
+        # The list action stays out: building a database selects every view in the team, SQL body
+        # included, and nothing the list serializes reads it.
+        should_include_database = self.action in {"create", "retrieve"} or (
             self.action in {"update", "partial_update"} and ("name" in request_data or "query" in request_data)
         )
 
