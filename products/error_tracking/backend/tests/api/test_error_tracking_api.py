@@ -37,6 +37,10 @@ from products.error_tracking.backend.models import (
     ErrorTrackingSymbolSet,
 )
 from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueAssignRequestSerializer
+from products.error_tracking.backend.presentation.views.symbol_sets import (
+    BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS,
+    ErrorTrackingSymbolSetBulkCheckUploadSerializer,
+)
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
 
@@ -60,6 +64,23 @@ class TestErrorTrackingIssueAssignRequestSerializer(SimpleTestCase):
 
         assert not serializer.is_valid()
         assert "id" in serializer.errors["assignee"]
+
+
+class TestErrorTrackingSymbolSetBulkCheckUploadSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("at_limit", BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS, True),
+            ("over_limit", BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS + 1, False),
+        ]
+    )
+    def test_caps_the_symbol_sets_per_request(self, _name: str, count: int, expected_valid: bool) -> None:
+        serializer = ErrorTrackingSymbolSetBulkCheckUploadSerializer(
+            data={"symbol_sets": [{"chunk_id": f"chunk-{i}", "content_hash": "hash"} for i in range(count)]}
+        )
+
+        assert serializer.is_valid() == expected_valid
+        if not expected_valid:
+            assert "symbol_sets" in serializer.errors
 
 
 class TestErrorTracking(APIBaseTest):
@@ -1407,17 +1428,25 @@ class TestErrorTracking(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_bulk_start_upload_rejects_unknown_release(self) -> None:
+    @parameterized.expand(
+        [
+            # (name, endpoint, release ID the client sends)
+            ("start_upload_unknown", "bulk_start_upload", "01920000-0000-7000-8000-000000000000"),
+            ("start_upload_malformed", "bulk_start_upload", "not-a-uuid"),
+            ("check_upload_unknown", "bulk_check_upload", "01920000-0000-7000-8000-000000000000"),
+            ("check_upload_malformed", "bulk_check_upload", "not-a-uuid"),
+        ]
+    )
+    def test_bulk_upload_rejects_bad_release(self, _name: str, endpoint: str, release_id: str) -> None:
         chunk_id = str(uuid7())
-        missing_release_id = str(uuid7())
 
         response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{endpoint}",
             data={
                 "symbol_sets": [
                     {
                         "chunk_id": chunk_id,
-                        "release_id": missing_release_id,
+                        "release_id": release_id,
                         "content_hash": "hash",
                     }
                 ]
@@ -1426,6 +1455,7 @@ class TestErrorTracking(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "invalid_release_id"
         assert not ErrorTrackingSymbolSet.objects.filter(ref=chunk_id).exists()
 
     def test_bulk_start_upload_allows_no_release(self) -> None:
@@ -1609,6 +1639,125 @@ class TestErrorTracking(APIBaseTest):
 
         symbol_set.refresh_from_db()
         assert symbol_set.release_id == first_release.id
+
+    @parameterized.expand(
+        [
+            # (name, existing row (None = missing), upload names the release, request flags, expected to upload)
+            ("missing", None, False, {}, True),
+            ("unchanged", {"content_hash": "hash", "bound": False}, False, {}, False),
+            ("pending", {"content_hash": None, "bound": False}, False, {}, True),
+            ("changed_with_force", {"content_hash": "other", "bound": False}, False, {"force": True}, True),
+            (
+                "changed_with_skip_on_conflict",
+                {"content_hash": "other", "bound": False},
+                False,
+                {"skip_on_conflict": True},
+                False,
+            ),
+            ("unchanged_needing_release_bound", {"content_hash": "hash", "bound": False}, True, {}, True),
+            ("unchanged_with_release_bound", {"content_hash": "hash", "bound": True}, True, {}, False),
+        ]
+    )
+    @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
+    def test_bulk_check_upload_reports_chunks_bulk_start_upload_needs(
+        self,
+        _name: str,
+        existing: dict | None,
+        upload_names_release: bool,
+        request_flags: dict[str, bool],
+        expected_to_upload: bool,
+        patched_capture: Mock,
+    ) -> None:
+        chunk_id = str(uuid7())
+        release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="check-release",
+            version="1.0.0",
+            project="test",
+        )
+        if existing is not None:
+            ErrorTrackingSymbolSet.objects.create(
+                team=self.team,
+                ref=chunk_id,
+                storage_ptr="existing",
+                content_hash=existing["content_hash"],
+                release=release if existing["bound"] else None,
+            )
+        upload: dict[str, str | None] = {"chunk_id": chunk_id, "content_hash": "hash"}
+        if upload_names_release:
+            upload["release_id"] = str(release.id)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_check_upload",
+            data={"symbol_sets": [upload], **request_flags},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"chunk_ids_to_upload": [chunk_id] if expected_to_upload else []}
+
+        symbol_set = ErrorTrackingSymbolSet.objects.filter(ref=chunk_id).first()
+        if existing is None:
+            assert symbol_set is None
+        else:
+            assert symbol_set is not None
+            assert symbol_set.storage_ptr == "existing"
+            assert symbol_set.content_hash == existing["content_hash"]
+            assert symbol_set.release_id == (release.id if existing["bound"] else None)
+            assert (symbol_set.last_used is not None) == (not expected_to_upload)
+
+        assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_upload_checked"
+        assert patched_capture.call_args.kwargs["properties"]["chunks_skipped"] == (0 if expected_to_upload else 1)
+
+    @parameterized.expand(
+        [
+            # (name, uploaded content hash, upload names another release, chunk id repeated, expected code)
+            ("content_mismatch", "other", False, False, "content_hash_mismatch"),
+            ("release_mismatch", "hash", True, False, "release_id_mismatch"),
+            ("duplicate_chunk_ids", "hash", False, True, "invalid_chunk_ids"),
+        ]
+    )
+    def test_bulk_check_upload_rejects_conflicts_before_any_upload(
+        self,
+        _name: str,
+        upload_content_hash: str,
+        upload_names_other_release: bool,
+        chunk_id_repeated: bool,
+        expected_code: str,
+    ) -> None:
+        chunk_id = str(uuid7())
+        bound_release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="bound-release",
+            version="1.0.0",
+            project="test",
+        )
+        other_release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="other-release",
+            version="1.0.1",
+            project="test",
+        )
+        ErrorTrackingSymbolSet.objects.create(
+            team=self.team,
+            ref=chunk_id,
+            storage_ptr="existing",
+            content_hash="hash",
+            release=bound_release,
+        )
+        upload = {"chunk_id": chunk_id, "content_hash": upload_content_hash}
+        if upload_names_other_release:
+            upload["release_id"] = str(other_release.id)
+        symbol_sets = [upload, upload] if chunk_id_repeated else [upload]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_check_upload",
+            data={"symbol_sets": symbol_sets},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == expected_code
 
     @patch("posthog.storage.object_storage.head_object")
     def test_can_finish_bulk_symbol_set_upload(self, patched_object_storage) -> None:
