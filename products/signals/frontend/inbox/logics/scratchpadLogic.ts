@@ -7,7 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { signalsReportsRetrieve, signalsScoutScratchpadSearch } from 'products/signals/frontend/generated/api'
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { SCOUT_ROSTER_WINDOW_HOURS } from '../utils/scoutRunsWindow'
+import { SCOUT_ROSTER_WINDOW_HOURS, isPipelineWriter } from '../utils/scoutRunsWindow'
 import { BOOKKEEPING_KINDS, isReportUuid, scratchpadKindOf, scratchpadTopicOf } from '../utils/scratchpadKeys'
 
 // Search reruns the server-side ILIKE on every keystroke; debounce so typing doesn't
@@ -576,7 +576,11 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 const horizon = dayjs().add(7, 'day')
                 const entries = windowEntries ?? []
                 return {
-                    scouts: new Set(entries.map((entry) => entry.created_by_skill).filter(Boolean)).size,
+                    scouts: new Set(
+                        entries
+                            .map((entry) => entry.created_by_skill)
+                            .filter((skillName): skillName is string => !!skillName && !isPipelineWriter(skillName))
+                    ).size,
                     topics: new Set(entries.map((entry) => scratchpadTopicOf(entry.key)).filter(Boolean)).size,
                     expiringSoon: entries.filter(
                         (entry) => entry.expires_at && dayjs(entry.expires_at).isBefore(horizon)
