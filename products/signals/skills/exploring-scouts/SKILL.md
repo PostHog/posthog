@@ -206,7 +206,7 @@ scout-scratchpad-search
 
 Returns entries newest-first: 20 by default, `limit` up to 1000; `text` matches `content` and `key` case-insensitively.
 Omit `text` to browse everything; pass `keys_only=true` for a cheap scan of what memories exist, or `content_max_chars` to preview long bodies, and `date_to` set to the oldest entry's `updated_at` to walk past the cap.
-Expired entries (an `expires_at` in the past) are excluded unless `include_expired=true`; every entry also carries `created_by_skill`, so you can tell a scout's own memory from a sibling's or from the report pipeline's (`pipeline:report-research`, `pipeline:implementation`).
+Expired entries (an `expires_at` in the past) are excluded unless `include_expired=true`; every entry also carries `created_by_skill`, the original creator (a scout's skill name, or `pipeline:report-research` / `pipeline:implementation` for a pipeline stage). It is lineage, not authorship of the current text: an upsert by another writer on the same team-wide key keeps the original creator, so don't attribute an entry's current content to that skill without checking `created_by_run_id` against recent runs.
 Each entry's `key` carries a category prefix that tells you _what kind_ of learning it is:
 
 | Prefix        | Meaning                                                                                  |

@@ -113,7 +113,7 @@ When you want a scout to behave differently, climb this ladder from cheapest to 
    Right for: one wrong report, a known-noise pattern surfacing for the first time, a misrouted report.
 2. **Steer one run** (`posthog:scout-run-now` with a `note`).
    Right for: a one-off focus you want checked now ("look at the checkout regression") without leaving anything the scheduled runs will read later.
-   The note is read by that run only (up to 1,000 characters), it spends a run from the daily budget like any manual run, and it needs `llm_skill:write` on top of `signal_scout:write`.
+   The note is read by that run only (up to 1,000 characters), it spends a run from the daily budget like any manual run, and it needs `llm_skill:write` on top of `signal_scout:write` plus skill-editor access on the project (a 403 otherwise). A caller without that access can still run the scout without a note.
 3. **Leave a note** (`posthog:scout-notes-create`, per-scout or fleet-wide, optionally time-boxed with `expires_at`).
    Right for: feedback, pointers, and context with a shelf life — "the spike you keep flagging is known noise", "dig into EU signups this week", "new checkout shipped Tuesday".
    Notes are advisory: they direct attention but never lower the evidence bar or force a report.
