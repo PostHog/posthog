@@ -446,7 +446,7 @@ export function ScoutRunHistorySection({
                     )
                 )}
             </div>
-            <span className="text-[11px] text-muted">Showing the {SCOUT_RUNS_PER_SCOUT_LABEL}.</span>
+            <span className="text-[11px] text-muted">From the {SCOUT_RUNS_PER_SCOUT_LABEL}.</span>
         </div>
     )
 }
