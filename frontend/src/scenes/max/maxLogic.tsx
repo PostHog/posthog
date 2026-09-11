@@ -954,6 +954,9 @@ export const maxLogic = kea<maxLogicType>([
             }
         },
         [urls.ai()]: (_, search) => {
+            if (search.task) {
+                return
+            }
             if (search.ask && !search.chat && !values.question) {
                 // Clear any existing conversation so the tab title updates
                 if (values.conversationId && values.activeStreamingThreads === 0) {

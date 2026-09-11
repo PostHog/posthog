@@ -97,24 +97,25 @@ export function ChatHeader({
 
 interface AiFirstMaxInstanceProps {
     tabId: string
+    taskId?: string
 }
 
-export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Element {
+export function AiFirstMaxInstance({ tabId, taskId }: AiFirstMaxInstanceProps): JSX.Element {
     const { threadVisible, threadLogicKey, conversation, conversationId } = useValues(maxLogic({ panelId: tabId }))
     const { startNewConversation } = useActions(maxLogic({ panelId: tabId }))
     const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
 
-    if (effectivePhaiView === 'new') {
+    if (taskId || effectivePhaiView === 'new') {
         return (
             <div className="flex flex-col grow overflow-hidden h-full">
                 <div className="flex w-full items-center justify-end gap-2 py-2 px-2 border-b border-primary">
                     {/* The new view is the runner, which is always the sandbox runtime — no runtime check needed. */}
                     <DebugLogsMenu variant="lemon" />
-                    <PhaiViewToggle variant="lemon" />
+                    {!taskId && <PhaiViewToggle variant="lemon" />}
                 </div>
                 <div className="flex flex-col flex-1 min-h-0">
                     <BindLogic logic={phaiAiComposerSeedLogic} props={{}}>
-                        <EmbeddedRunner />
+                        <EmbeddedRunner taskId={taskId} />
                     </BindLogic>
                 </div>
             </div>

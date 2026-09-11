@@ -336,3 +336,9 @@ Max/LangGraph/conversation. Anything the LangGraph path owns that the surface do
 / the tool registry / `streamKey` — lifted to a generic seam here, never special-cased. The four-tier
 contract above is unchanged whichever side of the switch is active. See
 [`AGENTS.md`](./AGENTS.md#6-replacement-readiness) for the contributor-side detail.
+
+### Task selection in embedded hosts
+
+Pass `taskId` to `EmbeddedRunner` to render an existing task.
+The AI scene reads it from `/ai?task=<id>`, so shared history links and reloads select the same task.
+Tasks created from `/ai` stay under that route; the standalone `/tasks` scene keeps its existing routes.

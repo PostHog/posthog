@@ -4,7 +4,7 @@
 //
 // LIGHT boundary: the heavy TaskTracker scene chunk is reached only through `EmbeddedRunner`'s dynamic
 // `import()`, so importing this module never statically pulls the scene/run-surface into the host
-// bundle. Task selection/creation still routes through the scene's own `/tasks/:id` URLs.
+// bundle. The host passes `taskId` for selection; creation stays under `/ai` when hosted there.
 //
 // Part of the `products/posthog_ai/frontend/api/<module>` public surface — import from here, not from
 // deep `../scenes/*` paths. See ../README.md for the tier model and ../AGENTS.md for the coupling rule.

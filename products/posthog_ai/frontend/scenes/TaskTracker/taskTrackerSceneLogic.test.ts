@@ -97,6 +97,24 @@ describe('taskTrackerSceneLogic', () => {
     })
 
     it.each([
+        ['/ai', '/ai', { task: 'new-task' }],
+        ['/tasks/new', '/tasks/new-task', {}],
+    ])('keeps a newly created task in its host at %s', async (start, pathname, searchParams) => {
+        router.actions.push(start)
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'Summarize a sample funnel' })
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toBe(`/project/997${pathname}`)
+        expect(router.values.searchParams).toEqual(searchParams)
+        expect(logic.values.activeCreation).toMatchObject({ taskId: 'new-task', runId: 'run-1' })
+
+        router.actions.push('/ai?task=another-task')
+        expect(logic.values.activeCreation).toBeNull()
+    })
+
+    it.each([
         [null, ''],
         ['/tasks/another-task', ''],
         ['/tasks/another-task', 'A different task'],
@@ -649,7 +667,8 @@ describe('taskTrackerSceneLogic', () => {
                 expect(router.values.location.pathname).toContain(destination)
             } else {
                 expect(logic.values.activeCreation).toMatchObject({ taskId: 'new-task', runId: 'run-1' })
-                expect(router.values.location.pathname).toContain('/tasks/new-task')
+                expect(router.values.location.pathname).toBe('/project/997/ai')
+                expect(router.values.searchParams).toEqual({ task: 'new-task' })
             }
         } finally {
             finishCreation([200, { id: 'new-task', latest_run: { id: 'run-1' } }])

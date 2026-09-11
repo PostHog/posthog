@@ -113,6 +113,12 @@ The handoff removes `ask` from the current browser history entry while preservin
 Changing the panel state or remounting the view therefore does not submit the prompt again.
 Without organization-level AI data-processing consent, the prompt only prefills the composer.
 
+## Task navigation
+
+Task links in shared AI history open `/ai?task=<task-id>` and render the task runner, regardless of the saved chat view preference.
+The task stays selected on reload and when navigating back or forward.
+Existing `/tasks/<task-id>` links still open the standalone runner.
+
 ## Fine-grained access tokens
 
 Every sandboxed agent gets a scoped OAuth access token that controls what PostHog resources it can access.

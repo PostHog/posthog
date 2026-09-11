@@ -7,8 +7,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api-error'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { uuid } from 'lib/utils/dom'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { urls } from 'scenes/urls'
 
 import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
@@ -785,7 +787,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     // An embedded instance (`panelId` set) keeps the run in place because the host renders
                     // `activeCreation` instead of navigating the main app to the `/tasks/:id` detail page.
                     if (!props.panelId) {
-                        router.actions.push(`/tasks/${newTask.id}`)
+                        router.actions.push(
+                            removeProjectIdIfPresent(router.values.location.pathname) === urls.ai()
+                                ? urls.aiTask(newTask.id)
+                                : urls.taskDetail(newTask.id)
+                        )
                     }
                 } else {
                     actions.releaseApplyBackTargets(streamKey)
@@ -927,6 +933,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // An embedded instance never navigates the main app on its own creation (see `submitNewTask`), so
             // main-app URL changes are unrelated to its run — never release the side panel's active creation.
             '/tasks/:taskId': ({ taskId }) => (props.panelId ? undefined : clearIfLeftCreatedTask(taskId)),
+            [urls.ai()]: (_, search) =>
+                props.panelId
+                    ? undefined
+                    : clearIfLeftCreatedTask(typeof search.task === 'string' ? search.task : undefined),
             '*': () => (props.panelId ? undefined : clearIfLeftCreatedTask()),
         }
     }),

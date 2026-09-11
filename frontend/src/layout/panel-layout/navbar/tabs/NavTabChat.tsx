@@ -13,6 +13,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { cn } from 'lib/utils/css-classes'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { AiChatListItem } from 'scenes/max/components/List/AiChatListItem'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
@@ -178,11 +179,14 @@ export function NavTabChat({
         taskListParams,
     } = useValues(tasksLogic)
     const { loadTasks, loadMoreTasks, setSearchQuery } = useActions(tasksLogic)
-    const { location } = useValues(router)
+    const { location, searchParams } = useValues(router)
     const tasksEnabled = useFeatureFlag('TASKS') || isPhaiSandboxFlagOn
     const [chatSearch, setChatSearch] = useState('')
     const inputValue = tasksEnabled ? searchQuery : chatSearch
-    const selectedTaskId = location.pathname.match(/\/tasks\/([^/]+)/)?.[1] ?? null
+    const selectedTaskId =
+        removeProjectIdIfPresent(location.pathname) === urls.ai() && typeof searchParams.task === 'string'
+            ? searchParams.task
+            : (location.pathname.match(/\/tasks\/([^/]+)/)?.[1] ?? null)
 
     const historyGroups = useMemo(
         () => groupAiHistory(conversationHistory, tasksEnabled ? tasks : []),
@@ -305,8 +309,9 @@ export function NavTabChat({
                                                                                         data-attr="nav-chat-history-conversation"
                                                                                         buttonProps={{
                                                                                             active:
+                                                                                                !selectedTaskId &&
                                                                                                 item.conversation.id ===
-                                                                                                currentConversationId,
+                                                                                                    currentConversationId,
                                                                                             fullWidth: true,
                                                                                             className: 'pr-0',
                                                                                             menuItem: true,

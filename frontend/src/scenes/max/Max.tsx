@@ -46,17 +46,25 @@ import { MaxLogicProps, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 import { SandboxComposerSurfaces, Thread } from './Thread'
 
-export const scene: SceneExport = {
-    component: Max,
-    logic: maxLogic,
+interface MaxProps {
+    tabId?: string
+    taskId?: string
 }
 
-export function Max({ tabId }: { tabId?: string }): JSX.Element {
+export const scene: SceneExport<MaxProps> = {
+    component: Max,
+    logic: maxLogic,
+    paramsToProps: ({ searchParams }) => ({
+        taskId: typeof searchParams.task === 'string' ? searchParams.task : undefined,
+    }),
+}
+
+export function Max({ tabId, taskId }: MaxProps): JSX.Element {
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ panelId: tabId }))
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ panelId: SIDE_PANEL_PANEL_ID }))
-    if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
+    if (!taskId && sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
             <SceneContent className="px-4 py-4 min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]">
                 <SceneTitleSection name={null} resourceType={{ type: 'chat' }} />
@@ -77,7 +85,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
         )
     }
 
-    return <AiFirstMaxInstance tabId={tabId ?? ''} />
+    return <AiFirstMaxInstance tabId={tabId ?? ''} taskId={taskId} />
 }
 
 export interface MaxInstanceProps {

@@ -6,6 +6,7 @@ import { useEffect } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { mswDecorator } from '~/mocks/browser'
@@ -207,7 +208,13 @@ export const UnifiedNavigation: Story = {
     render: () => <UnifiedNavigationStory />,
     parameters: {
         featureFlags: [FEATURE_FLAGS.TASKS, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
-        pageUrl: taskTrackerUrl(),
+        pageUrl: urls.ai(),
+    },
+}
+
+export const AiTaskSelected: Story = {
+    parameters: {
+        pageUrl: urls.aiTask('task-3'),
     },
 }
 

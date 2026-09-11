@@ -25,7 +25,7 @@ function compactTimeAgo(iso: string): string {
 }
 
 function getHref(taskId: string): string {
-    return urls.taskDetail(taskId)
+    return urls.aiTask(taskId)
 }
 
 function TaskTypeIcon({ task }: { task: Task }): JSX.Element {
