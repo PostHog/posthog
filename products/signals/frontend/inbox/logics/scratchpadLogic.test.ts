@@ -249,6 +249,15 @@ describe('scratchpadLogic', () => {
 
         logic.actions.setHideBookkeeping(false)
         expect(logic.values.filteredEntries).toHaveLength(4)
+
+        // The switch counts towards `hasActiveFilters`, which is what renders the clear button, so
+        // a clear that spares it promises rows it does not bring back. A window of nothing but
+        // bookkeeping rows then renders the same empty state after every press.
+        logic.actions.setHideBookkeeping(true)
+        logic.actions.clearFilters()
+        expect(logic.values.hideBookkeeping).toBe(false)
+        expect(logic.values.filteredEntries).toHaveLength(4)
+        expect(logic.values.hasActiveFilters).toBe(false)
     })
 
     // A wider span is the slower read, so narrowing the span right after widening it is the order

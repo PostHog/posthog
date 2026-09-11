@@ -416,7 +416,13 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         hideBookkeeping: [
             false,
             { persist: true },
-            { setHideBookkeeping: (_, { hideBookkeeping }) => hideBookkeeping },
+            {
+                setHideBookkeeping: (_, { hideBookkeeping }) => hideBookkeeping,
+                // The switch counts towards `hasActiveFilters`, which is what puts the clear
+                // button on screen, so the clear has to reach it. Otherwise a window of nothing
+                // but bookkeeping rows renders the same empty state after every press.
+                clearFilters: () => false,
+            },
         ],
         // Did the most recent load reject? Lets the panel tell a failed load apart from an empty
         // project (kea-loaders leaves `entries` at its prior value on failure, so it can't).
