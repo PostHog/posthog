@@ -1,7 +1,20 @@
 # Fixing the cookieless warnings
 
-A cookieless-mode event was **dropped** because an ingredient required to compute its identity was missing or unusable.
-Category `event`, severity `error` for all five types: without the ingredient there is no way to know who the event belongs to, so it cannot be ingested at all.
+A cookieless-mode event was **dropped**: either the project has not enabled cookieless tracking, or an ingredient required to compute its identity was missing or unusable.
+Category `event`, severity `error` for all six types: the event cannot be ingested at all.
+
+## `cookieless_team_disabled`: the project setting is off
+
+The SDK sent the event in cookieless mode (`cookieless_mode: "always"` or `"on_reject"` in posthog-js, sentinel distinct ID `$posthog_cookieless`), but **Cookieless tracking** is disabled in the project settings (Settings → Web analytics → Cookieless tracking, stored as `cookieless_server_hash_mode`). Ingestion drops every such event before any identity is computed, so heatmap events and exception captures sent in cookieless mode are dropped the same way. The events still show in Live events, because that view reads the stream before the pipeline runs, which is why this looks like PostHog accepting data and losing it.
+
+The server-side gate is deliberate: without it, anyone holding the public project token could force cookieless processing on a project that never opted in, which strips IP and user agent. So the fix is a settings change, not a code change:
+
+- Enable **Cookieless tracking** in Settings → Web analytics if the project wants cookieless mode. Events sent after the change land immediately; the ones already dropped are gone.
+- Or remove `cookieless_mode` from the posthog-js config if cookieless was enabled in the SDK by accident.
+
+Verify with `posthog:execute-sql`: `SELECT count() FROM system.ingestion_warnings WHERE type = 'cookieless_team_disabled' AND timestamp > now() - INTERVAL 1 HOUR` should go to zero after the change, and cookieless events should appear in Explore with computed anonymous IDs.
+
+The rest of this file covers the five ingredient warnings, which only fire once the setting is on.
 
 ## How cookieless identity works (why these fields are mandatory)
 
@@ -29,7 +42,7 @@ Which ingredient is missing points at which layer is broken:
    - **`$ip` missing** → the capture path saw no client IP — a proxy/CDN in front of PostHog not passing the client address through, or middleware explicitly deleting `$ip` before the identity is computed.
    - **timestamp missing** → server-side batching that strips timestamps.
    - **timestamp out of range** → a historical import routed through cookieless (can't work, see below), badly skewed client clocks, or offline queues flushing much later.
-3. If cookieless events produce **no warnings and no events at all**, check the project setting first: cookieless tracking must be enabled on the team (Settings → Web analytics → Cookieless tracking, stored as `cookieless_server_hash_mode`) — with it disabled, sentinel events are dropped without a warning.
+3. If cookieless events produce **no events and only `cookieless_team_disabled` warnings**, the project setting is off — see the section above. No ingredient is checked until it is on.
 
 ## Fix
 
