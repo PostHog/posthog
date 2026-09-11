@@ -13,6 +13,7 @@ function calendarAnchor(localDate: Dayjs, hour: number, timezone: string): Dayjs
 export function approximateNextAlertRun(
     interval: AlertCalculationInterval,
     timezone: string,
+    scheduleStartTime: string | null | undefined = null,
     now: Dayjs = dayjs()
 ): Dayjs {
     let localNow: Dayjs
@@ -23,13 +24,26 @@ export function approximateNextAlertRun(
         localNow = now.utc()
     }
 
+    const scheduleStartMinute = scheduleStartTime ? Number(scheduleStartTime.split(':')[1]) : undefined
+    const nextRunFromScheduleStartMinute = (cadenceMinutes: number): Dayjs | null => {
+        if (scheduleStartMinute === undefined || scheduleStartMinute < 0 || scheduleStartMinute > 59) {
+            return null
+        }
+
+        let candidate = localNow.startOf('hour').minute(scheduleStartMinute).second(0).millisecond(0)
+        while (!candidate.isAfter(localNow)) {
+            candidate = candidate.add(cadenceMinutes, 'minutes')
+        }
+        return candidate
+    }
+
     switch (interval) {
         case AlertCalculationInterval.REAL_TIME:
             return localNow.add(2, 'minutes')
         case AlertCalculationInterval.EVERY_15_MINUTES:
-            return localNow.add(15, 'minutes')
+            return nextRunFromScheduleStartMinute(15) ?? localNow.add(15, 'minutes')
         case AlertCalculationInterval.HOURLY:
-            return localNow.add(1, 'hour')
+            return nextRunFromScheduleStartMinute(60) ?? localNow.add(1, 'hour')
         case AlertCalculationInterval.DAILY:
             return calendarAnchor(localNow.add(1, 'day'), 1, timezone)
         case AlertCalculationInterval.WEEKLY: {

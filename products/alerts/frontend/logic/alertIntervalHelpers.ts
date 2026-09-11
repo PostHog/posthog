@@ -35,6 +35,44 @@ export function isSubDailyAlertInterval(interval: AlertCalculationInterval): boo
     return SUB_DAILY_INTERVALS.includes(interval)
 }
 
+export function canSetAlertScheduleStartTime(interval: AlertCalculationInterval): boolean {
+    return interval === AlertCalculationInterval.HOURLY
+}
+
+export function scheduleStartTimeForInterval(
+    interval: AlertCalculationInterval,
+    scheduleStartTime: string | null | undefined
+): string | null {
+    return canSetAlertScheduleStartTime(interval) ? (scheduleStartTime ?? '00:00') : null
+}
+
+export function getAlertScheduleStartMinute(scheduleStartTime: string | null | undefined): number | undefined {
+    if (!scheduleStartTime) {
+        return undefined
+    }
+    return Number(scheduleStartTime.split(':')[1])
+}
+
+export function getAlertScheduleStartMinuteOptions(scheduleStartTime: string | null | undefined): Array<{
+    label: string
+    value: number
+}> {
+    const currentMinute = getAlertScheduleStartMinute(scheduleStartTime)
+    const minutes = Array.from({ length: 12 }, (_, index) => index * 5)
+    if (currentMinute !== undefined && !minutes.includes(currentMinute)) {
+        minutes.push(currentMinute)
+        minutes.sort((a, b) => a - b)
+    }
+    return minutes.map((minute) => ({ label: String(minute).padStart(2, '0'), value: minute }))
+}
+
+export function scheduleStartTimeForMinute(minute: number | null | undefined): string | null {
+    if (minute === null || minute === undefined || minute < 0 || minute > 59 || minute % 5 !== 0) {
+        return null
+    }
+    return `00:${String(minute).padStart(2, '0')}`
+}
+
 const INTERVAL_DISPLAY_LABELS: Record<AlertCalculationInterval, string> = {
     [AlertCalculationInterval.REAL_TIME]: 'Real time',
     [AlertCalculationInterval.EVERY_15_MINUTES]: 'Every 15 minutes',
