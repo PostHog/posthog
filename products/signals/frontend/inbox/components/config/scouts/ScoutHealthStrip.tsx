@@ -69,7 +69,11 @@ export function ScoutHealthStrip({
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-secondary">
             <Segment tooltip="Where this scout stands, and when it next runs.">
-                <ScoutStatusDot group={scoutGroup(config, rollup, now)} />
+                {/* The dot's group is read off the run window, so an unloaded rollup would show a
+                    scout that files plenty as "nothing worth filing", and it would keep saying so
+                    for as long as the runs request fails. The tag beside it is config-only, so it
+                    stays right either way. */}
+                {scoutRunsLoadedOnce && <ScoutStatusDot group={scoutGroup(config, rollup, now)} />}
                 <ScoutStatusTag config={config} />
                 <ScoutCadenceLabel config={config} />
                 {hasNextRun && (
