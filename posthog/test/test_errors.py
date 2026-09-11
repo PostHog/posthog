@@ -5,6 +5,7 @@ from posthog.errors import (
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
+    extract_unknown_setting_name,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
@@ -83,3 +84,24 @@ class TestWrapClickhouseQueryError:
 
         assert isinstance(wrapped, InternalCHQueryError)
         assert not isinstance(wrapped, ExposedCHQueryError)
+
+
+class TestExtractUnknownSettingName:
+    @parameterized.expand(
+        [
+            # The phrasings ClickHouse has used for code 115. sync_execute reads the name out of
+            # this message to retry without the setting, so a parse miss brings the hard failure back.
+            ("DB::Exception: Unknown setting optimize_rewrite_aggregate_function_with_if", True),
+            ("DB::Exception: Unknown setting 'optimize_rewrite_aggregate_function_with_if'", True),
+            (
+                "DB::Exception: Unknown setting optimize_rewrite_aggregate_function_with_if: "
+                "in scope SELECT 1. Stack trace:",
+                True,
+            ),
+            ("DB::Exception: Unknown table expression identifier 'events'", False),
+        ]
+    )
+    def test_reads_the_rejected_setting_name(self, message: str, expected: bool) -> None:
+        name = extract_unknown_setting_name(message)
+
+        assert name == ("optimize_rewrite_aggregate_function_with_if" if expected else None)
