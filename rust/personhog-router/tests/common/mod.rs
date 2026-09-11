@@ -8,8 +8,16 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
+use personhog_proto::personhog::identity::v1 as identity;
+use personhog_proto::personhog::identity::v1::person_hog_identity_server::{
+    PersonHogIdentity, PersonHogIdentityServer,
+};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::{
     PersonHogLeader, PersonHogLeaderServer,
+};
+use personhog_proto::personhog::lifecycle::v1 as lifecycle;
+use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::{
+    PersonHogLifecycle, PersonHogLifecycleServer,
 };
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::{
     PersonHogReplica, PersonHogReplicaServer,
@@ -45,10 +53,10 @@ use personhog_proto::personhog::types::v1::{
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use personhog_router::backend::{
-    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaDnsConfig, StashTable,
+    ChannelBackend, DnsBackendConfig, LeaderBackend, LeaderBackendConfig, StashTable,
 };
 use personhog_router::config::RetryConfig;
-use personhog_router::proxy::RawProxyService;
+use personhog_router::proxy::{IdentityProxyService, LifecycleProxyService, RawProxyService};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tonic::codec::CompressionEncoding;
@@ -850,20 +858,23 @@ fn serve_test_leader(listener: TcpListener, service: TestLeaderService) {
 // Raw proxy test helpers
 // ============================================================
 
-fn make_replica_backend(replica_addr: SocketAddr) -> Arc<ReplicaBackend> {
+fn make_channel_backend(role: &'static str, addr: SocketAddr) -> Arc<ChannelBackend> {
     let retry_config = RetryConfig {
         max_retries: 1,
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    Arc::new(ReplicaBackend::new_dns(ReplicaDnsConfig {
-        url: format!("http://{}", replica_addr),
-        timeout: Duration::from_secs(5),
-        retry_config,
-        keepalive_interval: None,
-        keepalive_timeout: None,
-        num_channels: 1,
-    }))
+    Arc::new(ChannelBackend::new_dns(
+        role,
+        DnsBackendConfig {
+            url: format!("http://{}", addr),
+            timeout: Duration::from_secs(5),
+            retry_config,
+            keepalive_interval: None,
+            keepalive_timeout: None,
+            num_channels: 1,
+        },
+    ))
 }
 
 fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<LeaderBackend> {
@@ -918,6 +929,20 @@ fn make_dying_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Ar
     ))
 }
 
+/// Serve the proxy under every service name production registers, so a
+/// test hits the proxy's own refusals rather than tonic's unknown-service one.
+fn spawn_proxy_server(listener: TcpListener, proxy: RawProxyService) {
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(proxy.clone())
+            .add_service(IdentityProxyService(proxy.clone()))
+            .add_service(LifecycleProxyService(proxy))
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+}
+
 /// Raw proxy router whose leader answers one request and is then gone.
 pub async fn start_test_router_raw_with_dying_leader(
     replica_addr: SocketAddr,
@@ -927,7 +952,8 @@ pub async fn start_test_router_raw_with_dying_leader(
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let proxy = RawProxyService::new(
-        make_replica_backend(replica_addr),
+        make_channel_backend("replica", replica_addr),
+        None,
         Some(make_dying_leader_backend(leader_addr, num_partitions)),
         RetryConfig {
             max_retries: 1,
@@ -937,13 +963,7 @@ pub async fn start_test_router_raw_with_dying_leader(
         4 * 1024 * 1024,
         0,
     );
-    tokio::spawn(async move {
-        Server::builder()
-            .add_service(proxy)
-            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
-            .await
-            .unwrap();
-    });
+    spawn_proxy_server(listener, proxy);
     tokio::time::sleep(Duration::from_millis(10)).await;
     addr
 }
@@ -961,21 +981,15 @@ pub async fn start_test_router_raw_with_max_recv(
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let replica = make_replica_backend(replica_addr);
+    let replica = make_channel_backend("replica", replica_addr);
     let retry_config = RetryConfig {
         max_retries: 1,
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    let proxy = RawProxyService::new(replica, None, retry_config, max_recv_message_size, 0);
+    let proxy = RawProxyService::new(replica, None, None, retry_config, max_recv_message_size, 0);
 
-    tokio::spawn(async move {
-        Server::builder()
-            .add_service(proxy)
-            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
-            .await
-            .unwrap();
-    });
+    spawn_proxy_server(listener, proxy);
 
     tokio::time::sleep(Duration::from_millis(10)).await;
     addr
@@ -1006,7 +1020,7 @@ pub async fn start_test_router_raw_with_leader_and_max_recv(
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let replica = make_replica_backend(replica_addr);
+    let replica = make_channel_backend("replica", replica_addr);
     let leader = make_leader_backend(leader_addr, num_partitions);
     let retry_config = RetryConfig {
         max_retries: 1,
@@ -1015,19 +1029,160 @@ pub async fn start_test_router_raw_with_leader_and_max_recv(
     };
     let proxy = RawProxyService::new(
         replica,
+        None,
         Some(leader),
         retry_config,
         max_recv_message_size,
         0,
     );
 
+    spawn_proxy_server(listener, proxy);
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    addr
+}
+
+// ============================================================
+// Identity server test doubles
+// ============================================================
+
+/// Identity server for the raw-proxy tests. Records the client name it
+/// received and answers get-or-create with one created result per entry, so
+/// a test can check that body and headers both survived the forward.
+#[derive(Default)]
+pub struct TestIdentityService {
+    pub seen_client_name: Arc<Mutex<Option<String>>>,
+}
+
+fn record_client_name<T>(request: &Request<T>, into: &Mutex<Option<String>>) {
+    *into.lock().unwrap() = request
+        .metadata()
+        .get("x-client-name")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+}
+
+#[tonic::async_trait]
+impl PersonHogIdentity for TestIdentityService {
+    async fn get_or_create_person_by_distinct_id(
+        &self,
+        _request: Request<identity::GetOrCreatePersonByDistinctIdRequest>,
+    ) -> Result<Response<identity::GetOrCreatePersonByDistinctIdResponse>, Status> {
+        Err(Status::unimplemented("not exercised by the proxy tests"))
+    }
+
+    async fn get_or_create_persons_by_distinct_ids(
+        &self,
+        request: Request<identity::GetOrCreatePersonsByDistinctIdsRequest>,
+    ) -> Result<Response<identity::GetOrCreatePersonsByDistinctIdsResponse>, Status> {
+        record_client_name(&request, &self.seen_client_name);
+        let results = request
+            .into_inner()
+            .entries
+            .into_iter()
+            .map(|entry| identity::GetOrCreatePersonResult {
+                team_id: entry.team_id,
+                distinct_id: entry.distinct_id,
+                person: None,
+                created: true,
+                error: None,
+            })
+            .collect();
+        Ok(Response::new(
+            identity::GetOrCreatePersonsByDistinctIdsResponse { results },
+        ))
+    }
+
+    async fn get_persons_by_distinct_ids(
+        &self,
+        _request: Request<identity::GetPersonsByDistinctIdsRequest>,
+    ) -> Result<Response<identity::GetPersonsByDistinctIdsResponse>, Status> {
+        Err(Status::unimplemented("not exercised by the proxy tests"))
+    }
+
+    async fn get_distinct_ids_for_persons(
+        &self,
+        _request: Request<identity::GetDistinctIdsForPersonsRequest>,
+    ) -> Result<Response<identity::GetDistinctIdsForPersonsResponse>, Status> {
+        Err(Status::unimplemented("not exercised by the proxy tests"))
+    }
+
+    async fn merge_persons(
+        &self,
+        _request: Request<identity::MergePersonsRequest>,
+    ) -> Result<Response<identity::MergePersonsResponse>, Status> {
+        Err(Status::unimplemented("not exercised by the proxy tests"))
+    }
+}
+
+/// Lifecycle server for the raw-proxy tests: echoes the op id and reports
+/// every requested person as deleted.
+#[derive(Default)]
+pub struct TestLifecycleService;
+
+#[tonic::async_trait]
+impl PersonHogLifecycle for TestLifecycleService {
+    async fn delete_persons(
+        &self,
+        request: Request<lifecycle::DeletePersonsRequest>,
+    ) -> Result<Response<lifecycle::DeletePersonsResponse>, Status> {
+        let request = request.into_inner();
+        let results = request
+            .person_ids
+            .into_iter()
+            .map(|person_id| lifecycle::DeletePersonResult {
+                person_id,
+                outcome: lifecycle::DeletePersonOutcome::Deleted as i32,
+            })
+            .collect();
+        Ok(Response::new(lifecycle::DeletePersonsResponse {
+            op_id: request.op_id,
+            results,
+        }))
+    }
+}
+
+/// Serve both identity-server services on one port, as the identity binary does.
+pub async fn start_test_identity(
+    identity_service: TestIdentityService,
+    lifecycle_service: TestLifecycleService,
+) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         Server::builder()
-            .add_service(proxy)
+            .add_service(PersonHogIdentityServer::new(identity_service))
+            .add_service(PersonHogLifecycleServer::new(lifecycle_service))
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
             .unwrap();
     });
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    addr
+}
+
+/// Start a raw proxy router with replica and identity backends, no leader.
+pub async fn start_test_router_raw_with_identity(
+    replica_addr: SocketAddr,
+    identity_addr: SocketAddr,
+) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let proxy = RawProxyService::new(
+        make_channel_backend("replica", replica_addr),
+        Some(make_channel_backend("identity", identity_addr)),
+        None,
+        RetryConfig {
+            max_retries: 1,
+            initial_backoff_ms: 1,
+            max_backoff_ms: 1,
+        },
+        4 * 1024 * 1024,
+        0,
+    );
+
+    spawn_proxy_server(listener, proxy);
 
     tokio::time::sleep(Duration::from_millis(10)).await;
     addr
