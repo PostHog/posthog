@@ -1,4 +1,14 @@
 {
     "version": 1,
-    "entries": []
+    "entries": [
+        {
+            "id": "products/experiments/backend/test/test_migration_0035.py::StripUnknownExposureCriteriaKeysMigrationTest",
+            "runner": "pytest",
+            "reason": "Fails on teardown with 'relation posthog_persistedfolder does not exist' since the PersistedFolder table drop (#97096); the experiments shard does not run on master so only PRs see it",
+            "owner": "@frankh",
+            "added": "2026-09-11",
+            "expires": "2026-09-25",
+            "mode": "skip"
+        }
+    ]
 }
