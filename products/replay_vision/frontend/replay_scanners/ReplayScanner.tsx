@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
+import { Suspense } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { percentage } from 'lib/utils/numbers'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -16,23 +18,38 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
-import { ObservationSearchTab } from '../search/ObservationSearchTab'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
-import { ScannerAlertsTab } from './components/ScannerAlertsTab'
-import { ScannerBackfillsTab } from './components/ScannerBackfillsTab'
-import { ScannerCalibrationTab } from './components/ScannerCalibrationTab'
-import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
-import { ScannerRunTab } from './components/ScannerRunTab'
 import { ScannerScoutCard } from './components/ScannerScoutCard'
-import { ScannerScoutsTab } from './components/ScannerScoutsTab'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
 import { scanDrought } from './scanDrought'
 import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
+
+const ObservationSearchTab = lazyWithRetry(() =>
+    import('../search/ObservationSearchTab').then((module) => ({ default: module.ObservationSearchTab }))
+)
+const ScannerAlertsTab = lazyWithRetry(() =>
+    import('./components/ScannerAlertsTab').then((module) => ({ default: module.ScannerAlertsTab }))
+)
+const ScannerBackfillsTab = lazyWithRetry(() =>
+    import('./components/ScannerBackfillsTab').then((module) => ({ default: module.ScannerBackfillsTab }))
+)
+const ScannerCalibrationTab = lazyWithRetry(() =>
+    import('./components/ScannerCalibrationTab').then((module) => ({ default: module.ScannerCalibrationTab }))
+)
+const ScannerConfigReadonly = lazyWithRetry(() =>
+    import('./components/ScannerConfigReadonly').then((module) => ({ default: module.ScannerConfigReadonly }))
+)
+const ScannerRunTab = lazyWithRetry(() =>
+    import('./components/ScannerRunTab').then((module) => ({ default: module.ScannerRunTab }))
+)
+const ScannerScoutsTab = lazyWithRetry(() =>
+    import('./components/ScannerScoutsTab').then((module) => ({ default: module.ScannerScoutsTab }))
+)
 
 export const scene: SceneExport = {
     component: ReplayScannerSceneComponent,
@@ -165,7 +182,10 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         label: 'Alerts',
                         content: <ScannerAlertsTab scannerId={scannerId} />,
                     },
-                ]}
+                ].map((tab) => ({
+                    ...tab,
+                    content: <Suspense fallback={<Spinner className="m-4" />}>{tab.content}</Suspense>,
+                }))}
             />
         </SceneContent>
     )

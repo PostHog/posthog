@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconCopy, IconEye, IconPlay, IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
@@ -26,7 +27,6 @@ import {
     replayScannerLogic,
 } from '../replayScannerLogic'
 import { OBSERVATION_TRIGGER_TAG } from '../types'
-import { shortBackfillId } from './ScannerBackfillsTab'
 
 const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'succeeded', label: 'Succeeded' },
@@ -83,6 +83,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
     const logic = replayScannerLogic({ id: scannerId })
     const {
         observations,
+        observationsActive,
         observationsLoading,
         hasObservationsInFlight,
         observationsPage,
@@ -108,6 +109,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         copyingAllObservations,
     } = useValues(logic)
     const {
+        setObservationsActive,
         refreshObservations,
         retryObservation,
         setObservationsPage,
@@ -123,6 +125,10 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         clearObservationFilters,
         copyAllObservations,
     } = useActions(logic)
+    useEffect(() => {
+        setObservationsActive(true)
+        return () => setObservationsActive(false)
+    }, [setObservationsActive])
     const scannerType = scanner?.scanner_type
     const tagFilterOptions = availableTags.map((tag) => ({ value: tag, label: tag }))
     const scoreScale = scanner?.scanner_type === 'scorer' ? scanner.scanner_config.scale : undefined
@@ -335,7 +341,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                         }}
                                         data-attr="vision-observations-backfill-filter"
                                     >
-                                        Backfill {shortBackfillId(observationBackfillFilter)}
+                                        Backfill {observationBackfillFilter.slice(0, 8)}
                                     </LemonButton>
                                 )}
                                 <LemonButton
@@ -385,7 +391,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             <LemonTable
                 columns={columns}
                 dataSource={observations}
-                loading={triggeringOnDemandObservation || observationsLoading}
+                loading={!observationsActive || triggeringOnDemandObservation || observationsLoading}
                 rowKey="id"
                 pagination={{
                     controlled: true,
