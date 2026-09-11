@@ -1550,12 +1550,14 @@ def test_cleanup_git_does_not_run_gc_on_a_partial_clone(monkeypatch: pytest.Monk
     # On git 2.50, `git gc` deletes fetched commits that lost promisor status when their
     # pack is older than two weeks. Git's behavior needs a real repo and an old pack, so
     # the doctor:git test above covers the repack itself.
-    _make_pack_dir(tmp_path / ".git", 1)
     ran: list[list[str]] = []
-    monkeypatch.setattr(
-        "hogli_commands.doctor.subprocess.run",
-        lambda cmd, **kw: ran.append(cmd) or SimpleNamespace(returncode=0, stdout="", stderr=""),
-    )
+
+    def fake_run(cmd, **kwargs):
+        ran.append(cmd)
+        stdout = "remote.origin.promisor true\n" if "--get-regexp" in cmd else ""
+        return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
 
     _cleanup_git(CleanupEstimate(total_size=0.0), tmp_path)
 
@@ -1594,10 +1596,12 @@ def test_doctor_git_turns_off_incremental_repack_on_a_partial_clone(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolated_git_config: None
 ) -> None:
     # incremental-repack moves fetched commits out of promisor packs, and a later gc or
-    # repack can then delete them.
+    # repack can then delete them. The capped pack scan can miss every .promisor file,
+    # so the promisor remote in the config must decide, whatever the remote's name.
     repo = tmp_path / "repo"
     _git(tmp_path, "init", "-q", str(repo))
-    _mock_git_health(monkeypatch, repo, packs_high=False, has_promisor=True)
+    _git(repo, "config", "remote.upstream.promisor", "true")
+    _mock_git_health(monkeypatch, repo, packs_high=False, has_promisor=False)
 
     result = CliRunner().invoke(doctor_git, [])
 

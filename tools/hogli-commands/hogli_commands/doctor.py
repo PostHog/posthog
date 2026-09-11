@@ -258,15 +258,15 @@ def doctor_disk(
             title="🧹 Git repository (.git)",
             description=[
                 "Prunes stale remote branches, expires reflogs, and repacks objects.",
-                "Combines: git remote prune + reflog expire + gc --aggressive.",
+                "Combines: git remote prune + reflog expire + repack (gc --aggressive on a full clone).",
                 "Can reclaim 25-40% of .git size (1-1.5GB in large repos).",
             ],
             estimate=_estimate_git,
             cleanup=_cleanup_git,
-            confirmation_prompt="Run Git cleanup (prune + gc)?",
+            confirmation_prompt="Run Git cleanup (prune + repack)?",
             include_in_total=False,
             skip_if_empty=False,
-            dry_run_message="Would run: git remote prune + reflog expire (30 days) + gc --aggressive",
+            dry_run_message="Would run: git remote prune + reflog expire (30 days) + repack (gc --aggressive on a full clone)",
         ),
     ]
 
@@ -584,8 +584,14 @@ _GIT_REPACK_ARGS = ["repack", "-a", "-d", "-l", "--keep-unreachable", "--threads
 
 
 def _is_partial_clone(repo_root: Path) -> bool:
-    common_dir = _git_common_dir(repo_root)
-    return common_dir is not None and _git_health(common_dir, _GIT_PACK_WARNING_THRESHOLD).has_promisor
+    """Whether the repo has a promisor remote, which is how git defines a partial clone.
+
+    The `.promisor` scan in `_git_health` stops at its pack cap, so it can miss the marker.
+    """
+    config = _run_output(
+        ["git", "-C", str(repo_root), "config", "--get-regexp", r"^remote\..*\.promisor$|^extensions\.partialclone$"]
+    )
+    return config is not None and any(not line.endswith(" false") for line in config.splitlines())
 
 
 def _estimate_git(repo_root: Path) -> CleanupEstimate:
@@ -2284,7 +2290,7 @@ def _check_zombies(repo_root: Path) -> CheckResult:
 # A blob:none clone writes a new promisor pack on each on-demand blob fetch.
 # Nothing consolidates them, because `gc.autoPackLimit` does not count promisor
 # packs and a partial clone runs without the `incremental-repack` maintenance task
-# (see `_disable_incremental_repack`).
+# (see `_incremental_repack_enabled`).
 # Pack lookup cost grows with the pack count, which makes `git fetch` and
 # `git status` slow.
 #
@@ -2689,16 +2695,16 @@ def _git_maintenance_registered(main_worktree: Path) -> bool:
     return str(main_worktree) in registered or str(main_worktree.resolve()) in registered
 
 
-def _disable_incremental_repack(main_worktree: Path) -> bool:
-    """Turn off the maintenance task that moves fetched commits out of promisor packs.
+_INCREMENTAL_REPACK_KEY = "maintenance.incremental-repack.enabled"
 
-    `_GIT_REPACK_ARGS` explains how that loses commits. Returns True when this call
-    changed the setting.
+
+def _incremental_repack_enabled(main_worktree: Path) -> bool:
+    """Whether git maintenance can run the task that moves fetched commits out of promisor packs.
+
+    `_GIT_REPACK_ARGS` explains how that loses commits.
     """
-    key = "maintenance.incremental-repack.enabled"
-    if _run_output(["git", "-C", str(main_worktree), "config", "--type=bool", "--get", key]) == "false":
-        return False
-    return _run_ok(["git", "-C", str(main_worktree), "config", key, "false"])
+    cmd = ["git", "-C", str(main_worktree), "config", "--type=bool", "--get", _INCREMENTAL_REPACK_KEY]
+    return _run_output(cmd) != "false"
 
 
 def _spawn_background_repack(main_worktree: Path, common_dir: Path) -> None:
@@ -2821,9 +2827,15 @@ def doctor_git(fix: bool) -> None:
         else:
             click.echo("Could not register scheduled git maintenance. Run `git maintenance start` yourself.")
 
-    if health.has_promisor and _disable_incremental_repack(main_worktree):
-        click.secho("Turned off git's incremental-repack maintenance task.", fg="yellow")
-        click.echo("On a partial clone it can lead to lost commits and a failing `git fetch`.")
+    if _is_partial_clone(main_worktree) and _incremental_repack_enabled(main_worktree):
+        if _run_ok(["git", "-C", str(main_worktree), "config", _INCREMENTAL_REPACK_KEY, "false"]):
+            click.secho("Turned off git's incremental-repack maintenance task.", fg="yellow")
+            click.echo("On a partial clone it can lead to lost commits and a failing `git fetch`.")
+        else:
+            click.echo(
+                "Could not turn off git's incremental-repack maintenance task. "
+                f"Run `git config {_INCREMENTAL_REPACK_KEY} false` yourself."
+            )
         acted = True
 
     count = f"{health.pack_count}+" if health.packs_capped else str(health.pack_count)
