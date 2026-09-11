@@ -206,11 +206,25 @@ export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode', 'cowork'] as c
 export const ANTHROPIC_USER_AGENT_FRAGMENTS = ['claude-user'] as const
 export const ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS = ANTHROPIC_USER_AGENT_FRAGMENTS
 
+/**
+ * Codex truncates a tool result above roughly 10K tokens, and it cuts the
+ * serialized JSON mid-value, so the agent pays for a blob it cannot parse.
+ * Leave headroom below that limit for the harness's own framing.
+ */
+export const CODEX_MAX_RESPONSE_TOKENS = 9_000
+
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
     // clients inject into the model's system prompt. Codex discards it, so
     // we skip sending it (saving the payload cost) for those sessions.
     supportsInstructions: boolean
+    // How much of one tool result the client passes to the model before it
+    // truncates. The response boundary shortens anything larger itself, so the
+    // agent reads a bounded, valid result instead of a cut-off one. Set only for
+    // a client whose limit we have measured: an invented ceiling would shorten a
+    // response the client reads whole, including an explicit request for full
+    // results such as `execute-sql` with `truncate: false`.
+    maxResponseTokens?: number
 }
 
 export const DEFAULT_CLIENT_CAPABILITIES: ClientCapabilities = {
@@ -231,7 +245,7 @@ const CLIENT_CAPABILITY_OVERRIDES: readonly CapabilityOverride[] = [
     {
         fragments: ['codex'],
         userAgentFragments: ['codex'],
-        capabilities: { supportsInstructions: false },
+        capabilities: { supportsInstructions: false, maxResponseTokens: CODEX_MAX_RESPONSE_TOKENS },
     },
 ]
 

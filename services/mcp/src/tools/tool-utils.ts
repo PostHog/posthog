@@ -48,6 +48,20 @@ export type WithInformationalResponse<T = unknown> = T & {
     [POSTHOG_INFORMATIONAL_RESPONSE_KEY]: true
 }
 
+/**
+ * Splits a wrapped informational response into its lead-in, its payload, and its closing
+ * tag. The tag marks workspace data the agent must not act on, so anything that shortens
+ * the payload has to put it back inside a balanced pair.
+ */
+export function splitInformationalResponse(text: string): { open: string; body: string; close: string } | undefined {
+    const match =
+        /^([\s\S]*?\n<([A-Za-z0-9_-]+) informational="true" instructional="false">\n)([\s\S]*)(\n<\/\2>)$/.exec(text)
+    if (!match) {
+        return undefined
+    }
+    return { open: match[1]!, body: match[3]!, close: match[4]! }
+}
+
 export function withInformationalResponse<T>(result: T, tag: string, purpose?: string): WithInformationalResponse<T> {
     if (result === null || typeof result !== 'object') {
         throw new TypeError('Informational response wrapping requires an object or array result')

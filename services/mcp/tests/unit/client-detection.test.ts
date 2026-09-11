@@ -4,6 +4,7 @@ import {
     ANTHROPIC_CLIENT_NAME_FRAGMENTS,
     ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS,
     ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS,
+    CODEX_MAX_RESPONSE_TOKENS,
     CODING_AGENT_CLIENT_NAME_FRAGMENTS,
     DEFAULT_CLIENT_CAPABILITIES,
     MCPClientProfile,
@@ -523,6 +524,26 @@ describe('MCPClientProfile', () => {
 
         it.each([[undefined], [''], ['   ']])('defaults to true for %s', (clientName) => {
             expect(new MCPClientProfile({ clientName }).capabilities.supportsInstructions).toBe(true)
+        })
+    })
+
+    describe('capabilities.maxResponseTokens', () => {
+        // A client whose limit we have not measured resolves to no budget, so the
+        // response boundary leaves it the size it gets today.
+        it.each([
+            ['codex', CODEX_MAX_RESPONSE_TOKENS],
+            ['Codex CLI', CODEX_MAX_RESPONSE_TOKENS],
+            ['claude-code', undefined],
+            ['cursor', undefined],
+            [undefined, undefined],
+        ])('resolves %j to %j', (clientName, expected) => {
+            expect(new MCPClientProfile({ clientName }).capabilities.maxResponseTokens).toBe(expected)
+        })
+
+        it('resolves the tighter budget for the name-less Codex surface of openai-mcp', () => {
+            expect(new MCPClientProfile({ userAgent: 'openai-mcp/1.0.0 (Codex)' }).capabilities.maxResponseTokens).toBe(
+                CODEX_MAX_RESPONSE_TOKENS
+            )
         })
     })
 
