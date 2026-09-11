@@ -776,7 +776,174 @@ describe("PiSessionController", () => {
     expect(unsubscribe).not.toHaveBeenCalled();
 
     onCloudStatus?.("completed");
+    await Promise.resolve();
     expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(controller.store.getState().sessions["task-1"].events).toEqual([]);
+  });
+
+  it("notifies a background cloud completion before releasing the session", async () => {
+    const session: PiSession = {
+      ...createSession(),
+      cloudStatus: "in_progress",
+    };
+    const unsubscribe = vi.fn();
+    let onEvent: (
+      event: AgentConversationEvent,
+      context?: PiConversationEventContext,
+    ) => void = () => {};
+    let onCloudStatus: Parameters<PiSession["onConversationEvent"]>[2];
+    vi.mocked(session.onConversationEvent).mockImplementation(
+      (handler, _error, onStatus) => {
+        onEvent = handler;
+        onCloudStatus = onStatus;
+        return unsubscribe;
+      },
+    );
+    const notifier = { notify: vi.fn() } as unknown as AgentSessionNotifier;
+    const controller = createController(
+      session,
+      undefined,
+      undefined,
+      notifier,
+    );
+    controller.setNotificationContext("task-1", {
+      taskTitle: "Fix notifications",
+      isTaskAuthor: true,
+    });
+
+    await controller.connect("task-1");
+    controller.release("task-1");
+
+    // The cloud client reports the terminal status first, then emits the turn event.
+    onCloudStatus?.("completed");
+    onEvent(
+      { type: "turn_completed", timestamp: 5, stopReason: "stop" },
+      { isLive: true },
+    );
+    await Promise.resolve();
+
+    expect(notifier.notify).toHaveBeenCalledOnce();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it("releases a finished cloud run holding an unanswered permission request", async () => {
+    const session: PiSession = {
+      ...createSession(),
+      cloudStatus: "in_progress",
+    };
+    const unsubscribe = vi.fn();
+    let onCloudStatus: Parameters<PiSession["onConversationEvent"]>[2];
+    vi.mocked(session.onConversationEvent).mockImplementation(
+      (_event, _error, onStatus) => {
+        onCloudStatus = onStatus;
+        return unsubscribe;
+      },
+    );
+    let onRequest: ((request: McpToolPermissionRequest) => void) | undefined;
+    session.onMcpToolPermissionRequest = vi.fn((callback) => {
+      onRequest = callback;
+      return () => {};
+    });
+    const controller = createController(session);
+
+    await controller.connect("task-1");
+    onRequest?.({
+      requestId: "call-1",
+      serverName: "Cloudflare",
+      toolName: "search",
+      installationId: "installation-1",
+      arguments: {},
+    });
+    controller.release("task-1");
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    onCloudStatus?.("cancelled");
+    await Promise.resolve();
+
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(
+      controller.store.getState().sessions["task-1"].mcpToolPermissionRequests
+        .size,
+    ).toBe(0);
+  });
+
+  it("keeps an inactive session until requested compaction reaches the runtime", async () => {
+    const session = createSession();
+    const unsubscribe = vi.fn();
+    vi.mocked(session.onConversationEvent).mockReturnValue(unsubscribe);
+    let finish: () => void = () => {};
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    session.client.compact = (async () => {
+      await pending;
+      return undefined;
+    }) as unknown as PiRemoteRpcClient["compact"];
+    const controller = createController(session);
+
+    await controller.connect("task-1");
+    const compaction = controller.submit("task-1", "/compact", false, "steer");
+    controller.release("task-1");
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    finish();
+    await compaction;
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it("releases an inactive session after a failed prompt", async () => {
+    const session = createSession();
+    const unsubscribe = vi.fn();
+    vi.mocked(session.onConversationEvent).mockReturnValue(unsubscribe);
+    let fail: (error: Error) => void = () => {};
+    const pending = new Promise<void>((_resolve, reject) => {
+      fail = reject;
+    });
+    vi.mocked(session.client.prompt).mockImplementation(async () => {
+      await pending;
+    });
+    const controller = createController(session);
+
+    await controller.connect("task-1");
+    const submission = controller.submit("task-1", "Go", false, "steer");
+    controller.release("task-1");
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    fail(new Error("Pi is unavailable"));
+    await expect(submission).rejects.toThrow(PiOperationError);
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it("does not reclaim view ownership when a retry outlives its view", async () => {
+    const session = createSession();
+    let liveSubscriptions = 0;
+    vi.mocked(session.onConversationEvent).mockImplementation(() => {
+      liveSubscriptions += 1;
+      return () => {
+        liveSubscriptions -= 1;
+      };
+    });
+    vi.mocked(session.getConversation).mockResolvedValue([
+      { type: "turn_completed", timestamp: 1 },
+    ]);
+    let finish: () => void = () => {};
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    session.retry = vi.fn(async () => {
+      await pending;
+    });
+    const controller = createController(session);
+
+    await controller.connect("task-1");
+    const retrying = controller.retry("task-1");
+    controller.release("task-1");
+    expect(liveSubscriptions).toBe(1);
+
+    finish();
+    await retrying;
+
+    expect(liveSubscriptions).toBe(0);
     expect(controller.store.getState().sessions["task-1"].events).toEqual([]);
   });
 
@@ -1289,6 +1456,11 @@ describe("PiSessionController", () => {
 
       controller[release]("task-1");
       expect(controller.store.getState().sessions["task-1"].events).toEqual([]);
+      // The view keys its loading skeleton off status, so a released session
+      // must not look like a loaded one with an empty transcript.
+      expect(controller.store.getState().sessions["task-1"].status).toBe(
+        undefined,
+      );
       await controller.ensureConnected("task-1");
 
       expect(provider.get).toHaveBeenCalledTimes(2);
