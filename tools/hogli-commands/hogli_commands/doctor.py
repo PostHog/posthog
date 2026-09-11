@@ -573,6 +573,21 @@ def _estimate_pnpm_store(repo_root: Path) -> CleanupEstimate:
     return CleanupEstimate(total_size=0.0, items=[], details=details)
 
 
+# `git repack -a -d` can delete commits in a partial clone. It walks refs with
+# --exclude-promisor-objects, and that walk stops at each commit in a promisor pack.
+# The repack then deletes the commits behind that point that are in an ordinary pack.
+# Git expects to fetch them again, but `git fetch` does not, so it fails with
+# "Could not read <sha>". Git's incremental-repack maintenance task moves fetched
+# commits into ordinary packs. --keep-unreachable writes those commits into the new
+# pack instead of deleting them.
+_GIT_REPACK_ARGS = ["repack", "-a", "-d", "-l", "--keep-unreachable", "--threads=0"]
+
+
+def _is_partial_clone(repo_root: Path) -> bool:
+    common_dir = _git_common_dir(repo_root)
+    return common_dir is not None and _git_health(common_dir, _GIT_PACK_WARNING_THRESHOLD).has_promisor
+
+
 def _estimate_git(repo_root: Path) -> CleanupEstimate:
     """Check .git directory size and estimate reclaimable space."""
 
@@ -606,11 +621,12 @@ def _estimate_git(repo_root: Path) -> CleanupEstimate:
         len(list((git_dir / "objects" / "pack").glob("*.pack"))) if (git_dir / "objects" / "pack").exists() else 0
     )
 
+    repack = "repack" if _is_partial_clone(repo_root) else "gc --aggressive"
     details = [
         f"   Current .git size: {_format_size(git_size)}",
         f"   Pack files: {pack_count}",
         "   Estimated reclaimable: ~30% (25-40% typical)",
-        "   Operations: remote prune + reflog expire + gc --aggressive",
+        f"   Operations: remote prune + reflog expire + {repack}",
     ]
 
     return CleanupEstimate(total_size=0.0, items=[], details=details)
@@ -650,7 +666,7 @@ def _cleanup_items(estimate: CleanupEstimate, _: Path) -> CleanupStats:
 
 
 def _cleanup_git(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
-    """Execute git cleanup: prune remotes, expire reflogs, and run gc."""
+    """Execute git cleanup: prune remotes, expire reflogs, and repack."""
 
     click.echo()
     success = True
@@ -667,11 +683,16 @@ def _cleanup_git(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
     if result.returncode != 0:
         success = False
 
-    # Step 3: Run gc --aggressive (this can take 1-2 minutes)
-    # Git will show its own progress output
-    # Note: omit --prune=now to use git's safe 2-week default
-    click.echo("   Running git gc --aggressive (may take 1-2 minutes)...")
-    result = subprocess.run(["git", "gc", "--aggressive"], cwd=repo_root, check=False)
+    # Step 3: Repack
+    if _is_partial_clone(repo_root):
+        # Some git versions, 2.50 among them, make `git gc` delete the same commits as
+        # `repack -a -d` when their pack is older than two weeks. See _GIT_REPACK_ARGS.
+        click.echo("   Running git repack (may take a few minutes)...")
+        result = subprocess.run(["git", *_GIT_REPACK_ARGS], cwd=repo_root, check=False)
+    else:
+        # Note: omit --prune=now to use git's safe 2-week default
+        click.echo("   Running git gc --aggressive (may take 1-2 minutes)...")
+        result = subprocess.run(["git", "gc", "--aggressive"], cwd=repo_root, check=False)
     if result.returncode != 0:
         success = False
 
@@ -2262,7 +2283,8 @@ def _check_zombies(repo_root: Path) -> CheckResult:
 
 # A blob:none clone writes a new promisor pack on each on-demand blob fetch.
 # Nothing consolidates them, because `gc.autoPackLimit` does not count promisor
-# packs and the `incremental-repack` maintenance task does not merge them.
+# packs and a partial clone runs without the `incremental-repack` maintenance task
+# (see `_disable_incremental_repack`).
 # Pack lookup cost grows with the pack count, which makes `git fetch` and
 # `git status` slow.
 #
@@ -2667,14 +2689,26 @@ def _git_maintenance_registered(main_worktree: Path) -> bool:
     return str(main_worktree) in registered or str(main_worktree.resolve()) in registered
 
 
+def _disable_incremental_repack(main_worktree: Path) -> bool:
+    """Turn off the maintenance task that moves fetched commits out of promisor packs.
+
+    `_GIT_REPACK_ARGS` explains how that loses commits. Returns True when this call
+    changed the setting.
+    """
+    key = "maintenance.incremental-repack.enabled"
+    if _run_output(["git", "-C", str(main_worktree), "config", "--type=bool", "--get", key]) == "false":
+        return False
+    return _run_ok(["git", "-C", str(main_worktree), "config", key, "false"])
+
+
 def _spawn_background_repack(main_worktree: Path, common_dir: Path) -> None:
-    """Start `git repack -ad` detached, at background priority.
+    """Start the repack detached, at background priority.
 
     A repack takes minutes, and `hogli start` must not wait for it. Git never does
     this itself on a partial clone, for the reason given at
     `_GIT_PACK_WARNING_THRESHOLD`.
     """
-    cmd = ["git", "-C", str(main_worktree), "repack", "-adl", "--threads=0"]
+    cmd = ["git", "-C", str(main_worktree), *_GIT_REPACK_ARGS]
     # taskpolicy -b puts the repack in the background QoS band, which throttles its
     # IO as well as its CPU. Without it the repack competes with the dev stack.
     if shutil.which("taskpolicy"):
@@ -2698,14 +2732,16 @@ def _run_git(main_worktree: Path, args: list[str], label: str) -> bool:
 
 
 def _write_commit_graph(main_worktree: Path) -> bool:
-    """Backfill unreadable commits, then write the graph.
+    """Fetch missing commits again, then write the graph.
 
     `commit-graph write --reachable` stops at the first commit it cannot read, and a
     partial clone does not lazy-fetch during that walk, so one absent commit leaves
     the repo with no commit-graph at all.
     """
+    # An existing commit-graph can still list a deleted commit, and rev-list then
+    # reads the commit from the graph and does not report it.
     missing = subprocess.run(
-        ["git", "-C", str(main_worktree), "rev-list", "--all", "--missing=print"],
+        ["git", "-C", str(main_worktree), "-c", "core.commitGraph=false", "rev-list", "--all", "--missing=print"],
         capture_output=True,
         text=True,
         env={**os.environ, "GIT_NO_LAZY_FETCH": "1"},
@@ -2714,8 +2750,22 @@ def _write_commit_graph(main_worktree: Path) -> bool:
     oids = [line[1:] for line in missing.stdout.splitlines() if line.startswith("?")]
     if oids:
         click.echo(f"  fetching {len(oids)} missing commits...")
-        for oid in oids:
-            subprocess.run(["git", "-C", str(main_worktree), "cat-file", "-e", oid], check=False, capture_output=True)
+        # A normal fetch does not send an ancestor of a commit the repo already has.
+        # A lazy fetch refuses a commit that the commit-graph lists. --refetch skips
+        # negotiation and gets all of them in one pack. After --refetch, git forces an
+        # auto gc and incremental-repack, which are the repacks that lose commits.
+        refetch = [
+            "-c",
+            "core.commitGraph=false",
+            "fetch",
+            "--refetch",
+            "--no-auto-maintenance",
+            "--no-write-fetch-head",
+            "origin",
+            *oids,
+        ]
+        if not _run_git(main_worktree, refetch, "refetch of missing commits"):
+            return False
     click.echo("  writing commit-graph...")
     return _run_git(
         main_worktree, ["commit-graph", "write", "--reachable", "--split", "--no-progress"], "commit-graph write"
@@ -2771,6 +2821,11 @@ def doctor_git(fix: bool) -> None:
         else:
             click.echo("Could not register scheduled git maintenance. Run `git maintenance start` yourself.")
 
+    if health.has_promisor and _disable_incremental_repack(main_worktree):
+        click.secho("Turned off git's incremental-repack maintenance task.", fg="yellow")
+        click.echo("On a partial clone it can lead to lost commits and a failing `git fetch`.")
+        acted = True
+
     count = f"{health.pack_count}+" if health.packs_capped else str(health.pack_count)
 
     if fix:
@@ -2780,7 +2835,7 @@ def doctor_git(fix: bool) -> None:
         ok = True
         if packs_high:
             click.echo(f"{count} pack files. Repacking in the foreground, which takes minutes.")
-            ok = _run_git(main_worktree, ["repack", "-adl", "--threads=0"], "repack")
+            ok = _run_git(main_worktree, _GIT_REPACK_ARGS, "repack")
         ok = ok and _write_commit_graph(main_worktree)
         if ok and health.pack_count:
             ok = _run_git(main_worktree, ["multi-pack-index", "write", "--no-progress"], "multi-pack-index write")
