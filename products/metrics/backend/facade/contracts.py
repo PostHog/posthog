@@ -22,6 +22,8 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
+from posthog.dataclasses import frozen
+
 from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
@@ -41,6 +43,24 @@ METRICS_ERROR_OVERLAYS_FEATURE_FLAG = "metrics-error-overlays"
 # viewer, not a feature for the teams on the alpha, so it needs a gate of its own
 # on top of METRICS_FEATURE_FLAG.
 METRICS_FUNDAMENTALS_FEATURE_FLAG = "metrics-fundamentals"
+
+# Grafana-facing Prometheus read API, layered on top of METRICS_FEATURE_FLAG.
+# Rolls out to the asking customer first and can be turned off independently if
+# query load from external dashboards is a problem.
+METRICS_PROMETHEUS_API_FEATURE_FLAG = "metrics-prometheus-api"
+
+
+@frozen
+class PrometheusUpstreamResponse:
+    """What Snuffle answered, passed through verbatim to Grafana."""
+
+    status_code: int
+    content: bytes
+    content_type: str
+
+
+class PrometheusUpstreamUnavailable(Exception):
+    """Snuffle is unreachable or not configured; the view maps this to 503."""
 
 
 @dataclass(frozen=True, slots=True)

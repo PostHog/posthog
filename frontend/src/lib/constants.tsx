@@ -408,6 +408,7 @@ export const FEATURE_FLAGS = {
     METRICS: 'metrics', // owner: #team-apm (@jonmcwest, @frankh)
     METRICS_ERROR_OVERLAYS: 'metrics-error-overlays', // owner: #team-apm — gates the error-spike overlay PoC on metrics charts
     METRICS_FUNDAMENTALS: 'metrics-fundamentals', // owner: #team-apm (@jonmcwest, @frankh), gates the Fundamentals tab and the explain API behind it, which check the metrics viewer's own reductions
+    METRICS_PROMETHEUS_API: 'metrics-prometheus-api', // owner: #team-apm — gates the Grafana-compatible Prometheus read API
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
     NOTEBOOK_GENERATED_WIDGETS: 'notebook-generated-widgets', // owner: #team-data-tools
