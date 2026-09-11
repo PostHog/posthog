@@ -713,7 +713,7 @@ class TestFacadeReadsAndMappers(TestCase):
             },
         )
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -740,7 +740,7 @@ class TestFacadeReadsAndMappers(TestCase):
             status=TaskRun.Status.COMPLETED,
         )
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -784,7 +784,7 @@ class TestFacadeReadsAndMappers(TestCase):
             state={"custom_image_id": str(image.id)},
         )
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -814,7 +814,7 @@ class TestFacadeReadsAndMappers(TestCase):
             state={"self_driving_head_branch": "posthog-self-driving/fix-abc123"},
         )
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -841,7 +841,7 @@ class TestFacadeReadsAndMappers(TestCase):
             state={"ai_stage": "implementation"},
         )
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -872,7 +872,7 @@ class TestFacadeReadsAndMappers(TestCase):
         SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"autostart_base_branches": overrides})
         task = self._make_task(repository="Acme/Web", origin_product=Task.OriginProduct.SIGNAL_REPORT)
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -893,7 +893,7 @@ class TestFacadeReadsAndMappers(TestCase):
         )
         task = self._make_task(repository="Acme/Web", origin_product=Task.OriginProduct.USER_CREATED)
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -2045,7 +2045,7 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
         with (
             self._on_trial(),
             patch("products.signals.backend.free_trial.capture_signal_report_free_trial_paused") as capture_mock,
-            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"),
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None),
         ):
             if expect_refusal:
                 with self.assertRaises(FreeTrialPullRequestRefused) as raised:

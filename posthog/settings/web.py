@@ -601,6 +601,8 @@ SPECTACULAR_SETTINGS = {
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
+            "RunSourceEnum": ["manual", "signal_report", "agent"],
+            "TaskBootstrapRunSourceEnum": ["manual", "signal_report"],
             #
             # The same choice set is declared in more than one product. A shared Choices
             # class would cross a product boundary, so the entry names the set centrally.

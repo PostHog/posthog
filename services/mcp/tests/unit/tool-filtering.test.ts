@@ -28,6 +28,30 @@ const collectAlwaysAvailableToolNames = (): string[] =>
         .map(([name]) => name)
 
 describe('Tool Filtering - Features', () => {
+    it.each([false, true])('hides run-start tools from sandbox tokens: %s', async (sandbox) => {
+        const context = {
+            stateManager: {
+                getApiKey: async () => ({
+                    scopes: ['task:read', 'task:write', ...(sandbox ? ['internal_run:read'] : [])],
+                }),
+                getAiConsentGiven: async () => true,
+            },
+        } as unknown as Context
+        const tools = await getToolsFromContext(context, {
+            featureFlags: { tasks: true, 'tasks-mcp-agent-run-start': true },
+        })
+        const names = tools.map((tool) => tool.name)
+        expect(names).toContain('tasks-create')
+        expect(names.includes('tasks-create-and-run')).toBe(!sandbox)
+        expect(names.includes('tasks-run-create')).toBe(!sandbox)
+    })
+
+    it('does not advertise run-start tools before rollout', () => {
+        const names = getToolsForFeatures({ featureFlags: { tasks: true, 'tasks-mcp-agent-run-start': false } })
+        expect(names).toContain('tasks-create')
+        expect(names).not.toContain('tasks-create-and-run')
+        expect(names).not.toContain('tasks-run-create')
+    })
     const featureTests = [
         {
             features: undefined,
@@ -962,6 +986,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'revamped-py-notebooks',
                 'notebook-generated-widgets',
                 'tasks',
+                'tasks-mcp-agent-run-start',
                 'dashboard-widgets',
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
@@ -987,7 +1012,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(34)
+        expect(flags).toHaveLength(35)
     })
 
     it('every loops tool is gated on the loops flag', () => {

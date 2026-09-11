@@ -142,8 +142,8 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
         )
         with patch.object(
             tasks_facade,
-            "get_task_run_detail",
-            return_value=SimpleNamespace(state={"claude_model_access": "own-subscription"}),
+            "get_task_run_claude_model_access",
+            return_value="own-subscription",
         ):
             assert serializer.is_valid() is (not sandbox and not resume), serializer.errors
         if sandbox or resume:

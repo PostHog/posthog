@@ -1191,7 +1191,8 @@ class TestWarmRunRelease(APIBaseTest):
 
 
 class TestWarmTaskResumeSandbox(APIBaseTest):
-    def test_warms_and_activates_a_successor_for_the_latest_terminal_run(self):
+    @parameterized.expand(["release", None])
+    def test_warms_and_activates_a_successor_for_the_latest_terminal_run(self, base_branch):
         task = Task.objects.create(
             team=self.team,
             title="",
@@ -1201,10 +1202,10 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
         )
         terminal = task.create_run(
             mode="interactive",
-            branch="main",
+            branch="release",
             extra_state={
                 "snapshot_external_id": "snapshot-1",
-                "pr_base_branch": "main",
+                "pr_base_branch": base_branch,
                 "auto_publish": True,
                 "runtime_adapter": "claude",
                 "model": "claude-sonnet-5",
@@ -1232,6 +1233,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
 
         assert warmed is not None
         warm_run = TaskRun.objects.get(id=warmed.run_id)
+        assert warm_run.branch == "release"
         assert warm_run.state["resume_from_run_id"] == str(terminal.id)
         assert warm_run.state["snapshot_external_id"] == "snapshot-1"
         assert warm_run.state["await_user_message"] is True
@@ -1468,7 +1470,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
         task, run = self._warm_run(branch="main")
         with (
             patch(f"{FACADE}.signal_task_run_user_message") as m_signal,
-            patch(f"{FACADE}._trigger_task_processing_workflow") as m_trigger,
+            patch(f"{FACADE}._trigger_task_processing_workflow", return_value=None) as m_trigger,
         ):
             facade.run_task(
                 task.id,
@@ -1482,6 +1484,34 @@ class TestRunTaskWarmActivation(APIBaseTest):
         assert task.runs.count() == 2
         run.refresh_from_db()
         assert run.state.get("await_user_message") is True  # warm run untouched
+
+    def test_agent_run_does_not_activate_warm_run(self):
+        task, run = self._warm_run(branch="main")
+        with (
+            patch(f"{FACADE}.signal_task_run_user_message") as mock_signal,
+            patch(f"{FACADE}._trigger_task_processing_workflow", return_value=None) as mock_trigger,
+        ):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "background",
+                    "branch": "main",
+                    "run_source": "agent",
+                    "pending_user_message": "do it",
+                },
+            )
+
+        assert result is not None and result.error is None
+        mock_signal.assert_not_called()
+        mock_trigger.assert_called_once()
+        assert task.runs.count() == 2
+        run.refresh_from_db()
+        assert run.state.get("await_user_message") is True
+        agent_run = task.runs.exclude(id=run.id).get()
+        assert agent_run.state["mode"] == "background"
+        assert agent_run.state["run_source"] == "agent"
 
     def test_resume_successor_is_not_activated_for_a_run_that_asks_for_no_resume(self):
         # A successor's filesystem was restored from the run it resumes, so handing it to a request
@@ -1500,7 +1530,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
         )
         with (
             patch(f"{FACADE}.signal_task_run_user_message") as m_signal,
-            patch(f"{FACADE}._trigger_task_processing_workflow") as m_trigger,
+            patch(f"{FACADE}._trigger_task_processing_workflow", return_value=None) as m_trigger,
         ):
             facade.run_task(
                 task.id,
@@ -1531,7 +1561,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
 
         with (
             patch(f"{FACADE}.signal_task_run_user_message") as mock_signal,
-            patch(f"{FACADE}._trigger_task_processing_workflow") as mock_trigger,
+            patch(f"{FACADE}._trigger_task_processing_workflow", return_value=None) as mock_trigger,
         ):
             facade.run_task(
                 task.id,
@@ -1555,7 +1585,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
         task, run = self._warm_run()
         with (
             patch(f"{FACADE}.signal_task_run_user_message") as mock_signal,
-            patch(f"{FACADE}._trigger_task_processing_workflow") as mock_trigger,
+            patch(f"{FACADE}._trigger_task_processing_workflow", return_value=None) as mock_trigger,
         ):
             facade.run_task(
                 task.id,
@@ -1578,7 +1608,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
         task, run = self._warm_run()
         with (
             patch(f"{FACADE}.signal_task_run_user_message") as mock_signal,
-            patch(f"{FACADE}._trigger_task_processing_workflow") as mock_trigger,
+            patch(f"{FACADE}._trigger_task_processing_workflow", return_value=None) as mock_trigger,
         ):
             facade.run_task(
                 task.id,
@@ -1631,7 +1661,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
 
         with (
             patch(f"{FACADE}.signal_task_run_user_message") as mock_signal,
-            patch(f"{FACADE}._trigger_task_processing_workflow") as mock_trigger,
+            patch(f"{FACADE}._trigger_task_processing_workflow", return_value=None) as mock_trigger,
         ):
             result = facade.run_task(
                 task.id,

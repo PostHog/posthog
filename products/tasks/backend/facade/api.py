@@ -234,6 +234,8 @@ __all__ = [
     "get_task_run_session",
     "sync_task_run_session",
     "get_task_run_detail",
+    "get_task_run_source",
+    "get_task_run_claude_model_access",
     "get_task_run_sandbox_connection",
     "resolve_task_run_preview_redirect",
     "task_run_preview_ready",
@@ -494,7 +496,9 @@ def _task_run_log_url(run: TaskRun) -> str | None:
     return presigned_url
 
 
-def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) -> contracts.TaskRunDetailDTO:
+def _task_run_detail_to_dto(
+    run: TaskRun, *, include_agent_state: bool = False, include_log_url: bool = True
+) -> contracts.TaskRunDetailDTO:
     """Map a ``TaskRun`` to its HTTP detail DTO.
 
     Reproduces the SMF-derived fields ``TaskRunDetailSerializer`` computed: ``log_url`` does
@@ -517,7 +521,7 @@ def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) 
         provider=state.provider.value if state.provider is not None else None,
         model=state.model,
         reasoning_effort=state.reasoning_effort.value if state.reasoning_effort is not None else None,
-        log_url=_task_run_log_url(run),
+        log_url=_task_run_log_url(run) if include_log_url else None,
         error_message=run.error_message,
         output=run.output,
         state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
@@ -628,6 +632,7 @@ def _task_detail_to_dto(
     *,
     include_latest_run: bool = True,
     latest_run: TaskRun | None | _LatestRunUnset = _LATEST_RUN_UNSET,
+    include_latest_run_log_url: bool = True,
 ) -> contracts.TaskDetailDTO:
     """Map a ``Task`` to its HTTP detail DTO."""
     if not include_latest_run:
@@ -658,7 +663,11 @@ def _task_detail_to_dto(
         archived=task.archived,
         archived_at=task.archived_at,
         ci_prompt=task.ci_prompt,
-        latest_run=_task_run_detail_to_dto(resolved_latest_run) if resolved_latest_run is not None else None,
+        latest_run=(
+            _task_run_detail_to_dto(resolved_latest_run, include_log_url=include_latest_run_log_url)
+            if resolved_latest_run is not None
+            else None
+        ),
         created_at=task.created_at,
         updated_at=task.updated_at,
         last_activity_at=task.last_activity_at or task.updated_at,
@@ -2203,6 +2212,8 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        "run_source",
+        "pr_base_branch",
         "github_credential_source",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
@@ -2449,6 +2460,22 @@ def list_task_runs(task_id: str | UUID, team_id: int) -> list[contracts.TaskRunD
     """All runs for a task, team-scoped. Caller enforces task visibility."""
     runs = _task_run_queryset().filter(team_id=team_id, task_id=task_id)
     return [_task_run_detail_to_dto(run) for run in runs]
+
+
+def get_task_run_source(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+    return (
+        TaskRun.objects.filter(pk=run_id, team_id=team_id, task_id=task_id)
+        .values_list("state__run_source", flat=True)
+        .first()
+    )
+
+
+def get_task_run_claude_model_access(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+    return (
+        TaskRun.objects.filter(pk=run_id, team_id=team_id, task_id=task_id)
+        .values_list("state__claude_model_access", flat=True)
+        .first()
+    )
 
 
 def get_task_run_detail(
@@ -4929,7 +4956,7 @@ def _trigger_task_processing_workflow(
     initial_message: str | None = None,
     initial_artifact_ids: list[str] | None = None,
     raise_on_error: bool = False,
-) -> None:
+) -> str | None:
     from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
         WorkflowDispatchOptions,
         enqueue_or_start_workflow,
@@ -4964,30 +4991,33 @@ def _trigger_task_processing_workflow(
             ),
         )
         logger.info("Workflow trigger completed for task %s, run %s", task.id, run.id)
+        return None
     except Exception as e:
         logger.exception("Failed to trigger task processing workflow for task %s, run %s: %s", task.id, run.id, e)
         if raise_on_error:
             raise
+        return "Failed to start task workflow."
 
 
 # Statuses from which a cloud run may be started via the start endpoint.
 _STARTABLE_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED)
 
 
-def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str:
+def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: int) -> tuple[str, str | None]:
     """Whether a run can be started via the start endpoint.
 
     Returns ``"not_found"`` (run missing), ``"not_cloud"``, ``"bad_status:<current>"``, or
-    ``"ok"``. The usage gate (429) is applied by the view between this check and ``start_task_run``.
+    ``"ok"``, together with the stored run source. The view applies the usage gate before ``start_task_run``.
     """
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
-        return "not_found"
+        return "not_found", None
+    run_source = (run.state or {}).get("run_source")
     if run.environment != TaskRun.Environment.CLOUD:
-        return "not_cloud"
+        return "not_cloud", run_source
     if run.status not in _STARTABLE_TASK_RUN_STATUSES:
-        return f"bad_status:{run.status}"
-    return "ok"
+        return f"bad_status:{run.status}", run_source
+    return "ok", run_source
 
 
 def start_task_run(
@@ -5853,6 +5883,41 @@ def _capture_no_repo_selection_override(
         )
     except Exception as e:
         logger.warning("signal_report_no_repo_selection_overridden capture failed for report %s: %s", report_id, e)
+
+
+def create_task_and_run(
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    run_data: dict,
+    client_provenance: TaskClientProvenance | None = None,
+    code_access_allowed: bool = False,
+) -> contracts.TaskRunResult:
+    from products.signals.backend.facade.api import ReportTaskCapExceeded
+
+    create_data = dict(validated_data)
+    create_data.pop("branch", None)
+    task = create_task(
+        team_id,
+        user_id,
+        validated_data=create_data,
+        client_provenance=client_provenance,
+        code_access_allowed=code_access_allowed,
+    )
+    try:
+        result = run_task(task.id, team_id, user_id, validated_data=run_data)
+        if result is None:
+            return contracts.TaskRunResult(task=task, run_error="Failed to create task run.")
+        return contracts.TaskRunResult(
+            task=result.task or task,
+            run_error=result.error.detail if result.error else result.run_error,
+        )
+    except ReportTaskCapExceeded as error:
+        return contracts.TaskRunResult(task=task, run_error=error.detail)
+    except Exception:
+        logger.exception("Failed to create first run for task %s", task.id)
+        return contracts.TaskRunResult(task=task, run_error="Failed to create task run.")
 
 
 def create_task(
@@ -7161,7 +7226,7 @@ def warm_task_resume_sandbox(
     if validation_error is not None:
         return None
 
-    branch = previous_state.pr_base_branch
+    branch = previous_state.pr_base_branch or previous_run.branch or (previous_run.state or {}).get("branch")
     sandbox_environment_id = previous_state.sandbox_environment_id
     custom_image_id = (previous_run.state or {}).get("custom_image_id")
     if not _warm_sandbox_selection_is_accessible(
@@ -7294,6 +7359,7 @@ def run_task(
                 team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
             )
     mode = validated_data.get("mode", "background")
+    run_source = validated_data.get("run_source")
     branch = validated_data.get("branch")
     resume_from_run_id = validated_data.get("resume_from_run_id")
     pending_user_message = validated_data.get("pending_user_message")
@@ -7315,6 +7381,19 @@ def run_task(
                 )
             )
         previous_state = parse_run_state(previous_run.state)
+        if previous_state.run_source == RunSource.AGENT:
+            run_source = RunSource.AGENT
+        previous_branch = (
+            previous_state.pr_base_branch or previous_run.branch or (previous_run.state or {}).get("branch")
+        )
+        if branch is not None and branch != previous_branch:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(
+                    kind="detail", detail="A resumed run must use its previous base branch. Omit branch to resume."
+                )
+            )
+
+        branch = previous_branch
 
     if branch is None and not resume_from_run_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
         # The inbox "Create PR" button sends no branch, so without this the run would target the
@@ -7344,7 +7423,7 @@ def run_task(
     if claude_model_access is None and previous_state is not None:
         claude_model_access = previous_state.claude_model_access
 
-    warm_run = _idling_warm_run_for_task(task)
+    warm_run = None if run_source == RunSource.AGENT else _idling_warm_run_for_task(task)
     if warm_run is not None and claude_model_access == "own-subscription":
         warm_run = None
     if warm_run is not None:
@@ -7356,10 +7435,7 @@ def run_task(
         warm_resume_matches = (warm_state.get("resume_from_run_id") or None) == (
             str(resume_from_run_id) if resume_from_run_id else None
         )
-        effective_branch = branch
-        if effective_branch is None and previous_state is not None:
-            effective_branch = previous_state.pr_base_branch
-        if warm_resume_matches and (effective_branch or None) == (warm_run.branch or None):
+        if warm_resume_matches and (branch or None) == (warm_run.branch or None):
             desired_runtime_adapter = validated_data.get("runtime_adapter")
             desired_model = validated_data.get("model")
             desired_context_window = validated_data.get("context_window")
@@ -7448,7 +7524,6 @@ def run_task(
     custom_image_id_supplied_by_user = custom_image_id is not None
     pr_authorship_mode = validated_data.get("pr_authorship_mode")
     auto_publish = validated_data.get("auto_publish")
-    run_source = validated_data.get("run_source")
     signal_report_id = validated_data.get("signal_report_id")
     runtime_adapter = validated_data.get("runtime_adapter")
     model = validated_data.get("model")
@@ -7716,7 +7791,7 @@ def run_task(
         initial_message = (
             pending_user_message if resume_from_run_id else pending_user_message or task.description or None
         )
-        _trigger_task_processing_workflow(
+        run_error = _trigger_task_processing_workflow(
             task,
             task_run,
             user_id,
@@ -7725,9 +7800,19 @@ def run_task(
             raise_on_error=False,
         )
     else:
-        _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
+        run_error = _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
 
-    return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
+    if run_error is None:
+        task_run.refresh_from_db(fields=["status", "error_message"])
+        if task_run.status == TaskRun.Status.FAILED:
+            run_error = task_run.error_message or "Failed to start task workflow."
+
+    try:
+        task_detail = get_task_detail(task.id, team_id, user_id)
+    except Exception:
+        logger.exception("Failed to hydrate task %s after starting run %s", task.id, task_run.id)
+        task_detail = _task_detail_to_dto(task, latest_run=task_run, include_latest_run_log_url=False)
+    return contracts.TaskRunResult(task=task_detail, run_error=run_error)
 
 
 # --- Task presence beacons ---
