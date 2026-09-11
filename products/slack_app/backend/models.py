@@ -98,6 +98,13 @@ class SlackUserProfileCache(UUIDModel):
     is_admin = models.BooleanField(default=False, db_default=False)
     is_owner = models.BooleanField(default=False, db_default=False)
     is_bot = models.BooleanField(default=False, db_default=False)
+    # Whether the Slack user's home workspace is the one this integration is installed in,
+    # as decided by ``slack_member_belongs_to_workspace`` when the row was written. Stored
+    # rather than derived on read so the cached row answers the question without keeping
+    # ``team_id``, ``is_stranger`` and the Enterprise Grid team list in sync separately.
+    # Null means unknown (rows predating this field) and is treated as "must re-check",
+    # never as "belongs" — the email match downstream is an authorization decision.
+    is_workspace_member = models.BooleanField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     # Null is treated as stale (rows predating this field).
