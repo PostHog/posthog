@@ -132,6 +132,9 @@ def test_normalize_passes_a_usable_cursor_through(field_type: IncrementalFieldTy
         (IncrementalFieldType.Integer, "2026-04-26T20:58:57.557000"),
         (IncrementalFieldType.Integer, "1.5"),
         (IncrementalFieldType.Numeric, "not-a-number"),
+        # The persisted form: `sync_type_config` holds the field type as a plain JSON string,
+        # which the schema property hands to the guard unconverted.
+        (IncrementalFieldType.Integer.value, "\\N"),
     ],
 )
 def test_normalize_rejects_an_unusable_cursor(field_type: IncrementalFieldType, last_value: str) -> None:

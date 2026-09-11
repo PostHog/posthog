@@ -103,8 +103,10 @@ def normalize_incremental_field_last_value(last_value: Any, field_type: Incremen
         return last_value
 
     if not _text_cursor_is_usable(last_value, field_type):
+        # `sync_type_config` holds the field type as a plain JSON string and nothing coerces it
+        # back to the enum, so format the value itself rather than reaching for `.value`.
         raise UnusableIncrementalCursorError(
-            f"{UNUSABLE_INCREMENTAL_CURSOR_ERROR_PREFIX} {field_type.value} value: {last_value!r}"
+            f"{UNUSABLE_INCREMENTAL_CURSOR_ERROR_PREFIX} {field_type} value: {last_value!r}"
         )
 
     return last_value
