@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { serializeError } from "@posthog/shared";
+import {
+  isTranscriptNeutralNotificationMethod,
+  serializeError,
+} from "@posthog/shared";
 import type { PostHogAPIClient } from "./posthog-api";
 import type { StoredNotification } from "./types";
 import { isEmptyContentBlock } from "./utils/acp-content";
@@ -240,7 +243,11 @@ export class SessionLogWriter {
       if (this.isDirectAgentMessage(message) && session.chunkBuffer) {
         supersededChunks = session.chunkBuffer;
         session.chunkBuffer = undefined;
-      } else {
+      } else if (
+        !isTranscriptNeutralNotificationMethod(
+          message.method as string | undefined,
+        )
+      ) {
         this.emitCoalescedMessage(sessionId, session);
       }
 

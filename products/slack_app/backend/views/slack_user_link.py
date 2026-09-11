@@ -44,6 +44,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import user_slack_integration_from_identity
 from posthog.views import login_required
 
+from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.services.slack_user_oauth import (
     CallbackState,
@@ -75,6 +76,27 @@ def _settings_redirect(*, error: str | None = None) -> HttpResponseRedirect:
     """
     param = {"slack_link_error": error} if error else {"slack_link_success": "1"}
     return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?{urlencode(param)}")
+
+
+def _link_failed(
+    integration: Integration,
+    reason: str,
+    *,
+    slack_user_id: str | None = None,
+    posthog_user: User | None = None,
+) -> HttpResponseRedirect:
+    """Report a link attempt that got far enough to name a workspace, then bounce to settings.
+
+    Failures before the workspace lookup stay uncaptured — there is no integration to
+    attribute them to. ``posthog_user`` keys the failure to the same distinct id a later
+    success would use, so one person's linking funnel doesn't split across ids; pass it
+    only once the state's session check has proven the requester initiated the flow,
+    because before that ``request.user`` may be a victim of a forwarded callback URL.
+    """
+    capture_slack_event(
+        integration, "slack app user link failed", slack_user_id=slack_user_id, posthog_user=posthog_user, reason=reason
+    )
+    return _settings_redirect(error=reason)
 
 
 def _load_workspace_integration(posthog_team_id: int, slack_team_id: str) -> Integration | None:
@@ -154,13 +176,13 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
     if workspace_integration is None:
         return _settings_redirect(error="workspace_not_found")
     if not is_slack_app_oauth_enabled(workspace_integration):
-        return _settings_redirect(error="flag_off")
+        return _link_failed(workspace_integration, "flag_off", slack_user_id=state.slack_user_id)
 
     try:
         identity = exchange_code(code=code, redirect_uri=_callback_redirect_uri())
     except SlackUserOAuthError as exc:
         logger.warning("slack_app_user_link_callback_exchange_failed", error=str(exc))
-        return _settings_redirect(error="exchange_failed")
+        return _link_failed(workspace_integration, "exchange_failed", slack_user_id=state.slack_user_id)
 
     # Hard-bind to the workspace from the original invite: if the user
     # authorized in a different Slack workspace tab, refuse rather than
@@ -171,7 +193,7 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
             expected=state.slack_team_id,
             actual=identity.slack_team_id,
         )
-        return _settings_redirect(error="team_mismatch")
+        return _link_failed(workspace_integration, "team_mismatch", slack_user_id=identity.slack_user_id)
 
     # `state.slack_user_id` is informational — if the user clicks an invite
     # meant for a different person but authorizes as themselves, that's fine
@@ -202,7 +224,7 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
             state_posthog_user_id=state.posthog_user_id,
             request_posthog_user_id=posthog_user.id,
         )
-        return _settings_redirect(error="session_mismatch")
+        return _link_failed(workspace_integration, "session_mismatch", slack_user_id=identity.slack_user_id)
 
     # Refuse to write a link row for a PostHog user who isn't a member of
     # the workspace's org. The org-scope filter in `find_linked_posthog_user`
@@ -219,7 +241,9 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
             posthog_team_id=workspace_integration.team_id,
             organization_id=workspace_integration.team.organization_id,
         )
-        return _settings_redirect(error="org_mismatch")
+        return _link_failed(
+            workspace_integration, "org_mismatch", slack_user_id=identity.slack_user_id, posthog_user=posthog_user
+        )
 
     user_slack_integration_from_identity(
         posthog_user,
@@ -230,6 +254,13 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
         user_access_token=identity.user_access_token,
         user_refresh_token=identity.user_refresh_token,
         user_scopes=identity.user_scopes,
+    )
+
+    capture_slack_event(
+        workspace_integration,
+        "slack app user linked",
+        slack_user_id=identity.slack_user_id,
+        posthog_user=posthog_user,
     )
 
     _post_link_success_followup(

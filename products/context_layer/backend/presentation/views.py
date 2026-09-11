@@ -1,4 +1,5 @@
-from typing import Literal
+from typing import Literal, cast
+from uuid import UUID
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -10,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.user import User
 from posthog.oauth_provenance import INTERNAL_RUN_SCOPE, get_oauth_access_token
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.redis import get_client
@@ -26,6 +28,8 @@ from products.context_layer.backend.presentation.serializers import (
     LintErrorSerializer,
     WikiExportSerializer,
     WikiHealthReportSerializer,
+    WikiPageProposalSerializer,
+    WikiPageProposalWriteSerializer,
     WikiPageSerializer,
     WikiPageWriteSerializer,
     WikiTreeSerializer,
@@ -124,14 +128,15 @@ def _read_page(organization_id, request: Request) -> Response:  # noqa: ANN001
 
 
 def _assert_run_write_in_scope(organization_id, team_id, request: Request, path: str, content: str) -> None:  # noqa: ANN001
-    """A sandbox run may only write the context page for its channel.
+    """Keep instruction files and other channels outside a sandbox run's writes.
 
     Reads stay open, because the wiki is organization-wide reference material
-    every agent is meant to draw on. Writes cannot be: the agent route's scope
+    every agent is meant to draw on. Writes must stay scoped: the agent route's scope
     override accepts server-minted task tokens, so without this a run steered by
     injected text could rewrite AGENTS.md, and with it the instructions every
-    agent in the organization starts from. Ordinary tasks bind to their owning
-    channel; loops bind to the context target in their frozen configuration.
+    agent in the organization starts from. Shared content also influences other
+    agents, so task edits to it require a separate human publication step.
+    Direct writes stay bound to the run's channel.
 
     A no-op for callers without run provenance, so direct human/API writes keep
     the organization-wide editing behavior of the non-agent route.
@@ -143,9 +148,14 @@ def _assert_run_write_in_scope(organization_id, team_id, request: Request, path:
     if not is_loop_run and not is_ordinary_run:
         return
 
-    denied = PermissionDenied("This run can update only the context page for its channel.")
+    denied = PermissionDenied(
+        "This loop can update only its configured channel's context page."
+        if is_loop_run
+        else "This task can update only its own channel's context page. "
+        "Use task-context-wiki-page-propose for shared content, then ask the user to review it in Context > Suggested edits."
+    )
     sandbox_task_id = getattr(access_token, "sandbox_task_id", None)
-    if sandbox_task_id is None or team_id is None:
+    if sandbox_task_id is None or team_id is None or not facade.is_run_content_path(path):
         raise denied
 
     configured_channel_id = (
@@ -160,10 +170,8 @@ def _assert_run_write_in_scope(organization_id, team_id, request: Request, path:
     # Both sides resolve inside this organization's own wiki index, so a run
     # cannot reach another organization's pages even by naming its channel.
     requested_channel_id = facade.resolve_page_channel(organization_id, path)
-    if (
-        configured_channel_id == requested_channel_id
-        and facade.page_frontmatter_channel_id(content) == configured_channel_id
-    ):
+    content_channel_id = facade.page_frontmatter_channel_id(content)
+    if configured_channel_id == requested_channel_id and content_channel_id == configured_channel_id:
         return
     if requested_channel_id is not None:
         raise denied
@@ -290,8 +298,17 @@ def _land_commits(organization_id, request: Request) -> Response:  # noqa: ANN00
         # Bundles bypass the page binding _assert_loop_write_in_scope enforces,
         # so a loop run must land its edits through the page endpoint instead.
         raise PermissionDenied("This loop can update only its context page, not land commit bundles.")
+    is_task_run = INTERNAL_RUN_SCOPE in token_scopes
+    if is_task_run:
+        maintenance_run = tasks_facade.get_latest_active_internal_task_run_for_organization(
+            organization_id, ai_stage=facade.DREAM_AI_STAGE
+        )
+        if maintenance_run is None or maintenance_run.task_id != getattr(access_token, "sandbox_task_id", None):
+            raise PermissionDenied("Task runs cannot publish wiki bundles. Propose a page edit for the user to review.")
     serializer = CommitBundleSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
+    if is_task_run and serializer.validated_data.get("branch") is None:
+        raise PermissionDenied("Scheduled wiki maintenance must publish a dated dream branch.")
     _assert_run_commit_cap(request)
     bundle_bytes = serializer.validated_data["bundle"].read()
     branch = serializer.validated_data.get("branch")
@@ -324,8 +341,18 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     posthog_feature_flag = "context-layer"
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     scope_object = "organization"
-    scope_object_read_actions = ["status", "tree", "page", "report", "channel_page", "export", "dreams", "dream"]
-    scope_object_write_actions = ["enable", "update_page", "commits"]
+    scope_object_read_actions = [
+        "status",
+        "tree",
+        "page",
+        "report",
+        "channel_page",
+        "export",
+        "dreams",
+        "dream",
+        "proposals",
+    ]
+    scope_object_write_actions = ["enable", "update_page", "commits", "apply_proposal"]
 
     # No sandbox-token override here: a run token carries `scoped_teams`, which
     # `APIScopePermission` refuses on this organization-nested route, so it never
@@ -432,6 +459,43 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def update_page(self, request: Request, **kwargs) -> Response:
         return _write_page(self.organization.id, request)
 
+    @extend_schema(responses={200: WikiPageProposalSerializer(many=True)}, summary="List your pending wiki edits")
+    @action(methods=["GET"], detail=False)
+    def proposals(self, request: Request, **kwargs) -> Response:
+        user_id = cast(int, request.user.id)
+        proposals = facade.list_page_proposals(self.organization.id, user_id)
+        return Response(WikiPageProposalSerializer(proposals, many=True).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: ContextLayerStatusSerializer, 409: HeadConflictSerializer, 400: LintErrorSerializer},
+        summary="Apply a reviewed wiki edit",
+    )
+    @action(methods=["POST"], detail=False, url_path=r"proposals/(?P<proposal_id>[^/.]+)/apply")
+    def apply_proposal(self, request: Request, proposal_id: str, **kwargs) -> Response:
+        user = cast(User, request.user)
+        user_id = cast(int, user.id)
+        token = get_oauth_access_token(request)
+        scopes = set((getattr(token, "scope", "") or "").split())
+        if INTERNAL_RUN_SCOPE in scopes or LOOP_CONTEXT_INTERNAL_SCOPE in scopes:
+            raise PermissionDenied(
+                "A task cannot approve a wiki edit. Review and apply it from Context > Suggested edits."
+            )
+        try:
+            proposal_uuid = UUID(proposal_id)
+        except ValueError as error:
+            raise NotFound("This suggested edit does not exist.") from error
+        try:
+            head_sha = facade.apply_page_proposal(
+                self.organization.id,
+                user_id,
+                proposal_uuid,
+                author=facade.CommitAuthor(name=user.first_name or user.email, email=user.email),
+            )
+        except facade.ContextLayerStoreError as error:
+            return _store_error_response(error)
+        return Response(ContextLayerStatusSerializer({"head_sha": head_sha}).data)
+
     @extend_schema(
         request=CommitBundleSerializer,
         responses={
@@ -517,7 +581,7 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # every action below states its scopes explicitly.
     scope_object = "INTERNAL"
     read_actions = ["page", "channel_page"]
-    write_actions = ["update_page", "commits"]
+    write_actions = ["update_page", "commits", "propose_page"]
 
     # Each task scope must come with server-minted run provenance. Page actions
     # accept ordinary and loop runs; the write path binds each to its own target.
@@ -526,6 +590,7 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "page": "task:read",
         "channel_page": "task:read",
         "update_page": "task:write",
+        "propose_page": "task:write",
     }
 
     def dangerously_get_required_scopes(self, request: Request, view=None) -> list[str] | None:  # noqa: ANN001
@@ -591,9 +656,7 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: ContextLayerStatusSerializer,
             400: LintErrorSerializer,
-            403: OpenApiResponse(
-                description="The wiki is unavailable, or a sandbox run targeted a page outside its channel."
-            ),
+            403: OpenApiResponse(description="The wiki is unavailable, or the run lacks permission to edit this page."),
             409: HeadConflictSerializer,
         },
         summary="Create or replace a wiki page",
@@ -601,6 +664,39 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @page.mapping.put
     def update_page(self, request: Request, **kwargs) -> Response:
         return _write_page(self.organization.id, request, team_id=self.team_id)
+
+    @extend_schema(
+        request=WikiPageProposalWriteSerializer,
+        responses={201: WikiPageProposalSerializer, 409: HeadConflictSerializer},
+        summary="Propose a shared wiki edit for human review",
+    )
+    @action(methods=["POST"], detail=False, url_path="proposals")
+    def propose_page(self, request: Request, **kwargs) -> Response:
+        token = get_oauth_access_token(request)
+        scopes = set((getattr(token, "scope", "") or "").split())
+        task_id = getattr(token, "sandbox_task_id", None)
+        if (
+            INTERNAL_RUN_SCOPE not in scopes
+            or LOOP_CONTEXT_INTERNAL_SCOPE in scopes
+            or task_id is None
+            or tasks_facade.task_channel_id(task_id, self.team_id) is None
+        ):
+            raise PermissionDenied("Only a task bound to this project can propose a shared wiki edit.")
+        serializer = WikiPageProposalWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        _assert_run_commit_cap(request)
+        user_id = cast(int, request.user.id)
+        try:
+            proposal = facade.create_page_proposal(
+                self.organization.id,
+                team_id=self.team_id,
+                user_id=user_id,
+                task_id=task_id,
+                **serializer.validated_data,
+            )
+        except facade.ContextLayerStoreError as error:
+            return _store_error_response(error)
+        return Response(WikiPageProposalSerializer(proposal).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         request=CommitBundleSerializer,

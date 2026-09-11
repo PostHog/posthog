@@ -41,13 +41,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_initial_value,
     incremental_type_to_operator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    open_ssh_tunnel,
+    pinned_host_kwargs,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
+    TableProjection,
     ValidatedRowFilter,
     compute_projected_columns,
-    project_arrow_columns,
+    resolve_table_projection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
     fetch_row_batches,
@@ -798,7 +802,7 @@ class RedshiftTableSetup:
 
     full_table: Table[RedshiftColumn]
     primary_keys: list[str] | None
-    projected_table: Table[RedshiftColumn]
+    projection: TableProjection[RedshiftColumn]
     chunk_size: int
     rows_to_sync: int
     partition_settings: PartitionSettings | None
@@ -822,23 +826,30 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: RedshiftSourceConfig) -> Iterator[psycopg.Connection]:
+    def connect(self, config: RedshiftSourceConfig, *, team_id: int | None = None) -> Iterator[psycopg.Connection]:
         """Open a psycopg connection for the duration of the context.
 
         Opens the SSH tunnel (if configured) and connects with the
         Redshift-wide SSL conventions in one place — every listing
         method takes the resulting connection, so discovery against an
         SSH-tunneled cluster only opens the tunnel once.
+
+        Redshift speaks the Postgres wire protocol through the same libpq, so it dials the
+        addresses it validated the same way: `pinned_host_kwargs` resolves the host once, checks
+        that answer against the host policy, and pins it through the `host`/`hostaddr` pair.
         """
-        with open_ssh_tunnel(config) as (host, port):
-            with psycopg.connect(
-                host=host,
-                port=port,
-                dbname=config.database,
-                user=config.user,
-                password=config.password,
+        with open_ssh_tunnel(config, team_id) as (host, port):
+            connect_kwargs: dict[str, Any] = {
+                "port": port,
+                "dbname": config.database,
+                "user": config.user,
+                "password": config.password,
                 **_REDSHIFT_CONNECT_OPTS,
-            ) as conn:
+                **pinned_host_kwargs(
+                    host, port=port, connect_timeout=_REDSHIFT_CONNECT_OPTS["connect_timeout"], team_id=team_id
+                ),
+            }
+            with psycopg.connect(**connect_kwargs) as conn:
                 conn.adapters.register_loader("date", SafeDateLoader)
                 yield conn
 
@@ -1535,8 +1546,18 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         enabled_columns = inputs.enabled_columns
         row_filters = inputs.row_filters
 
+        def _resolve_projection(
+            full_table: Table[RedshiftColumn], primary_keys: list[str] | None
+        ) -> TableProjection[RedshiftColumn]:
+            return resolve_table_projection(
+                full_table,
+                enabled_columns=enabled_columns,
+                primary_keys=primary_keys,
+                incremental_field=incremental_field,
+            )
+
         def _discover_and_probe() -> RedshiftTableSetup:
-            with self.connect(config) as connection:
+            with self.connect(config, team_id=inputs.team_id) as connection:
                 # Autocommit so each best-effort discovery probe runs in its own transaction. A probe
                 # that fails — a permission error, an EXPLAIN the cluster rejects, a cancelled COUNT(*) —
                 # otherwise leaves the shared transaction aborted (INERROR), and every probe after it
@@ -1564,8 +1585,8 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                             logger.debug("Falling back to ['id'] for primary keys...")
                             primary_keys = ["id"]
 
-                        projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
-                        table = project_arrow_columns(full_table, projected)
+                        projection = _resolve_projection(full_table, primary_keys)
+                        table = projection.table
                         logger.debug(f"Source schema: {table.to_arrow_schema()}")
 
                         inner_query_with_limit = _build_query(
@@ -1577,7 +1598,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                             incremental_field_type,
                             db_incremental_field_last_value,
                             add_sampling=True,
-                            enabled_columns=enabled_columns,
+                            enabled_columns=projection.enabled_columns,
                             primary_keys=primary_keys,
                         )
 
@@ -1589,7 +1610,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                             incremental_field,
                             incremental_field_type,
                             db_incremental_field_last_value,
-                            enabled_columns=enabled_columns,
+                            enabled_columns=projection.enabled_columns,
                             primary_keys=primary_keys,
                             row_filters=row_filters,
                         )
@@ -1633,7 +1654,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return RedshiftTableSetup(
                 full_table=full_table,
                 primary_keys=primary_keys,
-                projected_table=table,
+                projection=projection,
                 chunk_size=chunk_size,
                 rows_to_sync=rows_to_sync,
                 partition_settings=partition_settings,
@@ -1646,16 +1667,32 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         # from scratch. See `_retry_on_transient_connection_drop`.
         setup = _retry_on_transient_connection_drop(_discover_and_probe, logger)
         primary_keys = setup.primary_keys
-        table = setup.projected_table
         chunk_size = setup.chunk_size
         rows_to_sync = setup.rows_to_sync
         partition_settings = setup.partition_settings
         duplicate_primary_keys = setup.duplicate_primary_keys
 
+        def _refreshed_projection(connection: psycopg.Connection) -> TableProjection[RedshiftColumn]:
+            """Re-read the catalog on the streaming connection, right before the read query.
+
+            A probe that fails keeps the setup projection, which is where this read would have
+            started anyway. See `resolve_table_projection` for why the read resolves again.
+            """
+            try:
+                with connection.cursor() as cursor:
+                    fresh_table = self.get_table_metadata(cursor, schema, table_name, logger)
+            except Exception as e:
+                _rollback_if_aborted(connection)
+                logger.debug(f"Could not re-read the catalog before streaming: {e}", exc_info=e)
+                return setup.projection
+            return _resolve_projection(fresh_table, primary_keys)
+
         def get_rows() -> Iterator[Any]:
-            arrow_schema = table.to_arrow_schema()
-            with self.connect(config) as streaming_connection:
+            with self.connect(config, team_id=inputs.team_id) as streaming_connection:
                 streaming_connection.adapters.register_loader("json", JsonAsStringLoader)
+                projection = _refreshed_projection(streaming_connection)
+                table = projection.table
+                arrow_schema = table.to_arrow_schema()
                 query = _build_query(
                     schema,
                     table_name,
@@ -1664,7 +1701,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
-                    enabled_columns=enabled_columns,
+                    enabled_columns=projection.enabled_columns,
                     primary_keys=primary_keys,
                     row_filters=row_filters,
                 )

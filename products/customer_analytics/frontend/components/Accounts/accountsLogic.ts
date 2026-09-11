@@ -2,6 +2,10 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import {
+    type AssignmentStatus,
+    isAssignmentStatus,
+} from 'lib/components/AccountAssignmentFilter/accountAssignmentFilterTypes'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUUIDLike } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -63,7 +67,7 @@ import {
     isAccountsTableRow,
     supportedAccountFilters,
 } from './accountsTableQuery'
-import { type AssignmentStatus, isAssignmentStatus, normalizeRoleFilter } from './accountsViewState'
+import { normalizeRoleFilter } from './accountsViewState'
 import { AccountsEvents } from './constants'
 
 export const SEARCH_DEBOUNCE_MS = 300
@@ -100,8 +104,6 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
 }
 
 export type RoleFilterValue = number[]
-
-export type { AssignmentStatus }
 
 export type AccountFilterType = 'tag' | 'assignment_status' | 'my_accounts' | 'assigned_to'
 

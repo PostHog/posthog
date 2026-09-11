@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { register } from 'prom-client'
 
 import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 
@@ -630,6 +631,7 @@ describe('UrlFetchConsumer', () => {
     })
 
     it('throws when the bulk read fails', async () => {
+        register.resetMetrics()
         const harness = build()
         harness.history.readError = new Error('read failed')
         const observeBatch = jest.spyOn(ImageFetchConsumerMetrics, 'observeBatch')
@@ -642,6 +644,18 @@ describe('UrlFetchConsumer', () => {
         expect(observeStoreDuration).toHaveBeenCalledWith('read', 'error', expect.any(Number))
         expect(startBatch).toHaveBeenCalledTimes(1)
         expect(finishBatch).toHaveBeenCalledTimes(1)
+        const active = await register.getSingleMetric('ml_image_fetch_stage_active')!.get()
+        expect(active.values.every(({ value }) => value === 0)).toBe(true)
+        const durations = await register.getSingleMetric('ml_image_fetch_stage_duration_seconds')!.get()
+        expect(durations.values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    metricName: 'ml_image_fetch_stage_duration_seconds_count',
+                    labels: { stage: 'batch_history_read' },
+                    value: 1,
+                }),
+            ])
+        )
     })
 
     it('throws when the final bulk write fails', async () => {
@@ -653,6 +667,7 @@ describe('UrlFetchConsumer', () => {
     })
 
     it('writes durable state before it flushes buffered republishes', async () => {
+        register.resetMetrics()
         const harness = build()
         const order: string[] = []
         harness.run.mockImplementation((candidates) => {
@@ -672,6 +687,23 @@ describe('UrlFetchConsumer', () => {
         await harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)
 
         expect(order).toEqual(['published', 'history', 'republished'])
+        const durations = await register.getSingleMetric('ml_image_fetch_stage_duration_seconds')!.get()
+        const completedStages = durations.values.map(({ labels }) => labels.stage)
+        expect(completedStages).toEqual(
+            expect.arrayContaining([
+                'batch_parse',
+                'batch_history_read',
+                'batch_filter',
+                'batch_fetch',
+                'batch_prepare_republish',
+                'batch_history_write',
+                'batch_republish_flush',
+                'batch_finalize',
+                'batch_dead_letter',
+            ])
+        )
+        const active = await register.getSingleMetric('ml_image_fetch_stage_active')!.get()
+        expect(active.values.every(({ value }) => value === 0)).toBe(true)
     })
 
     it('throws when the fetch pass reports a lost URL', async () => {

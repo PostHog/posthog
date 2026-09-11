@@ -2991,7 +2991,7 @@ def append_task_run_log(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    run.append_log(entries)
+    run.append_log(entries, lock_attempts=1)
     run.clear_echoed_followup_messages(entries)
     run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
@@ -6182,6 +6182,15 @@ def create_task(
             task_id=str(task.id),
             origin_product=task.origin_product,
             space_repositories=channel.repositories,
+        )
+
+    if signal_report_id and signal_report_task_relationship in (None, "implementation") and task.repository:
+        from products.signals.backend.tracker_issues import create_tracker_issue_for_report
+
+        create_tracker_issue_for_report(
+            team_id=team_id,
+            report_id=signal_report_id,
+            repository=task.repository,
         )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))

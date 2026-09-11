@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
     APPLICATIONS_PATH,
     MAX_APPLICATIONS,
     MAX_FANOUT_REQUESTS,
+    MAX_PAGES_PER_TIME_WINDOW,
     MAX_WINDOW_SPLITS,
     METRIC_TREE_MAX_DEPTH,
     METRIC_TREE_MAX_REQUESTS_PER_APPLICATION,
@@ -562,14 +563,23 @@ def _metric_rows(application_id: int, metric: dict[str, Any]) -> list[dict[str, 
     ]
 
 
-def _window_params(start_ms: int, end_ms: int) -> dict[str, Any]:
+def _window_params(config: AppdynamicsEndpointConfig, start_ms: int, end_ms: int) -> dict[str, Any]:
+    if config.uses_epoch_time_params:
+        return {"startTime": start_ms, "endTime": end_ms}
     return {"time-range-type": "BETWEEN_TIMES", "start-time": start_ms, "end-time": end_ms}
 
 
-class SplitAllowance:
-    """Extra requests window bisection may spend, shared by every window in one sync.
+def _rows_from_payload(config: AppdynamicsEndpointConfig, payload: Any) -> list[dict[str, Any]]:
+    """Pull the row list out of a response, unwrapping the endpoint's envelope where it has one."""
+    if config.data_selector:
+        payload = (payload or {}).get(config.data_selector)
+    return payload or []
 
-    Splitting happens per window, but the fan-out limit is per sync. Without a shared
+
+class SplitAllowance:
+    """Extra requests window bisection and paging may spend, shared by every window in one sync.
+
+    Splitting and paging happen per window, but the fan-out limit is per sync. Without a shared
     allowance a controller that returns a full response for every window would multiply an
     already-accepted sync by the per-window split cap, which is how the limit gets bypassed.
     """
@@ -582,6 +592,47 @@ class SplitAllowance:
             return False
         self.remaining -= 1
         return True
+
+
+def _get_paged_window_rows(
+    client: AppdynamicsClient,
+    config: AppdynamicsEndpointConfig,
+    path: str,
+    params: dict[str, Any],
+    application_id: int,
+    split_allowance: SplitAllowance,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield one time window's rows a page at a time, stopping on the first short page."""
+    page_size = config.page_size or 0
+
+    for page_number in range(MAX_PAGES_PER_TIME_WINDOW):
+        # Only the first page of each window is counted by the fan-out estimate, so the rest
+        # draw from the same per-sync allowance window bisection spends from.
+        if page_number > 0 and not split_allowance.take():
+            logger.warning(
+                f"AppDynamics: '{config.name}' stopped paging for application_id={application_id} at the "
+                "per-sync request limit; later pages of that window were not synced."
+            )
+            return
+
+        rows = _rows_from_payload(
+            config,
+            client.get_json(
+                path,
+                {**params, "pageSize": page_size, "pageNumber": page_number},
+                output_json=config.sends_output_json_param,
+            ),
+        )
+        if rows:
+            yield [{**row, "application_id": application_id} for row in rows]
+        if len(rows) < page_size:
+            return
+
+    logger.warning(
+        f"AppDynamics: '{config.name}' hit the {MAX_PAGES_PER_TIME_WINDOW}-page cap for "
+        f"application_id={application_id}; later pages of that window were not synced."
+    )
 
 
 def _get_window_rows(
@@ -606,7 +657,17 @@ def _get_window_rows(
 
     while pending:
         start, end = pending.pop()
-        rows = client.get_json(path, {**base_params, **_window_params(start, end)}) or []
+        window_params = {**base_params, **_window_params(config, start, end)}
+
+        if config.page_size is not None:
+            yield from _get_paged_window_rows(
+                client, config, path, window_params, application_id, split_allowance, logger
+            )
+            continue
+
+        rows = _rows_from_payload(
+            config, client.get_json(path, window_params, output_json=config.sends_output_json_param)
+        )
 
         if config.result_cap is not None and len(rows) >= config.result_cap:
             # `take` spends from the sync-wide allowance, so ask for it last.
@@ -721,7 +782,7 @@ def _get_windowed_application_rows(
 
     for window_start, window_end in _iter_windows(start_ms, end_ms, config.window_chunk_days):
         if config.is_metric_data:
-            window_params = _window_params(window_start, window_end)
+            window_params = _window_params(config, window_start, window_end)
             for metric_path in metric_paths:
                 metrics = client.get_json(path, {**window_params, "metric-path": metric_path, "rollup": "false"})
                 for metric in metrics or []:
@@ -763,7 +824,7 @@ def get_rows(
     client = AppdynamicsClient(base_url, auth, logger)
 
     if not config.fan_out_over_applications:
-        rows = client.get_json(config.path, {})
+        rows = _rows_from_payload(config, client.get_json(config.path, {}, output_json=config.sends_output_json_param))
         if rows:
             yield rows
         return
@@ -844,10 +905,13 @@ def get_rows(
         elif config.is_metric_tree:
             yield from _get_metric_tree_rows(client, config, application_id, logger)
         else:
-            rows = client.get_json(
-                config.path.format(application_id=application_id),
-                {},
-                output_json=config.sends_output_json_param,
+            rows = _rows_from_payload(
+                config,
+                client.get_json(
+                    config.path.format(application_id=application_id),
+                    {},
+                    output_json=config.sends_output_json_param,
+                ),
             )
             if rows:
                 yield [{**row, "application_id": application_id} for row in rows]

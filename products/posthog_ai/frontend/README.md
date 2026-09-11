@@ -39,7 +39,7 @@ Pick the **lowest tier** that does the job.
 | **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts)                                                                                                                                                                                      | "Just show a run" → `ReadonlyRunSurface` (inbox embeds). "Drive a run / custom layout" → `RunSurface` (tasks). "Embed the whole `/tasks` product" → `EmbeddedRunner` (Max). |
 | **2 — Compound primitives**    | `api/primitives`                                    | `Thread` + atoms (`.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall`), `ThreadView`, `Composer.*`, `AttachedContextBar`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces                                                                                                         | Custom layout, or a bespoke/compact thread.                                                                                                                                 |
 | **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, status helpers (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers, context injection (`attachedContextLogic`, `useAttachedContext`, `contextPickerLogic`), tool-stream subscriptions (`toolStreamEventsLogic`, `useToolStreamListener`); folded-thread + tool types, `AttachedContextItem`, `ToolStreamEvent` | Status badge, automation, context injection, tool-event listeners — no presenters, no registry.                                                                             |
-| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                                                                                                                                                                 | Your product renders tool cards (insights, dashboards…). Register them from your own scene.                                                                                 |
+| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                                                                                                                                                                                          | Your product renders tool cards (insights, dashboards…). Declare them in your product list and include it in the central manifest.                                          |
 
 The Tier 1 surfaces are built on `api/primitives` (Tier 2), which consumes the headless
 `api/logics`/`api/types` (Tier 3). Going down a tier trades convenience for control and a smaller chunk.
@@ -68,7 +68,7 @@ once when `'read-only'`. This is what all three inbox embeds drop in.
 ### Live embed with composer (tasks-style; caller owns the composer + draft/queue)
 
 Compose the `RunSurface` compound (`api/runSurface`, eager) and pass your composer UI as the
-`RunSurface.Composer` children — the slot owns prompt-vs-composer precedence and the null-bootstrap gate; you
+`RunSurface.Composer` children — the slot owns prompt-vs-composer precedence and the bootstrap gate (optimistic startup keeps the composer visible); you
 own the composer. See `scenes/TaskTracker/components/TaskRunChat.tsx` for the full wiring.
 
 ```tsx
@@ -115,7 +115,7 @@ submit again.
 (`.Thread/.Composer/.ContextUsage`) compose into any layout — there is no default. Omit
 `RunSurface.Composer` for a no-input surface (that's exactly what `ReadonlyRunSurface` does); render it with
 composer children for an interactive one. For something even more bespoke, drop to the Tier 2 primitives
-(`ThreadView`, `Composer.*`, `ContextUsageBar`) and bind `runStreamLogic` yourself.
+(`ThreadView`, `Composer.*`, `ContextUsageChip`) and bind `runStreamLogic` yourself.
 
 ### Optimistically open a run before it exists
 
@@ -141,6 +141,13 @@ stream.actions.startOptimisticRun(message) // empty → "spinning up" + the type
 // …after api create/run resolve, set runId on the same surface to attach + stream it.
 ```
 
+For an interactive optimistic start, mount `runInteractionLogic` with empty `taskId`/`runId` and explicit
+`streamKey`/`interactionKey` values. Hold its mount through creation, then supply the real IDs with the same
+keys. The composer preserves its draft, settings, and editable "Up next" queue through attachment.
+Startup submissions stay local until the agent starts and its first turn completes; manual Steer is available
+once the agent has started. Configuration changes apply to the next message, not the initial prompt.
+Release the held mount when the creation is abandoned or fails. Later successor runs use their own interaction key.
+
 The attach is **idempotent and seed-preserving** via `runStreamLogic`'s `bootstrappedRunId` /
 `awaitingOptimisticAttach` state — so the run can be adopted by a _different_ surface that mounts later, not
 only by an in-place `runId` flip. A consumer that navigates (e.g. `/tasks/new → /tasks/:id`) keeps the seeded
@@ -162,20 +169,51 @@ import { Thread } from 'products/posthog_ai/frontend/api/primitives'
 ;<Thread.Root items={items}>{(item) => <Thread.Message item={item} />}</Thread.Root>
 ```
 
-### Register product tool renderers (Tier 4)
+### Declare product tool renderers (Tier 4)
+
+Export a typed declaration list from `products/<product>/frontend/posthogAiToolRenderers.tsx`.
+Add one direct import and one spread to `frontend/src/posthogAiToolRenderers.ts` for your product.
+Keep individual entries with their product; import no scenes or broad component barrels from declaration modules.
+Use **type-only** imports from `api/tools` for the contract, so declarations cannot create a runtime cycle with the registry.
+
+The registry initializes synchronously from built-ins and this manifest before rendering.
+The manifest is the sole extension mechanism: there is no runtime registration, subscription, or asynchronous initialization.
+`toolRegistry.lookup` and `lookupToolRenderer` remain available; keep headless `api/logics` and `api/types` free of registry imports.
 
 ```tsx
-import { registerToolRenderers, type ToolRegistryEntry } from 'products/posthog_ai/frontend/api/tools'
+import { IconBolt } from '@posthog/icons'
 
-// Call once from your scene's entrypoint. Tools without an adapter fall through to the generic MCP card.
-registerToolRenderers([
-  { key: 'my-product-tool', displayName: 'My tool', icon: <IconWrench />, Renderer: MyToolRenderer },
-])
+import { lazyWithRetry } from 'lib/utils/retryImport'
+
+import type { ToolRegistryEntry } from 'products/posthog_ai/frontend/api/tools'
+
+export const posthogAiToolRenderers: ToolRegistryEntry[] = [
+  {
+    key: 'cdp-functions-partial-update',
+    displayName: 'Update function',
+    icon: <IconBolt />,
+    PermissionPreview: lazyWithRetry(() =>
+      import('./HogFunctionPermissionPreview').then((m) => ({ default: m.HogFunctionPermissionPreview }))
+    ),
+    requiresPostHogOrigin: true,
+  },
+]
 ```
 
-This is the generic per-product mechanism. The surface itself is its first consumer: the PostHog product
-data-tool widgets live in `components/tool/widgets/` and self-register via `widgets/registerDataToolRenderers`
-(side-effect-imported by `ToolCallCard`), so every surface that renders a tool card gets them.
+`PermissionPreview` receives `{ request, fallback }`, typed as `PermissionPreviewProps` from `api/tools`.
+Return `fallback` when there is no available matching mounted configuration or no changes to show.
+Do not mount or fetch a product scene to produce a preview.
+`PermissionInput` supplies its evidence block as fallback, and wraps the preview in `Suspense` and `PostHogErrorBoundary`.
+Both boundaries use that evidence fallback; approval controls remain outside them and stay usable during loading or failure.
+Errors retain the `posthog_ai_permission_preview` feature tag, and a new permission request resets the error boundary.
+
+Insights, dashboards, recordings, notebooks, and query widgets live in `components/tool/widgets/`, with lazy declarations in the frontend-root `posthogAiToolRenderers.tsx`. This declaration list is a product contribution, outside the reusable `api/` facade.
+Error tracking owns its widget family and declaration list in `products/error_tracking/frontend/`; replay vision owns its scan widget and polling logic in `products/replay_vision/frontend/posthogAi/`.
+Product-owned tool adapters consume `ToolRendererProps`, `DataToolRow`, `GenericMcpToolRenderer`, and `getToolOutputRecord` through `api/tools`. Shared frontend dependencies are allowed; widget-specific product internals stay with their owner.
+
+`getToolOutputRecord` reads the handler object from MCP app-data metadata in ACP `rawOutput`, with support for existing `structuredContent` and direct objects. It does not parse tool result text. Transcripts with only TOON or JSON text use the generic tool card.
+CDP's `products/cdp/frontend/posthogAiToolRenderers.tsx` declares a preview-only entry; its result card stays generic.
+Set `requiresPostHogOrigin: true` for product entries; unknown or untrusted colliding keys use generic cards and evidence.
 
 ### Headless status badge / automation
 

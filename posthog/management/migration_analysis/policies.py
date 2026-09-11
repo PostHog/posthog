@@ -6,13 +6,51 @@ Policies enforce architectural decisions and coding standards.
 
 import re
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any, Optional
 
 from django.conf import settings
 from django.db import models
+from django.db.migrations.loader import MigrationLoader
 
+from posthog.dataclasses import frozen
 from posthog.management.migration_analysis.operations import is_unmanaged_model
 from posthog.products import is_product_module
+
+
+@frozen
+class _TableColumn:
+    """One database column, addressed by its table and column name.
+
+    Both parts are strings, so a tuple lets a caller swap them without a typecheck failure.
+    The class is also the set key this policy matches candidates against.
+    """
+
+    table: str
+    column: str
+
+
+_SQL_COMMENT = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
+
+
+def _without_sql_comments(sql: str) -> str:
+    """Drop SQL comments so a mention of a statement does not read as the statement.
+
+    A migration that writes "-- do not DROP CONSTRAINT here" describes what it does not do.
+    The result is only ever searched, never run, so a stripped string literal costs nothing.
+    """
+    return _SQL_COMMENT.sub(" ", sql)
+
+
+@frozen
+class _ConstrainedForeignKey:
+    """A foreign key the database holds a constraint for."""
+
+    field: str
+    column: str
+    target_table: str
+
 
 # Apps owned by PostHog where policies are enforced
 POSTHOG_OWNED_APPS = ["posthog", "ee"]
@@ -702,9 +740,222 @@ class HotTableAlterPolicy(MigrationPolicy):
 # incident class. Prefer the helper-plus-pointer over documenting complexity.
 
 # Registry of all PostHog policies
+_HOT_TABLES = {"posthog_team", "posthog_user", "posthog_organization", "posthog_project"}
+
+# Passing no connection keeps this off the database, so the policy still runs in CI against a
+# schema that does not exist yet.
+_loader: Optional[MigrationLoader] = None
+
+
+def _disk_loader() -> Optional[MigrationLoader]:
+    global _loader
+    if _loader is None:
+        try:
+            _loader = MigrationLoader(None)
+        except Exception:
+            return None
+    return _loader
+
+
+class OrphanedForeignKeyPolicy(MigrationPolicy):
+    """Flag a state-only DeleteModel or RemoveField that leaves a foreign key behind."""
+
+    def check_operation(self, op) -> list[str]:
+        return []  # Needs the state from before this migration, so it runs at migration level.
+
+    def check_migration(self, migration) -> list[str]:
+        if not is_posthog_app(migration.app_label, migration):
+            return []
+
+        removals = self._state_only_removals(migration)
+        if not removals:
+            return []
+
+        state = self._state_before(migration)
+        if state is None:
+            return []
+        dropped = self._dropped_columns(migration)
+        raw_drop = self._has_raw_constraint_drop(migration)
+        adopted = self._tables_adopted_elsewhere(migration.app_label)
+
+        violations = []
+        for model_name, field_name in removals:
+            model_state = state.models.get((migration.app_label, model_name))
+            if model_state is None:
+                continue
+            table = self._table_of(model_state, migration.app_label, model_name)
+            for fk in self._constrained_foreign_keys(state, model_state, field_name):
+                candidate = _TableColumn(table=table, column=fk.column)
+                if raw_drop or candidate in dropped:
+                    continue
+                if candidate in adopted:
+                    continue  # The model moved to another app, which still declares this relation.
+                violations.append(self._violation(model_name, table, fk))
+        return violations
+
+    def _state_only_removals(self, migration) -> list[tuple[str, Optional[str]]]:
+        """(model_name, field_name) pairs a SeparateDatabaseAndState takes out of state.
+
+        A field_name of None means the whole model is leaving, so every foreign key on it
+        is at stake rather than one.
+        """
+        removals: list[tuple[str, Optional[str]]] = []
+        for op in migration.operations or []:
+            # RunSQL takes state_operations as well, so keying on SeparateDatabaseAndState
+            # alone would miss a retirement written in that shape.
+            for state_op in getattr(op, "state_operations", []) or []:
+                name = state_op.__class__.__name__
+                if name == "DeleteModel":
+                    removals.append((state_op.name.lower(), None))
+                elif name == "RemoveField":
+                    removals.append((state_op.model_name.lower(), state_op.name))
+        return removals
+
+    def _dropped_columns(self, migration) -> set[_TableColumn]:
+        """Columns a DropForeignKey in this migration removes a constraint from."""
+        dropped = set()
+        for db_op in self._database_operations(migration):
+            if db_op.__class__.__name__ != "DropForeignKey":
+                continue
+            column = getattr(db_op, "column", None)
+            if column is not None:
+                dropped.add(_TableColumn(table=getattr(db_op, "table", ""), column=column))
+        return dropped
+
+    def _has_raw_constraint_drop(self, migration) -> bool:
+        """True when the migration drops a constraint in a shape this policy cannot parse.
+
+        A DropForeignKey addressed by referenced table rather than column lands here too. Both
+        suppress every removal in the migration, because reading which column a raw statement
+        or a table-wide drop reaches is guesswork, and a false block on a correct migration
+        costs more than a missed second constraint.
+        """
+        for db_op in self._database_operations(migration):
+            if db_op.__class__.__name__ == "DropForeignKey" and getattr(db_op, "column", None) is None:
+                return True
+            sql = _without_sql_comments(str(getattr(db_op, "sql", "") or ""))
+            if "DROP CONSTRAINT" in sql.upper():
+                return True
+        return False
+
+    def _database_operations(self, migration) -> list[Any]:
+        ops: list[Any] = []
+        for op in migration.operations or []:
+            if op.__class__.__name__ == "SeparateDatabaseAndState":
+                ops.extend(getattr(op, "database_operations", []) or [])
+            else:
+                ops.append(op)
+        return ops
+
+    def _state_before(self, migration) -> Any:
+        loader = _disk_loader()
+        if loader is None:
+            return None
+        node = (migration.app_label, migration.name)
+        try:
+            # Django resolves swappable and __first__ sentinels while it builds the graph, so
+            # asking for the node beats replaying migration.dependencies, which still holds
+            # the raw sentinels that project_state cannot take as nodes.
+            return loader.project_state(node, at_end=False)
+        except Exception:
+            pass
+        try:
+            return loader.project_state([parent.key for parent in loader.graph.node_map[node].parents])
+        except Exception:
+            # A migration the graph cannot place is not this policy's problem to report.
+            return None
+
+    def _tables_adopted_elsewhere(self, app_label: str) -> set[_TableColumn]:
+        """Columns that a model in another app still tracks at the graph leaves.
+
+        Moving a model between apps deletes it from the source app's state and creates it in
+        the destination's, against the same db_table. Only the relations the destination
+        actually declares survive, so the match is per column rather than per table.
+        """
+        loader = _disk_loader()
+        if loader is None:
+            return set()
+        try:
+            final = loader.project_state()
+        except Exception:
+            return set()
+        adopted = set()
+        for (owner_app, model_name), ms in final.models.items():
+            if owner_app == app_label:
+                continue
+            table = self._table_of(ms, owner_app, model_name)
+            for name, field in ms.fields.items():
+                if getattr(field, "remote_field", None) is None:
+                    continue
+                adopted.add(_TableColumn(table=table, column=getattr(field, "db_column", None) or f"{name}_id"))
+        return adopted
+
+    def _table_of(self, model_state, app_label: str, model_name: str) -> str:
+        return model_state.options.get("db_table") or f"{app_label}_{model_name}"
+
+    def _constrained_foreign_keys(self, state, model_state, field_name) -> Iterator[_ConstrainedForeignKey]:
+        """Yield the foreign keys on this model that the database holds a constraint for."""
+        for name, field in model_state.fields.items():
+            if field_name is not None and name != field_name:
+                continue
+            remote = getattr(field, "remote_field", None)
+            if remote is None or getattr(field, "many_to_many", False):
+                continue
+            column = getattr(field, "db_column", None) or f"{name}_id"
+            if not getattr(field, "db_constraint", True) and not self._added_by_helper(model_state, column):
+                continue
+            yield _ConstrainedForeignKey(field=name, column=column, target_table=self._target_table(state, remote))
+
+    def _added_by_helper(self, model_state, column: str) -> bool:
+        """True when a migration added a real constraint for a db_constraint=False field.
+
+        AddForeignKeyNotValid is the sanctioned way to give a hot-table foreign key a database
+        constraint while the model keeps db_constraint=False, so the state flag alone does not
+        prove the database is free of one.
+        """
+        loader = _disk_loader()
+        if loader is None:
+            return False
+        model_name = model_state.name.lower()
+        for migration in loader.disk_migrations.values():
+            for op in migration.operations or []:
+                for candidate in (
+                    list(getattr(op, "database_operations", []) or []) if hasattr(op, "database_operations") else [op]
+                ):
+                    if candidate.__class__.__name__ != "AddForeignKeyNotValid":
+                        continue
+                    if str(getattr(candidate, "model_name", "")).lower() != model_name:
+                        continue
+                    if getattr(candidate, "column", None) == column:
+                        return True
+        return False
+
+    def _target_table(self, state, remote) -> str:
+        target = remote.model
+        if not isinstance(target, str):
+            target = f"{target._meta.app_label}.{target._meta.model_name}"
+        app_label, _, model_name = target.rpartition(".")
+        target_state = state.models.get((app_label, model_name.lower()))
+        if target_state is not None:
+            return self._table_of(target_state, app_label, model_name.lower())
+        return f"{app_label}_{model_name.lower()}"
+
+    def _violation(self, model_name: str, table: str, fk: _ConstrainedForeignKey) -> str:
+        severity = "❌ BLOCKED" if fk.target_table in _HOT_TABLES else "⚠️ WARNING"
+        return (
+            f"{severity}: taking {model_name}.{fk.field} out of Django's state leaves its foreign key "
+            f"to {fk.target_table} in the database. Django stops cascading into a relation it cannot "
+            f"see, and the constraint is DEFERRABLE INITIALLY DEFERRED, so a {fk.target_table} delete "
+            f"runs its whole cascade and then fails at COMMIT, permanently. Add "
+            f'DropForeignKey("{table}", column="{fk.column}") to this migration\'s database_operations '
+            f"(posthog.migration_helpers)."
+        )
+
+
 POSTHOG_POLICIES = [
     UUIDPrimaryKeyPolicy(),
     AtomicFalsePolicy(),
     ConcurrentIndexIdempotencyPolicy(),
     HotTableAlterPolicy(),
+    OrphanedForeignKeyPolicy(),
 ]

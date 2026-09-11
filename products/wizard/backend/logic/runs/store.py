@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_run_record(team_id: int, run_id: UUID) -> WizardRun:
-    run = WizardRun.objects.for_team(team_id).filter(id=run_id).first()
+    run = WizardRun.objects.for_team(team_id).select_related("created_by").filter(id=run_id).first()
 
     if run is None:
         raise WizardRunNotFoundError
@@ -175,7 +175,7 @@ def get_run_for_update(team_id: int, run_id: UUID) -> WizardRunDTO:
 
 
 def list_runs(params: ListWizardRunsInput) -> WizardRunPage:
-    runs = WizardRun.objects.for_team(params.team_id).order_by("-created_at")
+    runs = WizardRun.objects.for_team(params.team_id).select_related("created_by").order_by("-created_at")
     page = runs[params.offset : params.offset + params.limit]
     results: list[WizardRunDTO] = []
     for run in page:
