@@ -32,7 +32,7 @@ from products.data_quality.backend.temporal.workflows.run_check_suite import Run
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
 ACTIVITY_INFO = "products.data_quality.backend.temporal.activities.prepare_check_suite.activity.info"
 PREPARE_FLAG = (
-    "products.data_quality.backend.temporal.activities.prepare_check_suite.is_data_quality_checks_enabled_for_team_id"
+    "products.data_quality.backend.temporal.activities.prepare_check_suite.get_data_quality_checks_flag_for_team_id"
 )
 
 
@@ -70,6 +70,7 @@ class TestCheckSuiteActivities(BaseTest):
         return DataQualityCheck.objects.for_team(self.team.id).create(**{**defaults, **kwargs})
 
     def _prepare(self, **kwargs) -> PreparedSuite:
+        schedule_enabled = kwargs.pop("schedule_enabled", True)
         inputs = RunCheckSuiteInputs(
             team_id=self.team.id,
             trigger=kwargs.pop("trigger", SuiteRunTrigger.MANUAL),
@@ -77,7 +78,7 @@ class TestCheckSuiteActivities(BaseTest):
             **kwargs,
         )
         with patch(ACTIVITY_INFO, return_value=_ActivityInfo()):
-            return _prepare(inputs)
+            return _prepare(inputs, schedule_enabled=schedule_enabled)
 
     def test_a_subject_with_no_checks_produces_no_batches(self) -> None:
         prepared = self._prepare()
@@ -118,6 +119,27 @@ class TestCheckSuiteActivities(BaseTest):
         assert suite_run.subject_type == SubjectType.TABLE
         assert suite_run.subject_uuid == table_id
 
+    def test_scheduled_metric_suite_selects_checks_and_reuses_history_on_retry(self) -> None:
+        metric_id = uuid4()
+        on_metric = self._check(saved_query_id=None, metric_id=metric_id, subject_type=SubjectType.METRIC)
+        self._check()
+
+        prepared = self._prepare(
+            saved_query_ids=[],
+            metric_ids=[str(metric_id)],
+            trigger=SuiteRunTrigger.SCHEDULED,
+        )
+        assert prepared.batches == [[str(on_metric.id)]]
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=prepared.suite_run_id)
+        assert suite.subject_type == SubjectType.METRIC
+        assert suite.subject_uuid == metric_id
+        retried = self._prepare(
+            saved_query_ids=[],
+            metric_ids=[str(metric_id)],
+            trigger=SuiteRunTrigger.SCHEDULED,
+        )
+        assert retried.suite_run_id == prepared.suite_run_id
+
     def test_mixed_metric_and_view_suite_has_no_single_subject(self) -> None:
         prepared = self._prepare(metric_ids=[str(uuid4())])
         suite = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=prepared.suite_run_id)
@@ -130,6 +152,32 @@ class TestCheckSuiteActivities(BaseTest):
             prepared = self._prepare()
 
         assert prepared.batches == []
+
+    def test_a_paused_schedule_prepares_no_batches(self) -> None:
+        metric_id = uuid4()
+        self._check(saved_query_id=None, metric_id=metric_id, subject_type=SubjectType.METRIC)
+
+        prepared = self._prepare(
+            saved_query_ids=[],
+            schedule_enabled=False,
+            metric_ids=[str(metric_id)],
+            trigger=SuiteRunTrigger.SCHEDULED,
+        )
+
+        assert prepared.batches == []
+
+    def test_an_unreadable_flag_fails_instead_of_preparing_an_empty_suite(self) -> None:
+        metric_id = uuid4()
+        self._check(saved_query_id=None, metric_id=metric_id, subject_type=SubjectType.METRIC)
+
+        with patch(PREPARE_FLAG, return_value=None), self.assertRaises(RuntimeError):
+            self._prepare(
+                saved_query_ids=[],
+                metric_ids=[str(metric_id)],
+                trigger=SuiteRunTrigger.SCHEDULED,
+            )
+
+        assert not DataQualitySuiteRun.objects.for_team(self.team.id).exists()
 
     def test_a_batch_counts_each_outcome_and_records_a_run_per_check(self) -> None:
         passing = self._check()

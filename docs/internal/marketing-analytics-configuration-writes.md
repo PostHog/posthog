@@ -21,3 +21,5 @@ With `new-marketing-analytics-dashboard` enabled, the dashboard shows visitors, 
 Revenue in the new dashboard uses event/action goals marked as revenue that sum an amount property. It displays one goal at a time through the existing attribution table, counts repeat purchases and shares attribution date, breakdown and exclusion filters. Projects without eligible goals link to Setup. Warehouse goals remain in Ad performance.
 
 Revenue ranks rows by their highest attributed value across models before the server limit and chart limit. Conversion queries retain conversion-count ordering.
+
+The new dashboard embeds the existing Attribution explorer as Conversion when `marketing-analytics-attribution` is enabled. It keeps goal selection, attribution models, conversion paths and the explorer’s date and test-account filters.

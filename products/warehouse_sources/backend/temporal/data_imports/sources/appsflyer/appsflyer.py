@@ -1,9 +1,9 @@
 import io
 import re
 import csv
-from collections.abc import Iterable, Iterator
+from collections.abc import Buffer, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import IO, Any, cast
+from typing import Any
 from urllib.parse import quote, urlencode
 
 import requests
@@ -50,12 +50,44 @@ REQUEST_TIMEOUT_SECONDS = 300
 MAX_RETRY_ATTEMPTS = 5
 # Yield rows in chunks so huge reports don't build one giant list.
 CHUNK_SIZE = 5000
+# Pull the report CSV off the wire in 64 KiB reads.
+REPORT_CHUNK_BYTES = 1 << 16
 
 
 @frozen
 class _ReportWindow:
     start: date
     end: date
+
+
+class _ResponseByteStream(io.RawIOBase):
+    """Read a streaming response body through ``iter_content`` as a binary file.
+
+    Wrapping ``response.raw`` directly crashes once the body is read: urllib3 closes
+    the raw stream as it reads the last byte, and a ``TextIOWrapper`` over the
+    now-closed stream raises ``ValueError: I/O operation on closed file`` instead of
+    reporting EOF. ``iter_content`` also turns a dropped connection into a retryable
+    ``requests`` error mid-stream.
+    """
+
+    def __init__(self, response: requests.Response, chunk_size: int) -> None:
+        self._chunks = response.iter_content(chunk_size=chunk_size)
+        self._buffer = b""
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, target: Buffer) -> int:
+        while not self._buffer:
+            try:
+                self._buffer = next(self._chunks)
+            except StopIteration:
+                return 0
+        view = memoryview(target).cast("B")
+        take = min(len(view), len(self._buffer))
+        view[:take] = self._buffer[:take]
+        self._buffer = self._buffer[take:]
+        return take
 
 
 class AppsFlyerRetryableError(Exception):
@@ -215,10 +247,11 @@ def _iter_report_rows(session: requests.Session, url: str, logger: FilteringBoun
     response = _open_report(session, url, logger)
     try:
         # Read physical lines off the socket rather than buffering the whole body: a raw-data
-        # window can hold a million event rows. Wrapping the stream (instead of `iter_lines`)
+        # window can hold a million event rows. Wrapping the byte stream (instead of `iter_lines`)
         # keeps the line terminators csv needs for quoted multi-line values.
-        response.raw.decode_content = True
-        stream = io.TextIOWrapper(cast(IO[bytes], response.raw), encoding="utf-8", newline="")
+        stream = io.TextIOWrapper(
+            io.BufferedReader(_ResponseByteStream(response, REPORT_CHUNK_BYTES)), encoding="utf-8", newline=""
+        )
         yield from _parse_csv_rows(stream, logger)
     finally:
         response.close()

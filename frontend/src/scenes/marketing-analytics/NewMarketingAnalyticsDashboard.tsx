@@ -8,6 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
+import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
 import { AttributionTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTable'
 import {
     MarketingAnalyticsTab,
@@ -136,6 +137,12 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                     preComputeStrategy={overview?.preComputeStrategy}
                     labelFromKey={labelFromKey}
                 />
+            )}
+            {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION] && (
+                <section aria-label="Conversion" className="flex flex-col gap-2">
+                    <h2 className="mb-0">Conversion</h2>
+                    <AttributionTab />
+                </section>
             )}
             {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION] && (
                 <section aria-label="Revenue" className="flex flex-col gap-4">

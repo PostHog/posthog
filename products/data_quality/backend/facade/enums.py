@@ -85,6 +85,18 @@ class SubjectType(StrEnum):
     METRIC = "metric"
 
 
+class ScheduleInterval(StrEnum):
+    ONE_HOUR = "1hour"
+    SIX_HOURS = "6hour"
+    TWELVE_HOURS = "12hour"
+    DAILY = "24hour"
+    WEEKLY = "7day"
+
+
+def schedule_interval_choices() -> list[str]:
+    return [interval.value for interval in ScheduleInterval]
+
+
 def subject_type_choices() -> dict[str, str]:
     return {kind.value: kind.value for kind in SubjectType}
 
