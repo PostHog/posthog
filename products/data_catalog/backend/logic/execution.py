@@ -20,6 +20,7 @@ from django.utils import timezone
 from pydantic import BaseModel
 from rest_framework.exceptions import Throttled, ValidationError
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.services.query import process_query_dict
@@ -102,6 +103,7 @@ def run_metric(
                     execution_mode=execution_mode,
                     user=user,
                     query_id=query_id,
+                    limit_context=LimitContext.DATA_CATALOG,
                     # Mirror /query and endpoint execution: API-key runs are subject to the same query
                     # safeguards (rejected constructs, API-team concurrency limiter) as those paths.
                     is_query_service=is_api_key_access_method(get_query_tag_value("access_method")),
@@ -195,6 +197,11 @@ def _apply_date_params(query: dict, date_from: Optional[str], date_to: Optional[
 
 
 def _envelope(metric: Metric, payload: dict, team: Team, prepared_query: dict, is_drifted: bool) -> dict:
+    # Only the row paginator reports these two, and it reports them together. A payload with no
+    # `limit` had no row cap applied, so nothing about it says rows were dropped: a trends response
+    # sets `hasMore` when it collapses surplus breakdown values into the "other" bucket, and
+    # narrowing the window or the interval recovers none of those.
+    row_limit = payload.get("limit")
     return {
         "status": metric.status,
         "is_drifted": is_drifted,
@@ -204,6 +211,8 @@ def _envelope(metric: Metric, payload: dict, team: Team, prepared_query: dict, i
         "columns": payload.get("columns"),
         "compiled_query": payload.get("hogql"),
         "query_status": payload.get("query_status"),
+        "has_more": row_limit is not None and bool(payload.get("hasMore")),
+        "row_limit": row_limit,
         "posthog_url": _deep_link(team, prepared_query),
         "instructions": None,
     }
@@ -219,6 +228,8 @@ def _markdown_envelope(metric: Metric, is_drifted: bool) -> dict:
         "columns": None,
         "compiled_query": None,
         "query_status": None,
+        "has_more": False,
+        "row_limit": None,
         "posthog_url": None,
         "instructions": (metric.definition or {}).get("markdown"),
     }

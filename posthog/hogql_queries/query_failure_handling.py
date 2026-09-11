@@ -52,8 +52,12 @@ def classify_failure(error: Exception, team_id: Optional[int] = None) -> Optiona
 def budget_for_limit_context(limit_context: Optional[LimitContext]) -> Budget:
     """Interactive requests get 60s of ClickHouse execution time while async workers and other
     elevated contexts get 10x that, so a failure only proves anything about the budget it ran
-    under."""
-    return BUDGET_INTERACTIVE if limit_context in (None, LimitContext.QUERY) else BUDGET_EXTENDED
+    under. This must agree with the contexts that raise ``max_execution_time`` in
+    ``HogQLQueryExecutor``: a context that does not get the longer timeout belongs here, or its
+    60s failures forbid the async retry that would have had the longer timeout."""
+    if limit_context in (None, LimitContext.QUERY, LimitContext.DATA_CATALOG):
+        return BUDGET_INTERACTIVE
+    return BUDGET_EXTENDED
 
 
 def _approximate_wait(open_until: datetime) -> str:

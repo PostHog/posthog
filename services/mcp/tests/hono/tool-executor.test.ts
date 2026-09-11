@@ -597,4 +597,44 @@ describe('ToolExecutor', () => {
             expect('structuredContent' in result).toBe(expectStructuredContent)
         })
     })
+
+    // A tools-mode client calls the metric-run tool directly, bypassing the exec
+    // dispatcher that marks the result. Both paths have to agree, or whether an agent
+    // is warned off an unapproved metric depends on the client it runs in.
+    describe('governed metric run canonicality in tools mode', () => {
+        const metricRunTool = { name: 'data-catalog-metric-run' }
+        let getToolByNameSpy: MockInstance | undefined
+
+        afterEach(() => {
+            getToolByNameSpy?.mockRestore()
+            getToolByNameSpy = undefined
+        })
+
+        function stubMetricRun(envelope: Record<string, unknown>): void {
+            getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build() {
+                    return this.base
+                },
+                base: {
+                    schema: z.object({}),
+                    handler: async () => envelope,
+                },
+            } as any)
+        }
+
+        it.each([
+            { label: 'proposed', envelope: { status: 'proposed', is_drifted: false }, marked: true },
+            { label: 'drifted approved', envelope: { status: 'approved', is_drifted: true }, marked: true },
+            { label: 'approved', envelope: { status: 'approved', is_drifted: false }, marked: false },
+        ])('$label metric result is marked: $marked', async ({ envelope, marked }) => {
+            stubMetricRun({ ...envelope, results: [[42]] })
+
+            const result = (await executor.handleToolCall(
+                { name: metricRunTool.name, arguments: {} },
+                makeState([metricRunTool], { useSingleExec: false })
+            )) as any
+
+            expect(result.content[0].text.includes('NONCANONICAL')).toBe(marked)
+        })
+    })
 })
