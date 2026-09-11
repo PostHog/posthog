@@ -37,7 +37,7 @@ jobs:
             - name: Install uv
               uses: ./.github/actions/setup-uv
               with:
-                  enable-cache: 'false'
+                  enable-cache: false
 
             - name: Check quarantine file
               if: github.event_name == 'pull_request'

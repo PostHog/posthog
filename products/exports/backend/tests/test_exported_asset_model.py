@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from tempfile import NamedTemporaryFile
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -62,14 +62,14 @@ class TestExportedAssetModel(APIBaseTest):
         assert list(ExportedAsset.objects_including_ttl_deleted.filter(id=asset.id)) == [asset]
 
     def test_exported_asset_outside_ttl_is_not_visible_to_both_managers(self) -> None:
-        with freeze_time("2021-01-01T12:00:00Z") as frozen_time:
+        with time_machine.travel("2021-01-01T12:00:00Z", tick=False) as frozen_time:
             asset = ExportedAsset.objects.create(
                 team=self.team,
                 created_by=self.user,
                 expires_after=datetime.now() + timedelta(seconds=100),
             )
 
-            frozen_time.tick(delta=timedelta(seconds=101))
+            frozen_time.shift(timedelta(seconds=101))
 
             assert list(ExportedAsset.objects.filter(id=asset.id)) == []
             assert list(ExportedAsset.objects_including_ttl_deleted.filter(id=asset.id)) == [asset]
@@ -124,7 +124,7 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
             (ExportedAsset.ExportFormat.JSONL, SEVEN_DAYS),
         ]
     )
-    @freeze_time("2024-06-15T10:30:00Z")
+    @time_machine.travel("2024-06-15T10:30:00Z", tick=False)
     def test_auto_sets_expires_after_based_on_format(self, export_format: str, expected_delta: timedelta) -> None:
         asset = ExportedAsset.objects.create(
             team=self.team,
@@ -136,7 +136,7 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
         )
         assert asset.expires_after == expected_expiry
 
-    @freeze_time("2024-06-15T10:30:00Z")
+    @time_machine.travel("2024-06-15T10:30:00Z", tick=False)
     def test_respects_explicit_expires_after(self) -> None:
         custom_expiry = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
         asset = ExportedAsset.objects.create(
@@ -147,7 +147,7 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
 
         assert asset.expires_after == custom_expiry
 
-    @freeze_time("2024-06-15T10:30:00Z")
+    @time_machine.travel("2024-06-15T10:30:00Z", tick=False)
     def test_partial_save_does_not_overwrite_existing_expires_after(self) -> None:
         custom_expiry = datetime(2025, 12, 22, 0, 0, 0, tzinfo=UTC)
         asset = ExportedAsset.objects.create(
@@ -162,7 +162,7 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
         asset.refresh_from_db()
         assert asset.expires_after == custom_expiry
 
-    @freeze_time("2024-06-15T10:30:00Z")
+    @time_machine.travel("2024-06-15T10:30:00Z", tick=False)
     def test_explicitly_updating_expires_after_field(self) -> None:
         custom_expiry = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
         asset = ExportedAsset.objects.create(
@@ -180,7 +180,7 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
 
 
 class TestExportedAssetFilename(APIBaseTest):
-    @freeze_time("2024-06-15T10:30:00Z")
+    @time_machine.travel("2024-06-15T10:30:00Z", tick=False)
     def test_filename_includes_timestamp(self) -> None:
         asset = ExportedAsset.objects.create(
             team=self.team,
@@ -188,7 +188,7 @@ class TestExportedAssetFilename(APIBaseTest):
         )
         assert asset.filename == "export-2024-06-15-103000.csv"
 
-    @freeze_time("2024-06-15T10:30:00Z")
+    @time_machine.travel("2024-06-15T10:30:00Z", tick=False)
     def test_filename_uses_custom_name_with_timestamp(self) -> None:
         asset = ExportedAsset.objects.create(
             team=self.team,
@@ -197,7 +197,7 @@ class TestExportedAssetFilename(APIBaseTest):
         )
         assert asset.filename == "my-cohort-name-2024-06-15-103000.csv"
 
-    @freeze_time("2024-06-15T10:30:00Z")
+    @time_machine.travel("2024-06-15T10:30:00Z", tick=False)
     def test_filename_slugifies_special_characters(self) -> None:
         asset = ExportedAsset.objects.create(
             team=self.team,
@@ -212,7 +212,7 @@ class TestExportedAssetFilename(APIBaseTest):
             (ExportedAsset.ExportFormat.JSONL, "jsonl"),
         ]
     )
-    @freeze_time("2024-06-15T10:30:00Z")
+    @time_machine.travel("2024-06-15T10:30:00Z", tick=False)
     def test_tabular_format_extension(self, export_format: str, expected_extension: str) -> None:
         asset = ExportedAsset.objects.create(
             team=self.team,

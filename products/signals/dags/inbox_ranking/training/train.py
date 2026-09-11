@@ -1,9 +1,12 @@
 """Per-head XGBoost training over the scoring-moment examples.
 
 Deliberately plain: fixed hyperparameters, a time-based holdout by report, AUC plus a
-label-permutation null per head. The booster is saved as UBJSON bytes with its feature names, so
-the serving side can assert `booster.feature_names == FEATURE_NAMES` at load.
+label-permutation null per head. The feature names come from the caller's feature set, so one
+learner serves every family; the booster is saved as UBJSON bytes with those names, so the serving
+side can assert them against the set the model declares.
 """
+
+from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
@@ -12,7 +15,6 @@ from sklearn.metrics import average_precision_score, log_loss, roc_auc_score
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import FEATURE_NAMES
 from products.signals.dags.inbox_ranking.training.examples import holdout_mask
 from products.signals.dags.inbox_ranking.training.heads import Head
 
@@ -113,13 +115,15 @@ def _head_readable(
     return holdout_positives >= min_positives and holdout_auc > 0.5 and holdout_auc - null_auc >= NULL_MARGIN
 
 
-def train_head(examples: pd.DataFrame, head: Head, *, holdout_days: int, seed: int = 0) -> TrainedHead | None:
+def train_head(
+    examples: pd.DataFrame, head: Head, *, feature_names: Sequence[str], holdout_days: int, seed: int = 0
+) -> TrainedHead | None:
     """Fit one head; None when there is nothing to fit (no positive or no negative in train)."""
     rows = examples[examples["head"] == head.name]
     if rows.empty:
         return None
     test = holdout_mask(rows, holdout_days).to_numpy()
-    x = rows[list(FEATURE_NAMES)].astype(float)
+    x = rows[list(feature_names)].astype(float)
     y = rows["label"].to_numpy(dtype=int)
     x_train, y_train, x_test, y_test = x[~test], y[~test], x[test], y[test]
     if len(y_train) == 0 or y_train.sum() == 0 or y_train.sum() == len(y_train):
@@ -173,7 +177,9 @@ def train_head(examples: pd.DataFrame, head: Head, *, holdout_days: int, seed: i
     )
 
 
-def booster_holdout_auc(booster_ubj: bytes, examples: pd.DataFrame, head: Head, *, holdout_days: int) -> float | None:
+def booster_holdout_auc(
+    booster_ubj: bytes, examples: pd.DataFrame, head: Head, *, feature_names: Sequence[str], holdout_days: int
+) -> float | None:
     """AUC of a saved booster on `head`'s holdout rows of `examples`: the same rows `train_head`
     grades a candidate on, so a champion and a candidate can be compared on one set."""
     rows = examples[examples["head"] == head.name]
@@ -184,10 +190,10 @@ def booster_holdout_auc(booster_ubj: bytes, examples: pd.DataFrame, head: Head, 
         return None
     booster = xgb.Booster()
     booster.load_model(bytearray(booster_ubj))
-    # The booster's own names, not the current contract: a champion trained before an additive
-    # schema bump is still scorable on its subset. A name the examples lack means the schemas are
-    # incompatible, and the caller falls back to the stored AUC.
-    names = list(booster.feature_names or FEATURE_NAMES)
+    # The booster's own names, not the set's: a champion trained before an additive schema bump is
+    # still scorable on its subset. A name the examples lack means the schemas are incompatible,
+    # and the caller falls back to the stored AUC.
+    names = list(booster.feature_names or feature_names)
     if any(name not in rows for name in names):
         return None
     x = rows.loc[test, names].astype(float)

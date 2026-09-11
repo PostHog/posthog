@@ -1,11 +1,10 @@
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
   type NavRailPane,
-  railPaneForMatches,
-  railPaneForPath,
+  railPaneForHref,
   railPaneHasSidebar,
 } from "@posthog/ui/features/canvas/railPane";
-import { reportSourceHrefFromLocation } from "@posthog/ui/router/reportNavigation";
+import { isInboxTriagePath } from "@posthog/ui/features/inbox/triageRoute";
 import { useRouterState } from "@tanstack/react-router";
 
 export interface RailSurface {
@@ -18,17 +17,10 @@ export interface RailSurface {
  *  stable and unrelated route changes don't re-render every consumer. */
 export function useRailPane(): NavRailPane {
   return useRouterState({
-    select: (state) => {
-      // The settled location, not the in-flight one: during a pending
-      // navigation `location` is already the destination while `matches` still
-      // describe the page being left. Pairing the two unmounts the sidebar for
-      // one painted frame (the yieldToPaint skeleton) and rebuilds it after.
-      const location = state.resolvedLocation ?? state.location;
-      const source = reportSourceHrefFromLocation(location);
-      return source
-        ? railPaneForPath(source.split(/[?#]/)[0])
-        : railPaneForMatches(state.matches);
-    },
+    // One location decides. `location`, `matches` and `resolvedLocation` land
+    // at different points in a transition, so a rule reading two of them
+    // answers with a destination neither is on, and the column blinks.
+    select: (state) => railPaneForHref(state.location.href),
   });
 }
 
@@ -37,10 +29,13 @@ export function useRailPane(): NavRailPane {
 export function useRailSurface(): RailSurface {
   const channelsLayout = useChannelsLayout();
   const pane = useRailPane();
+  const inTriage = useRouterState({
+    select: (state) => isInboxTriagePath(state.location.pathname),
+  });
 
   return {
     pane,
-    hasSidebar: !channelsLayout || railPaneHasSidebar(pane),
+    hasSidebar: !inTriage && (!channelsLayout || railPaneHasSidebar(pane)),
     showsActivityDetail: channelsLayout && pane === "activity",
   };
 }

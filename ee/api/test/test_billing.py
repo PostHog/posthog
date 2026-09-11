@@ -5,7 +5,7 @@ from typing import Any, cast, get_args
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest import TestCase
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -33,7 +33,9 @@ from products.access_control.backend.models.access_control import AccessControl
 
 from ee.api.billing import (
     _EXPORT_STREAMS,
+    BILLING_ACCESS_DENIED_MESSAGE,
     BILLING_LIMIT_TODAYS_USAGE_FLAG,
+    BILLING_PROJECT_ACCESS_DENIED_MESSAGE,
     MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
     OWNER_ONLY_BILLING_FLAG,
     BillingDateRangeTooLong,
@@ -269,7 +271,7 @@ def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct
 
 class TestUnlicensedBillingAPI(APIBaseTest):
     @patch("ee.billing.billing_manager.http_session.get")
-    @freeze_time("2022-01-01")
+    @time_machine.travel("2022-01-01", tick=False)
     def test_billing_calls_the_service_without_token(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
@@ -319,7 +321,7 @@ class TestBillingAPI(APILicensedTest):
         assert res.json()["detail"] == "Billing is not supported for this license type"
 
     @patch("ee.billing.billing_manager.http_session.get")
-    @freeze_time("2022-01-01")
+    @time_machine.travel("2022-01-01", tick=False)
     def test_billing_calls_the_service_with_appropriate_token(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
@@ -653,7 +655,7 @@ class TestBillingAPI(APILicensedTest):
             "type": "validation_error",
         }
 
-    @freeze_time("2022-01-01T12:00:00Z")
+    @time_machine.travel("2022-01-01T12:00:00Z", tick=False)
     @patch("ee.billing.billing_manager.http_session.get")
     def test_license_is_updated_on_billing_load(self, mock_request):
         mock_request.return_value.status_code = 200
@@ -1192,21 +1194,21 @@ class TestBillingUsageRequestSerializer(TestCase):
         self.assertEqual(serializer.validated_data["start_date"], "2025-01-01")
         self.assertEqual(serializer.validated_data["end_date"], "2025-01-31")
 
-    @freeze_time("2025-02-15")
+    @time_machine.travel("2025-02-15", tick=False)
     def test_relative_dates(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "-7d", "end_date": "-1d"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(serializer.validated_data["start_date"], "2025-02-08")
         self.assertEqual(serializer.validated_data["end_date"], "2025-02-14")
 
-    @freeze_time("2025-02-15")
+    @time_machine.travel("2025-02-15", tick=False)
     def test_start_date_all_defaults_end_date_to_today(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "all"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(serializer.validated_data["start_date"], "2020-01-01")
         self.assertEqual(serializer.validated_data["end_date"], "2025-02-15")
 
-    @freeze_time("2025-02-15")
+    @time_machine.travel("2025-02-15", tick=False)
     def test_start_date_without_end_date_defaults_end_date_to_today(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "2025-01-01"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
@@ -1364,6 +1366,10 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        expected_detail = (
+            BILLING_ACCESS_DENIED_MESSAGE if action_name == "list" else HasBillingUsageSpendReadAccess.message
+        )
+        self.assertEqual(response.json()["detail"], expected_detail)
         mock_manager_method.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
@@ -1646,6 +1652,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], BILLING_PROJECT_ACCESS_DENIED_MESSAGE)
         mock_get_usage_data.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
@@ -1807,12 +1814,14 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.organization_membership.save()
         response = self.client.get("/api/billing/usage/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], HasBillingUsageSpendReadAccess.message)
 
     def test_get_spend_permission_denied_for_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         response = self.client.get("/api/billing/spend/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], HasBillingUsageSpendReadAccess.message)
 
     @parameterized.expand(
         [
@@ -2043,6 +2052,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         response = self.client.get(f"/api/billing/{endpoint}/?team_ids=[{private_team.pk}]")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], BILLING_PROJECT_ACCESS_DENIED_MESSAGE)
         # An empty team_ids list means "all teams" to the billing service, so it must never be called here
         mock_get_usage_data.assert_not_called()
         mock_get_spend_data.assert_not_called()
@@ -2302,19 +2312,37 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("activate", "post", "/api/billing/activate", {"products": "all_products:"}),
-            ("deactivate", "post", "/api/billing/deactivate", {"products": "product_1"}),
-            ("patch", "patch", "/api/billing//", {"custom_limits_usd": {}}),
-            ("subscription_switch_plan", "post", "/api/billing/subscription/switch-plan", {"plan": "test"}),
-            ("portal", "get", "/api/billing/portal", None),
-            ("activate_trial", "post", "/api/billing/trials/activate", {"product": "test"}),
-            ("cancel_trial", "post", "/api/billing/trials/cancel", {"product": "test"}),
-            ("purchase_credits", "post", "/api/billing/credits/purchase", {"amount": 100}),
-            ("claim_coupon", "post", "/api/billing/coupons/claim", {"code": "TEST"}),
-            ("startup_apply", "post", "/api/billing/startups/apply", "USE_ORG_ID"),
+            ("activate", "post", "/api/billing/activate", {"products": "all_products:"}, BILLING_ACCESS_DENIED_MESSAGE),
+            ("deactivate", "post", "/api/billing/deactivate", {"products": "product_1"}, BILLING_ACCESS_DENIED_MESSAGE),
+            ("patch", "patch", "/api/billing//", {"custom_limits_usd": {}}, BILLING_ACCESS_DENIED_MESSAGE),
+            (
+                "subscription_switch_plan",
+                "post",
+                "/api/billing/subscription/switch-plan",
+                {"plan": "test"},
+                BILLING_ACCESS_DENIED_MESSAGE,
+            ),
+            ("portal", "get", "/api/billing/portal", None, BILLING_ACCESS_DENIED_MESSAGE),
+            (
+                "activate_trial",
+                "post",
+                "/api/billing/trials/activate",
+                {"product": "test"},
+                BILLING_ACCESS_DENIED_MESSAGE,
+            ),
+            ("cancel_trial", "post", "/api/billing/trials/cancel", {"product": "test"}, BILLING_ACCESS_DENIED_MESSAGE),
+            (
+                "purchase_credits",
+                "post",
+                "/api/billing/credits/purchase",
+                {"amount": 100},
+                BILLING_ACCESS_DENIED_MESSAGE,
+            ),
+            ("claim_coupon", "post", "/api/billing/coupons/claim", {"code": "TEST"}, BILLING_ACCESS_DENIED_MESSAGE),
+            ("startup_apply", "post", "/api/billing/startups/apply", "USE_ORG_ID", None),
         ]
     )
-    def test_permission_denied(self, _name, method, url, data):
+    def test_permission_denied(self, _name, method, url, data, expected_detail):
         if data == "USE_ORG_ID":
             data = {"organization_id": str(self.organization.id)}
         client_method = getattr(self.client, method)
@@ -2326,6 +2354,8 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
         else:
             response = client_method(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        if expected_detail:
+            self.assertEqual(response.json()["detail"], expected_detail)
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_list_still_accessible(self, mock_request):
