@@ -10,6 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
 import { AttributionTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTable'
+import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
 import {
     MarketingAnalyticsTab,
     SetupSection,
@@ -151,6 +152,15 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                 <section aria-label="Conversion" className="flex flex-col gap-2">
                     <h2 className="mb-0">Conversion</h2>
                     <AttributionTab />
+                </section>
+            )}
+            {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION] && (
+                <section aria-label="Retention" className="flex flex-col gap-2">
+                    <h2 className="mb-0">Retention</h2>
+                    <p className="text-secondary mb-0">
+                        Follow visitors acquired in the selected date range across subsequent periods.
+                    </p>
+                    <RetentionTab />
                 </section>
             )}
             {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION] && (
