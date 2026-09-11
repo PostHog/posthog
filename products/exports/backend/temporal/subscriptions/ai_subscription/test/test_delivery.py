@@ -252,6 +252,21 @@ class TestBuildChartImageUrls:
         assert urls == [_CHART]
         assert mint.call_args.kwargs["expiry_delta"] == CHART_IMAGE_URL_TTL
 
+    def test_a_typed_saved_visual_snapshot_gets_a_url(self) -> None:
+        chart = {
+            "source": "context",
+            "export_asset_id": 7,
+            "title": "Saved signups",
+            "context_ref": "dashboard-visual:5:6:7",
+            "insight_id": 7,
+            "dashboard_id": 5,
+            "dashboard_tile_id": 6,
+        }
+        with patch(f"{_DELIVERY}.get_delivery_image_url", return_value="https://ph.test/img.png"):
+            assert build_chart_image_urls([chart], team_id=1) == [
+                {"title": "Saved signups", "image_url": "https://ph.test/img.png"}
+            ]
+
     @parameterized.expand(
         [
             ("expired_asset", [{"export_asset_id": 7, "title": "t"}], None),
@@ -898,7 +913,7 @@ class TestFreezePlanPersistence:
             start_date=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-    def _context(self, sub: MagicMock, *, creator_can_query: bool = True) -> SubscriptionReportContext:
+    def _context(self, sub: Subscription, *, creator_can_query: bool = True) -> SubscriptionReportContext:
         end = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         window = ReportWindow(start=end - timedelta(days=1), end=end)
         return SubscriptionReportContext(

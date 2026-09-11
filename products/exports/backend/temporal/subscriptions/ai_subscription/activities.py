@@ -19,6 +19,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.temporal.subscriptions.ai_subscription.charts import serialize_rendered_chart
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     QueryAccessRevokedError,
     build_ai_subscription_report,
@@ -208,7 +209,7 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             AI_REPORT_SNAPSHOT_KEY: strip_null_bytes(result.markdown),
             AI_REPORT_DIAGNOSTICS_KEY: strip_null_bytes([dataclasses.asdict(d) for d in result.diagnostics]),
             AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
-            AI_REPORT_CHARTS_KEY: strip_null_bytes([dataclasses.asdict(chart) for chart in result.charts]),
+            AI_REPORT_CHARTS_KEY: strip_null_bytes([serialize_rendered_chart(chart) for chart in result.charts]),
             AI_REPORT_CONTEXT_KEY: strip_null_bytes(dataclasses.asdict(result.context)),
             AI_REPORT_QUERY_PLAN_STATUS_KEY: result.query_plan_status.value,
             # prompt is None for non-AI subs; "" if cleared — omit either.

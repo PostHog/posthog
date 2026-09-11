@@ -12,6 +12,8 @@ from django.test import SimpleTestCase
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.schema import DataVisualizationNode, InsightVizNode
+
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.apply_dashboard_filters import flatten_property_leaves
 from posthog.models import EventDefinition, Team
@@ -41,6 +43,8 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_cont
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context.insight.format import TRUNCATED_MARKER
+
+from .. import report_context as report_context_module
 
 _MODULE = "products.exports.backend.temporal.subscriptions.ai_subscription.report_context"
 _EXECUTOR = "ee.hogai.context.insight.context.execute_and_format_query"
@@ -84,6 +88,75 @@ def _hogql_query(variable_id: str, *, value: str) -> dict[str, Any]:
 
 
 class TestReportContextPureFunctions(SimpleTestCase):
+    def test_saved_visualization_keeps_the_full_typed_wrapper(self) -> None:
+        insight_viz = MagicMock(query=_trends_query("signup"), filters={})
+        data_viz = MagicMock(query=_hogql_query("event-variable", value="signup"), filters={})
+
+        parsed_insight_viz = report_context_module._validated_saved_visualization(insight_viz)
+        parsed_data_viz = report_context_module._validated_saved_visualization(data_viz)
+
+        assert isinstance(parsed_insight_viz, InsightVizNode)
+        assert parsed_insight_viz.model_dump()["source"]["series"][0]["event"] == "signup"
+        assert isinstance(parsed_data_viz, DataVisualizationNode)
+        assert parsed_data_viz.source.variables is not None
+        assert parsed_data_viz.source.variables["event-variable"].value == "signup"
+
+    def test_effective_visualization_keeps_wrapper_and_applies_dashboard_filters(self) -> None:
+        visualization = InsightVizNode.model_validate(
+            _trends_query("signup", date_from="2026-03-01", date_to="2026-03-31")
+        )
+        team = Team(
+            id=1,
+            organization_id="00000000-0000-0000-0000-000000000001",
+            timezone="UTC",
+            modifiers={"personsOnEventsMode": "person_id_override_properties_joined"},
+        )
+
+        effective = report_context_module._apply_dashboard_context_to_visualization(
+            visualization,
+            team=team,
+            dashboard_filters={"properties": [{"key": "$geoip_country_code", "operator": "exact", "value": ["US"]}]},
+            filters_override={"properties": [{"key": "$browser", "operator": "exact", "value": ["Chrome"]}]},
+            variables_override=None,
+        )
+
+        assert isinstance(effective, InsightVizNode)
+        assert effective.source.dateRange is not None
+        assert effective.source.dateRange.date_from == "2026-03-01"
+        assert effective.source.dateRange.date_to == "2026-03-31"
+        assert {item["key"] for item in flatten_property_leaves(effective.source.model_dump()["properties"])} == {
+            "$geoip_country_code",
+            "$browser",
+        }
+
+    def test_effective_visualization_keeps_data_viz_settings_and_applies_variables(self) -> None:
+        visualization = DataVisualizationNode.model_validate(_hogql_query("event-variable", value="signup"))
+        team = Team(
+            id=1,
+            organization_id="00000000-0000-0000-0000-000000000001",
+            timezone="UTC",
+            modifiers={"personsOnEventsMode": "person_id_override_properties_joined"},
+        )
+
+        effective = report_context_module._apply_dashboard_context_to_visualization(
+            visualization,
+            team=team,
+            dashboard_filters=None,
+            filters_override=None,
+            variables_override={
+                "event-variable": {
+                    "variableId": "event-variable",
+                    "code_name": "report_event",
+                    "value": "purchase",
+                }
+            },
+        )
+
+        assert isinstance(effective, DataVisualizationNode)
+        assert effective.chartSettings is not None
+        assert effective.source.variables is not None
+        assert effective.source.variables["event-variable"].value == "purchase"
+
     def test_saved_queries_are_upgraded_on_a_copy_before_validation(self) -> None:
         raw_query = _trends_query("legacy event")
         insight = MagicMock(query=raw_query, filters={})
@@ -339,6 +412,12 @@ class TestResolveReportContext(BaseTest):
         assert evidence.insights[0].status == "success"
         assert evidence.relevant_events == ("current event",)
         assert evidence.authorized_context_refs == (f"insight:{trends.id}", f"insight:{variable.id}")
+        assert [candidate.ref for candidate in evidence.visual_candidates] == [
+            f"insight:{trends.id}",
+            f"insight:{variable.id}",
+        ]
+        assert isinstance(evidence.visual_candidates[0].visualization, InsightVizNode)
+        assert isinstance(evidence.visual_candidates[1].visualization, DataVisualizationNode)
         assert all(call.kwargs["include_prompt_framing"] is False for call in execute.call_args_list)
 
     def test_context_resolution_timeout_degrades_the_slow_query(self) -> None:
@@ -364,6 +443,7 @@ class TestResolveReportContext(BaseTest):
             evidence = async_to_sync(resolve_report_context)(subscription)
 
         assert evidence.insights[0].status == "failed"
+        assert evidence.visual_candidates == ()
         cancel_query.assert_called_once()
 
     def test_outer_cancellation_cleans_up_running_context_queries(self) -> None:
@@ -570,7 +650,7 @@ class TestResolveReportContext(BaseTest):
             patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value={}),
             patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows") as execute,
         ):
-            async_to_sync(resolve_report_context)(subscription)
+            evidence = async_to_sync(resolve_report_context)(subscription)
 
         calls_by_id = {
             call.kwargs["insight_id"]: call.args[1].model_dump(mode="json") for call in execute.call_args_list
@@ -585,6 +665,11 @@ class TestResolveReportContext(BaseTest):
         }
         assert calls_by_id[variable.id]["variables"]["dashboard-variable"]["value"] is None
         assert calls_by_id[variable.id]["variables"]["dashboard-variable"]["isNull"] is True
+        candidates_by_id = {candidate.insight_id: candidate for candidate in evidence.visual_candidates}
+        assert candidates_by_id[trends.id].visualization.source.model_dump(mode="json") == filtered_query
+        assert candidates_by_id[variable.id].visualization.source.model_dump(mode="json") == calls_by_id[variable.id]
+        assert all(candidate.dashboard_id == dashboard.id for candidate in evidence.visual_candidates)
+        assert all(candidate.dashboard_tile_id is not None for candidate in evidence.visual_candidates)
 
     def test_dashboard_tile_can_ignore_dashboard_filters(self) -> None:
         subscription = self._subscription()

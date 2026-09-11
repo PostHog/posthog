@@ -16,7 +16,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
     _report_diagnostic_counts,
     _snapshot_diagnostic_counts,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.charts import RenderedChart
+from products.exports.backend.temporal.subscriptions.ai_subscription.charts import RenderedChart, RenderedContextChart
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportContext,
     AiReportContexts,
@@ -217,13 +217,34 @@ async def test_persist_ai_report_writes_chart_references_not_images(team, user) 
             markdown="# Weekly report",
             window_end_utc=_WINDOW_END_UTC,
             diagnostics=(),
-            charts=(RenderedChart(export_asset_id=99, title="signups by day", step_index=0),),
+            charts=(
+                RenderedChart(export_asset_id=99, title="signups by day", step_index=0),
+                RenderedContextChart(
+                    export_asset_id=100,
+                    title="Saved signups",
+                    context_ref="dashboard-visual:5:6:7",
+                    insight_id=7,
+                    dashboard_id=5,
+                    dashboard_tile_id=6,
+                ),
+            ),
         ),
         prompt="weekly report",
     )
 
     snapshot = await _snapshot(delivery.id)
-    assert snapshot[AI_REPORT_CHARTS_KEY] == [{"export_asset_id": 99, "title": "signups by day", "step_index": 0}]
+    assert snapshot[AI_REPORT_CHARTS_KEY] == [
+        {"source": "generated", "export_asset_id": 99, "title": "signups by day", "step_index": 0},
+        {
+            "source": "context",
+            "export_asset_id": 100,
+            "title": "Saved signups",
+            "context_ref": "dashboard-visual:5:6:7",
+            "insight_id": 7,
+            "dashboard_id": 5,
+            "dashboard_tile_id": 6,
+        },
+    ]
 
 
 async def test_persist_ai_report_strips_null_bytes(team, user) -> None:

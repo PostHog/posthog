@@ -331,19 +331,60 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
 CHART_IMAGE_URL_TTL = timedelta(days=180)
 
 
-def build_chart_image_urls(charts: Any, *, team_id: int) -> list[dict]:
+type ChartImageUrl = dict[str, str]
+
+
+def _chart_image_fields(chart: object) -> tuple[int, str] | None:
+    if not isinstance(chart, dict):
+        return None
+    asset_id = chart.get("export_asset_id")
+    title = chart.get("title")
+    if not isinstance(asset_id, int) or isinstance(asset_id, bool) or not isinstance(title, str):
+        return None
+
+    source = chart.get("source")
+    if source is None:
+        # Rows written before chart provenance was added contain only the common fields.
+        return asset_id, title
+    if source == "generated":
+        step_index = chart.get("step_index")
+        return (asset_id, title) if isinstance(step_index, int) and not isinstance(step_index, bool) else None
+    if source != "context":
+        return None
+
+    context_ref = chart.get("context_ref")
+    insight_id = chart.get("insight_id")
+    dashboard_id = chart.get("dashboard_id")
+    dashboard_tile_id = chart.get("dashboard_tile_id")
+    if not isinstance(context_ref, str) or not isinstance(insight_id, int) or isinstance(insight_id, bool):
+        return None
+    if (dashboard_id is None) != (dashboard_tile_id is None):
+        return None
+    if dashboard_id is None:
+        return (asset_id, title) if context_ref == f"insight:{insight_id}" else None
+    if (
+        not isinstance(dashboard_id, int)
+        or isinstance(dashboard_id, bool)
+        or not isinstance(dashboard_tile_id, int)
+        or isinstance(dashboard_tile_id, bool)
+    ):
+        return None
+    expected_ref = f"dashboard-visual:{dashboard_id}:{dashboard_tile_id}:{insight_id}"
+    return (asset_id, title) if context_ref == expected_ref else None
+
+
+def build_chart_image_urls(charts: object, *, team_id: int) -> list[ChartImageUrl]:
     if not isinstance(charts, list):
         return []
-    urls: list[dict] = []
+    urls: list[ChartImageUrl] = []
     for chart in charts:
-        if not isinstance(chart, dict):
+        image_fields = _chart_image_fields(chart)
+        if image_fields is None:
             continue
-        asset_id = chart.get("export_asset_id")
-        if not isinstance(asset_id, int) or isinstance(asset_id, bool):
-            continue
+        asset_id, title = image_fields
         image_url = get_delivery_image_url(team_id=team_id, asset_id=asset_id, expiry_delta=CHART_IMAGE_URL_TTL)
         if image_url:
-            urls.append({"title": str(chart.get("title") or ""), "image_url": image_url})
+            urls.append({"title": title, "image_url": image_url})
     return urls
 
 

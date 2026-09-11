@@ -5,14 +5,20 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import InsightVizNode
+
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     ChartFailureReason,
     ChartRenderFailure,
+    ContextChartRenderFailure,
+    RenderedContextChart,
     ValidatedChart,
+    build_context_export_context,
     build_export_context,
     render_charts,
     validate_chart,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import ContextVisualCandidate
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import StepChart
 
 _CHARTS = "products.exports.backend.temporal.subscriptions.ai_subscription.charts"
@@ -120,6 +126,24 @@ def _chart(spec=_LINE, hogql="SELECT 1", step_index=0) -> ValidatedChart:
     return ValidatedChart(spec=spec, hogql=hogql, title="signups", step_index=step_index)
 
 
+def _context_candidate(insight_id: int = 7) -> ContextVisualCandidate:
+    return ContextVisualCandidate(
+        ref=f"insight:{insight_id}",
+        insight_id=insight_id,
+        title=f"Saved signups {insight_id}",
+        visualization=InsightVizNode.model_validate(
+            {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "signup"}],
+                    "dateRange": {"date_from": "2026-08-01", "date_to": "2026-08-31"},
+                },
+            }
+        ),
+    )
+
+
 def test_the_export_context_pins_the_render_to_the_step_row_limits():
     assert build_export_context(_chart())["limit_context"] == "posthog_ai"
     assert build_export_context(_chart())["title"] == "signups"
@@ -133,6 +157,16 @@ def test_the_export_context_wraps_the_executed_sql_for_the_renderer():
     assert source["display"] == "ActionsLineGraph"
     assert source["chartSettings"]["xAxis"] == {"column": "day"}
     assert source["chartSettings"]["yAxis"] == [{"column": "signups"}]
+
+
+def test_the_context_export_preserves_the_exact_saved_visualization():
+    candidate = _context_candidate()
+
+    export_context = build_context_export_context(candidate)
+
+    assert export_context["limit_context"] == "posthog_ai"
+    assert export_context["title"] == candidate.title
+    assert export_context["source"] == candidate.visualization.model_dump(mode="json")
 
 
 @parameterized.expand(
@@ -156,6 +190,68 @@ async def test_a_rendered_chart_carries_its_asset_id():
     assert failures == []
     assert rendered[0].export_asset_id == 4321
     assert rendered[0].title == "signups"
+
+
+async def test_a_saved_visual_is_revalidated_immediately_before_rendering():
+    candidate = _context_candidate()
+    with (
+        patch(f"{_CHARTS}.user_can_access_context_visual", return_value=True) as can_access,
+        patch(f"{_CHARTS}.render_png_export", return_value=(MagicMock(id=4321), b"png")) as render,
+    ):
+        rendered, failures = await render_charts([], context_visuals=[candidate], team=MagicMock(), user=MagicMock())
+
+    assert failures == []
+    assert rendered == [
+        RenderedContextChart(
+            export_asset_id=4321,
+            title=candidate.title,
+            context_ref=candidate.ref,
+            insight_id=candidate.insight_id,
+        )
+    ]
+    can_access.assert_called_once()
+    assert render.call_args.kwargs["export_context"] == build_context_export_context(candidate)
+
+
+async def test_revoked_saved_visual_access_drops_only_that_image():
+    candidate = _context_candidate()
+    with (
+        patch(f"{_CHARTS}.user_can_access_context_visual", return_value=False),
+        patch(f"{_CHARTS}.render_png_export") as render,
+    ):
+        rendered, failures = await render_charts([], context_visuals=[candidate], team=MagicMock(), user=MagicMock())
+
+    assert rendered == []
+    assert failures == [
+        ContextChartRenderFailure(context_ref=candidate.ref, reason=ChartFailureReason.CONTEXT_ACCESS_REVOKED)
+    ]
+    render.assert_not_called()
+
+
+async def test_a_failed_saved_visual_does_not_open_a_replacement_attempt():
+    candidates = [_context_candidate(insight_id) for insight_id in range(1, 11)]
+
+    def render(**kwargs):
+        source = kwargs["export_context"]["source"]
+        if source["source"]["series"][0]["event"] == "signup" and kwargs["export_context"]["title"].endswith("1"):
+            return MagicMock(id=1, exception="boom"), None
+        return MagicMock(id=int(kwargs["export_context"]["title"].rsplit(" ", 1)[1]), exception=None), b"png"
+
+    with (
+        patch(f"{_CHARTS}.user_can_access_context_visual", return_value=True),
+        patch(f"{_CHARTS}.render_png_export", side_effect=render) as render_mock,
+    ):
+        rendered, failures = await render_charts(
+            [_chart(hogql="GENERATED", step_index=0)],
+            context_visuals=candidates,
+            team=MagicMock(),
+            user=MagicMock(),
+        )
+
+    assert len(render_mock.call_args_list) == 10
+    assert len(rendered) == 9
+    assert all(isinstance(chart, RenderedContextChart) for chart in rendered)
+    assert failures == [ContextChartRenderFailure(context_ref="insight:1", reason=ChartFailureReason.RENDER_FAILED)]
 
 
 async def test_a_failed_render_drops_that_chart_and_keeps_the_rest():
@@ -224,5 +320,6 @@ async def test_a_slow_chart_does_not_discard_the_ones_that_rendered():
     ):
         rendered, failures = await render_charts(charts, team=MagicMock(), user=MagicMock())
 
-    assert [chart.step_index for chart in rendered] == [0]
+    assert rendered[0].source == "generated"
+    assert rendered[0].step_index == 0
     assert failures == [ChartRenderFailure(step_index=1, reason=ChartFailureReason.BUDGET_EXHAUSTED)]

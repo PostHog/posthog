@@ -12,11 +12,18 @@ from django.utils import timezone
 
 from pydantic import BaseModel
 
+from posthog.schema import DataVisualizationNode, InsightVizNode
+
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.apply_dashboard_filters import (
+    apply_dashboard_filters_to_dict,
+    apply_dashboard_variables_to_dict,
+    resolve_effective_dashboard_filters,
+)
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
@@ -28,6 +35,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.models.subscription_context import SubscriptionContext
+from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import MAX_CHARTS_PER_REPORT
 from products.product_analytics.backend.facade.api import (
     insights_including_soft_deleted_for_team,
     recent_unique_viewer_counts_by_insight_for_project,
@@ -40,7 +48,6 @@ from ee.hogai.context.dashboard.prompts import DASHBOARD_RESULT_TEMPLATE
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.insight.format import TRUNCATED_MARKER
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.query import validate_assistant_query
 
 MAX_REPORT_CONTEXTS = 3
 MAX_DASHBOARD_INSIGHTS = 6
@@ -53,6 +60,7 @@ CONTEXT_NAME_MAX_LENGTH = 120
 CONTEXT_DESCRIPTION_MAX_LENGTH = 300
 
 ReportContextStatus = Literal["success", "failed", "truncated"]
+type ContextVisualization = InsightVizNode | DataVisualizationNode
 type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
 type JsonObject = dict[str, JsonValue]
 
@@ -60,6 +68,29 @@ _UNAVAILABLE_INSIGHT_MARKER = "Insight context unavailable."
 _UNAVAILABLE_DASHBOARD_MARKER = "Dashboard context unavailable."
 _CONTEXT_LIMIT_EXCEEDED_MARKER = "Report context limit exceeded."
 _TRUNCATED_CONTEXT_MARKER = "\n\n…(context evidence truncated)"
+
+
+@frozen
+class ContextVisualCandidate:
+    ref: str
+    insight_id: int
+    title: str
+    visualization: ContextVisualization
+    dashboard_id: int | None = None
+    dashboard_tile_id: int | None = None
+
+    def __post_init__(self) -> None:
+        if (self.dashboard_id is None) != (self.dashboard_tile_id is None):
+            raise ValueError("Dashboard and tile identifiers must be paired")
+        expected_ref = (
+            f"dashboard-visual:{self.dashboard_id}:{self.dashboard_tile_id}:{self.insight_id}"
+            if self.dashboard_id is not None and self.dashboard_tile_id is not None
+            else f"insight:{self.insight_id}"
+        )
+        if self.ref != expected_ref:
+            raise ValueError("Context visual ref does not match its identifiers")
+        if len(self.title) > CONTEXT_NAME_MAX_LENGTH:
+            raise ValueError("Context visual title exceeds its bound")
 
 
 @frozen
@@ -110,6 +141,7 @@ class ReportContextEvidence:
     insights: tuple[InsightReportEvidence, ...]
     authorized_context_refs: tuple[str, ...] = ()
     relevant_events: tuple[str, ...] = ()
+    visual_candidates: tuple[ContextVisualCandidate, ...] = ()
 
     def __post_init__(self) -> None:
         if len(self.dashboards) + len(self.insights) > MAX_REPORT_CONTEXTS:
@@ -146,6 +178,9 @@ class _SavedInsight:
     filters_override: JsonObject | None
     variables_override: JsonObject | None
     available: bool
+    visualization: ContextVisualization | None = None
+    dashboard_id: int | None = None
+    dashboard_tile_id: int | None = None
     relevant_events: tuple[str, ...] = ()
 
 
@@ -209,7 +244,16 @@ def _saved_query_events(insight: Insight) -> tuple[str, ...]:
     return tuple(dict.fromkeys(event for event in metadata["events"] if isinstance(event, str) and event))
 
 
-def _validated_saved_query(insight: Insight) -> BaseModel | None:
+def _parse_context_visualization(query: JsonObject) -> ContextVisualization:
+    kind = query.get("kind")
+    if kind == "DataVisualizationNode":
+        return DataVisualizationNode.model_validate(query)
+    if kind != "InsightVizNode":
+        query = {"kind": "InsightVizNode", "source": query}
+    return InsightVizNode.model_validate(query)
+
+
+def _validated_saved_visualization(insight: Insight) -> ContextVisualization | None:
     raw_query = insight.query
     if not raw_query and insight.filters:
         try:
@@ -219,13 +263,77 @@ def _validated_saved_query(insight: Insight) -> BaseModel | None:
     if not isinstance(raw_query, dict):
         return None
     try:
-        upgraded_query = upgrade(deepcopy(raw_query))
-        query = upgraded_query.get("source")
-        if not isinstance(query, dict):
-            query = upgraded_query
-        return validate_assistant_query(query)
+        return _parse_context_visualization(upgrade(deepcopy(raw_query)))
     except Exception:
         return None
+
+
+def _validated_saved_query(insight: Insight) -> BaseModel | None:
+    visualization = _validated_saved_visualization(insight)
+    return visualization.source if visualization is not None else None
+
+
+def _apply_dashboard_context_to_visualization(
+    visualization: ContextVisualization,
+    *,
+    team: Team,
+    dashboard_filters: JsonObject | None,
+    filters_override: JsonObject | None,
+    variables_override: JsonObject | None,
+) -> ContextVisualization:
+    visualization_dict = visualization.model_dump(mode="json")
+    effective = resolve_effective_dashboard_filters(visualization_dict, dashboard_filters, filters_override)
+    effective_dict = apply_dashboard_filters_to_dict(effective.query, effective.filters, team)
+    if variables_override:
+        effective_dict = apply_dashboard_variables_to_dict(
+            effective_dict, cast(dict[str, dict[str, JsonValue]], variables_override), team
+        )
+    return _parse_context_visualization(effective_dict)
+
+
+def _context_visual_candidates(
+    dashboards: Sequence[_UnboundedDashboardEvidence],
+    insights: Sequence[_ExecutedInsight],
+) -> tuple[ContextVisualCandidate, ...]:
+    candidates: list[ContextVisualCandidate] = []
+    for executed in (*[insight for dashboard in dashboards for insight in dashboard.insights], *insights):
+        saved = executed.saved
+        if executed.status == "failed" or saved.visualization is None:
+            continue
+        if saved.dashboard_id is not None and saved.dashboard_tile_id is not None:
+            ref = f"dashboard-visual:{saved.dashboard_id}:{saved.dashboard_tile_id}:{saved.id}"
+        elif saved.dashboard_id is None and saved.dashboard_tile_id is None:
+            ref = f"insight:{saved.id}"
+        else:
+            continue
+        candidates.append(
+            ContextVisualCandidate(
+                ref=ref,
+                insight_id=saved.id,
+                title=saved.name,
+                visualization=saved.visualization,
+                dashboard_id=saved.dashboard_id,
+                dashboard_tile_id=saved.dashboard_tile_id,
+            )
+        )
+    return tuple(candidates)
+
+
+def select_context_visual_candidates(
+    requested_refs: Sequence[str], candidates: Sequence[ContextVisualCandidate]
+) -> tuple[ContextVisualCandidate, ...]:
+    candidates_by_ref = {candidate.ref: candidate for candidate in candidates}
+    selected: list[ContextVisualCandidate] = []
+    seen: set[str] = set()
+    for ref in requested_refs:
+        candidate = candidates_by_ref.get(ref)
+        if candidate is None or ref in seen:
+            continue
+        selected.append(candidate)
+        seen.add(ref)
+        if len(selected) == MAX_CHARTS_PER_REPORT:
+            break
+    return tuple(selected)
 
 
 def _can_view(access_control: UserAccessControl, resource: Model) -> bool:
@@ -263,6 +371,35 @@ def creator_can_access_report_context(
     )
 
 
+def user_can_access_context_visual(*, team: Team, user: User, candidate: ContextVisualCandidate) -> bool:
+    access_control = UserAccessControl(user=user, team=team)
+    if not access_control.check_access_level_for_resource("query", "viewer"):
+        return False
+    context_team_id = team.parent_team_id or team.id
+    insights = list(
+        insights_including_soft_deleted_for_team(team_id=context_team_id, insight_ids=[candidate.insight_id])
+    )
+    if len(insights) != 1 or insights[0].deleted or not _can_view(access_control, insights[0]):
+        return False
+    if candidate.dashboard_id is None or candidate.dashboard_tile_id is None:
+        return True
+    dashboard = Dashboard.objects_including_soft_deleted.filter(
+        id=candidate.dashboard_id,
+        team_id=context_team_id,
+        deleted=False,
+    ).first()
+    return bool(
+        dashboard is not None
+        and _can_view(access_control, dashboard)
+        and DashboardTile.objects.filter(
+            id=candidate.dashboard_tile_id,
+            dashboard_id=candidate.dashboard_id,
+            insight_id=candidate.insight_id,
+            deleted=False,
+        ).exists()
+    )
+
+
 def _layout_coordinate(layouts: object, coordinate: Literal["x", "y"]) -> float:
     if not isinstance(layouts, dict):
         return 100
@@ -292,18 +429,38 @@ def _rank_dashboard_tiles(tiles: Sequence[_DashboardTile], viewer_counts: dict[i
 def _load_saved_insight(
     insight: Insight,
     *,
+    team: Team,
+    dashboard_filters: JsonObject | None = None,
     filters_override: JsonObject | None = None,
     variables_override: JsonObject | None = None,
+    dashboard_id: int | None = None,
+    dashboard_tile_id: int | None = None,
 ) -> _SavedInsight:
+    visualization = _validated_saved_visualization(insight)
+    if visualization is not None:
+        try:
+            visualization = _apply_dashboard_context_to_visualization(
+                visualization,
+                team=team,
+                dashboard_filters=dashboard_filters,
+                filters_override=filters_override,
+                variables_override=variables_override,
+            )
+        except Exception as err:
+            capture_exception(err)
+            visualization = None
     return _SavedInsight(
         id=insight.id,
         short_id=insight.short_id,
         name=_safe_text(insight.name or insight.derived_name, CONTEXT_NAME_MAX_LENGTH, "Unnamed insight"),
         description=_safe_text(insight.description, CONTEXT_DESCRIPTION_MAX_LENGTH, ""),
-        query=_validated_saved_query(insight),
-        filters_override=filters_override,
-        variables_override=variables_override,
+        query=visualization.source if visualization is not None else None,
+        filters_override=None,
+        variables_override=None,
         available=True,
+        visualization=visualization,
+        dashboard_id=dashboard_id,
+        dashboard_tile_id=dashboard_tile_id,
         relevant_events=_saved_query_events(insight),
     )
 
@@ -352,18 +509,23 @@ def _load_dashboard(
         ).select_related("insight", "insight__created_by")
     )
     candidates: list[_DashboardTile] = []
+    dashboard_filters = cast(JsonObject, dashboard.filters) if isinstance(dashboard.filters, dict) else None
     for tile in tile_rows:
         insight = tile.insight
         if insight is None or insight.team_id != context_team_id or not _can_view(access_control, insight):
             continue
         saved_insight = _load_saved_insight(
             insight,
+            team=team,
+            dashboard_filters=dashboard_filters,
             filters_override=(
                 cast(JsonObject, tile.filters_overrides) if isinstance(tile.filters_overrides, dict) else None
             ),
             variables_override=(
                 cast(JsonObject, dashboard.variables) if isinstance(dashboard.variables, dict) else None
             ),
+            dashboard_id=dashboard.id,
+            dashboard_tile_id=tile.id,
         )
         if saved_insight.query is None:
             continue
@@ -486,7 +648,7 @@ def _load_report_context(
         ):
             insights.append(_unavailable_insight(insight_id))
         else:
-            insights.append(_load_saved_insight(insight))
+            insights.append(_load_saved_insight(insight, team=subscription.team))
 
     loaded = _LoadedReportContext(
         team=subscription.team,
@@ -737,7 +899,7 @@ async def resolve_report_context(
             name=dashboard.name,
             description=dashboard.description,
             dashboard_id=str(dashboard.id),
-            dashboard_filters=dashboard.filters,
+            dashboard_filters={},
             query_semaphore=semaphore,
             event_source=EventSource.SUBSCRIPTION,
             insights_data=[
@@ -864,4 +1026,5 @@ async def resolve_report_context(
         insights=bounded_insights,
         authorized_context_refs=authorized_context_refs,
         relevant_events=relevant_events,
+        visual_candidates=_context_visual_candidates(dashboard_evidence, standalone_evidence),
     )
