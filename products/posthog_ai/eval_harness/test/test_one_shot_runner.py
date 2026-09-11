@@ -12,8 +12,6 @@ from django.conf import settings
 
 from posthoganalytics import Posthog
 
-from posthog.ph_client import get_client
-
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.engines.registry import resolve_engine
 from products.posthog_ai.eval_harness.engines.types import (
@@ -24,7 +22,9 @@ from products.posthog_ai.eval_harness.engines.types import (
     ExperimentSpec,
     NullCaseHooks,
 )
+from products.posthog_ai.eval_harness.harness.cli import parse_args
 from products.posthog_ai.eval_harness.harness.context import EvalContext
+from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness
 from products.posthog_ai.eval_harness.one_shot import _OneShotEvalRun
 
 
@@ -76,6 +76,7 @@ def _build_ctx(timeout_seconds: int = 30, one_shot_slots: int = 2, case_filter: 
         case_filter=case_filter,
         demo_data=None,
         posthog_client=None,
+        posthog_evaluation_client=None,
         sandbox_slots=None,
         team_setup_slots=asyncio.Semaphore(1),
         one_shot_slots=asyncio.Semaphore(one_shot_slots),
@@ -169,8 +170,11 @@ def test_case_filter_narrows_eval_cases(tmp_path: Path, monkeypatch: pytest.Monk
     assert [case.input["name"] for case in run._build_eval_cases()] == ["c2"]
 
 
-@pytest.mark.parametrize("opt_out_capture", ["", "1", "0"])
-def test_run_routes_through_the_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, opt_out_capture: str) -> None:
+@pytest.mark.parametrize("opt_out_capture", ["", "1"])
+@pytest.mark.parametrize("no_send_logs", [False, True])
+def test_run_routes_through_the_engine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, opt_out_capture: str, no_send_logs: bool
+) -> None:
     async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
         raise AssertionError("the engine is stubbed, so the task must not run")
 
@@ -188,43 +192,54 @@ def test_run_routes_through_the_engine(tmp_path: Path, monkeypatch: pytest.Monke
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     engine = _StubEngine(canned)
-    ctx = _build_ctx()
-    ctx.posthog_client = get_client("US", sync_mode=True, enable_local_evaluation=False)
-    run = _build_run(tmp_path, monkeypatch, ctx, task)
-    run.engine = engine
-    run.no_send_logs = False
-    run.is_public = True
-    run.agent_trace_id_lookup["c1"] = "trace-1"
-    run.case_trace_meta["c1"] = {"prompt": "the prompt", "duration": 1.0, "first_timestamp": ""}
+    harness = SandboxedEvalHarness(parse_args(["--agent-model", "claude-test"]))
+    reporter = _StubReporter()
 
     with (
-        patch("posthoganalytics.Posthog", partial(Posthog, sync_mode=True, enable_local_evaluation=False)),
+        patch(
+            "posthoganalytics.Posthog", side_effect=partial(Posthog, sync_mode=True, enable_local_evaluation=False)
+        ) as create_client,
         patch("posthoganalytics.client.batch_post") as batch_post,
+        patch("products.posthog_ai.eval_harness.harness.lifecycle.atexit.register"),
     ):
-        returned = asyncio.run(run.run())
-        assert settings.TEST
-        assert ctx.posthog_client is not None
-        assert ctx.posthog_client.disabled
-        ctx.posthog_client.capture(event="ordinary_test_event", distinct_id="test")
-        ctx.posthog_client.shutdown()
+        with harness._stack:
+            harness._bootstrap(frozenset())
+            ctx = harness._build_context(frozenset(), reporter)  # type: ignore[arg-type]
+            runs = [_build_run(tmp_path, monkeypatch, ctx, task) for _ in range(2)]
+            for run in runs:
+                run.engine = engine
+                run.no_send_logs = no_send_logs
+                run.is_public = not no_send_logs
+                run.agent_trace_id_lookup["c1"] = "trace-1"
+                run.case_trace_meta["c1"] = {"prompt": "the prompt", "duration": 1.0, "first_timestamp": ""}
+                assert asyncio.run(run.run()) is canned
+            assert settings.TEST
+            assert ctx.posthog_client is not None
+            assert ctx.posthog_client.disabled
+            ctx.posthog_client.capture(event="ordinary_test_event", distinct_id="test")
 
-    if opt_out_capture:
+        assert create_client.call_count == 2
+        assert ctx.posthog_evaluation_client is not None
+        assert ctx.posthog_evaluation_client.capture(event="$ai_evaluation", distinct_id="after-shutdown") is None
+
+    if no_send_logs:
         batch_post.assert_not_called()
+        assert reporter.posthog_urls == []
     else:
-        batch_post.assert_called_once()
-        event = batch_post.call_args.kwargs["batch"][0]
-        assert event["event"] == "$ai_evaluation"
-        assert event["properties"]["$ai_metric_name"] == "correctness"
-        assert event["properties"]["$ai_score"] == 1.0
-        assert event["properties"]["$ai_experiment_id"] == run.experiment_id
+        assert batch_post.call_count == 2
+        for run, call in zip(runs, batch_post.call_args_list):
+            event = call.kwargs["batch"][0]
+            assert event["event"] == "$ai_evaluation"
+            assert event["properties"]["$ai_metric_name"] == "correctness"
+            assert event["properties"]["$ai_score"] == 1.0
+            assert event["properties"]["$ai_experiment_id"] == run.experiment_id
+        assert reporter.posthog_urls == [("one-shot-test", run.experiment_id) for run in runs]
 
-    assert returned is canned
-    assert len(engine.calls) == 1
-    call = engine.calls[0]
-    assert call.project_name == "one-shot-test"
-    assert [case.input["name"] for case in call.cases] == ["c1", "c2"]
-    assert call.metadata == {"agent_model": "claude-test"}
-    assert not call.no_send_logs
-    reporter = ctx.reporter
-    assert reporter.started == [("one-shot-test", 2)]  # type: ignore[attr-defined]
-    assert reporter.summaries == [("one-shot-test", canned.summary, 0)]  # type: ignore[attr-defined]
+    assert len(engine.calls) == 2
+    for call in engine.calls:
+        assert call.project_name == "one-shot-test"
+        assert [case.input["name"] for case in call.cases] == ["c1", "c2"]
+        assert call.metadata == {"agent_model": "claude-test"}
+        assert call.no_send_logs == no_send_logs
+    assert reporter.started == [("one-shot-test", 2)] * 2
+    assert reporter.summaries == [("one-shot-test", canned.summary, 0)] * 2

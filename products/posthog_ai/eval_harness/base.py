@@ -13,8 +13,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import orjson
 
-from posthog.ph_client import get_client
-
 from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN
 
 from .acp_log import ParsedLog, parse_log
@@ -268,23 +266,25 @@ class _BaseEvalRun:
                 except Exception:
                     logger.exception("Failed to append scores to local log summary for '%s'", case_name)
 
-        # Emit evaluation events and trace roots to PostHog (after scoring)
+        evaluation_client = self.ctx.posthog_evaluation_client
+        if not self.no_send_logs and evaluation_client is not None and result.results:
+            try:
+                emit_evaluation_events(
+                    evaluation_client,
+                    self.experiment_id,
+                    self.experiment_name,
+                    result.results,
+                    namespace=self.trace_namespace,
+                    scorer_traces=self.scorer_traces,
+                )
+                evaluation_client.flush()
+                await self.ctx.reporter.record_posthog_evaluations_url(self.experiment_name, self.experiment_id)
+            except Exception:
+                logger.exception("Failed to emit evaluation events for '%s'", self.experiment_name)
+
+        # Emit trace roots to PostHog (after scoring)
         if self.posthog_client and result.results:
             try:
-                # Eval results need capture under TEST without enabling the shared trace client.
-                evaluation_client = get_client("US", disabled=bool(os.environ.get("OPT_OUT_CAPTURE", False)))
-                if evaluation_client is not None:
-                    try:
-                        emit_evaluation_events(
-                            evaluation_client,
-                            self.experiment_id,
-                            self.experiment_name,
-                            result.results,
-                            namespace=self.trace_namespace,
-                            scorer_traces=self.scorer_traces,
-                        )
-                    finally:
-                        evaluation_client.shutdown()
                 # Emit $ai_trace root events now that scores are available
                 for eval_result in result.results:
                     case_name = eval_result.input.get("name", "") if isinstance(eval_result.input, dict) else ""
@@ -307,9 +307,8 @@ class _BaseEvalRun:
                             token_usage=meta.get("token_usage"),
                         )
                 self.posthog_client.flush()
-                await self.ctx.reporter.record_posthog_evaluations_url(self.experiment_name, self.experiment_id)
             except Exception:
-                logger.exception("Failed to emit evaluation events for '%s'", self.experiment_name)
+                logger.exception("Failed to emit trace roots for '%s'", self.experiment_name)
 
         # Hand the summary to the reporter: suites don't return their Braintrust
         # result up to the orchestrator, so this is the only place the final table
