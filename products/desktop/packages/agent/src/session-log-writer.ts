@@ -5,7 +5,7 @@ import {
   isTranscriptNeutralNotificationMethod,
   serializeError,
 } from "@posthog/shared";
-import type { PostHogAPIClient } from "./posthog-api";
+import { type PostHogAPIClient, PostHogAPIError } from "./posthog-api";
 import type { StoredNotification } from "./types";
 import { isEmptyContentBlock } from "./utils/acp-content";
 import { Logger } from "./utils/logger";
@@ -92,7 +92,10 @@ export class SessionLogWriter {
   private static readonly TOOL_UPDATE_MAX_HOLD_MS = 2000;
   private static readonly FLUSH_DEBOUNCE_MS = 500;
   private static readonly FLUSH_MAX_INTERVAL_MS = 5000;
-  private static readonly MAX_FLUSH_RETRIES = 10;
+  private static readonly FLUSH_MAX_INTERVAL_LARGE_LOG_MS = 10_000;
+  private static readonly LARGE_LOG_BYTES = 4 * 1024 * 1024;
+  private static readonly FLUSH_FAILURE_LOG_EVERY = 10;
+  private static readonly SHUTDOWN_FLUSH_ATTEMPTS = 3;
   private static readonly MAX_RETRY_DELAY_MS = 30_000;
   private static readonly SESSIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -101,6 +104,7 @@ export class SessionLogWriter {
   private flushTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private lastFlushAttemptTime: Map<string, number> = new Map();
   private retryCounts: Map<string, number> = new Map();
+  private flushedBytes: Map<string, number> = new Map();
   private sessions: Map<string, SessionState> = new Map();
   private flushQueues: Map<string, Promise<void>> = new Map();
   private sinks: SessionLogSink[];
@@ -122,14 +126,42 @@ export class SessionLogWriter {
     // Coalesce any in-progress chunk buffers before the final flush
     // During normal operation, chunks are coalesced when the next non-chunk
     // event arrives, but on shutdown there may be no subsequent event
-    const flushPromises: Promise<void>[] = [];
     for (const [sessionId, session] of this.sessions) {
       this.emitCoalescedMessage(sessionId, session);
       this.flushToolUpdateCache(sessionId, session);
       this.drainRawInputSnapshots(sessionId, session);
-      flushPromises.push(this.flush(sessionId));
     }
-    await Promise.all(flushPromises);
+    await this.flushWithRetries([...this.sessions.keys()]);
+  }
+
+  private async flushWithRetries(sessionIds: string[]): Promise<void> {
+    const unflushed = () =>
+      sessionIds.filter(
+        (sessionId) => this.pendingEntries.get(sessionId)?.length,
+      );
+    for (
+      let attempt = 0;
+      attempt < SessionLogWriter.SHUTDOWN_FLUSH_ATTEMPTS;
+      attempt++
+    ) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      await Promise.all(sessionIds.map((sessionId) => this._flush(sessionId)));
+      if (!unflushed().length) {
+        return;
+      }
+    }
+    for (const sessionId of unflushed()) {
+      const pending = this.pendingEntries.get(sessionId) ?? [];
+      this.logger.error("Session log entries not persisted at shutdown", {
+        taskId: this.sessions.get(sessionId)?.context.taskId,
+        runId: this.sessions.get(sessionId)?.context.runId,
+        count: pending.length,
+        firstEventId: pending[0].first_event_id ?? pending[0].event_id,
+        lastEventId: pending[pending.length - 1].event_id,
+      });
+    }
   }
 
   register(sessionId: string, context: SessionContext): void {
@@ -339,7 +371,10 @@ export class SessionLogWriter {
 
   async flush(
     sessionId: string,
-    { coalesce = false }: { coalesce?: boolean } = {},
+    {
+      coalesce = false,
+      retry = false,
+    }: { coalesce?: boolean; retry?: boolean } = {},
   ): Promise<void> {
     if (coalesce) {
       const session = this.sessions.get(sessionId);
@@ -349,6 +384,10 @@ export class SessionLogWriter {
       }
     }
 
+    return retry ? this.flushWithRetries([sessionId]) : this._flush(sessionId);
+  }
+
+  private _flush(sessionId: string): Promise<void> {
     // Serialize flushes per session
     const prev = this.flushQueues.get(sessionId) ?? Promise.resolve();
     const next = prev.catch(() => {}).then(() => this._doFlush(sessionId));
@@ -389,37 +428,53 @@ export class SessionLogWriter {
         pending,
       );
       this.retryCounts.set(sessionId, 0);
+      this.flushedBytes.set(
+        sessionId,
+        (this.flushedBytes.get(sessionId) ?? 0) +
+          Buffer.byteLength(JSON.stringify(pending)),
+      );
     } catch (error) {
+      if (error instanceof PostHogAPIError && !error.retryable) {
+        this.retryCounts.set(sessionId, 0);
+        this.logger.error("Session log batch rejected, dropping it", {
+          taskId: session.context.taskId,
+          runId: session.context.runId,
+          status: error.status,
+          count: pending.length,
+          firstEventId: pending[0].first_event_id ?? pending[0].event_id,
+          lastEventId: pending[pending.length - 1].event_id,
+        });
+        return;
+      }
       const retryCount = (this.retryCounts.get(sessionId) ?? 0) + 1;
       this.retryCounts.set(sessionId, retryCount);
+      const currentPending = this.pendingEntries.get(sessionId) ?? [];
+      this.pendingEntries.set(sessionId, [...pending, ...currentPending]);
 
-      if (retryCount >= SessionLogWriter.MAX_FLUSH_RETRIES) {
-        this.logger.error(
-          `Dropping ${pending.length} session log entries after ${retryCount} failed flush attempts`,
-          {
-            taskId: session.context.taskId,
-            runId: session.context.runId,
-            maxRetries: SessionLogWriter.MAX_FLUSH_RETRIES,
-            errorDetail: serializeError(error),
-          },
-        );
-        this.retryCounts.set(sessionId, 0);
-      } else {
-        if (retryCount === 1) {
-          this.logger.warn(
-            `Failed to persist session logs, will retry (up to ${SessionLogWriter.MAX_FLUSH_RETRIES} attempts)`,
-            {
-              taskId: session.context.taskId,
-              runId: session.context.runId,
-              error: error instanceof Error ? error.message : String(error),
-            },
-          );
-        }
-        const currentPending = this.pendingEntries.get(sessionId) ?? [];
-        this.pendingEntries.set(sessionId, [...pending, ...currentPending]);
-        this.scheduleFlush(sessionId);
+      if (retryCount === 1) {
+        this.logger.warn("Failed to persist session logs, will retry", {
+          taskId: session.context.taskId,
+          runId: session.context.runId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } else if (retryCount % SessionLogWriter.FLUSH_FAILURE_LOG_EVERY === 0) {
+        this.logger.error("Session logs still failing to persist", {
+          taskId: session.context.taskId,
+          runId: session.context.runId,
+          attempts: retryCount,
+          pendingEntries: pending.length + currentPending.length,
+          errorDetail: serializeError(error),
+        });
       }
+      this.scheduleFlush(sessionId);
     }
+  }
+
+  private flushMaxIntervalMs(sessionId: string): number {
+    return (this.flushedBytes.get(sessionId) ?? 0) >=
+      SessionLogWriter.LARGE_LOG_BYTES
+      ? SessionLogWriter.FLUSH_MAX_INTERVAL_LARGE_LOG_MS
+      : SessionLogWriter.FLUSH_MAX_INTERVAL_MS;
   }
 
   private emitToSinks(sessionId: string, entry: StoredNotification): void {
@@ -697,11 +752,14 @@ export class SessionLogWriter {
     let delay: number;
     if (retryCount > 0) {
       // Exponential backoff on retries: FLUSH_DEBOUNCE_MS * 2^retryCount, capped
-      delay = Math.min(
-        SessionLogWriter.FLUSH_DEBOUNCE_MS * 2 ** retryCount,
-        SessionLogWriter.MAX_RETRY_DELAY_MS,
+      delay = Math.max(
+        Math.min(
+          SessionLogWriter.FLUSH_DEBOUNCE_MS * 2 ** retryCount,
+          SessionLogWriter.MAX_RETRY_DELAY_MS,
+        ) - elapsed,
+        0,
       );
-    } else if (elapsed >= SessionLogWriter.FLUSH_MAX_INTERVAL_MS) {
+    } else if (elapsed >= this.flushMaxIntervalMs(sessionId)) {
       // If we've been accumulating for longer than the max interval, flush immediately
       delay = 0;
     } else {

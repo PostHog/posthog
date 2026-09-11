@@ -5858,6 +5858,7 @@ ${commonInstructions}
     try {
       await this.session.logWriter.flush(this.session.payload.run_id, {
         coalesce: true,
+        retry: true,
       });
     } catch (error) {
       this.logger.error("Failed to flush session logs", error);
