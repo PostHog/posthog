@@ -14,16 +14,13 @@ import {
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import type { QuerySourceUpdate } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { BREAKDOWN_OTHER_DISPLAY, BREAKDOWN_OTHER_STRING_LABEL, formatBreakdownLabel } from 'scenes/insights/utils'
-import { ProcessedRetentionPayload } from 'scenes/retention/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { RetentionFilter, RetentionResult } from '~/queries/schema/schema-general'
-import { isRetentionQuery, hasBreakdownFilter } from '~/queries/utils'
-import { BreakdownKeyType, CohortType, DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
-
 import type {
     BreakdownFilter,
     DataNode,
@@ -37,9 +34,12 @@ import type {
     TrendsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-} from '../../queries/schema/schema-general'
-import type { PathsV2Query } from '../../queries/schema/schema-general'
-import type { QuerySourceUpdate } from '../insights/insightVizDataLogic'
+} from '~/queries/schema/schema-general'
+import type { PathsV2Query } from '~/queries/schema/schema-general'
+import { isRetentionQuery, hasBreakdownFilter } from '~/queries/utils'
+import { BreakdownKeyType, CohortType, DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
+
+import { ProcessedRetentionPayload } from './types'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 export const OVERALL_MEAN_KEY = '__overall__'

@@ -4,13 +4,9 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { queryForActors } from 'scenes/retention/queries'
-import { RetentionTablePeoplePayload } from 'scenes/retention/types'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { NodeKind, RetentionQuery } from '~/queries/schema/schema-general'
-import { InsightLogicProps } from '~/types'
-
 import type {
     DataNode,
     ErrorTrackingQueryResponse,
@@ -33,9 +29,13 @@ import type {
     TrendsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-} from '../../queries/schema/schema-general'
-import type { PathsV2Query } from '../../queries/schema/schema-general'
-import type { FilterType } from '../../types'
+} from '~/queries/schema/schema-general'
+import type { PathsV2Query } from '~/queries/schema/schema-general'
+import { InsightLogicProps } from '~/types'
+import type { FilterType } from '~/types'
+
+import { queryForActors } from './queries'
+import { RetentionTablePeoplePayload } from './types'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
@@ -265,6 +265,8 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
                         breakdownValue
                     )
                 } else {
+                    // `next` is a server-returned pagination URL, so no generated function can build it.
+                    // nosemgrep: prefer-codegen-api
                     peopleResult = await api.get<RetentionTablePeoplePayload>(values.people.next as string)
                 }
                 const newPayload: RetentionTablePeoplePayload = {

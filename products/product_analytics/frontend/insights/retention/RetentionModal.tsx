@@ -1,4 +1,4 @@
-import './RetentionTable.scss'
+import './RetentionTable/RetentionTable.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -14,7 +14,6 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { asDisplay, pickBestPersonDistinctId } from 'scenes/persons/person-utils'
-import { RetentionTableAppearanceType } from 'scenes/retention/types'
 import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
 import { SaveCohortModal } from 'scenes/trends/persons-modal/SaveCohortModal'
 import { urls } from 'scenes/urls'
@@ -25,6 +24,7 @@ import { AccessControlLevel, AccessControlResourceType, ExporterFormat } from '~
 
 import { retentionModalLogic } from './retentionModalLogic'
 import { retentionPeopleLogic } from './retentionPeopleLogic'
+import { RetentionTableAppearanceType } from './types'
 import { formatRetentionCohortLabel } from './utils'
 
 export function RetentionModal(): JSX.Element | null {

@@ -5,12 +5,12 @@ import { subscriptions } from 'kea-subscriptions'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import type { DataColorTheme } from 'lib/colors'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { retentionToActorsQuery } from 'scenes/retention/queries'
-import { ProcessedRetentionPayload } from 'scenes/retention/types'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -22,11 +22,6 @@ import {
     NodeKind,
     RetentionQuery,
 } from '~/queries/schema/schema-general'
-import { isInsightActorsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/utils'
-import { InsightLogicProps } from '~/types'
-
-import type { DataColorTheme } from '../../lib/colors'
-import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type {
     FunnelsQuery,
     LifecycleQuery,
@@ -36,10 +31,15 @@ import type {
     TrendsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-} from '../../queries/schema/schema-general'
-import type { PathsV2Query } from '../../queries/schema/schema-general'
+} from '~/queries/schema/schema-general'
+import type { PathsV2Query } from '~/queries/schema/schema-general'
+import { isInsightActorsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/utils'
+import { InsightLogicProps } from '~/types'
+
+import { retentionToActorsQuery } from './queries'
 import { retentionLogic } from './retentionLogic'
 import { retentionPeopleLogic } from './retentionPeopleLogic'
+import { ProcessedRetentionPayload } from './types'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
@@ -365,6 +365,8 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 is_static: true,
                 name: cohortName,
             }
+            // The generated `cohortsCreate` posts to the project-scoped route, which all four callers must move to.
+            // nosemgrep: prefer-codegen-api
             const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
             cohortsModel.actions.cohortCreated(cohort)
             lemonToast.success('Cohort saved', {

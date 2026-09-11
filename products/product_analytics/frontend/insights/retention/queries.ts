@@ -1,9 +1,10 @@
-import { RetentionTableAppearanceType, RetentionTablePeoplePayload } from 'scenes/retention/types'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { performQuery } from '~/queries/query'
 import { ActorsQuery, NodeKind, RetentionQuery } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
+
+import { RetentionTableAppearanceType, RetentionTablePeoplePayload } from './types'
 
 export function retentionToActorsQuery(
     query: RetentionQuery,

@@ -3,7 +3,7 @@ import { toast } from 'react-toastify'
 
 import { LemonInput, Tooltip } from '@posthog/lemon-ui'
 
-import { retentionLogic } from 'scenes/retention/retentionLogic'
+import { retentionLogic } from 'products/product_analytics/frontend/insights/retention/retentionLogic'
 
 import { insightLogic } from '../insightLogic'
 

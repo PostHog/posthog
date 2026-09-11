@@ -217,14 +217,14 @@ Note: Static schema list, no dynamic index discovery. The headline Analytics tab
 
 ## Alguna — gaps
 
-Today (8): `billable_metrics`, `customers`, `invoices`, `payments`, `plans`, `products`, `refunds`, `subscriptions`
+Today (12): `billable_metrics`, `credit_notes`, `customers`, `invoices`, `payments`, `plans`, `products`, `refunds`, `subscription_versions`, `subscriptions`, `wallet_grants`, `wallets`
 
 Diffed against: <https://alguna.com/docs/api-reference/v2/specs/2026-04-01.json>
 
-- [ ] `GET /subscriptions/{id}/versions (and /versions/current)` — subscription change history - the state-transition table behind MRR movement (high)
-- [ ] `GET /credit-notes` — credit-note transactions that offset the invoices already synced (high)
-- [ ] `GET /wallets and /wallets/{id}/balance` — prepaid wallet balances per customer (high)
-- [ ] `GET /wallet-grants and /wallets/{id}/grants` — credit grant ledger - drawdown and expiry analysis (high)
+- [x] `GET /subscriptions/{id}/versions (and /versions/current)` — subscription change history - the state-transition table behind MRR movement (high). Added as `subscription_versions` (fan-out over `subscriptions`). `/versions/current` skipped: it returns one version already present in the list.
+- [x] `GET /credit-notes` — credit-note transactions that offset the invoices already synced (high). Added as `credit_notes` (fan-out over `customers`, since `customer_id` is a required query param).
+- [x] `GET /wallets and /wallets/{id}/balance` — prepaid wallet balances per customer (high). Added as `wallets`. `/wallets/{id}/balance` skipped: the wallet list row already carries `current_balance`.
+- [x] `GET /wallet-grants and /wallets/{id}/grants` — credit grant ledger - drawdown and expiry analysis (high). Added as `wallet_grants` (the global `/wallet-grants` list). `/wallets/{id}/grants` skipped: it returns the same rows filtered per wallet.
 - [ ] `GET /bundles` — product bundle lookup resolving bundle IDs carried on plans and subscription items (medium)
 - [ ] `GET /customers/{id}/entitlements and /subscriptions/{id}/entitlements` — what each customer is currently entitled to, for feature-usage joins (medium)
 - [ ] `GET /revenue-schedules (plus /customer/{id}, /subscription/{id}, /legal-entity/{id})` — revenue recognition schedule rows for rev-rec reporting (medium)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+import json
 import subprocess
 from pathlib import Path
 
@@ -755,3 +757,57 @@ def test_first_team_owner_skips_handles() -> None:
     assert first_team_owner(["@someone", "team-a"]) == "team-a"
     assert first_team_owner(["@someone"]) == ""
     assert first_team_owner(None) == ""
+
+
+def _run_entrypoint(repo: Path, *args: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "posthog_owners", *args],
+        cwd=repo,
+        input=stdin,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_json_entrypoint_resolves_against_an_explicit_repo_root(registry_repo: Path) -> None:
+    # The fixture must have no .git, or the git rev-parse default could answer instead of the flag.
+    assert not (registry_repo / ".git").exists()
+
+    result = _run_entrypoint(registry_repo, "--repo-root", str(registry_repo), "reg/x.py")
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "reg/x.py": {
+            "owners": ["team-registry"],
+            "status": "active",
+            "slack": "#registry-chan",
+            "source": "reg/owners.yaml",
+        }
+    }
+
+
+def test_json_entrypoint_repo_root_reads_stdin_paths_and_honors_purpose(registry_repo: Path) -> None:
+    result = _run_entrypoint(
+        registry_repo,
+        "--repo-root",
+        str(registry_repo),
+        "--purpose",
+        "notifications",
+        stdin="split/x.py\nderive/x.py\n",
+    )
+
+    assert result.returncode == 0, result.stderr
+    wire = json.loads(result.stdout)
+    assert wire["split/x.py"]["slack"] == "#split-bots"
+    assert wire["derive/x.py"]["slack"] == "#team-nonreg"
+
+
+@pytest.mark.parametrize("root", ["nope", ""], ids=["missing", "empty"])
+def test_json_entrypoint_rejects_a_repo_root_that_is_not_a_directory(registry_repo: Path, root: str) -> None:
+    # An empty root is the unset "$VAR" case: Path("") is Path("."), which would
+    # otherwise resolve against the working directory rather than fail.
+    result = _run_entrypoint(registry_repo, "--repo-root", str(registry_repo / root) if root else "", "reg/x.py")
+
+    assert result.returncode == 2
+    assert "--repo-root" in result.stderr
+    assert result.stdout == ""
