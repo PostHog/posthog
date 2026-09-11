@@ -129,6 +129,9 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
             start_to_close_timeout=FETCH_ACTIVITY_TIMEOUT,
             retry_policy=FETCH_RETRY_POLICY,
         )
+        if not result.report_ids:
+            return
+
         # Batched path: one check activity per team-group, each sharing one ClickHouse
         # count query, instead of one activity per report. Gated on the fetch output so
         # the decision is replay-deterministic: histories recorded before batching (and
