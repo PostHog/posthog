@@ -13,6 +13,7 @@ import temporalio.activity
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -72,6 +73,13 @@ NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline 
 NO_ASSETS_HUMAN_READABLE_REASON = (
     "Nothing could be generated to send this time. We'll try again on the next scheduled run."
 )
+
+
+@frozen
+class _FetchedDueSubscriptions:
+    subscriptions: list[DueSubscription]
+    oldest_due_at: datetime | None
+    has_more: bool
 
 
 class NoExportableInsightsError(Exception):
@@ -193,7 +201,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     await LOGGER.ainfo("Fetching due subscriptions", deadline=now_with_buffer)
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_subscriptions() -> tuple[list[DueSubscription], datetime | None, bool]:
+    def get_subscriptions() -> _FetchedDueSubscriptions:
         due_subscriptions = (
             Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False, enabled=True)
             .exclude(dashboard__deleted=True)
@@ -235,24 +243,28 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
             for sub in selected_rows
         ]
         oldest_due_at = selected_rows[0]["next_delivery_date"] if selected_rows else None
-        return subscriptions, oldest_due_at, has_more
+        return _FetchedDueSubscriptions(
+            subscriptions=subscriptions,
+            oldest_due_at=oldest_due_at,
+            has_more=has_more,
+        )
 
-    subscriptions, oldest_due_at, has_more = await get_subscriptions()
+    fetched = await get_subscriptions()
     record_scheduler_fetch(
-        selected_count=len(subscriptions),
-        oldest_due_at=oldest_due_at,
+        selected_count=len(fetched.subscriptions),
+        oldest_due_at=fetched.oldest_due_at,
         now=dt.datetime.now(dt.UTC),
-        has_more=has_more,
+        has_more=fetched.has_more,
     )
     await LOGGER.ainfo(
         "Fetched due subscriptions",
-        count=len(subscriptions),
+        count=len(fetched.subscriptions),
         max_subscriptions_per_run=inputs.max_subscriptions_per_run,
-        has_more=has_more,
-        oldest_due_at=oldest_due_at,
+        has_more=fetched.has_more,
+        oldest_due_at=fetched.oldest_due_at,
     )
 
-    return subscriptions
+    return fetched.subscriptions
 
 
 @temporalio.activity.defn

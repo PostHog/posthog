@@ -4,6 +4,7 @@ import dataclasses
 
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.dataclasses import frozen
 from posthog.slo.types import SloConfig
 
 # Leaves headroom below Temporal's recommendation of at most 1,000 children per parent.
@@ -143,7 +144,7 @@ class DueSubscription:
     resource_type: str = ""
 
 
-@dataclasses.dataclass
+@frozen
 class FetchDueSubscriptionsActivityInputs:
     buffer_minutes: int = 15
     max_subscriptions_per_run: int = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_RUN
@@ -392,7 +393,7 @@ class SnapshotInsightsResult:
     summary_skipped_over_budget: bool = False
 
 
-@dataclasses.dataclass
+@frozen
 class ScheduleAllSubscriptionsWorkflowInputs:
     buffer_minutes: int = 15
     max_subscriptions_per_run: int = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_RUN

@@ -85,6 +85,7 @@ async def test_scheduler_preserves_waiting_behavior_when_replaying_legacy_runs()
         call("subscription-scheduler-bounded-input-2026-09"),
         call("subscription-scheduler-fire-and-forget-2026-09"),
     ]
+    assert execute_activity.await_args is not None
     fetch_inputs = execute_activity.await_args.args[1]
     assert fetch_inputs == {"buffer_minutes": 15}
     execute_child.assert_awaited_once()
