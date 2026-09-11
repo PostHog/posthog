@@ -20,7 +20,7 @@ export const scene: SceneExport = {
 }
 
 export function ProjectPendingDeletion(): JSX.Element {
-    const { currentProject, cancelProjectDeletionLoading } = useValues(projectLogic)
+    const { currentProject, currentProjectLoading } = useValues(projectLogic)
     const { cancelProjectDeletion } = useActions(projectLogic)
     const { otherOrganizations } = useValues(userLogic)
     const { isProjectSwitcherOpen, isOrgSwitcherOpen } = useValues(newAccountMenuLogic)
@@ -50,7 +50,7 @@ export function ProjectPendingDeletion(): JSX.Element {
                         <LemonButton
                             type="secondary"
                             onClick={() => cancelProjectDeletion()}
-                            loading={cancelProjectDeletionLoading}
+                            loading={currentProjectLoading}
                             data-attr="cancel-project-deletion"
                         >
                             Cancel project deletion
