@@ -231,10 +231,39 @@ describe('scoutRunsWindow report channel', () => {
             expect(scoutRunFailureLine(makeRun({ status: 'failed', summary }), NOW)).toBe(expected)
         })
 
+        // The serializer sends the first line of the task's error message as `failure_reason`, so a
+        // failure that never got to its close-out still says what went wrong.
+        it.each<[string, Partial<SignalScoutRunSummary>, string]>([
+            [
+                'the recorded reason when the run wrote no close-out',
+                {
+                    summary: '',
+                    error: 'ToolError: the sandbox closed the connection\n  at step 3',
+                    failure_reason: 'ToolError: the sandbox closed the connection',
+                },
+                'ToolError: the sandbox closed the connection',
+            ],
+            [
+                'the close-out ahead of the reason',
+                {
+                    summary: 'Stopped mid-plan. More.',
+                    error: 'ToolError: the sandbox closed the connection',
+                    failure_reason: 'ToolError: the sandbox closed the connection',
+                },
+                'Stopped mid-plan.',
+            ],
+        ])('takes %s', (_name, overrides, expected) => {
+            expect(scoutRunFailureLine(makeRun({ status: 'failed', ...overrides }), NOW)).toBe(expected)
+        })
+
+        // A run killed at the deadline records no message, so the serializer derives a placeholder
+        // reason with a null `error`. The elapsed time says more than the placeholder does.
         it('names the duration when the run never wrote a close-out', () => {
             const run = makeRun({
                 status: 'failed',
                 summary: '',
+                error: null,
+                failure_reason: 'failed (no error message recorded)',
                 started_at: '2026-06-27T21:00:00Z',
                 completed_at: '2026-06-27T21:00:37Z',
             })

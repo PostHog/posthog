@@ -381,7 +381,8 @@ export function scoutRunReportLabel(run: SignalScoutRunSummary): string | null {
 
 /**
  * The first sentence of a run's close-out, for a folded failure group where a full markdown preview
- * per run would bury the group. Falls back to the run's duration when it never wrote one.
+ * per run would bury the group. Falls back to the recorded failure reason, then to the run's
+ * duration, when it never wrote one.
  */
 export function scoutRunFailureLine(run: SignalScoutRunSummary, now: Date): string {
     const summary = run.summary?.trim()
@@ -400,6 +401,14 @@ export function scoutRunFailureLine(run: SignalScoutRunSummary, now: Date): stri
         if (firstSentence.trim()) {
             return firstSentence.trim()
         }
+    }
+    // `failure_reason` is the first line of the task's error message, or a placeholder the
+    // serializer derives when the task recorded none — and `error` is null in exactly that case. A
+    // run hard-killed at the deadline is the common failure here, and its elapsed time says more
+    // than "failed (no error message recorded)", so only a reason with a message behind it wins.
+    const reason = run.error ? run.failure_reason?.trim() : undefined
+    if (reason) {
+        return reason
     }
     const duration = formatRunDuration(runDurationSeconds(run, now))
     return duration ? `Ended after ${duration} without a close-out.` : 'Ended without a close-out.'
