@@ -2278,12 +2278,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("string", "'2024-01-01'", Decimal("90.49")),
+            # A zoned string reads at the date it names, in UTC. ClickHouse's cast alone returns
+            # NULL for these, which would silently convert at today's rate instead.
+            ("zoned_string", "'2024-01-01T10:30:00Z'", Decimal("90.49")),
+            ("offset_string", "'2024-01-01T10:30:00+02:00'", Decimal("90.49")),
             ("nullable_date", "toDate('2024-01-01')", Decimal("90.49")),
             ("nullable_datetime", "toDateTime('2024-01-01 10:30:00')", Decimal("90.49")),
             ("parsed_best_effort", "parseDateTimeBestEffort('2024-01-01')", Decimal("90.49")),
             # A null date falls back to today(), which is what omitting the date does.
             ("unparseable", "toDate('not a date')", Decimal("96.21")),
             ("null", "NULL", Decimal("96.21")),
+            # An impossible calendar date is rejected rather than rolled over to the next month,
+            # so it takes the same fallback instead of reading a neighbouring day's rate.
+            ("impossible_calendar_date", "'2024-02-30'", Decimal("96.21")),
         ]
     )
     def test_currency_conversion_with_coercible_date(self, _name: str, date_expr: str, expected: Decimal):
