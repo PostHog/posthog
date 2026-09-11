@@ -45,6 +45,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.'
             ),
+        ai_prompt_export_insights: zod
+            .array(zod.number())
+            .optional()
+            .describe(
+                'List of saved insight IDs to attach to an AI prompt subscription. The insight query and visualization are exported unchanged. Max 10.'
+            ),
         prompt: zod
             .string()
             .nullish()
@@ -261,6 +267,12 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.'
             ),
+        ai_prompt_export_insights: zod
+            .array(zod.number())
+            .optional()
+            .describe(
+                'List of saved insight IDs to attach to an AI prompt subscription. The insight query and visualization are exported unchanged. Max 10.'
+            ),
         prompt: zod
             .string()
             .nullish()
@@ -476,6 +488,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.'
+            ),
+        ai_prompt_export_insights: zod
+            .array(zod.number())
+            .optional()
+            .describe(
+                'List of saved insight IDs to attach to an AI prompt subscription. The insight query and visualization are exported unchanged. Max 10.'
             ),
         prompt: zod
             .string()
