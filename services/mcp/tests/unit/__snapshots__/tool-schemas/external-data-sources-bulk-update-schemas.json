@@ -1,0 +1,171 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this external data source.",
+            "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "schemas": {
+            "description": "Schema updates to apply in a single batch.",
+            "items": {
+                "properties": {
+                    "apply_sync_defaults": {
+                        "description": "When true and the schema has no sync method configured yet (and this update does not set one), discover the table on the source and fill in default sync settings: incremental sync with an auto-selected tracking column where supported, otherwise append, otherwise full refresh. Ignored for schemas that already have a sync method.",
+                        "type": "boolean"
+                    },
+                    "cdc_table_mode": {
+                        "anyOf": [
+                            {
+                                "description": "* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both",
+                                "enum": ["consolidated", "cdc_only", "both"],
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "How CDC-backed tables should be exposed.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both"
+                    },
+                    "enabled_columns": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Columns to sync. Null means sync all columns."
+                    },
+                    "id": {
+                        "description": "Schema identifier to update.",
+                        "type": "string"
+                    },
+                    "incremental_field": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Incremental cursor field for incremental or append syncs."
+                    },
+                    "incremental_field_type": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Type of the incremental cursor field."
+                    },
+                    "primary_key_columns": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Column names for primary key deduplication."
+                    },
+                    "row_filters": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "properties": {
+                                        "column": {
+                                            "type": "string"
+                                        },
+                                        "operator": {
+                                            "description": "One of: > >= < <= = != IN \"NOT IN\".",
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "description": "Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
+                                        }
+                                    },
+                                    "required": ["column", "operator", "value"],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Row-filter predicates ANDed onto the source query. Null/empty means sync all rows."
+                    },
+                    "should_sync": {
+                        "description": "Whether the schema should be queryable/synced.",
+                        "type": "boolean"
+                    },
+                    "sync_frequency": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Human-readable sync frequency value."
+                    },
+                    "sync_time_of_day": {
+                        "anyOf": [
+                            {
+                                "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?$",
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "UTC anchor time for scheduled syncs."
+                    },
+                    "sync_type": {
+                        "anyOf": [
+                            {
+                                "description": "* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin",
+                                "enum": ["full_refresh", "incremental", "append", "webhook", "cdc", "xmin"],
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin"
+                    }
+                },
+                "required": ["id"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "search": {
+            "description": "A search term.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
