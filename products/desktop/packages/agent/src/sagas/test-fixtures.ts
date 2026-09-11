@@ -202,13 +202,14 @@ export function createAcpToolCall(
 
 export function createAcpToolCallUpdate(
   toolCallId: string,
-  fields: { rawOutput?: unknown; text?: string },
+  fields: { rawInput?: unknown; rawOutput?: unknown; text?: string },
 ): StoredNotification {
   return createNotification("session/update", {
     update: {
       sessionUpdate: "tool_call_update",
       toolCallId,
       status: "completed",
+      ...(fields.rawInput !== undefined ? { rawInput: fields.rawInput } : {}),
       ...(fields.rawOutput !== undefined
         ? { rawOutput: fields.rawOutput }
         : {}),

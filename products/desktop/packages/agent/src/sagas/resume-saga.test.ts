@@ -387,6 +387,52 @@ describe("ResumeSaga", () => {
       });
     });
 
+    it.each([
+      {
+        name: "a later snapshot replaces the opening empty input",
+        opening: {},
+        later: { command: "ls -la" },
+      },
+      {
+        name: "a later empty input does not clobber a stored one",
+        opening: { command: "ls -la" },
+        later: {},
+      },
+    ])("keeps the useful input when $name", async ({ opening, later }) => {
+      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+        createTaskRun(),
+      );
+      (
+        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([
+        createAcpToolCall("call-1", {
+          title: "shell",
+          toolName: "exec",
+          rawInput: opening,
+        }),
+        createAcpToolCallUpdate("call-1", { rawInput: later }),
+        createAcpToolCallUpdate("call-1", { rawOutput: "listing" }),
+      ]);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+
+      expect(result.data.conversation[0].toolCalls?.[0]).toMatchObject({
+        toolCallId: "call-1",
+        toolName: "exec",
+        input: { command: "ls -la" },
+        result: "listing",
+      });
+    });
+
     it("tracks a shell tool call that carries no meta, using its title and content", async () => {
       (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
         createTaskRun(),

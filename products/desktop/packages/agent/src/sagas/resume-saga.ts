@@ -313,12 +313,26 @@ function mergeToolCall(
       input: fields.input,
     };
     toolCalls.push(toolCall);
-  } else if (toolCall.input === undefined && fields.input !== undefined) {
+  } else if (
+    fields.input !== undefined &&
+    (toolCall.input === undefined || !isEmptyRecord(fields.input))
+  ) {
+    // The opening tool_call ships `rawInput: {}`, so a later cumulative
+    // snapshot has to win — but an empty one must not clobber a stored input.
     toolCall.input = fields.input;
   }
   if (fields.result !== undefined) {
     toolCall.result = fields.result;
   }
+}
+
+function isEmptyRecord(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 0
+  );
 }
 
 /** Tool call fields the Claude adapter writes on `_meta.claudeCode`. */
