@@ -29,6 +29,7 @@ from products.web_analytics.backend.facade.content_autopilot import (
     ContentAutopilotLifecycleError,
     PublicUrlFetchError,
     cancel_run,
+    delete_profile,
     discover_site,
     edit_proposal,
     export_proposal,
@@ -402,7 +403,7 @@ class ContentAutopilotExportResponseSerializer(serializers.Serializer):
 class ContentAutopilotSiteProfileViewSet(ContentAutopilotViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ContentAutopilotSiteProfileSerializer
     queryset = ContentAutopilotSiteProfile.objects.unscoped()
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action == "discover":
@@ -415,7 +416,10 @@ class ContentAutopilotSiteProfileViewSet(ContentAutopilotViewSetMixin, viewsets.
     def safely_get_queryset(
         self, queryset: QuerySet[ContentAutopilotSiteProfile]
     ) -> QuerySet[ContentAutopilotSiteProfile]:
-        return ContentAutopilotSiteProfile.objects.for_team(self.team_id).order_by("created_at")
+        return ContentAutopilotSiteProfile.objects.for_team(self.team_id).filter(deleted=False).order_by("created_at")
+
+    def perform_destroy(self, instance: ContentAutopilotSiteProfile) -> None:
+        delete_profile(team=self.team, profile_id=str(instance.id))
 
     @validated_request(
         request_serializer=ContentAutopilotSiteDiscoveryRequestSerializer,
@@ -440,7 +444,7 @@ class ContentAutopilotRunViewSet(ContentAutopilotViewSetMixin, viewsets.ReadOnly
     queryset = ContentAutopilotRun.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[ContentAutopilotRun]) -> QuerySet[ContentAutopilotRun]:
-        queryset = ContentAutopilotRun.objects.for_team(self.team_id)
+        queryset = ContentAutopilotRun.objects.for_team(self.team_id).filter(profile__deleted=False)
         if self.action == "list":
             filters = self.validated_query_params(ContentAutopilotRunListQuerySerializer)
             if profile_id := filters.get("profile_id"):
@@ -493,7 +497,7 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
         return ContentAutopilotProposalSerializer
 
     def safely_get_queryset(self, queryset: QuerySet[ContentAutopilotProposal]) -> QuerySet[ContentAutopilotProposal]:
-        queryset = ContentAutopilotProposal.objects.for_team(self.team_id)
+        queryset = ContentAutopilotProposal.objects.for_team(self.team_id).filter(run__profile__deleted=False)
         if self.action == "list":
             filters = self.validated_query_params(ContentAutopilotProposalListQuerySerializer)
             if run_id := filters.get("run_id"):

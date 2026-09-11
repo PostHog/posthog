@@ -46,11 +46,14 @@ jobs:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   predicate-quantifier: every
                   filters: |
-                      # Biome lints tracked JSON in .vscode/.claude, so only workflow
-                      # YAML and prose are ignored.
+                      # Biome lints tracked JSON in .vscode/.claude, so only workflow YAML and
+                      # documentation markdown are ignored: the app loads markdown under src/ at runtime.
                       code:
                         - "products/desktop/**"
-                        - "!products/desktop/**/*.md"
+                        - "!products/desktop/*.md"
+                        - "!products/desktop/**/README.md"
+                        - "!products/desktop/**/AGENTS.md"
+                        - "!products/desktop/**/CLAUDE.md"
                         - "!products/desktop/docs/**"
                         - "!products/desktop/.husky/**"
                         - "!products/desktop/LICENSE"

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 from uuid import UUID
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -153,7 +153,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, len(results))
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-02 00:00:00.000Z")
+    @time_machine.travel("2021-01-02 00:00:00.000Z", tick=False)
     def test_strict_funnel_person_recordings(self):
         p1 = _create_person(distinct_ids=[f"user_1"], team=self.team)
         _create_event(

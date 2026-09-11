@@ -28,6 +28,7 @@ hogvm = { path = "../common/hogvm" }
 thiserror = { workspace = true }
 sqlx = { workspace = true }
 serde_json = { workspace = true }
+url = { workspace = true }
 serde = { workspace = true }
 sourcemap = "9.0.0"
 symbolic = { version = "12.12", features = ["sourcemapcache", "debuginfo", "symcache", "demangle"] }

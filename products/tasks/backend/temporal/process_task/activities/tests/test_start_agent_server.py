@@ -1,7 +1,7 @@
 from typing import Literal
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 
 from django.db import OperationalError
 
@@ -18,6 +18,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     CollectAgentShadowResultInput,
     StartAgentServerInput,
     _agentsh_domains_for,
+    _emit_agent_server_log_tail,
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
     _invoke_start_agent_server,
@@ -35,7 +36,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
 )
 
 
-@freeze_time("2026-08-06T12:01:30Z")
+@time_machine.travel("2026-08-06T12:01:30Z", tick=False)
 def test_record_boot_total_excludes_wizard_time_and_labels_runtime(mocker) -> None:
     record_metric = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.record_boot_total_ms"
@@ -983,3 +984,21 @@ async def test_start_agent_server_passes_initial_permission_mode(mocker) -> None
 
     sandbox.start_agent_server.assert_called_once()
     assert sandbox.start_agent_server.call_args.kwargs["initial_permission_mode"] == "plan"
+
+
+@pytest.mark.parametrize(
+    ("stdout", "expected_message"),
+    [
+        ("line one\nline two\n", "agent-server log tail:\nline one\nline two"),
+        ("", "agent-server log tail: empty. The agent-server wrote nothing to /tmp/agent-server.log."),
+    ],
+)
+def test_emit_agent_server_log_tail_reports_empty_log(mocker, stdout, expected_message) -> None:
+    context = _context()
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.return_value = ExecutionResult(stdout=stdout, stderr="", exit_code=0)
+    emit = mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
+
+    _emit_agent_server_log_tail(context, sandbox)
+
+    emit.assert_called_once_with(context.run_id, "debug", expected_message)

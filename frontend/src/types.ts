@@ -593,7 +593,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_ai_training_opted_in?: boolean
     is_ai_training_locked?: boolean
     is_ai_training_cta_shown?: boolean
-    is_hipaa?: boolean
+    has_signed_baa?: boolean
     members_can_invite?: boolean
     members_can_create_projects?: boolean
     members_can_use_personal_api_keys: boolean
@@ -1104,6 +1104,7 @@ export enum SavedInsightsTabs {
 export enum ReplayTabs {
     Home = 'home',
     Playlists = 'playlists',
+    Comments = 'comments',
     Templates = 'templates',
     Settings = 'settings',
 }
@@ -3803,6 +3804,7 @@ export interface SurveyDisplayConditions {
 export enum SurveyEventName {
     SHOWN = 'survey shown',
     DISMISSED = 'survey dismissed',
+    ABANDONED = 'survey abandoned',
     SENT = 'survey sent',
 }
 
@@ -4762,7 +4764,6 @@ export enum DashboardPlacement {
 
 // Default mode is null
 export enum DashboardMode {
-    Edit = 'edit', // When the dashboard is being edited
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
 }
@@ -5173,6 +5174,8 @@ export interface CoreFilterDefinition {
     used_for_debug?: boolean
     /** Name of a single property on events of this name that UIs should display alongside the event. */
     primary_property?: string
+    /** Keep this event out of pickers that build a query someone saves and runs later. Surfaces that read live event data still offer it. */
+    hidden_in_query_builders?: boolean
 }
 
 export interface TileParams {
@@ -5583,6 +5586,7 @@ export const INTEGRATION_KINDS = [
     'linear',
     'github',
     'gitlab',
+    'helpscout',
     'meta-ads',
     'instagram',
     'clickup',
@@ -5862,6 +5866,7 @@ export const API_SCOPE_OBJECTS = [
     'cohort',
     'comment',
     'conversation',
+    'context_layer_internal',
     'customer_analytics',
     'customer_task',
     'customer_journey',
@@ -7422,6 +7427,7 @@ export type HogFunctionTypeType =
     | 'site_app'
     | 'transformation'
     | 'transformation_log'
+    | 'legacy_destination'
 
 export type HogFunctionType = {
     id: string
@@ -7841,11 +7847,25 @@ export interface FeaturePreviewGateConfig {
     description: string
     docsURL?: string
     /**
+     * Scene whose name and icon the gated state renders as its header. Without it the gate
+     * falls back to the router's active scene, which can resolve to Error404 ("Not found")
+     * and mislabel the page.
+     */
+    sceneId?: string
+    /**
      * Offer a "Request access" support CTA. Set this for betas that aren't self-serve early-access
      * features, so the gated state offers a way to request access instead of dead-ending on the
      * feature previews page.
      */
     offerRequestAccess?: boolean
+    /**
+     * Product intent recorded when a user joins the waitlist from the gate, so waitlist sign-ups
+     * count as product intent the same way opting in from the feature previews page does. When
+     * set, the gate also reads this product's setup-detection status to end the post-enrollment
+     * "turning it on" state as soon as the API agrees the flag is on, instead of waiting out a
+     * fixed timer.
+     */
+    productIntent?: ProductKey
 }
 
 export interface ProductManifest {

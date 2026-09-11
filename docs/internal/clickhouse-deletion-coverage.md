@@ -96,6 +96,8 @@ Each is a decision that erasure may lag by the retention window.
 
 - `sharded_events_recent` — a transient mirror of the last few days of events, 7-day TTL keyed on `inserted_at`. It partitions by day with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real worst case is about 8 days plus TTL-merge lag, not a flat 7. Short enough to accept as the erasure bound, and a sweep would race the TTL for little benefit.
 
+- `person_property_mutation_log_data` retains submitted person updates for 30 days from the Kafka message timestamp. It stores only `team_id`, `event_uuid`, `properties`, and `ingested_at`, so person-based sweeps cannot target it directly. Daily partitions drop after their newest row expires, plus TTL-merge lag.
+
 Session recordings, the dead letter queue, and logs are likewise TTL-reclaimed.
 That decision predates this document; the older `posthog/models/async_deletion/delete_events.py` records it in a comment, but that module is legacy and is not the source of truth here.
 
@@ -103,14 +105,18 @@ That decision predates this document; the older `posthog/models/async_deletion/d
 
 ### Property removal does not reach `flag_evaluations`
 
-The ingestion mapper omits `person_properties` and `group0..group4_properties` from flag-evaluation rows. ClickHouse fills these omitted string columns with empty values; existing rows keep their stored values. Event `properties` and `person_id` are still sent.
+`person_properties` and `group0..group4_properties` no longer exist on the table: no Insight or Hog function used either as a breakdown or a filter, so the ClickHouse team dropped them directly on both prod clusters, and `posthog/models/flag_evaluations/sql.py` no longer declares them, so any environment built from the migrations matches. Event `properties` and `person_id` are still sent.
+Because the table can no longer hold person properties, only the event-`properties` half of a request can match rows here.
 
 The events property-removal path rewrites rows in a staging table and resets each affected materialized column with `ALTER TABLE … UPDATE <col> = ''`.
 That works because `materialize()` creates columns as `DEFAULT <expr>`, which is assignable.
 
 All of that machinery (column discovery, staging rewrite, shard walk) is scoped to `events`; none of it reaches `flag_evaluations`.
-Until it does, `get_property_removal_shards` refuses to start when the table holds rows matching the request, so a request cannot complete while data it named survives.
+Until it does, `get_property_removal_shards` refuses to start when the table holds rows matching a request's event `properties`, so such a request cannot complete while data it named survives.
 The check costs nothing while the table is empty.
+
+The person-property half of a request is different, whether or not it also names event properties: `DeletionTarget.stores_person_properties` is `False` on `FLAG_EVALUATIONS`, so the gate does not build a `person_properties` predicate against the table at all, and that half of the request completes regardless of what the column holds.
+That is accurate for rows written since the producer stopped sending `person_properties` (2026-09-05, #95693), and a deliberate blind spot for whatever a row written before then still carries: those values are out of the gate's reach until the row's TTL passes.
 
 The schema stopped being a second obstacle with migration `0301_flag_evaluations_default_columns`, which recreated the nine typed columns as `DEFAULT <expr>`, the kind `materialize()` mints on events; they were true ClickHouse `MATERIALIZED` before, which is not assignable at all.
 Measured against ClickHouse 26.6.2 on the `DEFAULT` shape:
@@ -137,8 +143,9 @@ The remaining fix is pointing the events rewrite machinery at this table, with t
 #### If a request arrives before the fix lands
 
 Today the refusal costs nothing, because the table is empty.
-Once it holds rows, a property removal with `delete_all_events` refuses whenever a single flag-evaluation row carries the named property, and the operator has no way through: `delete_all_events` and `events` are mutually exclusive on the model, so the request cannot be narrowed to exclude `$feature_flag_called`, and the admin Retry button replays the same failure.
+Once it holds rows, a property removal with `delete_all_events` refuses whenever a single flag-evaluation row carries the named event property, and the operator has no way through: `delete_all_events` and `events` are mutually exclusive on the model, so the request cannot be narrowed to exclude `$feature_flag_called`, and the admin Retry button replays the same failure.
 The only exits are waiting out the TTL or shipping the fix above. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 120 days, not the 90-day TTL. `posthog/models/flag_evaluations/sql.py` says the same thing next to the partition clause.
+A person-property-only request is not stuck this way: as above, the gate does not check `flag_evaluations` for one at all.
 
 Refusing beats silently under-deleting, so the gate is the right default.
 If the fix has not landed by the time real traffic hits, the cheaper stopgaps are letting a request exclude event names so an operator can scope around the table, or recording an explicit, audited acknowledgement on the request so an operator can accept the residue rather than being stuck.
@@ -146,7 +153,12 @@ Doing nothing means the first affected GDPR request becomes an escalation.
 
 ### Event removal with a HogQL predicate does not reach `flag_evaluations`
 
-`compile_hogql_predicate` resolves against the events HogQL table and emits events-specific physical columns. There is no HogQL table definition for `flag_evaluations`, so the fragment cannot run against it. Requests without a predicate are swept normally; requests with one are refused if the table holds matching rows.
+`compile_hogql_predicate` resolves every predicate against the events HogQL table and emits events-specific physical columns.
+Its only axis of variation is legacy vs native-JSON events, so while the dag does compile one fragment per target, no target selects a different table root.
+Whether a given fragment would run against `flag_evaluations` depends on the predicate and the team's modifiers: one naming only `event` or `distinct_id` would, one reaching a `mat_*` column or a property-group map would not, and nothing validates which.
+The dag refuses rather than guessing.
+A HogQL table definition for `flag_evaluations` does not change that, because nothing routes compilation to a table.
+Requests without a predicate are swept normally; requests with one are refused if the table holds matching rows.
 
 ## Producer prerequisite: person_id parity
 
@@ -158,6 +170,12 @@ If a future producer emitted rows before person resolution, leaving `person_id` 
 The fix would belong to the producer, not the scanner.
 Keeping the fork downstream of person resolution is the contract, tracked on #81002.
 
+Write-time parity is not sufficient on its own, because a later merge moves the person the sweep looks for.
+`squash_person_overrides` rewrites `person_id` on `EVENTS_TARGETS` only, so after person A merges into B the events rows carry B while the flag-evaluation rows still carry A.
+A deletion of B is queued under B's uuid, so it misses those rows and they survive, with their event `properties` and their stale `person_id`, until the TTL drops the part.
+The squash deletes the overrides right after applying them, so nothing can reconcile the divergence afterwards.
+Extending the squash to `FLAG_EVALUATIONS` is the fix, and it belongs to `posthog/dags/person_overrides.py` rather than to this table. Tracked on #93035.
+
 ## Related, and deliberately unchanged
 
 `_fetch_stats` counts only the events tables. It feeds `AUTO_APPROVE_MAX_EVENTS`, a cost heuristic rather than a completeness claim, so a request auto-approved as small may move somewhat more rows than measured.
@@ -166,7 +184,7 @@ Keeping the fork downstream of person resolution is the contract, tracked on #81
 
 ## Adding a table
 
-Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` needs the rewrite machinery to reach the table, not just assignable columns.
+Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` needs the rewrite machinery to reach the table, not just assignable columns; `stores_person_properties` needs the table's `person_properties` column to actually hold reachable data, not just exist in the schema; see `FLAG_EVALUATIONS` for a table where those diverged.
 If it is not going to be swept, add it to `TTL_ONLY_TABLES` with the window you are accepting.
 If its storage lives on a cluster other than the one the deletion jobs connect to, give it a `cluster_setting` naming that cluster and mark it `optional`; see "Reach" and "Dispatching" above for which sweeps then reach it and which refuse.
 

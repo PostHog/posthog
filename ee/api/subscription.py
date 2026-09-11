@@ -54,6 +54,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
+    AIQueryPlanStatus,
     Subscription,
     SubscriptionDelivery,
     attribute_subscription_saves,
@@ -63,6 +64,7 @@ from products.exports.backend.models.subscription_context import SubscriptionCon
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
     PromptRejectedError,
+    get_ai_query_plan_status as derive_ai_query_plan_status,
     sanitize_prompt,
 )
 from products.exports.backend.temporal.subscriptions.types import (
@@ -70,6 +72,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_QUERY_FAILURE_TYPE,
+    AI_REPORT_QUERY_PLAN_STATUS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
@@ -85,6 +88,9 @@ from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
 MAX_AI_SUBSCRIPTION_CONTEXTS: int = int(SubscriptionAIContextLimit.model_fields["root"].default)
+AI_DELIVERY_DISPLAY_FIELDS = frozenset(
+    {"include_images", "include_feedback", "include_manage_link", "include_posthog_hint"}
+)
 
 
 def _summary_quota_cache_key(organization_id) -> str:
@@ -284,6 +290,25 @@ class DeliveryConfigSerializer(serializers.Serializer):
             "Defaults to false."
         ),
     )
+    include_images = serializers.BooleanField(
+        required=False,
+        help_text="AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.",
+    )
+    include_feedback = serializers.BooleanField(
+        required=False,
+        help_text="AI prompt subscriptions only: include report feedback links. Defaults to true when omitted.",
+    )
+    include_manage_link = serializers.BooleanField(
+        required=False,
+        help_text="AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted.",
+    )
+    include_posthog_hint = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "AI prompt subscriptions only: include PostHog product guidance. Slack only. "
+            "Email and Microsoft Teams reports do not include it. Defaults to true when omitted."
+        ),
+    )
 
 
 class SubscriptionContextWriteSerializer(serializers.Serializer):
@@ -405,6 +430,12 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             f"list to clear, or pass up to {MAX_AI_SUBSCRIPTION_CONTEXTS} items to replace all contexts."
         ),
     )
+    ai_query_plan_status = serializers.SerializerMethodField(
+        help_text=(
+            "Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. "
+            "Null for other subscription types."
+        )
+    )
     delivery_config = DeliveryConfigSerializer(
         required=False,
         help_text="Per-delivery rendering options. Each option documents which delivery targets it applies to.",
@@ -435,6 +466,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             "prompt",
             "ai_prompt_config",
             "contexts",
+            "ai_query_plan_status",
             "target_type",
             "target_value",
             "frequency",
@@ -586,6 +618,17 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             representation["contexts"] = self._context_representation(instance)
         return representation
 
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=AIQueryPlanStatus.choices,
+            allow_null=True,
+        )
+    )
+    def get_ai_query_plan_status(self, subscription: Subscription) -> Optional[str]:
+        if subscription.resource_type != Subscription.ResourceType.AI_PROMPT:
+            return None
+        return derive_ai_query_plan_status(subscription.ai_query_plan).value
+
     def _validate_insight_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
         if not (attrs.get("insight") or (existing and existing.insight_id)):
             raise ValidationError({"insight": ["Insight is required for insight subscriptions."]})
@@ -711,6 +754,14 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                 )
         except ValueError as exc:
             raise ValidationError(str(exc))
+        if (
+            resource_type == Subscription.ResourceType.AI_PROMPT
+            and self.partial
+            and existing is not None
+            and "delivery_config" in attrs
+        ):
+            existing_delivery_config = existing.delivery_config if isinstance(existing.delivery_config, dict) else {}
+            attrs["delivery_config"] = {**existing_delivery_config, **attrs["delivery_config"]}
         content_validators: dict[str, Callable[[dict, Optional[Subscription]], None]] = {
             Subscription.ResourceType.INSIGHT: self._validate_insight_content,
             Subscription.ResourceType.DASHBOARD: self._validate_dashboard_content,
@@ -754,6 +805,12 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             if "delivery_config" in attrs
             else (self.instance.delivery_config if self.instance else None)
         ) or {}
+        if resource_type != Subscription.ResourceType.AI_PROMPT and any(
+            field in effective_delivery_config for field in AI_DELIVERY_DISPLAY_FIELDS
+        ):
+            raise ValidationError(
+                {"delivery_config": ["AI delivery display options are only supported for prompt subscriptions."]}
+            )
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable
@@ -1838,6 +1895,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
     # nullable). Single source of truth — keep in sync when adding AI-derived delivery fields.
     # ai_report_prompt is user-authored (not query-derived) and already readable on the parent
     # subscription, so it is intentionally not scrubbed.
+    # ai_query_plan_status is harmless execution metadata, so it also stays visible without query access.
     # recipient_results is also intentionally not scrubbed: its human_readable_error values are
     # audience-independent delivery failure reasons (auto-disable causes, prompt rejections, Slack
     # thread-failure counts) that carry no query-derived data. New producers of
@@ -1862,6 +1920,12 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
     )
     ai_report_prompt = serializers.SerializerMethodField(
         help_text="The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries."
+    )
+    ai_query_plan_status = serializers.SerializerMethodField(
+        help_text=(
+            "Query plan state recorded for this delivery: frozen, not_frozen, or planner_updated. "
+            "Null for older deliveries and non-AI deliveries."
+        )
     )
 
     class Meta:
@@ -1888,6 +1952,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "ai_report_diagnostics",
             "ai_report_charts",
             "ai_report_prompt",
+            "ai_query_plan_status",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -1953,6 +2018,14 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         charts = snapshot.get(AI_REPORT_CHARTS_KEY)
         return charts if isinstance(charts, list) else None
 
+    @extend_schema_field(serializers.ChoiceField(choices=AIQueryPlanStatus.choices, allow_null=True))
+    def get_ai_query_plan_status(self, delivery: SubscriptionDelivery) -> Optional[str]:
+        snapshot = delivery.content_snapshot
+        if not isinstance(snapshot, dict):
+            return None
+        status = snapshot.get(AI_REPORT_QUERY_PLAN_STATUS_KEY)
+        return status if isinstance(status, str) and status in AIQueryPlanStatus.values else None
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # The viewset sets this flag when an AI prompt delivery is read by a caller without query
@@ -1973,6 +2046,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             or AI_REPORT_PROMPT_SNAPSHOT_KEY in snapshot
             or AI_REPORT_DIAGNOSTICS_KEY in snapshot
             or AI_REPORT_CHARTS_KEY in snapshot
+            or AI_REPORT_QUERY_PLAN_STATUS_KEY in snapshot
         ):
             data["content_snapshot"] = {
                 key: value
@@ -1983,6 +2057,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
                     AI_REPORT_PROMPT_SNAPSHOT_KEY,
                     AI_REPORT_DIAGNOSTICS_KEY,
                     AI_REPORT_CHARTS_KEY,
+                    AI_REPORT_QUERY_PLAN_STATUS_KEY,
                 )
             }
         return data
