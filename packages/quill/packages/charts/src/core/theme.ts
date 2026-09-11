@@ -124,7 +124,9 @@ export function themeFromCssVars(options: ThemeFromCssOptions = {}): ChartTheme 
  * one or the other) and re-reads the vars whenever they flip. It also watches
  * `<head>`, because a host that injects its token stylesheet after mount
  * changes no attribute and would otherwise leave the chart on the fallback
- * palette until it remounts.
+ * palette until it remounts. The `style` attribute is watched for the same
+ * reason: a host that writes its variables as inline properties changes
+ * nothing else.
  */
 export function useChartTheme(options: ThemeFromCssOptions = {}): ChartTheme {
     const { root, colorCount } = options
@@ -155,7 +157,7 @@ export function useChartTheme(options: ThemeFromCssOptions = {}): ChartTheme {
         })
         const attributes: MutationObserverInit = {
             attributes: true,
-            attributeFilter: ['class', 'theme', 'data-theme'],
+            attributeFilter: ['class', 'theme', 'data-theme', 'style'],
         }
         observer.observe(document.documentElement, attributes)
         observer.observe(document.body, attributes)
