@@ -239,7 +239,6 @@ def create_workflow_task(
     # Resolved after the gate so a capped or blocked fire never pays for the query, and outside
     # the transaction below so the skills store read never happens while holding the team lock.
     skills = resolve_attached_skills(team, gate_owner, skill_names)
-    channel = _resolve_channel(team.id, owner_id, channel_ref)
 
     # Snapshot the connector selection onto the run, next to the PostHog MCP scopes the token
     # minter reads back. The mounts themselves follow the same list stamped on the task as its
@@ -347,6 +346,13 @@ def create_workflow_task(
                 # repository runs.
                 extra_run_state["end_run_when_done"] = True
 
+            # Resolved here so the row lock it takes is held until the task is inserted.
+            # delete_channel takes the same lock, and only detaches the tasks that already
+            # exist, so a space deleted between the resolve and the insert would leave the
+            # task filed into a deleted space, which no visibility rule matches: invisible
+            # even to its owner.
+            channel = _resolve_channel(team.id, owner_id, channel_ref)
+
             task = Task.create_and_run(
                 team=team,
                 title=(title or "").strip() or prompt[:255],
@@ -409,6 +415,11 @@ def _resolve_channel(team_id: int, owner_id: int, channel_ref: str | None) -> Ch
     a step input naming a private space the owner is not a member of must not place the task
     there. An id that resolves to nothing only costs the placement: a deleted or renamed space
     must not stop the workflow from running.
+
+    Locks the space row for the rest of the caller's transaction, the same lock
+    ``delete_channel`` takes, so the space cannot be deleted between this read and the task
+    insert. ``no_key`` keeps the task inserts of other creators in the same space, which take
+    a key-share lock on this row for the foreign key check, off that wait.
     """
     if not channel_ref:
         return None
@@ -417,7 +428,12 @@ def _resolve_channel(team_id: int, owner_id: int, channel_ref: str | None) -> Ch
     except ValueError:
         logger.warning("workflow_task_channel_malformed", team_id=team_id)
         return None
-    channel = Channel.objects.for_team(team_id).filter(Channel.visible_to_q(owner_id), id=channel_id).first()
+    channel = (
+        Channel.objects.for_team(team_id)
+        .select_for_update(no_key=True, of=("self",))
+        .filter(Channel.visible_to_q(owner_id), id=channel_id)
+        .first()
+    )
     if channel is None:
         logger.warning("workflow_task_channel_unresolved", team_id=team_id, channel_id=str(channel_id))
     return channel
