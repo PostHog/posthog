@@ -1,4 +1,3 @@
-import os
 import json
 import asyncio
 import datetime as dt
@@ -22,9 +21,8 @@ from products.batch_exports.backend.temporal.record_batch_model import SessionsR
 from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
 
-SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
-    "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,
-    reason="Google credentials not set in environment",
+SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.requires_vendor_credentials(
+    "GOOGLE_APPLICATION_CREDENTIALS"
 )
 
 TEST_TIME = dt.datetime.now(dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)

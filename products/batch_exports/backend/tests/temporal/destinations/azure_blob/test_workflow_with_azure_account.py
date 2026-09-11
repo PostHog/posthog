@@ -32,12 +32,9 @@ from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils
 )
 
 pytestmark = [
+    pytest.mark.requires_vendor_credentials("AZURE_STORAGE_CONNECTION_STRING", "AZURE_TEST_CONTAINER"),
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    pytest.mark.skipif(
-        "AZURE_STORAGE_CONNECTION_STRING" not in os.environ or "AZURE_TEST_CONTAINER" not in os.environ,
-        reason="Real Azure credentials not set (AZURE_STORAGE_CONNECTION_STRING and AZURE_TEST_CONTAINER required)",
-    ),
 ]
 
 

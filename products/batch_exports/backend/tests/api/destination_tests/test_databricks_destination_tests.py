@@ -28,11 +28,8 @@ REQUIRED_ENV_VARS = (
 
 
 pytestmark = [
+    pytest.mark.requires_vendor_credentials(*REQUIRED_ENV_VARS),
     pytest.mark.django_db,
-    pytest.mark.skipif(
-        not all(env_var in os.environ for env_var in REQUIRED_ENV_VARS),
-        reason=f"Databricks required env vars are not set: {', '.join(REQUIRED_ENV_VARS)}",
-    ),
 ]
 
 

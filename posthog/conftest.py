@@ -21,6 +21,7 @@ from django.core.management.commands.flush import Command as FlushCommand
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
+from posthog.cloud_utils import is_ci
 from posthog.test import flush_lock_guard
 
 
@@ -641,6 +642,37 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
         pytest.skip("Skipping test that requires internal secrets on external PRs")
 
 
+def _vendor_credentials_present(marker: pytest.Mark) -> bool:
+    check: Callable[[], bool] | None = marker.kwargs.get("check")
+    return all(name in os.environ for name in marker.args) and (check is None or check())
+
+
+def _describe_vendor_credentials(marker: pytest.Mark) -> str:
+    check: Callable[[], bool] | None = marker.kwargs.get("check")
+    return ", ".join([*marker.args, *([check.__name__] if check is not None else [])])
+
+
+def _gate_vendor_credential_tests(config: pytest.Config, items: list[pytest.Item]) -> None:
+    gated = [
+        (item, marker)
+        for item in items
+        if (marker := item.get_closest_marker("requires_vendor_credentials")) is not None
+    ]
+    if not gated:
+        return
+    if is_ci():
+        deselected = {id(item) for item, _ in gated}
+        config.hook.pytest_deselected(items=[item for item, _ in gated])
+        items[:] = [item for item in items if id(item) not in deselected]
+        return
+    for item, marker in gated:
+        if not _vendor_credentials_present(marker):
+            item.add_marker(
+                pytest.mark.skip(reason=f"vendor credentials not available: {_describe_vendor_credentials(marker)}")
+            )
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     if apply_quarantine_markers is not None:
         apply_quarantine_markers(items)
+    _gate_vendor_credential_tests(config, items)
