@@ -255,7 +255,9 @@ def _rest_client(api_key: str) -> RESTClient:
 
 
 def _list_params(config: MetronomeEndpointConfig) -> dict[str, Any]:
-    params: dict[str, Any] = {} if not config.paginated else {"limit": config.page_size}
+    params: dict[str, Any] = {}
+    if config.paginated and config.accepts_page_size:
+        params["limit"] = config.page_size
     params.update(config.extra_params)
     return params
 
