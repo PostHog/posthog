@@ -71,6 +71,10 @@ export class WebOAuthFlowService implements IAuthOAuthFlowService {
     return this.runFlow(region, "signup");
   }
 
+  startOrganizationCreationFlow(region: CloudRegion): Promise<StartFlowOutput> {
+    return this.runFlow(region, "organization");
+  }
+
   async refreshToken(
     refreshToken: string,
     region: CloudRegion,
@@ -101,7 +105,7 @@ export class WebOAuthFlowService implements IAuthOAuthFlowService {
 
   private async runFlow(
     region: CloudRegion,
-    kind: "login" | "signup",
+    kind: "login" | "signup" | "organization",
   ): Promise<StartFlowOutput> {
     this.pendingFlow?.cancel("Superseded by a new sign-in attempt");
     try {
@@ -109,7 +113,11 @@ export class WebOAuthFlowService implements IAuthOAuthFlowService {
       const state = randomBase64Url(16);
       const authUrl = await this.buildAuthorizeUrl(region, codeVerifier, state);
       const target =
-        kind === "signup" ? buildSignupUrl(region, authUrl) : authUrl;
+        kind === "signup"
+          ? buildSignupUrl(region, authUrl)
+          : kind === "organization"
+            ? buildOrganizationCreationUrl(region, authUrl)
+            : authUrl;
 
       // Open before any network round-trip so the click's transient activation
       // still permits the popup. The window name is unique per flow: a fixed
@@ -269,6 +277,17 @@ function buildSignupUrl(region: CloudRegion, authUrl: URL): URL {
   const signupUrl = new URL(`${getCloudUrlFromRegion(region)}/signup`);
   signupUrl.searchParams.set("next", `${authUrl.pathname}${authUrl.search}`);
   return signupUrl;
+}
+
+function buildOrganizationCreationUrl(region: CloudRegion, authUrl: URL): URL {
+  const organizationUrl = new URL(
+    `${getCloudUrlFromRegion(region)}/create-organization`,
+  );
+  organizationUrl.searchParams.set(
+    "next",
+    `${authUrl.pathname}${authUrl.search}`,
+  );
+  return organizationUrl;
 }
 
 function randomBase64Url(byteLength: number): string {

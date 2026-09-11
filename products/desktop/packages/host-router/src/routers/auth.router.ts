@@ -44,6 +44,15 @@ export const authRouter = router({
         .signup(input.region),
     })),
 
+  createOrganization: publicProcedure
+    .input(loginInput)
+    .output(loginOutput)
+    .mutation(async ({ ctx, input }) => ({
+      state: await ctx.container
+        .get<AuthService>(AUTH_SERVICE)
+        .createOrganization(input.region),
+    })),
+
   getValidAccessToken: publicProcedure
     .output(validAccessTokenOutput)
     .query(async ({ ctx }) =>

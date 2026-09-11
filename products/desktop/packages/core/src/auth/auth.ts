@@ -81,6 +81,7 @@ interface TokenResponseOptions {
   cloudRegion: CloudRegion;
   selectedProjectId: number | null;
   fallbackRefreshToken?: string;
+  ignoreProjectPreference?: boolean;
 }
 
 @injectable()
@@ -103,6 +104,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private refreshPromise: Promise<InMemorySession> | null = null;
   private impersonationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionGeneration = 0;
+  private authFlow: symbol | null = null;
   // A refresh already refused, keyed to the session generation so every teardown
   // invalidates it. `until: null` is a proven-dead token, a timestamp is a pause.
   private refusedRefresh: {
@@ -189,6 +191,21 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       region,
       "Signup failed",
       sessionGeneration,
+    );
+    return this.getState();
+  }
+  async createOrganization(region: CloudRegion): Promise<AuthState> {
+    await this.initialize();
+    await this.ensureValidSession();
+    this.sessionGeneration += 1;
+    const sessionGeneration = this.sessionGeneration;
+    await this.authenticateWithFlow(
+      () => this.oauthFlow.startOrganizationCreationFlow(region),
+      region,
+      "Organization creation failed",
+      sessionGeneration,
+      true,
+      true,
     );
     return this.getState();
   }
@@ -308,6 +325,10 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     await this.initialize();
 
     const session = await this.ensureValidSession();
+    if (this.authFlow !== null) {
+      throw new Error("Authentication is in progress");
+    }
+    const sessionGeneration = this.sessionGeneration;
 
     if (!flattenProjectIds(session.orgProjectsMap).includes(projectId)) {
       throw new Error("Invalid project selection");
@@ -325,17 +346,25 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         ? await this.applyOrgChange(session, newOrgId)
         : session.orgProjectsMap;
 
-    await this.commitSessionState(session, {
-      orgProjectsMap,
-      currentOrgId: newOrgId,
-      currentProjectId: projectId,
-    });
+    await this.commitSessionState(
+      session,
+      {
+        orgProjectsMap,
+        currentOrgId: newOrgId,
+        currentProjectId: projectId,
+      },
+      sessionGeneration,
+    );
     return this.getState();
   }
   async switchOrg(orgId: string): Promise<AuthState> {
     await this.initialize();
 
     const session = await this.ensureValidSession();
+    if (this.authFlow !== null) {
+      throw new Error("Authentication is in progress");
+    }
+    const sessionGeneration = this.sessionGeneration;
 
     if (!session.orgProjectsMap[orgId]) {
       throw new Error("Invalid organization");
@@ -348,11 +377,15 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       orgId,
     );
 
-    await this.commitSessionState(session, {
-      orgProjectsMap,
-      currentOrgId: orgId,
-      currentProjectId,
-    });
+    await this.commitSessionState(
+      session,
+      {
+        orgProjectsMap,
+        currentOrgId: orgId,
+        currentProjectId,
+      },
+      sessionGeneration,
+    );
     return this.getState();
   }
   private async applyOrgChange(
@@ -404,12 +437,12 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       currentOrgId: string | null;
       currentProjectId: number | null;
     },
+    sessionGeneration: number,
   ): Promise<void> {
     // Serialize commits onto a chain so overlapping selections can't
     // interleave across async encryption and clobber a newer one. The chain
     // swallows rejections so one failure doesn't wedge later commits; the
     // returned promise still rejects for the caller.
-    const sessionGeneration = this.sessionGeneration;
     const run = this.commitChain.then(() =>
       this.applyCommittedSession(prevSession, next, sessionGeneration),
     );
@@ -510,6 +543,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     const { cloudRegion, currentProjectId } = this.state;
 
     this.sessionGeneration += 1;
+    this.authFlow = null;
     this.authSession.clearCurrent();
     this.clearImpersonationExpiryTimer();
     this.session = null;
@@ -870,8 +904,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     const lastPrefs = accountKey
       ? this.authPreference.get(accountKey, options.cloudRegion)
       : null;
-    const preferredProjectId =
-      options.selectedProjectId ?? lastPrefs?.lastSelectedProjectId ?? null;
+    const preferredProjectId = options.ignoreProjectPreference
+      ? null
+      : (options.selectedProjectId ?? lastPrefs?.lastSelectedProjectId ?? null);
     let selection = this.reconcileInitialSelection({
       orgProjectsMap,
       currentOrgId,
@@ -1115,17 +1150,48 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     region: CloudRegion,
     fallbackError: string,
     sessionGeneration: number,
+    ignoreProjectPreference = false,
+    requireSameAccount = false,
   ): Promise<void> {
-    const result = await runFlow();
-    if (!result.success || !result.data) {
-      throw new Error(result.error || fallbackError);
-    }
+    const accountKey = this.session?.accountKey ?? null;
+    const authFlow = Symbol();
+    this.authFlow = authFlow;
+    try {
+      const result = await runFlow();
+      if (!result.success || !result.data) {
+        throw new Error(result.error || fallbackError);
+      }
+      if (this.sessionGeneration !== sessionGeneration) {
+        return;
+      }
 
-    const session = await this.createSessionFromTokenResponse(result.data, {
-      cloudRegion: region,
-      selectedProjectId: this.state.currentProjectId,
-    });
-    await this.syncAuthenticatedSession(session, sessionGeneration);
+      const session = await this.createSessionFromTokenResponse(result.data, {
+        cloudRegion: region,
+        selectedProjectId: this.state.currentProjectId,
+        ignoreProjectPreference,
+      });
+      if (this.sessionGeneration !== sessionGeneration) {
+        return;
+      }
+      if (requireSameAccount) {
+        if (accountKey === null || session.accountKey === null) {
+          throw new Error(
+            "PostHog could not verify your browser account. Check your connection, then try again.",
+          );
+        }
+        if (session.accountKey !== accountKey) {
+          throw new Error(
+            "Your browser is signed in to a different PostHog account. Sign in to the same account, then try again.",
+          );
+        }
+      }
+      const syncGeneration = ++this.sessionGeneration;
+      await this.syncAuthenticatedSession(session, syncGeneration);
+    } finally {
+      if (this.authFlow === authFlow) {
+        this.authFlow = null;
+      }
+    }
   }
   private async syncAuthenticatedSession(
     session: InMemorySession,
@@ -1596,6 +1662,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       }
 
       if (!session.orgProjectsIncomplete) return;
+      const sessionGeneration = this.sessionGeneration;
 
       let map: OrgProjectsMap;
       let incomplete: boolean;
@@ -1645,11 +1712,15 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
           }),
           preferredProjectId,
         );
-        await this.commitSessionState(session, {
-          orgProjectsMap: map,
-          currentOrgId: selection.currentOrgId,
-          currentProjectId: selection.currentProjectId,
-        });
+        await this.commitSessionState(
+          session,
+          {
+            orgProjectsMap: map,
+            currentOrgId: selection.currentOrgId,
+            currentProjectId: selection.currentProjectId,
+          },
+          sessionGeneration,
+        );
         this.logger.info(
           "Recovered organizations/projects after incomplete sync",
         );

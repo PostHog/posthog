@@ -76,6 +76,7 @@ export const AUTH_PREFERENCE_STORE = Symbol.for(
 export interface IAuthOAuthFlowService {
   startFlow(region: CloudRegion): Promise<StartFlowOutput>;
   startSignupFlow(region: CloudRegion): Promise<StartFlowOutput>;
+  startOrganizationCreationFlow(region: CloudRegion): Promise<StartFlowOutput>;
   refreshToken(
     refreshToken: string,
     region: CloudRegion,

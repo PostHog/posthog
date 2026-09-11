@@ -1,6 +1,7 @@
 import { useService } from "@posthog/di/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import type { CloudRegion } from "@posthog/shared";
+import { toast } from "@posthog/ui/primitives/toast";
 import { clearCapturedLogs } from "@posthog/ui/shell/logCapture";
 import { useMutation } from "@tanstack/react-query";
 import { AUTH_SIDE_EFFECTS, type IAuthSideEffects } from "./identifiers";
@@ -13,6 +14,29 @@ export function useLoginMutation() {
       hostClient.auth.login.mutate({ region }).then((r) => r.state),
     onSuccess: (state, region) =>
       fx.onAuthSuccess(region, state.currentProjectId),
+  });
+}
+
+export function useCreateOrganizationMutation() {
+  const hostClient = useHostTRPCClient();
+  const fx = useService<IAuthSideEffects>(AUTH_SIDE_EFFECTS);
+  return useMutation({
+    mutationFn: (region: CloudRegion) =>
+      hostClient.auth.createOrganization
+        .mutate({ region })
+        .then((response) => response.state),
+    onSuccess: async (state) => {
+      if (state.status !== "authenticated") {
+        return;
+      }
+      fx.beforeProjectSwitch();
+      await fx.onProjectSelected();
+    },
+    onError: (error) => {
+      toast.error("Couldn't create organization", {
+        description: error instanceof Error ? error.message : "Try again.",
+      });
+    },
   });
 }
 

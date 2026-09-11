@@ -228,6 +228,30 @@ describe("OAuthService deep-link callback handler", () => {
     expect(mainWindow.focus).toHaveBeenCalled();
   });
 
+  it("returns through OAuth after organization creation", async () => {
+    const { service, getCallbackHandler, urlLauncher } = createDeps();
+    fetchMock.mockResolvedValue(jsonResponse(TOKEN_RESPONSE));
+
+    const organizationCreation = service.startOrganizationCreationFlow("us");
+    const launchedUrl = new URL(urlLauncher.launch.mock.calls[0][0]);
+    const nextPath = launchedUrl.searchParams.get("next");
+
+    expect(launchedUrl.pathname).toBe("/create-organization");
+    expect(nextPath).not.toBeNull();
+    const authorizeUrl = new URL(nextPath ?? "", launchedUrl.origin);
+    expect(authorizeUrl.pathname).toBe("/oauth/authorize");
+    expect(authorizeUrl.searchParams.get("redirect_uri")).toBe(
+      "posthog-code://callback",
+    );
+
+    getCallbackHandler()?.("callback", new URLSearchParams("code=abc"));
+
+    await expect(organizationCreation).resolves.toEqual({
+      success: true,
+      data: TOKEN_RESPONSE,
+    });
+  });
+
   it("accepts a short-lived impersonated session without a refresh token", async () => {
     const { service, getCallbackHandler } = createDeps();
     fetchMock.mockResolvedValue(

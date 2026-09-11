@@ -998,6 +998,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 if (values.onCompleteOnboardingRedirectUrlOverride) {
                     actions.setOnCompleteOnboardingRedirectUrl(null)
                 }
+                if (redirectUrl.split('?')[0] === urls.oauthAuthorize()) {
+                    window.location.href = redirectUrl
+                    return
+                }
                 return [redirectUrl]
             }
         },
