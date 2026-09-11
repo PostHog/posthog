@@ -270,19 +270,45 @@ describe('evaluationBackfillsLogic', () => {
         })
     })
 
+    // The picker writes three fractional digits, the API writes none or six, so the unclamped cases
+    // carry the shapes each side really sends rather than one shape for both.
     it.each([
-        ['the range the server counted when it clamped the one asked for', '2024-01-01T00:00:00Z', WINDOW_LABEL],
-        ['nothing when the server counted the range asked for', '2024-02-01T00:00:00Z', null],
-    ])('reports %s', async (_name, requestedStart: string, expected: { start: string; end: string } | null) => {
-        await mountAndSettle()
+        [
+            'the range the server counted when it clamped the one asked for',
+            '2024-02-01T00:00:00Z',
+            '2024-01-01T00:00:00.000Z',
+            WINDOW_LABEL,
+        ],
+        [
+            'nothing when the server counted the range asked for',
+            '2024-02-01T00:00:00Z',
+            '2024-02-01T00:00:00.000Z',
+            null,
+        ],
+        [
+            'nothing when the server answers the same instant in microseconds',
+            '2024-02-01T00:00:00.123000Z',
+            '2024-02-01T00:00:00.123Z',
+            null,
+        ],
+    ])(
+        'reports %s',
+        async (
+            _name,
+            estimateStart: string,
+            requestedStart: string,
+            expected: { start: string; end: string } | null
+        ) => {
+            await mountAndSettle()
 
-        logic.actions.requestEstimateSuccess(
-            estimate({ window_start: '2024-02-01T00:00:00Z', window_end: '2024-02-08T00:00:00Z' }),
-            { window_start: requestedStart, window_end: '2024-02-08T00:00:00Z' }
-        )
+            logic.actions.requestEstimateSuccess(
+                estimate({ window_start: estimateStart, window_end: '2024-02-08T00:00:00Z' }),
+                { window_start: requestedStart, window_end: '2024-02-08T00:00:00.000Z' }
+            )
 
-        await expectLogic(logic).toMatchValues({ clampedWindow: expected })
-    })
+            await expectLogic(logic).toMatchValues({ clampedWindow: expected })
+        }
+    )
 
     it.each([
         ['no estimate yet', null, false, 'Pick a time range to see how many units match'],

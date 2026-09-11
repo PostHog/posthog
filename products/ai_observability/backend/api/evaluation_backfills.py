@@ -24,13 +24,19 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.property import property_to_expr
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
-from posthog.rate_limit import AIObservabilityBackfillCreateThrottle, AIObservabilityBackfillEstimateThrottle
+from posthog.rate_limit import (
+    AIObservabilityBackfillCreateSustainedThrottle,
+    AIObservabilityBackfillCreateThrottle,
+    AIObservabilityBackfillEstimateSustainedThrottle,
+    AIObservabilityBackfillEstimateThrottle,
+)
 from posthog.temporal.ai_observability.evaluation_backfill import (
     BACKFILL_WORKFLOW_NAME,
     EvaluationBackfillInputs,
@@ -65,7 +71,9 @@ BACKFILL_START_GRACE = timedelta(minutes=2)
 # The tab polls the list every ten seconds while a backfill runs, and a session-authenticated
 # request passes the default throttles, so probing on every request would let one open tab, or one
 # caller in a loop, set the rate of a synchronous Temporal call. A live answer stays good for a
-# tick, and the release of a dead row waits at most this long.
+# tick, and the release of a dead row waits at most this long. An answer Temporal could not give
+# is held for the same tick, because that probe is the expensive one: it opens a connection with
+# no timeout, and the list still answers 200, so nothing upstream slows the polling down.
 BACKFILL_ALIVE_CACHE_SECONDS = 60
 
 
@@ -249,12 +257,20 @@ class EvaluationBackfillViewSet(
         ]
 
     def get_throttles(self) -> list[BaseThrottle]:
-        # Append, never replace: returning only this throttle would drop the global burst and
+        # Append, never replace: returning only these throttles would drop the global burst and
         # sustained limits from the two actions that run a ClickHouse count.
         if self.action == "estimate":
-            return [*super().get_throttles(), AIObservabilityBackfillEstimateThrottle()]
+            return [
+                *super().get_throttles(),
+                AIObservabilityBackfillEstimateThrottle(),
+                AIObservabilityBackfillEstimateSustainedThrottle(),
+            ]
         if self.action == "create":
-            return [*super().get_throttles(), AIObservabilityBackfillCreateThrottle()]
+            return [
+                *super().get_throttles(),
+                AIObservabilityBackfillCreateThrottle(),
+                AIObservabilityBackfillCreateSustainedThrottle(),
+            ]
         return super().get_throttles()
 
     def _evaluation_for_url(self) -> Evaluation:
@@ -342,13 +358,40 @@ class EvaluationBackfillViewSet(
         source = submitted if submitted is not None else (evaluation.conditions or [])
         if not source:
             raise ValidationError("Add at least one condition set to this backfill.")
-        return [
+        conditions = [
             {
                 "properties": condition.get("properties", []),
                 "rollout_percentage": condition.get("rollout_percentage", 100),
             }
             for condition in source
         ]
+        self._require_applicable_filters(evaluation, conditions)
+        return conditions
+
+    def _require_applicable_filters(self, evaluation: Evaluation, conditions: list[dict[str, Any]]) -> None:
+        """Refuse a property filter the candidate query would compile away instead of apply.
+
+        `property_to_expr` drops a filter it cannot read, such as a row that carries a key but no
+        value yet, and the condition set then matches every unit in the window. On the live path
+        that only mistimes some traffic. Here it would run and pay for an evaluation on every unit
+        in the range, with the count in the estimate as the only signal. Strict mode raises for
+        the filters it would otherwise drop, so the request is rejected instead.
+        """
+        for condition in conditions:
+            try:
+                property_to_expr(condition["properties"], self.team, strict=True)
+            except (BaseHogQLError, ValueError, TypeError) as error:
+                raise self._condition_rejected(evaluation, error)
+
+    def _condition_rejected(self, evaluation: Evaluation, error: Exception) -> ValidationError:
+        """A condition the query cannot apply is a bad request, not a server fault."""
+        # The message is logged rather than returned, because it names query internals.
+        logger.warning(
+            "llma.evaluation_backfill_condition_rejected",
+            evaluation_id=str(evaluation.id),
+            error=str(error),
+        )
+        return ValidationError("A condition could not be applied. Check the filters and try again.")
 
     def _count(
         self,
@@ -370,14 +413,7 @@ class EvaluationBackfillViewSet(
                 rerun_existing=rerun_existing,
             )
         except BaseHogQLError as error:
-            # A property filter HogQL cannot compile is a bad request, not a server fault. The
-            # message is logged rather than returned, because it names query internals.
-            logger.warning(
-                "llma.evaluation_backfill_condition_rejected",
-                evaluation_id=str(evaluation.id),
-                error=str(error),
-            )
-            raise ValidationError("A condition could not be applied. Check the filters and try again.")
+            raise self._condition_rejected(evaluation, error)
 
     @extend_schema(
         request=EvaluationBackfillRequestSerializer,
@@ -415,22 +451,10 @@ class EvaluationBackfillViewSet(
         if cache.get(cache_key):
             return True
         workflow_id = backfill_workflow_id(str(backfill.pk))
-        try:
-            client = sync_connect()
-            description = asyncio.run(client.get_workflow_handle(workflow_id).describe())
-            if description.status == WorkflowExecutionStatus.RUNNING:
-                cache.set(cache_key, True, BACKFILL_ALIVE_CACHE_SECONDS)
-                return True
-        except RPCError as error:
-            # Treat an unreachable Temporal as "still running": refusing a second backfill is
-            # recoverable, starting one against a live walk doubles every evaluation it runs. A
-            # namespace that does not resolve answers NOT_FOUND for every workflow alike, so
-            # reading that as "this run is gone" would cancel every backfill at once.
-            if error.status != RPCStatusCode.NOT_FOUND or "namespace" in error.message.lower():
-                logger.exception("llma.evaluation_backfill_describe_failed", backfill_id=str(backfill.pk))
-                return True
-        except Exception:
-            logger.exception("llma.evaluation_backfill_describe_failed", backfill_id=str(backfill.pk))
+        if self._probe_reads_alive(backfill, workflow_id):
+            # One write for every alive answer, so an answer Temporal could not give costs the
+            # same one probe per tick that a live answer does.
+            cache.set(cache_key, True, BACKFILL_ALIVE_CACHE_SECONDS)
             return True
 
         # Says which read ended someone's backfill, because nothing else records it.
@@ -442,6 +466,25 @@ class EvaluationBackfillViewSet(
         )
         cancel_backfill(self.team_id, backfill.pk)
         return False
+
+    def _probe_reads_alive(self, backfill: EvaluationBackfill, workflow_id: str) -> bool:
+        """Ask Temporal whether the workflow runs, and read no answer at all as a yes."""
+        try:
+            client = sync_connect()
+            description = asyncio.run(client.get_workflow_handle(workflow_id).describe())
+            return description.status == WorkflowExecutionStatus.RUNNING
+        except RPCError as error:
+            # Treat an unreachable Temporal as "still running": refusing a second backfill is
+            # recoverable, starting one against a live walk doubles every evaluation it runs. A
+            # namespace that does not resolve answers NOT_FOUND for every workflow alike, so
+            # reading that as "this run is gone" would cancel every backfill at once.
+            if error.status != RPCStatusCode.NOT_FOUND or "namespace" in error.message.lower():
+                logger.exception("llma.evaluation_backfill_describe_failed", backfill_id=str(backfill.pk))
+                return True
+            return False
+        except Exception:
+            logger.exception("llma.evaluation_backfill_describe_failed", backfill_id=str(backfill.pk))
+            return True
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # The UI blocks Start while a row reads as running, so a dead workflow would hold the
@@ -494,6 +537,14 @@ class EvaluationBackfillViewSet(
 
         try:
             client = sync_connect()
+        except Exception:
+            # Connecting failed, so no start request reached Temporal and no workflow can exist for
+            # this row. Removing it lets the user retry at once.
+            EvaluationBackfill.objects.for_team(self.team_id).filter(pk=backfill.pk).delete()
+            logger.exception("llma.evaluation_backfill_connect_failed", backfill_id=str(backfill.pk))
+            raise APIException("Couldn't start the backfill. Try again.")
+
+        try:
             asyncio.run(
                 client.start_workflow(
                     BACKFILL_WORKFLOW_NAME,
@@ -504,11 +555,14 @@ class EvaluationBackfillViewSet(
                 )
             )
         except Exception:
-            # Nothing else creates the workflow, so a row left behind would sit at running forever
-            # and block the next backfill through the one-active constraint.
-            EvaluationBackfill.objects.for_team(self.team_id).filter(pk=backfill.pk).delete()
+            # The call can fail after Temporal accepted the start, and the row is what controls the
+            # walk: the first tick ends the run when the row is not active, and cancel needs it to
+            # exist. Deleting it on an unknown outcome would leave a walk that dispatches judge runs
+            # against the team's own provider key with nothing recording them and no way to stop
+            # them. The row therefore stays, and `_workflow_is_alive` releases it on the next read
+            # once the start grace has passed and Temporal answers NOT_FOUND for the workflow.
             logger.exception("llma.evaluation_backfill_start_failed", backfill_id=str(backfill.pk))
-            raise APIException("Couldn't start the backfill. Try again.")
+            raise APIException("Couldn't confirm the backfill started. Check the list before starting another one.")
 
         return Response(self.get_serializer(backfill).data, status=status.HTTP_201_CREATED)
 

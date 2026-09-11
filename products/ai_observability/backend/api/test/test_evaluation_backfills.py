@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -19,7 +20,12 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Project, Team, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.rate_limit import AIObservabilityBackfillCreateThrottle, AIObservabilityBackfillEstimateThrottle
+from posthog.rate_limit import (
+    AIObservabilityBackfillCreateSustainedThrottle,
+    AIObservabilityBackfillCreateThrottle,
+    AIObservabilityBackfillEstimateSustainedThrottle,
+    AIObservabilityBackfillEstimateThrottle,
+)
 from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -125,6 +131,22 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
     def _stale_backfill(self, evaluation: Evaluation | None = None) -> EvaluationBackfill:
         return self._running_backfill(evaluation, age=BACKFILL_START_GRACE + timedelta(minutes=1))
+
+    # Guards the wiring and the bucket, not the rate: the team-wide throttle has to reach
+    # `get_throttles()`, and a second member of the project has to land in the same bucket, or the
+    # count these actions run scales with the number of members and keys again.
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=5)
+    @patch("posthog.rate_limit.AIObservabilityBackfillEstimateSustainedThrottle.rate", new="1/hour")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_estimate_is_rate_limited_across_the_project(self, _enabled, _count):
+        cache.clear()
+        assert self.client.post(f"{self.url}/estimate/", _body(), format="json").status_code == status.HTTP_200_OK
+
+        second_member = User.objects.create_and_join(self.organization, "backfill-throttle@posthog.com", "testtest")
+        self.client.force_login(second_member)
+
+        throttled = self.client.post(f"{self.url}/estimate/", _body(), format="json")
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS, throttled.json()
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=42)
     def test_estimate_counts_without_creating_a_row(self, _count):
@@ -237,15 +259,31 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         active.refresh_from_db()
         assert active.status == EvaluationBackfillStatus.RUNNING
 
+    @parameterized.expand(
+        [
+            ("temporal_answers_running", None, None),
+            # The answers Temporal cannot give are the expensive ones, and the list still returns
+            # 200 for them, so the tab keeps polling at its floor and only the cache holds the rate.
+            ("temporal_cannot_be_reached", RuntimeError("temporal down"), None),
+            ("describe_fails", None, RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+        ]
+    )
     @patch(f"{API_MODULE}.sync_connect")
-    def test_a_live_answer_is_reused_instead_of_probing_temporal_again(self, connect):
-        connect.return_value = _temporal_client()
-        self._stale_backfill()
+    def test_an_alive_answer_is_reused_instead_of_probing_temporal_again(
+        self, _case, connect_error, describe_error, connect
+    ):
+        if connect_error is not None:
+            connect.side_effect = connect_error
+        else:
+            connect.return_value = _temporal_client(describe_error=describe_error)
+        stale = self._stale_backfill()
 
         for _ in range(3):
             assert self.client.get(f"{self.url}/").status_code == status.HTTP_200_OK
 
         assert connect.call_count == 1
+        stale.refresh_from_db()
+        assert stale.status == EvaluationBackfillStatus.RUNNING
 
     @patch(f"{API_MODULE}.sync_connect")
     def test_list_releases_an_old_row_whose_workflow_is_gone(self, connect):
@@ -436,19 +474,23 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert response.json()["detail"] == expected_detail
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
-    @parameterized.expand(["create", "estimate"])
-    def test_a_condition_hogql_cannot_compile_is_a_bad_request(self, case):
-        body = _body(
-            conditions=[
-                {"id": "c1", "properties": [{"type": "hogql", "key": "not ! valid"}], "rollout_percentage": 100}
-            ]
-        )
-        path = f"{self.url}/" if case == "create" else f"{self.url}/estimate/"
+    @parameterized.expand(
+        [
+            ("hogql_that_does_not_parse", {"type": "hogql", "key": "not ! valid"}),
+            # Outside strict mode these two compile to a constant true instead of a filter, which
+            # would run the backfill over every unit in the window rather than the ones asked for.
+            ("filter_row_left_without_a_value", {"type": "event", "key": "$ai_model", "operator": "exact"}),
+            ("filter_of_a_type_that_does_not_exist", {"type": "nonsense", "key": "x", "value": "y"}),
+        ]
+    )
+    def test_a_condition_the_query_cannot_apply_is_a_bad_request(self, _case, property_filter):
+        body = _body(conditions=[{"id": "c1", "properties": [property_filter], "rollout_percentage": 100}])
 
-        response = self.client.post(path, body, format="json")
+        for path in (f"{self.url}/", f"{self.url}/estimate/"):
+            response = self.client.post(path, body, format="json")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["detail"] == "A condition could not be applied. Check the filters and try again."
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, (path, response.json())
+            assert response.json()["detail"] == "A condition could not be applied. Check the filters and try again."
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
     @parameterized.expand(["create", "estimate"])
@@ -485,11 +527,23 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=5)
     @patch(f"{API_MODULE}.sync_connect", side_effect=RuntimeError("temporal down"))
-    def test_create_rolls_back_row_when_workflow_start_fails(self, _connect, _count):
+    def test_create_rolls_back_row_when_temporal_is_unreachable(self, _connect, _count):
         response = self.client.post(f"{self.url}/", _body(), format="json")
 
         assert response.status_code >= 500
         assert EvaluationBackfill.objects.unscoped().count() == 0
+
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=5)
+    @patch(f"{API_MODULE}.sync_connect")
+    def test_create_keeps_the_row_when_the_start_result_is_unknown(self, connect, _count):
+        connect.return_value = _temporal_client()
+        connect.return_value.start_workflow.side_effect = RuntimeError("stream closed")
+
+        response = self.client.post(f"{self.url}/", _body(), format="json")
+
+        assert response.status_code >= 500
+        row = EvaluationBackfill.objects.unscoped().get()
+        assert row.status == EvaluationBackfillStatus.RUNNING
 
     @patch(f"{API_MODULE}.sync_connect")
     def test_cancel_marks_terminal_and_is_idempotent(self, connect):
@@ -641,6 +695,26 @@ class TestBackfillThrottleBuckets(APIBaseTest):
         second = throttle.get_cache_key(_throttle_request(self.user, personal_api_key=second_key), view)
 
         assert len({session, first, second}) == 3
+
+    @parameterized.expand(
+        [
+            ("estimate", AIObservabilityBackfillEstimateSustainedThrottle),
+            ("create", AIObservabilityBackfillCreateSustainedThrottle),
+        ]
+    )
+    def test_the_sustained_bucket_is_one_per_project(self, _case, throttle_class):
+        other_user = User.objects.create_and_join(self.organization, "backfill-third@posthog.com", "testtest")
+        view = SimpleNamespace(team_id=self.team.id)
+        throttle = throttle_class()
+        key = self._personal_api_key("key-sustained")
+
+        keys = {
+            throttle.get_cache_key(_throttle_request(self.user), view),
+            throttle.get_cache_key(_throttle_request(other_user), view),
+            throttle.get_cache_key(_throttle_request(self.user, personal_api_key=key), view),
+        }
+
+        assert len(keys) == 1
 
     def _personal_api_key(self, label: str) -> str:
         key_value = generate_random_token_personal()

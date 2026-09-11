@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonButton, LemonSwitch, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -168,11 +168,27 @@ export function EvaluationBackfillsTab({
         {
             title: 'Status',
             key: 'status',
-            render: (_, backfill) => (
-                <LemonTag type={BACKFILL_STATUS_TAG[backfill.status].type}>
-                    {BACKFILL_STATUS_TAG[backfill.status].label}
-                </LemonTag>
-            ),
+            render: (_, backfill) => {
+                const statusTag = (
+                    <LemonTag type={BACKFILL_STATUS_TAG[backfill.status].type}>
+                        {BACKFILL_STATUS_TAG[backfill.status].label}
+                    </LemonTag>
+                )
+                return (
+                    <div className="flex items-center gap-1 flex-wrap">
+                        {/* A completed row means every unit was sent out, not that every evaluation has finished. */}
+                        {backfill.status === 'completed' ? (
+                            <Tooltip
+                                title={`Each ${backfill.target} is evaluated on its own, so the last results can take a few minutes to appear in the Runs tab.`}
+                            >
+                                {statusTag}
+                            </Tooltip>
+                        ) : (
+                            statusTag
+                        )}
+                    </div>
+                )
+            },
         },
         {
             title: 'Scope',
@@ -238,7 +254,7 @@ export function EvaluationBackfillsTab({
                 return (
                     <Tooltip title="How many units this backfill has started evaluating. It does not track which of them have finished.">
                         <div className="min-w-24">
-                            <span className="whitespace-nowrap">
+                            <span className="whitespace-nowrap" translate="no">
                                 {backfill.dispatched_count.toLocaleString('en-US')} /{' '}
                                 {backfill.total_count.toLocaleString('en-US')}
                             </span>
@@ -345,7 +361,9 @@ export function EvaluationBackfillsTab({
                             key: 'conditions',
                             header: 'Conditions',
                             dataAttr: 'llma-eval-backfill-conditions',
-                            content: <EvaluationTriggers conditions={conditions} onChange={setConditions} />,
+                            content: (
+                                <EvaluationTriggers conditions={conditions} onChange={setConditions} unit={unit} />
+                            ),
                         },
                     ]}
                 />
@@ -379,6 +397,23 @@ export function EvaluationBackfillsTab({
                     </AccessControlAction>
                 </div>
             </div>
+
+            {/* The table's own empty state carries this error when there is nothing to list, so the
+                banner covers the rows-on-screen case: a failing poll leaves stale progress with
+                the table still drawn, and without this the user reads a live run as stalled. */}
+            {backfillsError && backfills.length > 0 && (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Retry',
+                        onClick: () => loadBackfills(),
+                        loading: backfillsLoading,
+                        'data-attr': 'llma-eval-backfill-retry',
+                    }}
+                >
+                    {backfillsError}
+                </LemonBanner>
+            )}
 
             <LemonTable
                 dataSource={backfills}

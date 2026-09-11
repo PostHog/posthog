@@ -6,16 +6,21 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { pluralize } from 'lib/utils/strings'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { EvaluationConditionSet } from '../types'
+import { EvaluationConditionSet, EvaluationTarget } from '../types'
 
 interface EvaluationTriggersProps {
     conditions?: EvaluationConditionSet[]
     onChange?: (conditions: EvaluationConditionSet[]) => void
+    /** The unit the sampling percentage applies to. The configuration editor describes the
+     * evaluation's own target, so it leaves this unset. The backfill editor passes the unit the
+     * server counted, which is still the saved target after an unsaved target edit. */
+    unit?: EvaluationTarget
 }
 
-export function EvaluationTriggers({ conditions, onChange }: EvaluationTriggersProps = {}): JSX.Element {
+export function EvaluationTriggers({ conditions, onChange, unit }: EvaluationTriggersProps = {}): JSX.Element {
     const { evaluation } = useValues(llmEvaluationLogic)
     const { setTriggerConditions } = useActions(llmEvaluationLogic)
 
@@ -62,7 +67,7 @@ export function EvaluationTriggers({ conditions, onChange }: EvaluationTriggersP
         update(updatedConditions)
     }
 
-    const isTraceTarget = evaluation.target === 'trace'
+    const unitPlural = pluralize(2, unit ?? evaluation.target, undefined, false)
 
     return (
         <div className="space-y-6">
@@ -137,8 +142,7 @@ export function EvaluationTriggers({ conditions, onChange }: EvaluationTriggersP
                                 </div>
                             ) : (
                                 <div className="text-xs text-muted">
-                                    This evaluation will run on {percentageValue.toFixed(2)}% of matching{' '}
-                                    {isTraceTarget ? 'traces' : 'generations'}
+                                    This evaluation will run on {percentageValue.toFixed(2)}% of matching {unitPlural}
                                 </div>
                             )}
                         </div>

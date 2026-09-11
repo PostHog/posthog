@@ -212,6 +212,10 @@ export function AIObservabilityEvaluation(): JSX.Element {
         (c) => (c.rollout_percentage ?? 0) > 100 || (c.rollout_percentage ?? 0) < 0
     )
     const hasConditions = evaluation.conditions.length > 0
+    // The save writes the evaluation configuration and then returns to the evaluations list. Runs
+    // edits nothing, and Backfills holds a setup this save does not carry, plus its own Start
+    // button, so leaving the page from either tab only does what the user did not ask for.
+    const showSaveAction = activeTab !== 'runs' && activeTab !== 'backfills'
     const saveButtonDisabledReason = !hasName
         ? 'Add a name for this evaluation'
         : !configValid
@@ -335,7 +339,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
                         {hasUnsavedChanges ? 'Cancel' : 'Back'}
                     </LemonButton>
-                    {activeTab !== 'runs' && (
+                    {showSaveAction && (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Evaluation}
                             minAccessLevel={AccessControlLevel.Editor}
