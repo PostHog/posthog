@@ -1884,6 +1884,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
                 ),
+            pi_subscription_provider: zod
+                .union([zod.enum(['anthropic']).describe('\* `anthropic` - anthropic'), zod.null()])
+                .optional()
+                .describe(
+                    'Pi provider that receives an OAuth credential from the creating PostHog Desktop. Only Anthropic is supported. The credential is sent in flight and never stored on PostHog servers.\n\n\* `anthropic` - anthropic'
+                ),
         })
         .describe('Request body for creating a new task run'),
     zod
@@ -2047,6 +2053,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .optional()
                 .describe(
                     "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                ),
+            pi_subscription_provider: zod
+                .union([zod.enum(['anthropic']).describe('\* `anthropic` - anthropic'), zod.null()])
+                .optional()
+                .describe(
+                    'Pi provider that receives an OAuth credential from the creating PostHog Desktop. Only Anthropic is supported. The credential is sent in flight and never stored on PostHog servers.\n\n\* `anthropic` - anthropic'
                 ),
         })
         .describe('Request body for creating a new task run'),
@@ -2503,6 +2515,12 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+            ),
+        pi_subscription_provider: zod
+            .union([zod.enum(['anthropic']).describe('\* `anthropic` - anthropic'), zod.null()])
+            .optional()
+            .describe(
+                'Pi provider that receives an OAuth credential from the creating PostHog Desktop. Only Anthropic is supported. The credential is sent in flight and never stored on PostHog servers.\n\n\* `anthropic` - anthropic'
             ),
     })
     .describe('Request body for creating a task run without starting execution yet.')

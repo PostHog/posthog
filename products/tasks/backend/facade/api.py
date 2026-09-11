@@ -434,6 +434,8 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "claude_model_access",
         "claude_subscription_user_id",
         "context_window",
+        "pi_subscription_provider",
+        "pi_subscription_user_id",
         "custom_image_id",
         "fast_mode",
         "initial_permission_mode",
@@ -2304,6 +2306,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "service_tier",
         "claude_model_access",
         "claude_subscription_user_id",
+        "pi_subscription_provider",
+        "pi_subscription_user_id",
         "rtk_effective",
         "benjamin_effective",
         "usage_metrics_recorded",
@@ -4087,6 +4091,10 @@ def signal_task_run_user_message(
         "claude_subscription_user_id"
     ) != actor_user_id:
         raise PermissionDenied("Only the user who started this run can use its Claude plan.")
+    if (run.state or {}).get("pi_subscription_provider") is not None and (run.state or {}).get(
+        "pi_subscription_user_id"
+    ) != actor_user_id:
+        raise PermissionDenied("Only the user who started this run can use its Pi subscription.")
     if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
         if not run.is_terminal:
             raise RuntimeError("Task run is still stopping. Try again shortly.")
@@ -4815,6 +4823,7 @@ def bootstrap_task_run(
         "rtk_enabled": validated_data.get("rtk_enabled"),
         "benjamin_enabled": validated_data.get("benjamin_enabled"),
         "claude_model_access": validated_data.get("claude_model_access"),
+        "pi_subscription_provider": validated_data.get("pi_subscription_provider"),
     }.items():
         if value is not None:
             extra_state = extra_state or {}
@@ -7485,6 +7494,7 @@ def run_task(
         ("rtk_enabled", validated_data.get("rtk_enabled")),
         ("benjamin_enabled", validated_data.get("benjamin_enabled")),
         ("claude_model_access", claude_model_access),
+        ("pi_subscription_provider", validated_data.get("pi_subscription_provider")),
     ):
         if value is not None:
             extra_state = extra_state or {}

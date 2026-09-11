@@ -1,5 +1,6 @@
 import type { PiSubscriptionLoginSession } from "./subscription-login";
 import {
+  getPiSubscriptionCredential,
   type PiSubscriptionProvider,
   piSubscriptionLoginState,
   signOutPiSubscription,
@@ -17,7 +18,7 @@ import {
  */
 interface HostRequest {
   id: string;
-  type: "status" | "login" | "logout" | "cancel";
+  type: "status" | "credential" | "login" | "logout" | "cancel";
   provider: PiSubscriptionProvider;
 }
 
@@ -40,6 +41,11 @@ async function handleRequest(request: HostRequest): Promise<void> {
     case "status": {
       const loginState = await piSubscriptionLoginState(request.provider);
       reply(request.id, { loginState });
+      return;
+    }
+    case "credential": {
+      const credential = await getPiSubscriptionCredential(request.provider);
+      reply(request.id, { credential });
       return;
     }
     case "logout": {

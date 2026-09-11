@@ -11,6 +11,8 @@ import {
   type McpToolPermissionDecision,
   type McpToolPermissionRequest,
   mcpToolKey,
+  PI_SUBSCRIPTION_DEFAULT_MODEL_ID,
+  type PiSubscriptionCredential,
   posthogToolMeta,
   type StoredLogEntry,
   serializeError,
@@ -42,11 +44,15 @@ import { PostHogAPIClient } from "../posthog-api";
 import { createEventIdSource } from "../utils/event-id";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
+import { CredentialRelay } from "./credential-relay";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
-import { jsonRpcRequestSchema } from "./schemas";
+import {
+  credentialResponseParamsSchema,
+  jsonRpcRequestSchema,
+} from "./schemas";
 import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig } from "./types";
 
@@ -73,6 +79,13 @@ const MAX_PENDING_LOG_ENTRIES = 10_000;
 const MAX_COVERED_EVENT_IDS = 10_000;
 const LOG_FLUSH_ENTRY_COUNT = 100;
 
+const piSubscriptionCredentialSchema = z.object({
+  type: z.literal("oauth"),
+  access: z.string().min(1),
+  refresh: z.string().min(1),
+  expires: z.number(),
+});
+
 const userMessageCommandSchema = z
   .object({
     content: z.string().min(1).optional(),
@@ -98,6 +111,7 @@ const commandSchemas = {
   queue_get: emptySchema,
   queue_clear: emptySchema,
   "pi/rpc": z.object({ command: piRpcCommandSchema }),
+  credential_response: credentialResponseParamsSchema,
 } as const;
 
 type PiCommandMethod = keyof typeof commandSchemas;
@@ -137,6 +151,7 @@ export class PiAgentServer {
   private server: ServerType | null = null;
   private session: PiCloudSession | null = null;
   private initializationPromise: Promise<void> | null = null;
+  private initializingSseController: SseController | null = null;
   private pendingEvents: Record<string, unknown>[] = [];
   private sessionReadyBootMs?: number;
   private sessionInitMs?: number;
@@ -154,6 +169,9 @@ export class PiAgentServer {
     string,
     McpToolPermissionRequest
   >();
+  private readonly credentialRelay = new CredentialRelay({
+    emitEvent: (event) => this.broadcast(event),
+  });
   private rtkSavingsAttempted = false;
   private runUsage = new RunUsageAccumulator();
   private modelContextWindow: number | null = null;
@@ -266,6 +284,7 @@ export class PiAgentServer {
     this.session = null;
     this.runUsage = new RunUsageAccumulator();
     this.pendingMcpPermissions.clear();
+    this.credentialRelay.stop();
     await this.flushConversationLog().catch((error) =>
       this.logger.error("Failed to persist Pi events during shutdown", error),
     );
@@ -413,10 +432,6 @@ export class PiAgentServer {
           401,
         );
       }
-      if (!this.session || this.session.payload.run_id !== payload.run_id) {
-        return context.json({ error: "No active session for this run" }, 400);
-      }
-
       const request = jsonRpcRequestSchema.safeParse(
         await context.req.json().catch(() => null),
       );
@@ -436,6 +451,14 @@ export class PiAgentServer {
           },
         });
       }
+      const isCredentialResponse = method === "credential_response";
+      if (
+        !isCredentialResponse &&
+        (!this.session || this.session.payload.run_id !== payload.run_id)
+      ) {
+        return context.json({ error: "No active session for this run" }, 400);
+      }
+
       const params = schema.safeParse(request.data.params ?? {});
       if (!params.success) {
         return context.json({
@@ -488,11 +511,13 @@ export class PiAgentServer {
       return;
     }
     if (this.initializationPromise) {
+      this.installSseController(sseController);
       await this.initializationPromise;
       this.installSseController(sseController);
       return;
     }
 
+    this.installSseController(sseController);
     const initializationPromise = this.createSession(payload);
     this.initializationPromise = initializationPromise;
     const initStartedAt = Date.now();
@@ -538,6 +563,7 @@ export class PiAgentServer {
     } finally {
       if (this.initializationPromise === initializationPromise) {
         this.initializationPromise = null;
+        this.initializingSseController = null;
       }
     }
     this.installSseController(sseController);
@@ -656,6 +682,29 @@ export class PiAgentServer {
       task_execution_environment: "cloud",
     });
 
+    const piSubscriptionProvider =
+      runState?.pi_subscription_provider === "anthropic"
+        ? "anthropic"
+        : undefined;
+    let piSubscriptionCredential: PiSubscriptionCredential | undefined;
+    if (piSubscriptionProvider) {
+      try {
+        const serializedCredential = await this.credentialRelay.request(
+          "pi_subscription_credential",
+        );
+        const parsedCredential = piSubscriptionCredentialSchema.safeParse(
+          JSON.parse(serializedCredential),
+        );
+        if (!parsedCredential.success) {
+          throw new Error("Pi subscription credential is invalid");
+        }
+        piSubscriptionCredential = parsedCredential.data;
+      } catch (error) {
+        this.logger.warn("Pi subscription credential relay failed");
+        throw error;
+      }
+    }
+
     const extensions: PiRuntimeExtension[] = ["context-wiki"];
     if (channelMode) {
       extensions.push("repository-tools");
@@ -665,7 +714,9 @@ export class PiAgentServer {
     }
     const client = createPiRpcClient({
       cliPath: this.config.piRpcHostPath,
-      model: this.config.model,
+      model: piSubscriptionProvider
+        ? PI_SUBSCRIPTION_DEFAULT_MODEL_ID[piSubscriptionProvider]
+        : this.config.model,
       sessionFile: restoredSessionFile,
       enrichment: {
         apiUrl: this.config.apiUrl,
@@ -675,14 +726,20 @@ export class PiAgentServer {
       runtimeMcpServers,
       mcpToolPolicies: mcpConfiguration.policies,
       taskContext,
-      providerOptions: {
-        apiKey: this.config.apiKey,
-        baseUrl: resolveLlmGatewayUrl(
-          process.env.LLM_GATEWAY_URL,
-          this.config.apiUrl,
-        ),
-        headers: attributionHeaders,
-      },
+      providerOptions:
+        piSubscriptionProvider && piSubscriptionCredential
+          ? {
+              provider: piSubscriptionProvider,
+              subscriptionCredential: piSubscriptionCredential,
+            }
+          : {
+              apiKey: this.config.apiKey,
+              baseUrl: resolveLlmGatewayUrl(
+                process.env.LLM_GATEWAY_URL,
+                this.config.apiUrl,
+              ),
+              headers: attributionHeaders,
+            },
       extensions,
       contextWikiPath: resolveContextWikiPath(),
     });
@@ -778,6 +835,15 @@ export class PiAgentServer {
     this.broadcast({ ...event });
   }
 
+  private resolveCredentialResponse(
+    params: z.infer<typeof credentialResponseParamsSchema>,
+  ): { resolved: true } {
+    if (!this.credentialRelay.resolve(params)) {
+      throw new Error("No pending credential request found");
+    }
+    return { resolved: true };
+  }
+
   private async respondExtensionUI(
     response: RpcExtensionUIResponse,
   ): Promise<{ resolved: true }> {
@@ -844,6 +910,12 @@ export class PiAgentServer {
     method: PiCommandMethod,
     params: Record<string, unknown>,
   ): Promise<unknown> {
+    if (method === "credential_response") {
+      return this.resolveCredentialResponse(
+        params as z.infer<typeof credentialResponseParamsSchema>,
+      );
+    }
+
     const runtime = this.session?.runtime;
     if (!runtime) {
       throw new Error("No active Pi runtime");
@@ -1004,11 +1076,14 @@ export class PiAgentServer {
   }
 
   private installSseController(sseController: SseController | null): void {
-    if (sseController && !this.canceledSseControllers.has(sseController)) {
-      if (this.session) {
-        this.session.sseController = sseController;
-      }
+    if (!sseController || this.canceledSseControllers.has(sseController)) {
+      return;
     }
+    if (this.session) {
+      this.session.sseController = sseController;
+      return;
+    }
+    this.initializingSseController = sseController;
   }
 
   private cancelSseController(sseController: SseController | null): void {
@@ -1018,6 +1093,9 @@ export class PiAgentServer {
     this.canceledSseControllers.add(sseController);
     if (this.session?.sseController === sseController) {
       this.session.sseController = null;
+    }
+    if (this.initializingSseController === sseController) {
+      this.initializingSseController = null;
     }
   }
 
@@ -1145,8 +1223,10 @@ export class PiAgentServer {
     }
 
     this.eventStreamSender?.enqueue(event);
-    if (this.session?.sseController) {
-      this.session.sseController.send(event);
+    const controller =
+      this.session?.sseController ?? this.initializingSseController;
+    if (controller) {
+      controller.send(event);
     } else {
       const toolCallId = updatedToolCallId(
         event.type === "pi_event"

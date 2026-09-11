@@ -3252,6 +3252,16 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
             "keep their billing choice and new runs use the PostHog gateway."
         ),
     )
+    pi_subscription_provider = serializers.ChoiceField(
+        choices=["anthropic"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Pi provider that receives an OAuth credential from the creating PostHog Desktop. "
+            "Only Anthropic is supported. The credential is sent in flight and never stored on PostHog servers."
+        ),
+    )
 
     def validate(self, attrs):
         _validate_subscription_caller(attrs, self.context)
@@ -3265,8 +3275,11 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
 
         pending_user_message = attrs.get("pending_user_message")
         pending_user_artifact_ids = attrs.get("pending_user_artifact_ids") or []
-        if attrs.get("claude_model_access") == "own-subscription" and _is_pi_task_run_request(self.context):
+        is_pi_task = _is_pi_task_run_request(self.context)
+        if attrs.get("claude_model_access") == "own-subscription" and is_pi_task:
             errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
+        if attrs.get("pi_subscription_provider") is not None and not is_pi_task:
+            errors["pi_subscription_provider"] = "Pi subscriptions require a Pi task."
         if pending_user_message is not None:
             trimmed_message = pending_user_message.strip()
             attrs["pending_user_message"] = trimmed_message or None
@@ -3458,6 +3471,16 @@ class TaskRunBootstrapCreateRequestSerializer(
             "keep their billing choice and new runs use the PostHog gateway."
         ),
     )
+    pi_subscription_provider = serializers.ChoiceField(
+        choices=["anthropic"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Pi provider that receives an OAuth credential from the creating PostHog Desktop. "
+            "Only Anthropic is supported. The credential is sent in flight and never stored on PostHog servers."
+        ),
+    )
 
     def validate(self, attrs):
         _validate_subscription_caller(attrs, self.context)
@@ -3482,6 +3505,9 @@ class TaskRunBootstrapCreateRequestSerializer(
             if errors:
                 raise serializers.ValidationError(errors)
             return attrs
+
+        if attrs.get("pi_subscription_provider") is not None:
+            errors["pi_subscription_provider"] = "Pi subscriptions require a Pi task."
 
         if permission_mode_error := get_initial_permission_mode_error(initial_permission_mode, runtime_adapter):
             errors["initial_permission_mode"] = permission_mode_error
@@ -4057,16 +4083,21 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
             self._require_nonempty_string(params, "requestId")
             if len(params["requestId"]) > 128:
                 raise serializers.ValidationError({"params": "requestId exceeds the 128 character limit"})
-            if params.get("credential") != "claude_subscription_token":
+            credential = params.get("credential")
+            if credential not in ("claude_subscription_token", "pi_subscription_credential"):
                 raise serializers.ValidationError({"params": "Unsupported credential"})
+            if credential == "pi_subscription_credential" and params.get("provider") != "anthropic":
+                raise serializers.ValidationError(
+                    {"params": "Pi subscription credentials require the Anthropic provider"}
+                )
             token = params.get("token")
             error = params.get("error")
             if (token is None) == (error is None):
                 raise serializers.ValidationError(
                     {"params": "credential_response requires exactly one of token or error"}
                 )
-            if token is not None and (not isinstance(token, str) or not token.strip() or len(token) > 4096):
-                raise serializers.ValidationError({"params": "token must contain between 1 and 4096 characters"})
+            if token is not None and (not isinstance(token, str) or not token.strip() or len(token) > 16384):
+                raise serializers.ValidationError({"params": "token must contain between 1 and 16384 characters"})
             if error is not None and error not in ("no_token", "store_unavailable"):
                 raise serializers.ValidationError({"params": "Unsupported credential error"})
         return attrs

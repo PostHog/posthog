@@ -2649,6 +2649,16 @@ export const ClaudeModelAccessEnumApi = {
 } as const
 
 /**
+ * * `anthropic` - anthropic
+ */
+export type PiSubscriptionProviderEnumApi =
+    (typeof PiSubscriptionProviderEnumApi)[keyof typeof PiSubscriptionProviderEnumApi]
+
+export const PiSubscriptionProviderEnumApi = {
+    Anthropic: 'anthropic',
+} as const
+
+/**
  * Request body for creating a new task run
  */
 export interface ClaudeTaskRunCreateSchemaApi {
@@ -2753,6 +2763,10 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
     claude_model_access?: ClaudeModelAccessEnumApi | null
+    /** Pi provider that receives an OAuth credential from the creating PostHog Desktop. Only Anthropic is supported. The credential is sent in flight and never stored on PostHog servers.
+     *
+     * * `anthropic` - anthropic */
+    pi_subscription_provider?: PiSubscriptionProviderEnumApi | null
 }
 
 /**
@@ -2884,6 +2898,10 @@ export interface CodexTaskRunCreateSchemaApi {
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
     claude_model_access?: ClaudeModelAccessEnumApi | null
+    /** Pi provider that receives an OAuth credential from the creating PostHog Desktop. Only Anthropic is supported. The credential is sent in flight and never stored on PostHog servers.
+     *
+     * * `anthropic` - anthropic */
+    pi_subscription_provider?: PiSubscriptionProviderEnumApi | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -3259,6 +3277,10 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
     claude_model_access?: ClaudeModelAccessEnumApi | null
+    /** Pi provider that receives an OAuth credential from the creating PostHog Desktop. Only Anthropic is supported. The credential is sent in flight and never stored on PostHog servers.
+     *
+     * * `anthropic` - anthropic */
+    pi_subscription_provider?: PiSubscriptionProviderEnumApi | null
 }
 
 /**

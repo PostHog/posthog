@@ -1,3 +1,8 @@
+import type {
+  PiSubscriptionCredential,
+  PiSubscriptionProvider,
+} from "@posthog/shared";
+
 export const CLOUD_TASK_SERVICE = Symbol.for("posthog.core.cloudTaskService");
 export const CLOUD_TASK_AUTH = Symbol.for("posthog.core.cloudTaskAuth");
 
@@ -20,6 +25,16 @@ export interface ClaudeSubscriptionTokenStore {
 
 export const CLAUDE_SUBSCRIPTION_TOKEN_STORE = Symbol.for(
   "posthog.cloud-task.claudeSubscriptionTokenStore",
+);
+
+export interface PiSubscriptionCredentialStore {
+  get(
+    provider: PiSubscriptionProvider,
+  ): Promise<PiSubscriptionCredential | null>;
+}
+
+export const PI_SUBSCRIPTION_CREDENTIAL_STORE = Symbol.for(
+  "posthog.cloud-task.piSubscriptionCredentialStore",
 );
 
 /**

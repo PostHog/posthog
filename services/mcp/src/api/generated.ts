@@ -18058,6 +18058,16 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `anthropic` - anthropic
+     */
+    export type PiSubscriptionProviderEnum = typeof PiSubscriptionProviderEnum[keyof typeof PiSubscriptionProviderEnum];
+
+
+    export const PiSubscriptionProviderEnum = {
+      Anthropic: 'anthropic',
+    } as const;
+
+    /**
      * Request body for creating a new task run
      */
     export interface ClaudeTaskRunCreateSchema {
@@ -18162,6 +18172,10 @@ export namespace Schemas {
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
       claude_model_access?: ClaudeModelAccessEnum | null;
+      /** Pi provider that receives an OAuth credential from the creating PostHog Desktop. Only Anthropic is supported. The credential is sent in flight and never stored on PostHog servers.
+       *
+       * * `anthropic` - anthropic */
+      pi_subscription_provider?: PiSubscriptionProviderEnum | null;
     }
 
     export type ClickhouseEventProperties = { [key: string]: unknown };
@@ -18577,6 +18591,10 @@ export namespace Schemas {
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
       claude_model_access?: ClaudeModelAccessEnum | null;
+      /** Pi provider that receives an OAuth credential from the creating PostHog Desktop. Only Anthropic is supported. The credential is sent in flight and never stored on PostHog servers.
+       *
+       * * `anthropic` - anthropic */
+      pi_subscription_provider?: PiSubscriptionProviderEnum | null;
     }
 
     export type PropertyGroupOperatorEnum = typeof PropertyGroupOperatorEnum[keyof typeof PropertyGroupOperatorEnum];
@@ -87340,6 +87358,10 @@ export namespace Schemas {
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
       claude_model_access?: ClaudeModelAccessEnum | null;
+      /** Pi provider that receives an OAuth credential from the creating PostHog Desktop. Only Anthropic is supported. The credential is sent in flight and never stored on PostHog servers.
+       *
+       * * `anthropic` - anthropic */
+      pi_subscription_provider?: PiSubscriptionProviderEnum | null;
     }
 
     export interface TaskRunCancelRequest {

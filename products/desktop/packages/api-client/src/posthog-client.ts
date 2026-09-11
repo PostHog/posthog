@@ -6,6 +6,7 @@ import type {
   ExecutionMode,
   McpServerConnection,
   ModelAccess,
+  PiSubscriptionProvider,
   PrAuthorshipMode,
   SourceProduct,
   SourceType,
@@ -1077,6 +1078,7 @@ export interface FinalizedTaskArtifactUpload {
 export interface CloudRunOptions {
   adapter?: Adapter;
   piRuntime?: boolean;
+  piSubscriptionProvider?: PiSubscriptionProvider;
   model?: string;
   reasoningLevel?: string;
   contextWindow?: "200k" | "1m";
@@ -1178,6 +1180,9 @@ function buildCloudRunRequestBody(
   }
   if (options?.adapter) {
     body.runtime_adapter = options.adapter;
+  }
+  if (options?.piSubscriptionProvider) {
+    body.pi_subscription_provider = options.piSubscriptionProvider;
   }
   if (options?.model && (options.adapter || options.piRuntime)) {
     body.model = options.model;

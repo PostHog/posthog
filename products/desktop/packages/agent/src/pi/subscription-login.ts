@@ -1,7 +1,9 @@
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type {
+  PiSubscriptionCredential,
   PiSubscriptionLoginState,
   PiSubscriptionProvider,
 } from "@posthog/shared";
@@ -57,6 +59,38 @@ export async function signOutPiSubscription(
 ): Promise<void> {
   const runtime = await getSharedModelRuntime();
   await runtime.logout(provider);
+}
+
+function isPiSubscriptionCredential(
+  value: unknown,
+): value is PiSubscriptionCredential {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const credential = value as Partial<PiSubscriptionCredential>;
+  return (
+    credential.type === "oauth" &&
+    typeof credential.access === "string" &&
+    typeof credential.refresh === "string" &&
+    typeof credential.expires === "number"
+  );
+}
+
+export async function getPiSubscriptionCredential(
+  provider: PiSubscriptionProvider,
+): Promise<PiSubscriptionCredential | null> {
+  const runtime = await getSharedModelRuntime();
+  const auth = await runtime.getAuth(provider);
+  if (!auth) {
+    return null;
+  }
+
+  const pi = await import("@earendil-works/pi-coding-agent");
+  const content = await readFile(join(pi.getAgentDir(), "auth.json"), "utf8");
+  const stored = JSON.parse(content) as Record<string, unknown>;
+  const credential = stored[provider];
+  return isPiSubscriptionCredential(credential) ? credential : null;
 }
 
 function pickLoginMethod(

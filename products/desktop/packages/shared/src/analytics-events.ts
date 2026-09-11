@@ -353,7 +353,7 @@ export interface SettingChangedProperties {
 }
 
 export interface CloudCredentialRelayProperties {
-  credential: "claude_subscription_token";
+  credential: "claude_subscription_token" | "pi_subscription_credential";
   outcome: "sent" | "no_token" | "expired" | "rejected";
 }
 

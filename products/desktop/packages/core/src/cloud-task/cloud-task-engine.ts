@@ -16,6 +16,7 @@ import type {
   ClaudeSubscriptionTokenStore,
   ICloudTaskAuth,
   McpRelayExecutor,
+  PiSubscriptionCredentialStore,
 } from "./identifiers";
 import {
   CloudTaskEvent,
@@ -251,7 +252,8 @@ function isMcpRequestEvent(data: unknown): data is McpRequestEventData {
 interface CredentialRequestEventData {
   type: "credential_request";
   requestId: string;
-  credential: "claude_subscription_token";
+  credential: "claude_subscription_token" | "pi_subscription_credential";
+  provider?: "anthropic";
   expiresAt: string;
 }
 
@@ -264,7 +266,9 @@ function isCredentialRequestEvent(
     candidate.type === "credential_request" &&
     typeof candidate.requestId === "string" &&
     typeof candidate.expiresAt === "string" &&
-    candidate.credential === "claude_subscription_token"
+    (candidate.credential === "claude_subscription_token" ||
+      (candidate.credential === "pi_subscription_credential" &&
+        candidate.provider === "anthropic"))
   );
 }
 
@@ -469,6 +473,7 @@ export interface CloudTaskEngineDependencies {
   logger: RootLogger;
   mcpRelayExecutor?: McpRelayExecutor | null;
   claudeSubscriptionTokenStore?: ClaudeSubscriptionTokenStore | null;
+  piSubscriptionCredentialStore?: PiSubscriptionCredentialStore | null;
   streamFetch?: CloudTaskFetch;
   /**
    * Cap on the entries a snapshot carries, for hosts that page older history
@@ -497,6 +502,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   private readonly analytics: IAnalytics;
   private readonly mcpRelayExecutor: McpRelayExecutor | null;
   private readonly claudeSubscriptionTokenStore: ClaudeSubscriptionTokenStore | null;
+  private readonly piSubscriptionCredentialStore: PiSubscriptionCredentialStore | null;
   private readonly streamFetch: CloudTaskFetch;
   private readonly transcriptTailWindow: number | undefined;
 
@@ -506,6 +512,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     logger,
     mcpRelayExecutor = null,
     claudeSubscriptionTokenStore = null,
+    piSubscriptionCredentialStore = null,
     streamFetch = globalThis.fetch.bind(globalThis),
     transcriptTailWindow,
   }: CloudTaskEngineDependencies) {
@@ -514,6 +521,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     this.analytics = analytics;
     this.mcpRelayExecutor = mcpRelayExecutor;
     this.claudeSubscriptionTokenStore = claudeSubscriptionTokenStore;
+    this.piSubscriptionCredentialStore = piSubscriptionCredentialStore;
     this.streamFetch = streamFetch;
     this.transcriptTailWindow = transcriptTailWindow;
     this.log = logger.scope("cloud-task");
@@ -527,6 +535,10 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
    */
   private readonly relayDesignations = new Map<string, Set<string>>();
   private readonly claudeSubscriptionRuns = new Map<string, string>();
+  private readonly piSubscriptionRuns = new Map<
+    string,
+    { accountKey: string; provider: "anthropic" }
+  >();
   private readonly credentialRequestsInFlight = new Set<string>();
   /** requestId dedupe — the event stream is at-least-once and replays on reconnect. */
   private readonly handledRelayRequestIds = new Set<string>();
@@ -625,6 +637,67 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     }
   }
 
+  private async designatePiSubscription(
+    input: Pick<WatchInput, "taskId" | "runId"> & { provider: "anthropic" },
+  ): Promise<void> {
+    if (!this.piSubscriptionCredentialStore) return;
+    const context = await this.auth.getCloudContext({ includeAccount: true });
+    if (!context?.accountKey) {
+      throw new Error("Sign in before using your Claude plan.");
+    }
+    const base = new URL(context.apiHost);
+    if (
+      base.protocol !== "https:" &&
+      !(
+        base.protocol === "http:" &&
+        ["localhost", "127.0.0.1", "[::1]"].includes(base.hostname)
+      )
+    ) {
+      throw new Error("Claude tokens require a secure connection.");
+    }
+    const [userResponse, runResponse] = await Promise.all([
+      this.auth.authenticatedFetch(`${base.origin}/api/users/@me/`, {
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      }),
+      this.auth.authenticatedFetch(
+        `${base.origin}/api/projects/${context.teamId}/tasks/${encodeURIComponent(input.taskId)}/runs/${encodeURIComponent(input.runId)}/`,
+        { redirect: "error", signal: AbortSignal.timeout(10_000) },
+      ),
+    ]);
+    if (!userResponse.ok || !runResponse.ok) {
+      throw new Error("Cannot check the Pi run owner. Try again.");
+    }
+    const user = z
+      .object({ id: z.number() })
+      .safeParse(await userResponse.json());
+    const run = z
+      .object({
+        state: z.object({
+          pi_subscription_provider: z.literal(input.provider),
+          pi_subscription_user_id: z.number(),
+        }),
+      })
+      .safeParse(await runResponse.json());
+    if (
+      !user.success ||
+      !run.success ||
+      run.data.state.pi_subscription_user_id !== user.data.id
+    ) {
+      throw new Error(
+        "Only the user who started this run can send a Pi subscription credential.",
+      );
+    }
+    this.piSubscriptionRuns.set(
+      this.credentialRunKey({ ...input, ...context }),
+      { accountKey: context.accountKey, provider: input.provider },
+    );
+    if (this.piSubscriptionRuns.size > MAX_HANDLED_RELAY_REQUEST_IDS) {
+      const oldest = this.piSubscriptionRuns.keys().next().value;
+      if (oldest !== undefined) this.piSubscriptionRuns.delete(oldest);
+    }
+  }
+
   private markRelayRequestHandled(requestId: string): void {
     this.handledRelayRequestIds.add(requestId);
     this.handledRelayRequestOrder.push(requestId);
@@ -713,7 +786,14 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     watcher: WatcherState,
     data: CredentialRequestEventData,
   ): Promise<void> {
-    if (!this.claudeSubscriptionTokenStore) return;
+    if (
+      (data.credential === "claude_subscription_token" &&
+        !this.claudeSubscriptionTokenStore) ||
+      (data.credential === "pi_subscription_credential" &&
+        !this.piSubscriptionCredentialStore)
+    ) {
+      return;
+    }
     const runKey = this.credentialRunKey(watcher);
     const requestKey = `${runKey}:${data.requestId}`;
     if (
@@ -770,6 +850,20 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     data: CredentialRequestEventData,
     deadline: number,
   ): Promise<"sent" | "no_token" | "rejected" | "retry"> {
+    if (
+      data.credential === "pi_subscription_credential" &&
+      data.provider === "anthropic"
+    ) {
+      return this.deliverPiSubscriptionCredential(
+        watcher,
+        data as CredentialRequestEventData & {
+          credential: "pi_subscription_credential";
+          provider: "anthropic";
+        },
+        deadline,
+      );
+    }
+
     try {
       if (!this.claudeSubscriptionRuns.has(this.credentialRunKey(watcher))) {
         const context = await this.auth.getCloudContext();
@@ -823,6 +917,108 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     } catch {
       return "retry";
     }
+  }
+
+  private async deliverPiSubscriptionCredential(
+    watcher: WatcherState,
+    data: CredentialRequestEventData & {
+      credential: "pi_subscription_credential";
+      provider: "anthropic";
+    },
+    deadline: number,
+  ): Promise<"sent" | "no_token" | "rejected" | "retry"> {
+    try {
+      const runKey = this.credentialRunKey(watcher);
+      if (!this.piSubscriptionRuns.has(runKey)) {
+        const context = await this.auth.getCloudContext();
+        if (
+          !context ||
+          this.credentialRunKey({ ...watcher, ...context }) !== runKey
+        ) {
+          return "rejected";
+        }
+        await this.designatePiSubscription({
+          taskId: watcher.taskId,
+          runId: watcher.runId,
+          provider: data.provider,
+        });
+      }
+      const destination = await this.piCredentialDestination(watcher);
+      if (!destination) {
+        return "rejected";
+      }
+      const run = this.piSubscriptionRuns.get(runKey);
+      if (!run || run.provider !== data.provider) {
+        return "rejected";
+      }
+      const credential = await this.piSubscriptionCredentialStore?.get(
+        data.provider,
+      );
+      const response = await this.auth.authenticatedFetch(destination, {
+        method: "POST",
+        redirect: "error",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: data.requestId,
+          method: "credential_response",
+          params: {
+            requestId: data.requestId,
+            credential: data.credential,
+            provider: data.provider,
+            ...(credential
+              ? { token: JSON.stringify(credential) }
+              : { error: "no_token" }),
+          },
+        }),
+        signal: AbortSignal.timeout(
+          Math.max(1, Math.min(10_000, deadline - Date.now())),
+        ),
+      });
+      if (!response.ok) {
+        return [408, 429, 500, 502, 503, 504].includes(response.status)
+          ? "retry"
+          : "rejected";
+      }
+      const body: unknown = await response.json();
+      return typeof body === "object" &&
+        body !== null &&
+        "result" in body &&
+        !("error" in body)
+        ? credential
+          ? "sent"
+          : "no_token"
+        : "rejected";
+    } catch {
+      return "retry";
+    }
+  }
+
+  private async piCredentialDestination(
+    watcher: WatcherState,
+  ): Promise<string | null> {
+    const context = await this.auth.getCloudContext({ includeAccount: true });
+    const run = this.piSubscriptionRuns.get(this.credentialRunKey(watcher));
+    if (
+      !context ||
+      !run ||
+      context.accountKey !== run.accountKey ||
+      this.credentialRunKey({ ...watcher, ...context }) !==
+        this.credentialRunKey(watcher)
+    ) {
+      return null;
+    }
+    const base = new URL(context.apiHost);
+    if (
+      base.protocol !== "https:" &&
+      !(
+        base.protocol === "http:" &&
+        ["localhost", "127.0.0.1", "[::1]"].includes(base.hostname)
+      )
+    ) {
+      return null;
+    }
+    return `${base.origin}/api/projects/${context.teamId}/tasks/${encodeURIComponent(watcher.taskId)}/runs/${encodeURIComponent(watcher.runId)}/command/`;
   }
 
   private async credentialDestination(
@@ -1275,6 +1471,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
 
   unwatchAll(): void {
     this.claudeSubscriptionRuns.clear();
+    this.piSubscriptionRuns.clear();
     for (const key of [...this.watchers.keys()]) {
       this.stopWatcher(key);
     }
@@ -2475,6 +2672,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     // approval state so the maps don't grow for the lifetime of the app session.
     if (isTerminalStatus(watcher.lastStatus)) {
       this.claudeSubscriptionRuns.delete(this.credentialRunKey(watcher));
+      this.piSubscriptionRuns.delete(this.credentialRunKey(watcher));
       this.relayDesignations.delete(watcher.runId);
       this.evictRelayApprovalState(watcher.runId);
     }

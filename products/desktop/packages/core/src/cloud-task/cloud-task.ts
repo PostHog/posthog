@@ -13,6 +13,8 @@ import {
   type ICloudTaskAuth,
   MCP_RELAY_EXECUTOR,
   type McpRelayExecutor,
+  PI_SUBSCRIPTION_CREDENTIAL_STORE,
+  type PiSubscriptionCredentialStore,
 } from "./identifiers";
 
 @injectable()
@@ -30,6 +32,9 @@ export class CloudTaskService extends CloudTaskEngine {
     @inject(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
     @optional()
     claudeSubscriptionTokenStore: ClaudeSubscriptionTokenStore | null = null,
+    @inject(PI_SUBSCRIPTION_CREDENTIAL_STORE)
+    @optional()
+    piSubscriptionCredentialStore: PiSubscriptionCredentialStore | null = null,
   ) {
     // The desktop renderer pages older history in from `windowStart`.
     super({
@@ -38,6 +43,7 @@ export class CloudTaskService extends CloudTaskEngine {
       logger,
       mcpRelayExecutor,
       claudeSubscriptionTokenStore,
+      piSubscriptionCredentialStore,
       transcriptTailWindow: TRANSCRIPT_TAIL_WINDOW,
     });
   }

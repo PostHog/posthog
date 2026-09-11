@@ -5,6 +5,7 @@ import type {
   CloudRunSource,
   McpServerConnection,
   ModelAccess,
+  PiSubscriptionProvider,
   PrAuthorshipMode,
 } from "@posthog/shared";
 import type { Task, TaskRun } from "@posthog/shared/domain-types";
@@ -16,6 +17,7 @@ export interface CreateTaskRunClientOptions {
   adapter?: Adapter;
   claudeModelAccess?: ModelAccess;
   piRuntime?: boolean;
+  piSubscriptionProvider?: PiSubscriptionProvider;
   model?: string;
   reasoningLevel?: string;
   contextWindow?: "200k" | "1m";

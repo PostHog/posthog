@@ -4478,6 +4478,7 @@ describe("CloudTaskEngine MCP relay", () => {
 describe("CloudTaskEngine credential relay", () => {
   let relayService: CloudTaskEngine;
   let tokenStore: { get: ReturnType<typeof vi.fn> };
+  let piCredentialStore: { get: ReturnType<typeof vi.fn> };
   let analyticsMock: { track: ReturnType<typeof vi.fn> };
   const commandResponse = vi.fn();
 
@@ -4497,11 +4498,13 @@ describe("CloudTaskEngine credential relay", () => {
     const loggerMock = { ...scopedLog, scope: vi.fn(() => scopedLog) };
     analyticsMock = { track: vi.fn() };
     tokenStore = { get: vi.fn() };
+    piCredentialStore = { get: vi.fn() };
     relayService = createCloudTaskEngine({
       auth: mockAuthService as never,
       analytics: analyticsMock as never,
       logger: loggerMock,
       claudeSubscriptionTokenStore: tokenStore as never,
+      piSubscriptionCredentialStore: piCredentialStore as never,
       streamFetch: fetchRouter,
     });
 
@@ -4567,6 +4570,16 @@ describe("CloudTaskEngine credential relay", () => {
     return `data: ${JSON.stringify(event)}\n\n`;
   }
 
+  function piCredentialRequestSseLine(): string {
+    return `data: ${JSON.stringify({
+      type: "credential_request",
+      requestId: "pi-cred-req-1",
+      credential: "pi_subscription_credential",
+      provider: "anthropic",
+      expiresAt: new Date(Date.now() + 120_000).toISOString(),
+    })}\n\n`;
+  }
+
   async function watchRun(runId: string, designated = true): Promise<void> {
     if (designated) {
       await relayService.designateClaudeSubscription({
@@ -4594,6 +4607,61 @@ describe("CloudTaskEngine credential relay", () => {
           },
       );
   }
+
+  it("relays an Anthropic Pi credential after verifying the run owner", async () => {
+    const credential = {
+      type: "oauth" as const,
+      access: "access-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 3_600_000,
+    };
+    piCredentialStore.get.mockResolvedValue(credential);
+    mockNetFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/api/users/@me/")
+          ? createJsonResponse({ id: 1 })
+          : url.includes("/command/")
+            ? commandResponse()
+            : createJsonResponse({
+                id: "run-1",
+                status: "in_progress",
+                state: {
+                  pi_subscription_provider: "anthropic",
+                  pi_subscription_user_id: 1,
+                },
+              }),
+      ),
+    );
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse(piCredentialRequestSseLine()),
+    );
+
+    relayService.watch({
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://app.example.com",
+      teamId: 2,
+      resumeFromEntryCount: 0,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(piCredentialStore.get).toHaveBeenCalledWith("anthropic");
+    expect(commandPosts()).toContainEqual({
+      jsonrpc: "2.0",
+      id: "pi-cred-req-1",
+      method: "credential_response",
+      params: {
+        requestId: "pi-cred-req-1",
+        credential: "pi_subscription_credential",
+        provider: "anthropic",
+        token: JSON.stringify(credential),
+      },
+    });
+    expect(analyticsMock.track).toHaveBeenCalledWith(
+      ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
+      { credential: "pi_subscription_credential", outcome: "sent" },
+    );
+  });
 
   it.each([{ id: 2 }, { id: "1" }, {}, null])(
     "rejects an invalid run owner: %j",

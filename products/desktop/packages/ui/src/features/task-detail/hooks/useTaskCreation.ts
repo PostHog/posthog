@@ -37,6 +37,7 @@ import {
 } from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
 import {
   effectivePiSubscriptionProvider,
+  usePiCloudSubscriptionEnabled,
   usePiSubscription,
 } from "@posthog/ui/features/settings/piSubscription";
 import { settleFailedPromptRecord } from "@posthog/ui/features/task-detail/pendingPromptActions";
@@ -239,6 +240,7 @@ export function useTaskCreation({
   const claudeSubscription = useAdapterSubscription("claude");
   const piAnthropicSubscription = usePiSubscription("anthropic");
   const piCodexSubscription = usePiSubscription("openai-codex");
+  const piCloudSubscriptionEnabled = usePiCloudSubscriptionEnabled();
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const defaultAdditionalDirectoriesQuery = useQuery(
@@ -476,6 +478,7 @@ export function useTaskCreation({
                   anthropic: piAnthropicSubscription,
                   codex: piCodexSubscription,
                   workspaceMode,
+                  cloudSubscriptionEnabled: piCloudSubscriptionEnabled,
                 })
               : undefined;
           const input = prepareTaskInput(serializedContent, filePaths, {
@@ -739,6 +742,7 @@ export function useTaskCreation({
       piCodexSubscription.flagEnabled,
       piCodexSubscription.loggedIn,
       piCodexSubscription,
+      piCloudSubscriptionEnabled,
       claudeTokenStore,
     ],
   );

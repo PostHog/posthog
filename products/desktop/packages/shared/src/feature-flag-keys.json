@@ -27,6 +27,7 @@
   "MCP_GATEWAY_FLAG": "mcp-gateway",
   "ONBOARDING_TEST_TOOLS_FLAG": "posthog-desktop-onboarding-test-tools",
   "PI_HARNESS_FLAG": "pi-harness",
+  "PI_OWN_SUBSCRIPTION_CLOUD_FLAG": "posthog-code-pi-own-subscription-cloud",
   "PROJECT_BLUEBIRD_FLAG": "project-bluebird",
   "REPORTS_INBOX_FLAG": "posthog-desktop-reports-inbox",
   "SAVED_SEARCHES_RAIL_FLAG": "posthog-desktop-saved-searches-rail",

@@ -20,6 +20,7 @@ from products.tasks.backend.constants import (
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
+    PI_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
@@ -48,6 +49,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     _is_sandbox_event_ingest_enabled,
     _resolve_claude_model_access,
     _resolve_modal_vm_sandbox,
+    _resolve_pi_subscription_provider,
     _resolve_sandbox_backend,
     get_task_processing_context,
 )
@@ -979,6 +981,54 @@ class TestGetTaskProcessingContextActivity:
                 run_id="run-id",
                 state={"claude_model_access": "own-subscription"},
             )
+
+    @pytest.mark.parametrize(
+        "flag_value,task_runtime,provider,expected",
+        [
+            (True, Task.Runtime.PI, "anthropic", "anthropic"),
+            (True, Task.Runtime.PI, None, None),
+            (False, Task.Runtime.PI, "anthropic", ProcessTaskFatalError),
+            (True, Task.Runtime.ACP, "anthropic", ProcessTaskFatalError),
+        ],
+    )
+    def test_pi_subscription_requires_the_pi_runtime_and_cloud_flag(
+        self, flag_value: bool, task_runtime: str, provider: str | None, expected: str | type[Exception] | None
+    ) -> None:
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=flag_value,
+        ) as feature_enabled_mock:
+            if expected is ProcessTaskFatalError:
+                with pytest.raises(ProcessTaskFatalError):
+                    _resolve_pi_subscription_provider(
+                        task_runtime=task_runtime,
+                        distinct_id="distinct-id",
+                        organization_id="organization-id",
+                        run_id="run-id",
+                        state={"pi_subscription_provider": provider} if provider else {},
+                    )
+                return
+            assert (
+                _resolve_pi_subscription_provider(
+                    task_runtime=task_runtime,
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    state={"pi_subscription_provider": provider} if provider else {},
+                )
+                == expected
+            )
+            if provider is not None:
+                feature_enabled_mock.assert_called_once_with(
+                    PI_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+                    distinct_id="distinct-id",
+                    groups={"organization": "organization-id"},
+                    group_properties={"organization": {"id": "organization-id"}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
+            else:
+                feature_enabled_mock.assert_not_called()
 
     @pytest.mark.parametrize("task_runtime,adapter", [(Task.Runtime.ACP, "codex"), (Task.Runtime.PI, None)])
     def test_claude_subscription_rejects_other_adapters(self, task_runtime: str, adapter: str | None) -> None:

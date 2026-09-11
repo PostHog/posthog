@@ -11,6 +11,14 @@ export type PiSubscriptionProvider = "anthropic" | "openai-codex";
 
 export type PiSubscriptionLoginState = "logged-in" | "logged-out" | "unknown";
 
+export interface PiSubscriptionCredential {
+  type: "oauth";
+  access: string;
+  refresh: string;
+  expires: number;
+  [key: string]: unknown;
+}
+
 /**
  * The user's persisted billing preference for Pi sessions — mirrors
  * `ModelAccess` above, but three-way since Pi's own subscription is one of

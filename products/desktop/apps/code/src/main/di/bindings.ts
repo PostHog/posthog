@@ -15,6 +15,8 @@ import type {
   ICloudTaskAuth,
   MCP_RELAY_EXECUTOR,
   McpRelayExecutor,
+  PI_SUBSCRIPTION_CREDENTIAL_STORE,
+  PiSubscriptionCredentialStore,
 } from "@posthog/core/cloud-task/identifiers";
 import type {
   CONTEXT_MENU_EXTERNAL_APPS_SERVICE,
@@ -394,6 +396,7 @@ export interface MainBindings {
   [MCP_RELAY_SERVICE]: McpRelayService;
   [MCP_RELAY_EXECUTOR]: McpRelayExecutor;
   [CLAUDE_SUBSCRIPTION_TOKEN_STORE]: ClaudeSubscriptionTokenStore;
+  [PI_SUBSCRIPTION_CREDENTIAL_STORE]: PiSubscriptionCredentialStore;
 
   // Archive / suspension host ports
   [ARCHIVE_SESSION_CANCELLER]: SessionCanceller;

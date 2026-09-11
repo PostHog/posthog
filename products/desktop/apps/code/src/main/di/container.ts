@@ -25,6 +25,7 @@ import {
   CLOUD_TASK_AUTH,
   CLOUD_TASK_SERVICE,
   MCP_RELAY_EXECUTOR,
+  PI_SUBSCRIPTION_CREDENTIAL_STORE,
 } from "@posthog/core/cloud-task/identifiers";
 import { contextMenuCoreModule } from "@posthog/core/context-menu/context-menu.module";
 import {
@@ -254,6 +255,7 @@ import { ElectronMainWindow } from "../platform-adapters/electron-main-window";
 import { MissionControlService } from "../platform-adapters/electron-mission-control";
 import { electronNetFetch } from "../platform-adapters/electron-net-fetch";
 import { ElectronNotifier } from "../platform-adapters/electron-notifier";
+import { ElectronPiSubscriptionCredentialStore } from "../platform-adapters/electron-pi-subscription-credential-store";
 import { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
 import { ElectronSecureStorage } from "../platform-adapters/electron-secure-storage";
 import { ElectronStoragePaths } from "../platform-adapters/electron-storage-paths";
@@ -650,6 +652,10 @@ container.load(mcpRelayModule);
 container
   .bind(MCP_RELAY_EXECUTOR)
   .toDynamicValue((ctx) => ctx.get(MCP_RELAY_SERVICE))
+  .inSingletonScope();
+container
+  .bind(PI_SUBSCRIPTION_CREDENTIAL_STORE)
+  .to(ElectronPiSubscriptionCredentialStore)
   .inSingletonScope();
 container
   .bind(CLAUDE_SUBSCRIPTION_TOKEN_STORE)

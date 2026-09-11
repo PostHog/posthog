@@ -118,13 +118,23 @@ export const mcpResponseParamsSchema = z
 export const credentialResponseParamsSchema = z
   .object({
     requestId: z.string().min(1, "requestId is required").max(128),
-    credential: z.literal("claude_subscription_token"),
-    token: z.string().min(1).max(4096).optional(),
+    credential: z.enum([
+      "claude_subscription_token",
+      "pi_subscription_credential",
+    ]),
+    provider: z.literal("anthropic").optional(),
+    token: z.string().min(1).max(16384).optional(),
     error: z.enum(["no_token", "store_unavailable"]).optional(),
   })
   .refine((params) => Boolean(params.token) !== Boolean(params.error), {
     error: "Exactly one of token or error is required",
-  });
+  })
+  .refine(
+    (params) =>
+      params.credential !== "pi_subscription_credential" ||
+      params.provider === "anthropic",
+    { error: "Pi subscription credentials require the Anthropic provider" },
+  );
 
 export type CredentialResponseParams = z.infer<
   typeof credentialResponseParamsSchema
