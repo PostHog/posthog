@@ -39,6 +39,9 @@ tools:
     llm-skills-search-retrieve:
         operation: llm_skills_search_retrieve
         enabled: false
+    llm-skills-tags-retrieve:
+        operation: llm_skills_tags_retrieve
+        enabled: false
     skill-archive:
         operation: llm_skills_name_archive_create
         enabled: true

@@ -33,6 +33,10 @@ export const llmSkillsCreateBodyLicenseMax = 255
 
 export const llmSkillsCreateBodyCompatibilityMax = 500
 
+export const llmSkillsCreateBodyTagsItemMax = 64
+
+export const llmSkillsCreateBodyTagsMax = 20
+
 export const llmSkillsCreateBodyOwnersMax = 25
 
 export const llmSkillsCreateBodyFilesItemPathMax = 500
@@ -66,6 +70,13 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
         metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
+        tags: zod
+            .array(zod.string().max(llmSkillsCreateBodyTagsItemMax))
+            .max(llmSkillsCreateBodyTagsMax)
+            .optional()
+            .describe(
+                "Tag names to group the skill under. Names are lowercased and trimmed, and a tag the team hasn't used before is created by using it."
+            ),
         owners: zod
             .array(zod.uuid())
             .max(llmSkillsCreateBodyOwnersMax)
@@ -133,6 +144,10 @@ export const llmSkillsNamePartialUpdateBodyFilesItemContentTypeMax = 100
 export const llmSkillsNamePartialUpdateBodyFileEditsItemPathMax = 500
 
 export const llmSkillsNamePartialUpdateBodyOwnersMax = 25
+
+export const llmSkillsNamePartialUpdateBodyTagsItemMax = 64
+
+export const llmSkillsNamePartialUpdateBodyTagsMax = 20
 
 export const llmSkillsNamePartialUpdateBodyVersionDescriptionMax = 400
 
@@ -222,6 +237,13 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Replace the skill's owners with these user UUIDs (each a member of this project). Omit to leave owners unchanged; pass an empty list to clear them. Owners are keyed on the logical skill, so setting them is independent of the version being published — a body edit alone never changes ownership."
+        ),
+    tags: zod
+        .array(zod.string().max(llmSkillsNamePartialUpdateBodyTagsItemMax))
+        .max(llmSkillsNamePartialUpdateBodyTagsMax)
+        .optional()
+        .describe(
+            "Replace the skill's tags with these names. Omit to leave tags unchanged; pass an empty list to clear them. Names are lowercased and trimmed. Tags are keyed on the logical skill, so setting them is independent of the version being published."
         ),
     base_version: zod
         .number()

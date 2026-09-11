@@ -61,6 +61,7 @@ const mockSkill = {
     updated_at: '2024-01-02T00:00:00Z',
     created_by: { id: 1, email: 'test@example.com' },
     owners: [MOCK_OWNER],
+    tags: [],
     files: [{ path: MOCK_FILE.path, content_type: MOCK_FILE.content_type }],
     body_total_length: 10,
     body_next_offset: null,
