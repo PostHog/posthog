@@ -250,8 +250,10 @@ class TestEEAuthenticationAPI(APILicensedTest):
         # while its typed domain does not match the enforced one.
         for typed_email in ("member@victim.example", "member@vİctim.example"):
             with self.subTest(email=typed_email), self.settings(**GOOGLE_MOCK_SETTINGS):
+                precheck = self.client.post("/api/login/precheck", {"email": typed_email})
                 response = self.client.post("/api/login", {"email": typed_email, "password": self.CONFIG_PASSWORD})
 
+                self.assertEqual(precheck.json()["sso_enforcement"], "google-oauth2")
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
                 self.assertEqual(response.json()["code"], "sso_enforced")
                 self.assertNotIn("_auth_user_id", self.client.session)
