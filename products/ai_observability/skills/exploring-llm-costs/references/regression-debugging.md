@@ -24,9 +24,29 @@ doubled, it's volume; if cost-per-call rose, it's prompt size, model, or cache.
 
 ## Step 2 — Look for a model mix shift
 
-Run the "cost by model" recipe in [breakdown patterns](./breakdown-patterns.md)
-over two windows — the week before and the week after the jump — and diff. A
-new `$ai_model` value appearing, or an old one disappearing, is a strong signal.
+Group by model on both sides of the jump. Replace `<jump_day>` with the day
+Step 1 pointed at:
+
+```sql
+posthog:execute-sql
+SELECT
+    properties.$ai_model AS model,
+    properties.$ai_provider AS provider,
+    if(timestamp >= toDateTime('<jump_day>'), 'after', 'before') AS window,
+    count() AS calls,
+    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) AS cost_usd,
+    round(avg(toFloat(properties.$ai_total_cost_usd)), 6) AS avg_cost_per_call
+FROM events
+WHERE event IN ('$ai_generation', '$ai_embedding')
+    AND timestamp >= toDateTime('<jump_day>') - INTERVAL 7 DAY
+    AND timestamp < toDateTime('<jump_day>') + INTERVAL 7 DAY
+GROUP BY model, provider, window
+ORDER BY model, provider, window
+```
+
+Read the two rows per model together. A model that appears only in `after`, or
+one that disappears, is a strong signal. A model whose `calls` grew while its
+`avg_cost_per_call` held steady is volume, not mix.
 
 ## Step 3 — Look for prompt bloat
 
@@ -46,10 +66,40 @@ ORDER BY day, model
 
 ## Step 4 — Look for cache degradation
 
-Rerun the "input vs output vs cache economics" recipe in
-[breakdown patterns](./breakdown-patterns.md) windowed by day and track
-`cache_hit_rate`. A drop often follows a system-prompt change that invalidated
-the cached prefix.
+Track the cache-hit rate per model per day. A drop often follows a
+system-prompt change that invalidated the cached prefix:
+
+```sql
+posthog:execute-sql
+SELECT
+    toDate(timestamp) AS day,
+    properties.$ai_model AS model,
+    round(
+        if(
+            any(properties.$ai_cache_reporting_exclusive) = 'true',
+            sum(toInt(properties.$ai_cache_read_input_tokens))
+                / nullIf(sum(toInt(properties.$ai_input_tokens))
+                       + sum(toInt(properties.$ai_cache_read_input_tokens))
+                       + sum(toInt(properties.$ai_cache_creation_input_tokens)), 0),
+            sum(toInt(properties.$ai_cache_read_input_tokens))
+                / nullIf(sum(toInt(properties.$ai_input_tokens)), 0)
+        ), 3
+    ) AS cache_hit_rate,
+    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) AS cost_usd
+FROM events
+WHERE event = '$ai_generation'
+    AND timestamp >= now() - INTERVAL 30 DAY
+GROUP BY day, model
+ORDER BY day, model
+```
+
+The `if(...)` branches on the per-event `$ai_cache_reporting_exclusive` flag,
+so the denominator is correct for both exclusive and inclusive providers. Never
+branch on provider or model name.
+
+A `cache_hit_rate` above 1 means the flag is unset on those events, so the
+query took the inclusive path over exclusive data. Treat that number as
+unusable. Read the cache-read, cache-write, and input token columns instead.
 
 ## Step 5 — Isolate the feature
 
