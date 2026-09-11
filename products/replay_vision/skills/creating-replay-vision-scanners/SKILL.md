@@ -49,7 +49,7 @@ Pick a `scanner_type` and write its `scanner_config`. Every type needs a `prompt
 | `monitor`    | Open-ended observation against a prompt (e.g. "flag rage clicks") | `{"prompt": "..."}`; optional `"allow_inconclusive": true` (off by default, so the model must answer yes or no)                                                             |
 | `classifier` | Assigns tags from a fixed label set                               | `{"prompt": "...", "tags": ["tag-a", "tag-b"]}` — `tags` needs ≥1 entry; optional `"multi_label": false` (defaults to true), `"allow_freeform_tags": true` (off by default) |
 | `scorer`     | Numeric score on a rubric                                         | `{"prompt": "...", "scale": {"min": 1, "max": 5, "label": "frustration"}}` — `min` < `max`; `label` optional                                                                |
-| `summarizer` | Free-text summary, plus facet embeddings for search               | `{"prompt": "..."}`; optional `"length": "short" \| "medium" \| "long"` (default `"medium"`). Embeddings are always on                                                      |
+| `summarizer` | Free-text summary                                                 | `{"prompt": "..."}`; optional `"length": "short" \| "medium" \| "long"` (default `"medium"`). Embeddings are always on                                                      |
 
 `scanner_type` is **locked after creation** — to change it you delete and recreate, so confirm the type is
 right up front, and get the `scanner_config` shape right (a wrong shape is a create error, not a silent

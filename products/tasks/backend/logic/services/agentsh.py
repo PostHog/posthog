@@ -334,7 +334,7 @@ if [[ "${{BASH_SOURCE[0]}}" == "$0" ]]; then
   exit 0
 fi
 
-unset GH_TOKEN GITHUB_TOKEN
+unset GH_TOKEN GITHUB_TOKEN CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR
 while IFS= read -r -d $'\\0' kv 2>/dev/null; do
   case "$kv" in
     GH_TOKEN=*|GITHUB_TOKEN=*) export "$kv" ;;

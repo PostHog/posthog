@@ -130,6 +130,24 @@ impl fmt::Display for PropertyValueType {
     }
 }
 
+// Inverse of the Display impl above, which is the form batch writes store in
+// posthog_propertydefinition.property_type. Unknown strings are an error; the
+// caller decides whether to treat the row as untyped.
+impl FromStr for PropertyValueType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "DateTime" => Ok(PropertyValueType::DateTime),
+            "String" => Ok(PropertyValueType::String),
+            "Numeric" => Ok(PropertyValueType::Numeric),
+            "Boolean" => Ok(PropertyValueType::Boolean),
+            "Duration" => Ok(PropertyValueType::Duration),
+            _ => Err(()),
+        }
+    }
+}
+
 // The grouptypemapping table uses i32's, but we get group types by name, so we have to resolve them before DB writes, sigh
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum GroupType {
@@ -145,10 +163,9 @@ impl GroupType {
         }
     }
 
-    /// Returns the Unresolved form of this group type. The shared dedup cache
-    /// always stores entries as Unresolved (inserted by the producer before
-    /// resolution), so cache removal after a failed batch write must use this
-    /// form to match the original key.
+    /// Returns the Unresolved form of this group type. The dedup cache keys
+    /// group properties by name, so cache operations accept either form; this
+    /// exists for call sites that want the canonical producer-side shape.
     pub fn as_unresolved(&self) -> Self {
         match self {
             GroupType::Unresolved(_) => self.clone(),

@@ -149,6 +149,11 @@ def is_materialization_ready(team_id: int, endpoint_name: str, version: int | No
     return rate_limit.check_materialization_ready(team_id, endpoint_name, version)
 
 
+def is_materialized_request(team_id: int, endpoint_name: str, version: int | None, request_data: object) -> bool:
+    """Whether this run request will be served from the targeted version's materialized table."""
+    return rate_limit.check_materialized_request(team_id, endpoint_name, version, request_data)
+
+
 __all__ = [
     "REWRITE_CONTRACT",
     "EndpointCrudService",
@@ -161,6 +166,7 @@ __all__ = [
     "get_endpoint_version",
     "get_last_execution_times",
     "is_materialization_ready",
+    "is_materialized_request",
     "list_endpoints",
     "live_materialization_conditions_source",
     "materialization_fix_enabled",

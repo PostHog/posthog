@@ -22,7 +22,6 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
@@ -48,7 +47,6 @@ const statusText = {
 }
 
 export function ManagedReverseProxy(): JSX.Element {
-    const rootRedirectEnabled = useFeatureFlag('MANAGED_REVERSE_PROXY_ROOT_REDIRECT')
     const {
         shouldShowCloudflareOptIn,
         formState,
@@ -225,9 +223,7 @@ export function ManagedReverseProxy(): JSX.Element {
                 columns={columns}
                 dataSource={proxyRecords}
                 expandable={{
-                    expandedRowRender: (record) => (
-                        <ExpandedRow record={record} rootRedirectEnabled={rootRedirectEnabled} />
-                    ),
+                    expandedRowRender: (record) => <ExpandedRow record={record} />,
                     isRowExpanded: (record) => (expandedRecordIds.includes(record.id) ? true : -1),
                     onRowExpand: (record) => setRecordExpanded(record.id, true),
                     onRowCollapse: (record) => setRecordExpanded(record.id, false),
@@ -350,13 +346,7 @@ function CloudflareOptInBanner({
     )
 }
 
-const ExpandedRow = ({
-    record,
-    rootRedirectEnabled,
-}: {
-    record: ProxyRecord
-    rootRedirectEnabled: boolean
-}): JSX.Element => {
+const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
     const { diagnosticReports, recordActiveTabs, rootRedirectDrafts, proxyRecordsLoading } = useValues(proxyLogic)
     const { setRecordActiveTab, setRootRedirectDraft, updateRootRedirect } = useActions(proxyLogic)
 
@@ -374,7 +364,7 @@ const ExpandedRow = ({
                 </CodeSnippet>
             ),
         },
-        ...(canConfigureRootRedirect(record, rootRedirectEnabled)
+        ...(canConfigureRootRedirect(record)
             ? [
                   {
                       label: 'Root redirect',

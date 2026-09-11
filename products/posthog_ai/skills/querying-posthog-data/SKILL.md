@@ -55,6 +55,7 @@ Every column table below is generated from the live HogQL catalog, so it lists e
 - [Actions](./references/models-actions.md)
 - [Alerts](./references/models-alerts.md)
 - [Annotations](./references/models-annotations.md)
+- [Autoresearch](./references/models-autoresearch.md)
 - [APM / tracing (`posthog.trace_spans`)](./references/models-apm-spans.md)
 - [Batch exports](./references/models-batch-exports.md)
 - [Early Access Features](./references/models-early-access-features.md)

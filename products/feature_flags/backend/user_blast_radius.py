@@ -30,9 +30,9 @@ from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
+from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
-from posthog.queries.base import relative_date_parse_for_feature_flag_matching
 
 from products.cohorts.backend.models.cohort import Cohort
 

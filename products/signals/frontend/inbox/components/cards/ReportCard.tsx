@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconHide, IconUndo } from '@posthog/icons'
@@ -6,11 +7,12 @@ import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { derivePrState } from 'lib/signals/prState'
+import { derivePrState, prCiGlyphStatus } from 'lib/signals/prState'
 import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 
+import { prCiStatusLogic } from '../../logics/prCiStatusLogic'
 import {
     INBOX_SECTION_LEGACY_TAB,
     InboxReportSectionKey,
@@ -37,6 +39,7 @@ import {
     sourceProductsTooltipTitle,
 } from '../badges/sourceProductIcons'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
+import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
 
 // ── Shared card sub-components ────────────────────────────────────────────────
@@ -116,6 +119,7 @@ export function ReportCard({
     onRestore,
     backUrl,
     preview = false,
+    selectable = false,
 }: {
     report: SignalReport
     sectionKey?: InboxReportSectionKey
@@ -128,6 +132,8 @@ export function ReportCard({
     /** Onboarding sample: render as a static card with no detail link and no focusable actions, so its
      * placeholder report id can never be opened (it 404s). */
     preview?: boolean
+    /** Offer multi-select on this row: press and hold and modifier clicks. */
+    selectable?: boolean
 }): JSX.Element {
     // Keyed on status, not the section: the legacy Archive tab lists dismissed and resolved rows
     // through one section key, and the two need different affordances.
@@ -153,6 +159,11 @@ export function ReportCard({
         redesign ? 'reports' : INBOX_SECTION_LEGACY_TAB[sectionKey]
     )
 
+    const { isSelected, isHolding, cardHandlers } = useReportCardSelection(
+        report.id,
+        selectable && !preview && !isResolved
+    )
+
     const { isDismissing, onDismissClick } = useReportDismiss({
         reportId: report.id,
         cardTitle,
@@ -160,6 +171,16 @@ export function ReportCard({
         surface: 'list_row',
         onDismiss,
     })
+
+    // Painted from the shared map the report lists fill; absent until (or unless) GitHub answers.
+    const { ciStatusByReportId } = useValues(prCiStatusLogic)
+    const ciStatus = preview ? null : ciStatusByReportId[report.id]
+    const prState = derivePrState(
+        report.status,
+        report.implementation_pr_merged === true,
+        report.implementation_pr_state
+    )
+    const glyphStatus = prCiGlyphStatus(prState, ciStatus)
 
     const isRefunded = !!report.refund
     const showsDismiss = !!onDismiss || !redesign
@@ -188,7 +209,9 @@ export function ReportCard({
                 <div
                     className={clsx(
                         'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
-                        hasPr && 'pr-14'
+                        // A CI glyph widens the pill, so the title gives back the space it takes.
+                        // A state that draws no glyph keeps the pill at its plain width.
+                        hasPr && (glyphStatus ? 'pr-24' : 'pr-14')
                     )}
                 >
                     {conventionalTitle && (
@@ -264,7 +287,10 @@ export function ReportCard({
                 inboxCardRowClassName(attached, { dashed: !hasPr }),
                 // Closed rows recede so open work stands out in the mixed flat list; hover restores
                 // full opacity for reading. Matches the disabled-scout treatment in ScoutRosterCard.
-                (isDismissed || isResolved) && 'opacity-55 hover:opacity-100'
+                (isDismissed || isResolved) && 'opacity-55 hover:opacity-100',
+                isSelected && 'ring-1 ring-accent',
+                // A long press must not paint the title as selected text under the finger.
+                isHolding && 'select-none'
             )}
         >
             <div className="relative flex min-w-0 flex-1">
@@ -275,7 +301,8 @@ export function ReportCard({
                             // No link in preview mode: the sample PR url is fabricated, and a link would
                             // stay keyboard-focusable inside the otherwise non-routable card.
                             prUrl={preview ? null : prUrl}
-                            state={derivePrState(report.status, report.implementation_pr_merged === true)}
+                            state={prState}
+                            ciStatus={ciStatus}
                         />
                     </div>
                 ) : null}
@@ -283,9 +310,13 @@ export function ReportCard({
                 {preview ? (
                     <div className={cardBodyClassName}>{cardBody}</div>
                 ) : (
-                    <Link to={detailUrl} className={cardBodyClassName}>
-                        {cardBody}
-                    </Link>
+                    // The gestures sit on this wrapper, not on the link: a selecting click has to
+                    // be caught before the link acts on it.
+                    <div className="flex min-w-0 flex-1" {...cardHandlers}>
+                        <Link to={detailUrl} className={cardBodyClassName}>
+                            {cardBody}
+                        </Link>
+                    </div>
                 )}
             </div>
 
