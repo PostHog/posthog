@@ -473,7 +473,9 @@ def _fetch_eval_report_candidate_page(
         candidate_limit = max_reports_per_run + 1
         candidates_per_team = math.ceil(candidate_limit / len(selected_team_ids))
         item_cursors = (
-            _load_eval_report_item_cursors(scheduler, region, selected_team_ids) if rotate_item_cursor else {}
+            _load_eval_report_item_cursors(scheduler, region, selected_team_ids)
+            if rotate_item_cursor
+            else dict.fromkeys(selected_team_ids, _ZERO_UUID)
         )
         bounded_rows: list[tuple[str, int]] = []
         occurrence_keys: dict[str, str] = {}
@@ -483,7 +485,7 @@ def _fetch_eval_report_candidate_page(
             remaining_candidate_slots = candidate_limit - len(bounded_rows)
             query_params: list[Any] = [
                 teams_to_fetch,
-                *([item_cursors[team_id] for team_id in teams_to_fetch] if rotate_item_cursor else []),
+                [item_cursors[team_id] for team_id in teams_to_fetch],
                 *(candidate_sql_params or []),
                 candidates_per_team,
                 candidates_to_skip_per_team,
