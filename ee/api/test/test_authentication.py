@@ -6,7 +6,7 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import pytest
-from freezegun.api import freeze_time
+import time_machine
 from unittest.mock import patch
 
 from django.conf import settings
@@ -712,7 +712,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     # Finish SAML flow (i.e. actual log in)
 
-    @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML timestamp validation passes
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
     def test_can_login_with_saml(self):
         user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
 
@@ -758,7 +758,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             ("url_relay_state", "https://idp.hogflix.io/saml/launch"),
         ]
     )
-    @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML timestamp validation passes
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
     def test_can_login_with_idp_initiated_saml(self, _name: str, relay_state: str | None) -> None:
         # IdP-initiated assertions don't carry the OrganizationDomain UUID in RelayState, so we
         # route to the tenant via the assertion's <Issuer> instead of rejecting it as "Invalid
@@ -785,7 +785,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         _session = self.client.session
         self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
 
-    @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML timestamp validation passes
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
     def test_saml_login_redirects_to_next_url_from_relay_state(self):
         # End-to-end counterpart to test_saml_flow_carries_next_url_in_relay_state: a JSON
         # RelayState carrying `next` (as the IdP echoes it back) must land the user on that page
@@ -814,7 +814,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response.headers["Location"], "/settings/organization/authentication")
 
-    @freeze_time("2021-08-25T23:37:55.345Z")
+    @time_machine.travel("2021-08-25T23:37:55.345Z", tick=False)
     def test_saml_jit_provisioning_and_assertion_with_different_attribute_names(self):
         """
         Tests JIT provisioning for creating a user account on the fly.
@@ -866,7 +866,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         _session = self.client.session
         self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
 
-    @freeze_time("2021-08-25T23:37:55.345Z")
+    @time_machine.travel("2021-08-25T23:37:55.345Z", tick=False)
     def test_saml_jit_provisioning_with_case_insensitive_domain(self):
         """
         Tests that JIT provisioning works with case-insensitive domain matching.
@@ -921,7 +921,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         _session = self.client.session
         self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_cannot_login_with_improperly_signed_payload(self):
         config = self.organization_domain.saml_identity_provider_configs.first()
         assert config is not None
@@ -978,7 +978,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_cannot_signup_with_saml_if_jit_provisioning_is_disabled(self):
         self.organization_domain.jit_provisioning_enabled = False
         self.organization_domain.save()
@@ -1018,7 +1018,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @freeze_time("2021-08-25T23:53:51.000Z")
+    @time_machine.travel("2021-08-25T23:53:51.000Z", tick=False)
     def test_cannot_create_account_without_first_name_in_payload(self):
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
@@ -1053,7 +1053,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         self.assertEqual(User.objects.count(), user_count)
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_cannot_login_with_saml_on_unverified_domain(self):
         User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
 
@@ -1192,7 +1192,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
             "Your organization does not have the required license to use SAML.",
         )
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_saml_login_rejects_email_domain_not_matching_organization_domain(self):
         from posthog.models import Organization
 
@@ -1437,7 +1437,9 @@ class TestSSOEnforcement(APILicensedTest):
         except AuthFailed:
             self.fail("Google OAuth2 should be allowed when Google OAuth2 is enforced")
 
-    @freeze_time("2021-08-25T22:09:14.252Z")  # Same timestamp as other SAML tests using this fixture
+    @time_machine.travel(
+        "2021-08-25T22:09:14.252Z", tick=False
+    )  # Same timestamp as other SAML tests using this fixture
     @override_settings(**SAML_MOCK_SETTINGS, **GOOGLE_MOCK_SETTINGS)
     def test_saml_auth_flow_blocked_when_google_oauth2_enforced(self):
         """Integration test: Verify SAML auth flow is blocked when Google OAuth2 is enforced"""

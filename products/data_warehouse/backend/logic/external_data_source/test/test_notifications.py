@@ -48,12 +48,15 @@ class TestNotifyExternalDataSyncFailures:
             should_sync=True,
             latest_error="transient error",
         )
+        # PostHog stopped this one itself after a non-retryable error, so it stays in the digest:
+        # only the user can repair the source and turn syncing back on.
         ExternalDataSchema.objects.create(
             name="Invoice",
             team=team,
             source=source,
             status=ExternalDataSchema.Status.FAILED,
             should_sync=False,
+            auto_disabled_at=dt.datetime.now(dt.UTC),
             latest_error="Invalid API key",
         )
         # CDC breakage halts syncing without flipping should_sync — it must still read as
@@ -118,6 +121,9 @@ class TestNotifyExternalDataSyncFailures:
             (ExternalDataSchema.Status.BILLING_LIMIT_REACHED, True, False),
             (ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW, True, False),
             (ExternalDataSchema.Status.FAILED, True, True),
+            # The user switched syncing off. The status stays Failed for the syncs UI, but
+            # there is nothing left to chase, so the digest must not report it.
+            (ExternalDataSchema.Status.FAILED, False, False),
         ],
     )
     def test_does_not_send_for_non_failing_or_deleted_schemas(self, status, should_sync, deleted):
@@ -286,6 +292,7 @@ class TestNotifyExternalDataSyncFailures:
             source=source,
             status=ExternalDataSchema.Status.FAILED,
             should_sync=False,
+            auto_disabled_at=dt.datetime.now(dt.UTC) - notified_age,
             latest_error="Invalid API key",
             last_error_notified_at=dt.datetime.now(dt.UTC) - notified_age,
         )
@@ -305,6 +312,8 @@ class TestGetTeamIdsWithRecentSyncFailures:
         schema_deleted: bool = False,
         source_deleted: bool = False,
         last_error_notified_at: dt.datetime | None = None,
+        should_sync: bool = True,
+        auto_disabled_at: dt.datetime | None = None,
     ) -> Team:
         team, source = _create_team_and_source()
         if source_deleted:
@@ -315,6 +324,8 @@ class TestGetTeamIdsWithRecentSyncFailures:
             source=source,
             status=schema_status,
             deleted=schema_deleted,
+            should_sync=should_sync,
+            auto_disabled_at=auto_disabled_at,
             latest_error="boom",
             last_error_notified_at=last_error_notified_at,
         )
@@ -336,20 +347,23 @@ class TestGetTeamIdsWithRecentSyncFailures:
         assert get_team_ids_with_recent_sync_failures() == [team.pk]
 
     @pytest.mark.parametrize(
-        "schema_status,job_age,schema_deleted,source_deleted",
+        "schema_status,job_age,schema_deleted,source_deleted,should_sync",
         [
-            (ExternalDataSchema.Status.FAILED, dt.timedelta(hours=30), False, False),
-            (ExternalDataSchema.Status.COMPLETED, dt.timedelta(hours=2), False, False),
-            (ExternalDataSchema.Status.FAILED, dt.timedelta(hours=2), True, False),
-            (ExternalDataSchema.Status.FAILED, dt.timedelta(hours=2), False, True),
+            (ExternalDataSchema.Status.FAILED, dt.timedelta(hours=30), False, False, True),
+            (ExternalDataSchema.Status.COMPLETED, dt.timedelta(hours=2), False, False, True),
+            (ExternalDataSchema.Status.FAILED, dt.timedelta(hours=2), True, False, True),
+            (ExternalDataSchema.Status.FAILED, dt.timedelta(hours=2), False, True, True),
+            # Switched off by the user, so the catch-up sweep has nothing to chase.
+            (ExternalDataSchema.Status.FAILED, dt.timedelta(hours=2), False, False, False),
         ],
     )
-    def test_excludes_non_actionable_teams(self, schema_status, job_age, schema_deleted, source_deleted):
+    def test_excludes_non_actionable_teams(self, schema_status, job_age, schema_deleted, source_deleted, should_sync):
         self._create_schema_with_job(
             schema_status=schema_status,
             job_finished_at=dt.datetime.now(dt.UTC) - job_age,
             schema_deleted=schema_deleted,
             source_deleted=source_deleted,
+            should_sync=should_sync,
         )
 
         assert get_team_ids_with_recent_sync_failures() == []
@@ -382,12 +396,15 @@ class TestGetTeamIdsWithRecentSyncFailures:
         assert get_team_ids_with_recent_sync_failures() == [team.pk]
 
     def test_includes_still_failing_schema_past_the_renotify_window(self):
-        # No recent failed run (30h stale) and the last email is 8 days old: the team
-        # would drop out forever without the re-notify path.
+        # PostHog halted this schema itself, so it never runs again. No recent failed run
+        # (30h stale) and the last email is 8 days old: the team would drop out forever
+        # without the re-notify path.
         team = self._create_schema_with_job(
             schema_status=ExternalDataSchema.Status.FAILED,
             job_finished_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=30),
             last_error_notified_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=8),
+            should_sync=False,
+            auto_disabled_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=9),
         )
 
         assert get_team_ids_with_recent_sync_failures() == [team.pk]
