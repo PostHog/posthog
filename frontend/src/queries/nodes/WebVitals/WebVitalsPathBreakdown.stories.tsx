@@ -33,3 +33,19 @@ export default meta
 export const WebVitalsPathBreakdown: Story = {
     args: { query: examples['WebVitalsPathBreakdown'] },
 }
+
+export const NoResults: Story = {
+    args: { query: examples['WebVitalsPathBreakdown'] },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const body = (await request.json()) as any
+                    if (body.query.kind === 'WebVitalsPathBreakdownQuery') {
+                        return [200, { ...webVitalsPathBreakdown, results: [] }]
+                    }
+                },
+            },
+        }),
+    ],
+}
