@@ -83,7 +83,7 @@ RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
 # before execution. To upgrade, change POSTHOG_CLI_VERSION and recompute:
 #   curl -LsSf "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv<X.Y.Z>/posthog-cli-installer.sh" | sha256sum
 ARG POSTHOG_CLI_VERSION=0.18.2
-ARG POSTHOG_CLI_INSTALLER_SHA256=TODO-set-after-posthog-cli-v0.18.2-is-released
+ARG POSTHOG_CLI_INSTALLER_SHA256=1ed5ff785ca33f38458efb1677ffd35ed99d935ac59d5e28bfd0d07a4f697f7a
 ARG SYMBOL_UPLOAD_TRIGGER=""
 RUN --mount=type=secret,id=posthog_upload_symbols_cli_api_key \
     --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \

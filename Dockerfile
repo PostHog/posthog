@@ -88,7 +88,7 @@ COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 # To upgrade, change POSTHOG_CLI_VERSION and recompute the hash:
 #   curl -LsSf "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv<X.Y.Z>/posthog-cli-installer.sh" | sha256sum
 ARG POSTHOG_CLI_VERSION=0.18.2
-ARG POSTHOG_CLI_INSTALLER_SHA256=TODO-set-after-posthog-cli-v0.18.2-is-released
+ARG POSTHOG_CLI_INSTALLER_SHA256=1ed5ff785ca33f38458efb1677ffd35ed99d935ac59d5e28bfd0d07a4f697f7a
 # The CLI stamps the release it creates with git metadata (branch, remote, repo name) read from the
 # GitHub Actions environment. Only frontend/dist is copied into this stage, so there is no .git
 # directory to fall back on: without these the release is created with no link back to the code it
