@@ -4,10 +4,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ChartDisplayType } from '~/types'
 
-import { RetentionBarChart } from 'products/product_analytics/frontend/insights/retention/RetentionBarChart/RetentionBarChart'
-import { RetentionLineChart } from 'products/product_analytics/frontend/insights/retention/RetentionLineChart/RetentionLineChart'
-
+import { RetentionBarChart } from './RetentionBarChart/RetentionBarChart'
 import { retentionGraphLogic } from './retentionGraphLogic'
+import { RetentionLineChart } from './RetentionLineChart/RetentionLineChart'
 
 interface RetentionGraphProps {
     inSharedMode?: boolean
