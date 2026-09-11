@@ -2075,11 +2075,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_query_service:
             tag_queries(chargeable=1)
-            # Materialized endpoint runs read a precomputed table on the endpoints workload, so
-            # they do not draw from the read budget. Inline endpoint runs cost the same bytes as
-            # /query and stay budgeted. Keyed on the workload tag, which only the endpoint run
-            # view sets; the product tag is caller-supplied via query.tags.productKey.
-            if not is_materialized_endpoint:
+            # Only server code sets api_queries_budget_exempt (materialized endpoint runs and data
+            # catalog metric runs); the product tag is caller-supplied via query.tags.productKey.
+            if not get_query_tag_value("api_queries_budget_exempt"):
                 self._enforce_api_queries_budget()
 
         with (

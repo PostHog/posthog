@@ -21,7 +21,6 @@ from posthog.api_queries_budget import (
     seconds_until_positive,
 )
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries
 
 SPEC = BudgetSpec(bytes_per_hour=3600.0, capacity_bytes=7200.0)
@@ -125,8 +124,8 @@ class TestChargeableQueryMetering(ClickhouseTestMixin, BaseTest):
         sync_execute(self.BOUNDED_QUERY)
         assert get_request_query_cost() is None
 
-    def test_materialized_endpoint_run_is_chargeable_but_not_metered(self):
-        tag_queries(chargeable=1, team_id=self.team.pk, workload=Workload.ENDPOINTS, feature=Feature.ENDPOINT_EXECUTION)
+    def test_exempt_run_is_chargeable_but_not_metered(self):
+        tag_queries(chargeable=1, team_id=self.team.pk, api_queries_budget_exempt=True)
         try:
             sync_execute(self.BOUNDED_QUERY)
         finally:
@@ -137,6 +136,7 @@ class TestChargeableQueryMetering(ClickhouseTestMixin, BaseTest):
         [
             ("inline_endpoint_run", {"feature": Feature.ENDPOINT_EXECUTION}),
             ("caller_supplied_endpoints_product_tag", {"product": Product.ENDPOINTS}),
+            ("caller_supplied_data_catalog_product_tag", {"product": Product.DATA_CATALOG}),
         ]
     )
     def test_chargeable_query_is_still_metered(self, _name, tags):

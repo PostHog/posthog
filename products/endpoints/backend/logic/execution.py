@@ -804,6 +804,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 workload=Workload.ENDPOINTS,
                 warehouse_query=True,
                 endpoint_version=version.version,
+                api_queries_budget_exempt=True,
             )
 
             # Compute dynamic cache TTL: time remaining until data_freshness window expires
