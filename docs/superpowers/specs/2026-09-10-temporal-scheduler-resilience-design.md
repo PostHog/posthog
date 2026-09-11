@@ -181,7 +181,7 @@ The parent cannot atomically start a Temporal child and update a database claim.
 
 A start failure releases the claim. If the parent terminates before releasing it, the claim expires. If the child starts first, the child confirms and renews the claim while work remains active.
 
-Recovery of every expired active claim, including a reserved claim whose parent may have been terminated after Temporal accepted the start, checks the deterministic Temporal workflow ID before selecting the item again. If the execution exists, recovery preserves the claim token and renews or confirms the lease rather than starting a replacement. This prevents a slow but live child from overlapping its replacement.
+Recovery of every expired active claim, including a reserved claim whose parent may have been terminated after Temporal accepted the start, checks the deterministic Temporal workflow ID before selecting the item again. Recovery branches on the execution status, not on existence. Temporal keeps closed executions and returns their terminal status for the whole retention period, so an execution that exists is not necessarily live. A `RUNNING` execution preserves the claim token and renews or confirms the lease rather than starting a replacement. This prevents a slow but live child from overlapping its replacement. A terminal execution is a closed child whose release step did not run. Recovery finalizes that claim through the matching terminal transition, which returns the permit to the pool. Durable source state selects the transition: `completed` for finished work, `available` for work that must be retried, and `quarantined` for work that exhausted its retry budget. An execution that Temporal reports as not found is reclaimable, and recovery releases the claim for a later attempt. A renewal never returns a permit, so a recovery pass that renews a closed claim holds its global and tenant permits until the execution leaves Temporal retention.
 
 If Temporal execution state cannot be read, recovery retains the claim and alerts. It never assumes that an unreachable workflow is finished.
 
@@ -415,7 +415,7 @@ Every coordinator adds regression coverage for:
 - duplicate schedule starts; and
 - automatic admission reaching its hard maximum without exceeding payload or concurrency budgets.
 
-The suite also covers mutable due-set ordering, overlapping parents claiming concurrently, a parent terminating after child acceptance, claim expiry, stale queue-health data, and an autoscaler at its maximum.
+The suite also covers mutable due-set ordering, overlapping parents claiming concurrently, a parent terminating after child acceptance, claim expiry, a child closing before its release step runs, recovery for each Temporal execution status, stale queue-health data, and an autoscaler at its maximum.
 
 Tests assert exact selected identifiers, encoded payload size boundaries, peak concurrency, deterministic child IDs, continuation inputs, schedule policy, and emitted metrics.
 
