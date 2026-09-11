@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 30 enabled ops
+ * PostHog API - MCP 31 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1851,6 +1851,95 @@ export const ExternalDataSourcesDestroyParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod.string().optional().describe('A search term.'),
+})
+
+export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = () => zod.object({
+    schemas: zod
+        .array(
+            zod.object({
+                id: zod.string().describe('Schema identifier to update.'),
+                should_sync: zod.boolean().optional().describe('Whether the schema should be queryable\/synced.'),
+                sync_type: zod
+                    .union([
+                        zod
+                            .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc', 'xmin'])
+                            .describe(
+                                '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
+                            ),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
+                    ),
+                incremental_field: zod
+                    .string()
+                    .nullish()
+                    .describe('Incremental cursor field for incremental or append syncs.'),
+                incremental_field_type: zod.string().nullish().describe('Type of the incremental cursor field.'),
+                sync_frequency: zod.string().nullish().describe('Human-readable sync frequency value.'),
+                sync_time_of_day: zod.iso.time({}).nullish().describe('UTC anchor time for scheduled syncs.'),
+                primary_key_columns: zod
+                    .array(zod.string())
+                    .nullish()
+                    .describe('Column names for primary key deduplication.'),
+                cdc_table_mode: zod
+                    .union([
+                        zod
+                            .enum(['consolidated', 'cdc_only', 'both'])
+                            .describe('\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'How CDC-backed tables should be exposed.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
+                    ),
+                enabled_columns: zod
+                    .array(zod.string())
+                    .nullish()
+                    .describe('Columns to sync. Null means sync all columns.'),
+                row_filters: zod
+                    .array(
+                        zod.object({
+                            column: zod.string(),
+                            operator: zod.string().describe('One of: > >= < <= = != IN \"NOT IN\".'),
+                            value: zod
+                                .unknown()
+                                .describe(
+                                    "Comparison value; must match the column's type. For `IN` \/ `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
+                                ),
+                        })
+                    )
+                    .nullish()
+                    .describe('Row-filter predicates ANDed onto the source query. Null\/empty means sync all rows.'),
+                apply_sync_defaults: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When true and the schema has no sync method configured yet (and this update does not set one), discover the table on the source and fill in default sync settings: incremental sync with an auto-selected tracking column where supported, otherwise append, otherwise full refresh. Ignored for schemas that already have a sync method.'
+                    ),
+            })
+        )
+        .optional()
+        .describe('Schema updates to apply in a single batch.'),
 })
 
 /**
