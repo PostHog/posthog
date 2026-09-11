@@ -208,11 +208,9 @@ class EmptyAgentTurnError(RuntimeError):
         self.printed_lines = printed_lines
 
 
-# The agent categories that mean "upstream refused this request", mirrored from
-# RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS in
+# Mirrored from RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS in
 # products/desktop/packages/agent/src/adapters/error-classification.ts, which is the source of
-# truth. A category added there must be added here too, or a retryable failure reads as a
-# permanent one on this side.
+# truth. A category added there must be added here too, or a retryable failure reads as permanent.
 UPSTREAM_RETRYABLE_ERROR_CATEGORIES = frozenset(
     {
         "upstream_stream_terminated",

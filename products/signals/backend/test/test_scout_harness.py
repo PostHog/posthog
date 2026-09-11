@@ -2053,8 +2053,7 @@ async def test_successful_run_captures_run_started_event(ateam, aerrors_skill):
             "sandbox refused to start",
             None,
         ),
-        # The agent classified its own failure. Without `error_category` a provider outage, a
-        # spend-limit stop and a broken scout body all read as one `AgentTurnFailed` population.
+        # Without `error_category` a provider outage and a broken scout body read as one population.
         (
             AgentTurnFailed(
                 "TaskRun reached terminal status=failed (cause: upstream_provider_failure: API Error: 429)",
