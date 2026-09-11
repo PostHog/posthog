@@ -71,7 +71,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "lifetime_budget": "The lifetime budget for the campaign, in the account's minor currency unit.",
             "budget_remaining": "The remaining budget for the campaign.",
             "created_time": "Time the campaign was created.",
-            "updated_time": "Time the campaign was last updated.",
+            "updated_time": (
+                "Time the campaign was last updated. Incremental syncs track this column. Meta does not "
+                "always move it when a budget changes, so resync the table if a budget looks stale."
+            ),
             "start_time": "The scheduled start time of the campaign.",
             "stop_time": "The scheduled stop time of the campaign.",
             "special_ad_categories": "Special ad categories the campaign is declared under (e.g. HOUSING, CREDIT).",
@@ -95,7 +98,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "daily_budget": "The daily budget for the ad set, in the account's minor currency unit.",
             "lifetime_budget": "The lifetime budget for the ad set, in the account's minor currency unit.",
             "created_time": "Time the ad set was created.",
-            "updated_time": "Time the ad set was last updated.",
+            "updated_time": (
+                "Time the ad set was last updated. Incremental syncs track this column. Meta does not "
+                "always move it when a budget changes, so resync the table if a budget looks stale."
+            ),
             "start_time": "The scheduled start time of the ad set.",
             "end_time": "The scheduled end time of the ad set.",
             "targeting": "The targeting specification for the ad set.",
@@ -117,7 +123,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "creative": "The creative associated with the ad.",
             "bid_amount": "The bid amount for the ad, in the account's minor currency unit.",
             "created_time": "Time the ad was created.",
-            "updated_time": "Time the ad was last updated.",
+            "updated_time": (
+                "Time the ad was last updated. Incremental syncs track this column. Meta does not always "
+                "move it for every edit, so resync the table if a field looks stale."
+            ),
             "tracking_specs": "The tracking specifications for the ad.",
             "conversion_specs": "The conversion specifications for the ad.",
         },
