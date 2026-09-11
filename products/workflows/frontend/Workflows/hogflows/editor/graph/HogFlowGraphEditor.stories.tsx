@@ -38,7 +38,7 @@ function StorybookWorkflow(): JSX.Element {
 
     return (
         <div className="flex h-full flex-col">
-            {originalWorkflow ? <HogFlowEditor key={originalWorkflow.id} /> : <SpinnerOverlay />}
+            {originalWorkflow ? <HogFlowEditor key={originalWorkflow.id} isTreeView={false} /> : <SpinnerOverlay />}
         </div>
     )
 }
