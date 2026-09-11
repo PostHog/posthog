@@ -4566,6 +4566,104 @@ describe('runStreamLogic', () => {
             ;(tasksRunsStreamTokenRetrieve as jest.Mock).mockReset()
         })
 
+        it.each([
+            { name: 'token before history', historyFirst: false, proxy: true, remint: false },
+            { name: 'history before token', historyFirst: true, proxy: true, remint: false },
+            { name: 'Django fallback after history', historyFirst: true, proxy: false, remint: false },
+            { name: 'token retry after history', historyFirst: true, proxy: true, remint: true },
+        ])('starts a refreshed run from latest with $name', async ({ historyFirst, proxy, remint }) => {
+            enableProxy()
+            window.sessionStorage.setItem('posthog-ai:stream-resume:run-1', '1700-0')
+            const target = { token: 'test-token', stream_base_url: proxy ? 'https://proxy.example' : null }
+            let resolveToken!: (value: typeof target) => void
+            let resolveLogs!: (value: StoredLogEntry[]) => void
+            ;(tasksRunsStreamTokenRetrieve as jest.Mock)
+                .mockImplementationOnce(() => new Promise((resolve) => (resolveToken = resolve)))
+                .mockResolvedValue(target)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                new Promise((resolve) => (resolveLogs = resolve))
+            )
+            if (remint) {
+                ;(api.tasks.runs.openStream as jest.Mock).mockRejectedValueOnce({ status: 401 })
+            }
+            const history = [
+                {
+                    ...sessionUpdate({
+                        sessionUpdate: 'agent_message',
+                        content: { type: 'text', text: 'Checking the layout.' },
+                    }),
+                    event_id: 'boot-2',
+                    first_event_id: 'boot-1',
+                },
+            ]
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            if (historyFirst) {
+                resolveLogs(history)
+            } else {
+                resolveToken(target)
+            }
+            await flushPromises()
+            if (historyFirst) {
+                resolveToken(target)
+            } else {
+                resolveLogs(history)
+            }
+            await flushPromises()
+
+            for (const [, , options] of (api.tasks.runs.openStream as jest.Mock).mock.calls) {
+                expect(options.lastEventId).toBeUndefined()
+                expect(options.startLatest).toBe(true)
+            }
+            expect(MockStream.connections).toHaveLength(1)
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'assistant_message').map((item) => item.text)
+            ).toEqual(['Checking the layout.'])
+
+            await MockStream.latest().emitMessage(
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Next step.' } }),
+                '1700-3'
+            )
+            jest.useFakeTimers()
+            try {
+                await MockStream.latest().emitClose()
+                jest.advanceTimersByTime(2000)
+                await flushPromises()
+                expect(MockStream.connections).toHaveLength(2)
+                expect(MockStream.latest().options.lastEventId).toEqual('1700-3')
+                expect(
+                    logic.values.threadItems
+                        .filter((item) => item.type === 'assistant_message')
+                        .map((item) => item.text)
+                ).toEqual(['Checking the layout.', 'Next step.'])
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('does not restore the previous page cursor if bootstrap disconnects before its first event', async () => {
+            window.sessionStorage.setItem('posthog-ai:stream-resume:run-1', '1700-0')
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            ;(api.tasks.runs.openStream as jest.Mock).mockRejectedValueOnce({ status: 503 })
+
+            jest.useFakeTimers()
+            try {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                jest.advanceTimersByTime(2000)
+                await flushPromises()
+
+                expect(MockStream.connections).toHaveLength(1)
+                expect(MockStream.latest().options.lastEventId).toBeUndefined()
+                expect(MockStream.latest().options.startLatest).toBe(true)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         describe('resolveStreamTarget', () => {
             it('skips the token mint and streams from Django when the rollout is off', async () => {
                 expect(await resolveStreamTarget('997', 'task-1', 'run-1', false)).toBeNull()

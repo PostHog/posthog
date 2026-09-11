@@ -2838,6 +2838,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // (see `handleSseEvent`), not gapped between the snapshot read and the connect cutoff. The
             // buffered tail is reconciled against the history once the snapshot lands (the drain below).
             if (!terminal) {
+                // History replaces the previous page's position, including retries before the first live event.
+                cache.lastEventId = undefined
+                clearStreamResumeId(runId)
                 cache.bufferingLiveFrames = true
                 cache.bufferedLiveFrames = []
                 actions.openSseForRun({ taskId, runId, startLatest: true })
@@ -3046,6 +3049,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // unknown frame types are ignored.
             }
 
+            // Token lookup can outlast history loading, so capture the bootstrap cursor policy before awaiting it.
+            const storedResumeId = cache.bufferingLiveFrames ? undefined : (readStreamResumeId(runId) ?? undefined)
+
             // Open the stream as a fetch response and pump its body through the parser. A native
             // `EventSource` can't set request headers; a fetch can, so a reconnect resumes exactly
             // after `cache.lastEventId` via the Last-Event-ID header instead of re-broadcasting the
@@ -3062,14 +3068,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 if (signal.aborted) {
                     return
                 }
-                // Resume cursor: prefer the in-memory id stamped by the reader; fall back to the
-                // persisted sessionStorage cursor only outside the bootstrap seam window
-                // (`bufferingLiveFrames`). The connect-first bootstrap deliberately streams
-                // `start=latest` and reconciles the S3 history seam, so a persisted cursor must never
-                // pre-empt it — only a live reconnect that lost its in-memory cursor honors it.
-                const lastEventId =
-                    (cache.lastEventId as string | undefined) ??
-                    (cache.bufferingLiveFrames ? undefined : (readStreamResumeId(runId) ?? undefined))
+                const lastEventId = (cache.lastEventId as string | undefined) ?? storedResumeId
 
                 let response: Response
                 try {

@@ -35,6 +35,8 @@ The full task composer remains available during startup.
 Follow-up messages collect in "Up next" and send after the first response finishes.
 Once the agent starts, Steer can send them before the current turn ends.
 The thread hides empty and whitespace-only assistant messages during streaming and history replay.
+Refreshing an active run rebuilds the thread from saved history and starts a new live stream without reusing the previous page's cursor.
+Later stream reconnects resume after the last received event.
 
 ```text
 Your product code
