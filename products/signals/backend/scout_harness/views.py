@@ -453,7 +453,9 @@ class ScoutCanonicalTeamAccessPermission(BasePermission):
 
     def has_permission(self, request: Request, view) -> bool:
         if not request.user.is_authenticated:
-            return True
+            # Unreachable while `IsAuthenticated` runs ahead of this class, but deny rather than
+            # allow, so this class can never be the reason an anonymous request gets through.
+            return False
         team = view.team
         if team.parent_team_id is None or team.parent_team_id == team.id or team.parent_team is None:
             return True
@@ -1283,7 +1285,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     serializer_class = ScratchpadEntrySerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout"
     # `list` returns a raw newest-first array (capped at limit=1000 by the query serializer),
     # not a paginated wrapper. See SignalScoutRunViewSet for the same rationale.
@@ -1582,7 +1584,7 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     serializer_class = ProjectProfileSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout"
     # `.unscoped()` — see `SignalScoutRunViewSet` for the same module-load reasoning.
     # The `current` action filters by team_id explicitly via `get_project_profile`.
@@ -1669,7 +1671,7 @@ class SignalScoutMetadataViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     serializer_class = ScoutMetadataSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout"
     # No model backs this endpoint — metadata is computed from the flag payload. A real queryset is
     # still required to satisfy the team/org viewset mixin; the `current` action never reads it.
@@ -1734,7 +1736,7 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
 
     serializer_class = ScoutMemberSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout_internal"
     # No team-scoped model backs this endpoint — members are resolved from project access. A queryset is
     # still required to satisfy the team/org viewset mixin; `list` never reads it. Mirrors

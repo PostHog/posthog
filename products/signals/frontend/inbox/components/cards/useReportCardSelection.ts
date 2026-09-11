@@ -12,7 +12,7 @@ import {
 
 export interface ReportCardSelection {
     isSelected: boolean
-    /** True once anything is selected: every card then shows its checkbox and toggles on click. */
+    /** True once anything is selected: every card then toggles on click. */
     selectionMode: boolean
     /** Set while a hold is running, so the card suppresses text selection under the finger. */
     isHolding: boolean

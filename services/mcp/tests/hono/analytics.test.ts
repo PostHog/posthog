@@ -25,6 +25,7 @@ import {
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
+import { MCPClientProfile } from '@/lib/client-detection'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolDefinition } from '@/tools/toolDefinitions'
@@ -361,6 +362,31 @@ describe('Hono MCP analytics contexts', () => {
     })
 
     describe('trackToolSpan', () => {
+        it.each(['posthog_ai', 'claude'])(
+            'captures model output without adding native widget data for %s',
+            async (consumer) => {
+                const state = makeState()
+                const appData = { rows: [{ value: 'widget-only-data' }] }
+                const output = {
+                    content: [{ type: 'text', text: '1 row' }],
+                    _meta: { 'com.posthog.mcp/app_data': appData, resourceUri: 'ui://query' },
+                }
+                await trackToolSpan(
+                    'query-trends',
+                    {
+                        ...state,
+                        clientProfile: new MCPClientProfile({ consumer }),
+                    },
+                    { durationMs: 100, isError: false, output }
+                )
+
+                const captured = JSON.parse(mockCapture.mock.calls[0]![0].properties.$ai_output_state)
+                expect(captured.content).toEqual(output.content)
+                expect(captured._meta).toEqual(consumer === 'posthog_ai' ? { resourceUri: 'ui://query' } : output._meta)
+                expect(output._meta['com.posthog.mcp/app_data']).toBe(appData)
+            }
+        )
+
         it.each([
             ['a non-execute-sql tool', 'data-catalog-metric-run', { name: 'mrr' }, true],
             ['any other non-execute-sql tool', 'query-logs', { query: 'SELECT 1' }, true],

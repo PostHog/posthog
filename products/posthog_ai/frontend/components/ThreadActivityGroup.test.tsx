@@ -108,7 +108,7 @@ describe('ThreadActivityGroup', () => {
         )
         fireEvent.click(screen.getByTestId('thread-activity-toggle'))
         const chain = screen.getByTestId('thread-tool-chain')
-        expect(chain).toHaveTextContent('execute-sql· 3 calls· 1 failed')
+        expect(chain).toHaveTextContent('SQL query· 3 calls· 1 failed')
         expect(screen.queryByText('first')).not.toBeInTheDocument()
         fireEvent.click(chain.querySelector('[role="button"]')!)
         for (const id of tools.keys()) {

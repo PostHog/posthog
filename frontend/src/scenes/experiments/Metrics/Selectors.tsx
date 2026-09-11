@@ -9,11 +9,11 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
-import { FUNNEL_STEP_COUNT_LIMIT } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 
 import { groupsModel } from '~/models/groupsModel'
 import { BreakdownAttributionType, FunnelConversionWindowTimeUnit, StepOrderValue } from '~/types'
 
+import { FUNNEL_STEP_COUNT_LIMIT } from 'products/product_analytics/frontend/insights/funnels/editor/FunnelsQuerySteps'
 import { TIME_INTERVAL_BOUNDS } from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 
 export const commonActionFilterProps = {
@@ -179,7 +179,7 @@ export function FunnelConversionWindowFilter({
     )
 }
 
-// Forked from https://github.com/PostHog/posthog/blob/master/frontend/src/scenes/insights/EditorFilters/AttributionFilter.tsx
+// Forked from https://github.com/PostHog/posthog/blob/master/products/product_analytics/frontend/insights/funnels/editor/FunnelAttributionFilter.tsx
 export function FunnelAttributionSelect({
     value,
     onChange,

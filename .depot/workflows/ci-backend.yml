@@ -927,17 +927,20 @@ jobs:
                   client-id: ${{ vars.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
                   skip-token-revoke: true
-            - parallel:
-                  - name: Set up pnpm and Node
-                    uses: ./.depot/actions/setup-pnpm
-                    with:
-                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-                  - name: Set up Python
-                    uses: ./.depot/actions/setup-python-cached
-                    with:
-                        python-version: 3.13.13
-                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-            # Needs pnpm from the block above, so it cannot run inside it.
+            # Sequential to mirror canonical. GitHub's native `parallel:` crashes the
+            # Actions runner when two branches write $GITHUB_PATH at once. Depot CI's
+            # `parallel:` is a separate implementation, but the shadow keeps the same
+            # step order so the timing trial measures the same work.
+            - name: Set up pnpm and Node
+              uses: ./.depot/actions/setup-pnpm
+              with:
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            - name: Set up Python
+              uses: ./.depot/actions/setup-python-cached
+              with:
+                  python-version: 3.13.13
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            # Needs pnpm from the step above.
             - name: Install turbo
               uses: ./.github/actions/setup-turbo
 
@@ -2038,28 +2041,31 @@ jobs:
             # Tool cache steps inlined rather than the setup-python-cached composite:
             # this job checks out the PR head ref, which cannot resolve a local
             # action that only exists on master until the branch rebases. The
-            # restore sits before the parallel block so the tool cache is warm
-            # when setup-python starts.
+            # restore sits before setup-python so the tool cache is warm when it
+            # starts.
             - name: Restore Python tool cache
               id: python-toolcache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
                   key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
-            - parallel:
-                  - name: Set up Python
-                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-                    with:
-                        python-version: ${{ matrix.python-version }}
-                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-                  # setup-sqlx-cli resolves from the PR head ref here, so an unrebased branch
-                  # gets a version that installs no Rust. Delete once open branches rebase.
-                  - name: Install Rust
-                    if: needs.changes.outputs.backend == 'true'
-                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-                    with:
-                        toolchain: 1.91.1
-                        components: cargo
+            # Sequential to mirror canonical. GitHub's native `parallel:` crashes the
+            # Actions runner when two branches write $GITHUB_PATH at once. Depot CI's
+            # `parallel:` is a separate implementation, but the shadow keeps the same
+            # step order so the timing trial measures the same work.
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: ${{ matrix.python-version }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            # setup-sqlx-cli resolves from the PR head ref here, so an unrebased branch
+            # gets a version that installs no Rust. Delete once open branches rebase.
+            - name: Install Rust
+              if: needs.changes.outputs.backend == 'true'
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
             - name: Save Python tool cache
               if: github.ref == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3

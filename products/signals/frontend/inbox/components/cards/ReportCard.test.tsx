@@ -154,8 +154,12 @@ describe('ReportCard', () => {
         expect(logic.values.selectedReportIds).toEqual([])
     })
 
-    it('selects from the gutter checkbox', () => {
-        fireEvent.click(screen.getByLabelText('Select report: Report r-1'))
+    it('does not show a checkbox on hover or when selected', () => {
+        fireEvent.mouseEnter(cardLink())
+        expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+
+        fireEvent.click(cardLink(), { metaKey: true })
+        expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
 
         expect(logic.values.selectedReportIds).toEqual(['r-1'])
     })
@@ -164,7 +168,9 @@ describe('ReportCard', () => {
         cleanup()
         render(<ReportCard report={makeReport('r-2', { status: SignalReportStatus.RESOLVED })} selectable />)
 
-        expect(screen.queryByLabelText('Select report: Report r-2')).not.toBeInTheDocument()
+        fireEvent.click(screen.getByText('Report r-2').closest('a') as HTMLElement, { metaKey: true })
+
+        expect(logic.values.selectedReportIds).toEqual([])
     })
 
     it('locks the selection while a bulk action is running', () => {
@@ -174,9 +180,7 @@ describe('ReportCard', () => {
             logic.actions.bulkDismiss({ reason: 'other', note: '', correctedRepository: null })
         })
 
-        const checkbox = screen.getByLabelText('Select report: Report r-1')
-        expect(checkbox).toBeDisabled()
-        fireEvent.click(checkbox)
+        fireEvent.click(cardLink(), { metaKey: true })
         expect(logic.values.selectedReportIds).toEqual(['r-1'])
         setState.mockRestore()
     })

@@ -5,6 +5,7 @@ import requests
 
 from posthog.schema import SourceFieldSelectConfig
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
 )
@@ -188,6 +189,22 @@ def test_missing_integration_is_non_retryable():
     error_message = "Integration matching query does not exist."
     non_retryable_errors = GoogleSearchConsoleSource().get_non_retryable_errors()
     assert any(key in error_message for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        # The three `GoogleSearchConsoleQuotaExceededError` messages raised by `_query_search_analytics`
+        # once its in-line quota retries run out. Each carries the `(retryable)` marker so the resumable
+        # source resumes on the next Temporal retry instead of tracking the quota exhaustion as a bug.
+        "Search Analytics daily quota for 'sc-domain:example.com' exhausted; retrying at the activity level (retryable)",
+        "Search Analytics quota for 'sc-domain:example.com' still exhausted after 3 retries (retryable)",
+        "Search Analytics quota for 'sc-domain:example.com' exhausted (retryable)",
+    ],
+)
+def test_exhausted_quota_is_retryable(error_message):
+    retryable_errors = GoogleSearchConsoleSource().get_retryable_errors()
+    assert error_message_matches(error_message, retryable_errors)
 
 
 @pytest.mark.parametrize(

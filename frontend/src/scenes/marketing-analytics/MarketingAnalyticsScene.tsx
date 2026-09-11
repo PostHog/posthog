@@ -246,7 +246,9 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     // Setup absorbs Integration health: while its flag is on, the audit lives inside
     // Setup as a section rather than as a second top-level tab, so there's one door to
     // "something is wrong with my setup" instead of two.
-    const setupEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]
+    const setupEnabled =
+        !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP] ||
+        !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
 
     // Setup absorbs the tabs it replaces, so a link or bookmark carrying one still lands
     // somewhere sensible. Here rather than in the logic because only the scene knows

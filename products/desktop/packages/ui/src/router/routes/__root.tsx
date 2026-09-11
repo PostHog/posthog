@@ -48,6 +48,10 @@ import { useIntegrations } from "@posthog/ui/features/integrations/useIntegratio
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
 import { useScoutDeepLink } from "@posthog/ui/features/scouts/hooks/useScoutDeepLink";
 import { useSetupDiscovery } from "@posthog/ui/features/setup/useSetupDiscovery";
+import {
+  UpdateBanner,
+  useUpdateBannerVisible,
+} from "@posthog/ui/features/sidebar/components/UpdateBanner";
 import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import {
   beginSidebarPeek,
@@ -61,7 +65,6 @@ import { ExistingWorktreeDialog } from "@posthog/ui/features/task-detail/compone
 import { RemoteBranchCheckoutDialog } from "@posthog/ui/features/task-detail/components/RemoteBranchCheckoutDialog";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { TourOverlay } from "@posthog/ui/features/tour/components/TourOverlay";
-import { UpdateAvailableModal } from "@posthog/ui/features/updates/UpdateAvailableModal";
 import { WhatsNewModal } from "@posthog/ui/features/updates/WhatsNewModal";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { AnimatedLogo } from "@posthog/ui/primitives/AnimatedLogo";
@@ -219,6 +222,9 @@ function RootLayout() {
 
   const toggleSidebar = useSidebarStore((s) => s.toggle);
   const sidebarPeek = useSidebarPeekStore((s) => s.peek);
+  const updateBannerVisible = useUpdateBannerVisible();
+  const showTitleBarUpdate =
+    updateBannerVisible && !sidebarDocked && !sidebarPeek;
   // Toggling makes any hover-peek redundant (opening replaces the overlay;
   // closing must not leave it lingering under the pointer).
   const handleToggleSidebar = (): void => {
@@ -348,7 +354,7 @@ function RootLayout() {
                 aria-label="Toggle sidebar"
                 onClick={handleToggleSidebar}
                 onMouseEnter={() => {
-                  if (!sidebarOpen) beginSidebarPeek();
+                  if (!sidebarOpen && hasSidebar) beginSidebarPeek();
                 }}
               >
                 {sidebarOpen ? (
@@ -386,6 +392,11 @@ function RootLayout() {
               also the only global owner of Cmd+W, so the fallback has to hold
               that key wherever the strip isn't mounted. */}
           <BrowserTabStrip />
+          {showTitleBarUpdate && (
+            <div className="no-drag ml-auto flex items-center pr-2">
+              <UpdateBanner variant="compact" />
+            </div>
+          )}
           {/* Gated so an empty right-side group can't claim a no-drag rect
               in the title bar for nothing — every pixel without controls
               should drag the window. */}
@@ -493,7 +504,6 @@ function RootLayout() {
         <TourOverlay />
         {billingEnabled && <UsageLimitModal />}
         <AnnouncementsHost />
-        <UpdateAvailableModal />
         <WhatsNewModal />
         <RemoteBranchCheckoutDialog />
         <FeedbackModal

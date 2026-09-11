@@ -47,12 +47,20 @@ vi.mock('@/tools', () => ({
     TOOL_MAP: {
         'tool-a': () => makeToolBase('tool-a'),
         'tool-b': () => makeToolBase('tool-b'),
+        'update-feature-flag': () =>
+            makeToolBase('update-feature-flag', {
+                schema: z.object({ source: z.literal('handwritten') }),
+            }),
     },
 }))
 
 vi.mock('@/tools/generated', () => ({
     GENERATED_TOOL_MAP: {
         'gen-tool-c': () => makeToolBase('gen-tool-c'),
+        'update-feature-flag': () =>
+            makeToolBase('update-feature-flag', {
+                schema: z.object({ source: z.literal('generated') }),
+            }),
     },
 }))
 
@@ -60,6 +68,7 @@ const DEFINITIONS: Record<string, FakeDefinition> = {
     'tool-a': fakeDef({ required_scopes: ['project:read'] }),
     'tool-b': fakeDef({ feature: 'insights', annotations: { ...fakeDef().annotations, readOnlyHint: true } }),
     'gen-tool-c': fakeDef({ required_scopes: ['action:write'] }),
+    'update-feature-flag': fakeDef({ required_scopes: ['feature_flag:write'] }),
 }
 
 vi.mock('@/tools/toolDefinitions', () => ({
@@ -176,9 +185,20 @@ describe('ToolCatalog', () => {
         })
 
         it('should return all tools when no filters applied', () => {
-            const tools = catalog.getFilteredTools({ scopes: ['project:read', 'action:write'] })
+            const tools = catalog.getFilteredTools({
+                scopes: ['project:read', 'action:write', 'feature_flag:write'],
+            })
             const names = tools.map((t) => t.name).sort()
-            expect(names).toEqual(['gen-tool-c', 'tool-a', 'tool-b'])
+            expect(names).toEqual(['gen-tool-c', 'tool-a', 'tool-b', 'update-feature-flag'])
+        })
+
+        it('should prefer hand-written factory when name collides with generated', () => {
+            const tools = catalog.getFilteredTools({ scopes: ['feature_flag:write'] })
+            const update = tools.find((t) => t.name === 'update-feature-flag')
+            expect(update).toBeTruthy()
+            // Schema is from the TOOL_MAP mock (handwritten), not GENERATED_TOOL_MAP.
+            expect(update!.schema.safeParse({ source: 'handwritten' }).success).toBe(true)
+            expect(update!.schema.safeParse({ source: 'generated' }).success).toBe(false)
         })
 
         it('should exclude tools by name', () => {

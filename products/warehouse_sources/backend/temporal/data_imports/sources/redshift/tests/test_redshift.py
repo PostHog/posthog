@@ -1528,6 +1528,33 @@ class TestBuildPipeline:
         # streaming cursor.execute should have been invoked for the streaming query
         assert streaming_cursor.execute.called
 
+    def test_sync_all_names_the_columns_rediscovered_before_streaming(self, build_pipeline_mocks, mocker):
+        # A role holding column grants instead of table grants cannot run `SELECT *`, because the
+        # star expands to columns it may not read. The cluster drops `nickname` between setup and
+        # the read here: naming it would fail the read as a permanent error, which disables the
+        # schema.
+        def table_with(*columns: str) -> Table:
+            return Table(
+                name="messages",
+                parents=("public",),
+                columns=[RedshiftColumn(name=name, data_type="varchar", nullable=True) for name in columns],
+                type="table",
+            )
+
+        mocker.patch.object(
+            RedshiftImplementation,
+            "get_table_metadata",
+            side_effect=[table_with("id", "email", "nickname"), table_with("id", "email")],
+        )
+        _, streaming_cursor = build_pipeline_mocks
+        impl = RedshiftImplementation()
+
+        response = impl.build_pipeline(_make_config(), _make_inputs())
+        list(response.items())  # type: ignore[arg-type]
+
+        streaming_query = streaming_cursor.stream.call_args.args[0]
+        assert streaming_query.as_string().startswith('SELECT "id", "email" FROM')
+
     def test_chunk_size_override_skips_probe(self, build_pipeline_mocks, mocker):
         mocked_chunk_size = mocker.patch.object(RedshiftImplementation, "get_chunk_size")
         impl = RedshiftImplementation()

@@ -11,7 +11,8 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { scoutDisplayName, SCOUT_RUNS_PER_SCOUT, ScoutRollup } from '../../../utils/scoutRunsWindow'
+import { scoutCostWindowLabel } from '../../../utils/scoutCosts'
+import { formatRunCost, scoutDisplayName, SCOUT_RUNS_PER_SCOUT, ScoutRollup } from '../../../utils/scoutRunsWindow'
 import { ScoutStatusTag } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
@@ -157,8 +158,37 @@ export function ScoutDetailHeader({
                 <Metric value={edited} label="Reports edited" />
                 <Metric value={learnedCount} label="Learned" />
                 <Metric value={noteCount} label="Told" />
+                <ScoutCostMetrics skillName={config.skill_name} />
             </div>
         </div>
+    )
+}
+
+/**
+ * What the scout cost over the window, and what that buys per run and per report. Staff only, and
+ * absent while it has no priced run in the window, the same way the per-run tooltip omits a cost it
+ * cannot attribute.
+ */
+function ScoutCostMetrics({ skillName }: { skillName: string }): JSX.Element | null {
+    const { scoutCostRollups } = useValues(scoutFleetLogic)
+    const rollup = scoutCostRollups.get(skillName)
+
+    if (!rollup) {
+        return null
+    }
+
+    return (
+        <>
+            <Metric
+                value={formatRunCost(rollup.spendUsd)}
+                label={`Cost · ${scoutCostWindowLabel(rollup.windowDays)}`}
+            />
+            <Metric value={formatRunCost(rollup.perRun)} label="Cost per run" />
+            <Metric
+                value={rollup.perReport === null ? 'No reports' : formatRunCost(rollup.perReport)}
+                label="Cost per report"
+            />
+        </>
     )
 }
 

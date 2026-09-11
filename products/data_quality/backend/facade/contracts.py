@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, TypeGuard
 
 CHECK_SUITE_WORKFLOW_NAME = "data-quality-run-suite"
+DISPATCH_SCHEDULED_SUITES_WORKFLOW_NAME = "data-quality-dispatch-scheduled-suites"
 
 MATERIALIZATION_GATE_ACTIVITY_NAME = "data-quality-materialization-gate"
 

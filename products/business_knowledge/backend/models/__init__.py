@@ -13,6 +13,7 @@ from .knowledge_chunk import KnowledgeChunk
 from .knowledge_document import KnowledgeDocument
 from .knowledge_gap_suggestion import KnowledgeGapSuggestion
 from .knowledge_source import KnowledgeSource
+from .team_business_knowledge_config import TeamBusinessKnowledgeConfig
 
 __all__ = [
     "REFRESH_INTERVAL_TIMEDELTAS",
@@ -28,4 +29,5 @@ __all__ = [
     "SafetyVerdict",
     "SourceStatus",
     "SourceType",
+    "TeamBusinessKnowledgeConfig",
 ]

@@ -1095,20 +1095,8 @@ SQL
     column "max_last_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
     }
-    column "block_first_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_last_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_urls" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
-    }
     column "first_url" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "all_urls" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "click_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
@@ -1140,14 +1128,29 @@ SQL
     column "event_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
     }
+    column "_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
     column "snapshot_source" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    }
+    column "all_urls" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "snapshot_library" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
-    column "_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime)"
+    column "block_first_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_last_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_urls" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+    }
+    column "retention_period_days" {
+      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     column "is_deleted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
@@ -1165,9 +1168,6 @@ SQL
     }
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
-    }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     column "snapshot_mode" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
@@ -1407,11 +1407,6 @@ SQL
   }
 
   table "sharded_session_replay_events" {
-    order_by     = ["toDate(min_first_timestamp)", "team_id", "session_id"]
-    partition_by = "toYYYYMM(min_first_timestamp)"
-    settings = {
-      index_granularity = "512"
-    }
     column "session_id" {
       type = "String"
     }
@@ -1427,20 +1422,8 @@ SQL
     column "max_last_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
     }
-    column "block_first_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_last_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_urls" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
-    }
     column "first_url" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "all_urls" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "click_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
@@ -1472,14 +1455,29 @@ SQL
     column "event_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
     }
+    column "_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
     column "snapshot_source" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    }
+    column "all_urls" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "snapshot_library" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
-    column "_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime)"
+    column "block_first_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_last_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_urls" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+    }
+    column "retention_period_days" {
+      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     column "is_deleted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
@@ -1498,11 +1496,13 @@ SQL
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
-    }
     column "snapshot_mode" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    }
+    order_by     = ["toDate(min_first_timestamp)", "team_id", "session_id"]
+    partition_by = "toYYYYMM(min_first_timestamp)"
+    settings = {
+      index_granularity = "512"
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.session_replay_events"

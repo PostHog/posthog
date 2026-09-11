@@ -1,4 +1,4 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode, useCallback, useState } from 'react'
 
@@ -167,7 +167,7 @@ function MetaSourceStack({
 
 /** Placeholder finding rows shown while the signals query is in flight, sized to the known count. */
 function EvidenceSkeleton({ count }: { count: number }): JSX.Element {
-    const rows = Math.max(1, Math.min(count, 4))
+    const rows = Math.max(1, Math.min(count, 2))
     return (
         <div className="flex flex-col gap-3" aria-hidden>
             {Array.from({ length: rows }).map((_, i) => (
@@ -281,11 +281,13 @@ function InboxDetailFrameLegacy({
     const {
         reportSignals,
         reportSignalsLoading,
+        evidenceExpanded,
         priorityExplanation,
         actionabilityExplanation,
         chartPlacements,
         trailingCharts,
     } = useValues(inboxReportDetailLogic(logicProps))
+    const { expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
     // GitHub-style PR view: when the report has a PR, the overview and the diff live behind two tabs.
     const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'files'>('overview')
     const hasDiff = !!showFilesTab
@@ -387,9 +389,18 @@ function InboxDetailFrameLegacy({
                                 <EvidenceSkeleton count={evidenceCount} />
                             ) : (
                                 <div className="flex flex-col gap-3">
-                                    {signals.map((signal: SignalNode) => (
+                                    {(evidenceExpanded ? signals : signals.slice(0, 2)).map((signal: SignalNode) => (
                                         <SignalCard key={signal.signal_id} signal={signal} />
                                     ))}
+                                    {signals.length > 2 && (
+                                        <LemonButton
+                                            type="tertiary"
+                                            size="small"
+                                            onClick={evidenceExpanded ? collapseEvidence : expandEvidence}
+                                        >
+                                            {evidenceExpanded ? 'Show less' : 'Show more'}
+                                        </LemonButton>
+                                    )}
                                 </div>
                             )}
                         </DetailSection>

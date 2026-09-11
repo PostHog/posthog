@@ -38,6 +38,7 @@ from structlog.types import FilteringBoundLogger
 # Module-level error-capture seam. This module's best-effort probes (get_rows_to_sync,
 # explain_query, fetch_average_row_size) deliberately do NOT report handled failures here;
 # their guard tests patch `mysql.capture_exception` to enforce that.
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception  # noqa: F401
 from posthog.psycopg_helpers import (
     is_resolvable_hostname,
@@ -67,9 +68,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     InvalidIdentifierError,
     SelectQueryBuilder,
     Table,
+    TableProjection,
     ValidatedRowFilter,
-    compute_projected_columns,
-    project_arrow_columns,
+    resolve_table_projection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
@@ -892,6 +893,47 @@ def get_connection_metadata(conn: pymysql.Connection, *, database: str) -> dict[
     }
 
 
+# MySQL 8.0.23+ can mark a column `INVISIBLE`: `information_schema.columns` still lists it, but
+# `SELECT *` never returns it. `EXTRA` holds space-separated attributes, so a generated invisible
+# primary key reads `auto_increment INVISIBLE`.
+_INVISIBLE_COLUMN_EXTRA_TOKEN = "INVISIBLE"
+
+
+def _is_invisible_column(extra: str | None) -> bool:
+    """Return whether an `information_schema.columns` row describes an invisible column."""
+    return _INVISIBLE_COLUMN_EXTRA_TOKEN in (extra or "").upper().split()
+
+
+@frozen
+class MySQLTableSetup:
+    """Everything `build_pipeline` learns about a table before it can stream rows."""
+
+    primary_keys: list[str] | None
+    projection: TableProjection[MySQLColumn]
+    chunk_size: int
+    rows_to_sync: int
+    partition_settings: PartitionSettings | None
+
+
+def _syncable_column_names(table: Table[MySQLColumn], logger: FilteringBoundLogger) -> list[str]:
+    """Return the column names a sync-all read can name, or nothing to keep `SELECT *`.
+
+    Invisible columns stay out, because `SELECT *` never returned them either. Catalog column
+    names also legitimately carry characters the backtick allowlist rejects, such as a space or
+    the `:` in `Ach:CompanyId`. Naming one raises before the first row is read, so hand back an
+    empty list and let the caller keep the `SELECT *` that such a table always synced with.
+    Skipping only the offending column is not an option, because that drops it from the read.
+    """
+    names = [column.name for column in table.columns if not column.invisible]
+    for name in names:
+        try:
+            _IDENTIFIER_QUOTER.quote(name)
+        except InvalidIdentifierError:
+            logger.warning(f"Can't quote the column name {name!r}, so this sync reads the whole table with SELECT *")
+            return []
+    return names
+
+
 class MySQLColumn(Column):
     """`Column` for a MySQL source — carries enough type info to build a PyArrow field.
 
@@ -902,6 +944,7 @@ class MySQLColumn(Column):
             used to detect `unsigned` which affects the PyArrow integer width.
         nullable: Whether the column is nullable in MySQL.
         numeric_precision / numeric_scale: Populated only for `decimal` / `numeric`.
+        invisible: Whether MySQL hides the column from `SELECT *`.
     """
 
     def __init__(
@@ -912,6 +955,7 @@ class MySQLColumn(Column):
         nullable: bool,
         numeric_precision: int | None = None,
         numeric_scale: int | None = None,
+        invisible: bool = False,
     ) -> None:
         self.name = name
         self.data_type = data_type
@@ -919,6 +963,7 @@ class MySQLColumn(Column):
         self.nullable = nullable
         self.numeric_precision = numeric_precision
         self.numeric_scale = numeric_scale
+        self.invisible = invisible
 
     def to_arrow_field(self) -> pa.Field[pa.DataType]:
         """Return a `pyarrow.Field` that closely matches this column."""
@@ -1253,7 +1298,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     column_type,
                     is_nullable,
                     numeric_precision,
-                    numeric_scale
+                    numeric_scale,
+                    extra
                 FROM
                     information_schema.columns
                 WHERE
@@ -1265,7 +1311,15 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
 
         numeric_data_types = {"numeric", "decimal"}
         columns = []
-        for name, data_type, column_type, nullable, numeric_precision_candidate, numeric_scale_candidate in cursor:
+        for (
+            name,
+            data_type,
+            column_type,
+            nullable,
+            numeric_precision_candidate,
+            numeric_scale_candidate,
+            extra,
+        ) in cursor:
             if data_type in numeric_data_types:
                 numeric_precision = (
                     numeric_precision_candidate
@@ -1287,6 +1341,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     nullable=nullable,
                     numeric_precision=numeric_precision,
                     numeric_scale=numeric_scale,
+                    invisible=_is_invisible_column(extra),
                 )
             )
 
@@ -1543,7 +1598,21 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         enabled_columns = inputs.enabled_columns
         row_filters = inputs.row_filters
 
-        def _discover_metadata() -> tuple[list[str] | None, pa.Schema, int, PartitionSettings | None, int]:
+        def _resolve_projection(
+            full_table: Table[MySQLColumn], primary_keys: list[str] | None
+        ) -> TableProjection[MySQLColumn]:
+            # An invisible primary key is kept out of the catalog names but comes back through
+            # `compute_projected_columns`, which a merge needs.
+            available_columns = _syncable_column_names(full_table, logger) if enabled_columns is None else None
+            return resolve_table_projection(
+                full_table,
+                enabled_columns=enabled_columns,
+                primary_keys=primary_keys,
+                incremental_field=incremental_field,
+                available_columns=available_columns,
+            )
+
+        def _discover_metadata() -> MySQLTableSetup:
             with self.connect(config, team_id=inputs.team_id) as connection:
                 with connection.cursor() as cursor:
                     primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
@@ -1553,10 +1622,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     if primary_keys is None and "id" in full_table:
                         primary_keys = ["id"]
 
-                    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
-                    table = project_arrow_columns(full_table, projected)
-                    arrow_schema = table.to_arrow_schema()
-                    logger.debug(f"Source schema: {arrow_schema}")
+                    projection = _resolve_projection(full_table, primary_keys)
+                    logger.debug(f"Source schema: {projection.table.to_arrow_schema()}")
 
                     inner_query, inner_query_args = _build_query(
                         schema,
@@ -1565,7 +1632,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         incremental_field,
                         incremental_field_type,
                         db_incremental_field_last_value,
-                        enabled_columns=enabled_columns,
+                        enabled_columns=projection.enabled_columns,
                         primary_keys=primary_keys,
                         row_filters=row_filters,
                     )
@@ -1577,16 +1644,39 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         if should_use_incremental_field
                         else None
                     )
-            return primary_keys, arrow_schema, chunk_size, partition_settings, rows_to_sync
+            return MySQLTableSetup(
+                primary_keys=primary_keys,
+                projection=projection,
+                chunk_size=chunk_size,
+                rows_to_sync=rows_to_sync,
+                partition_settings=partition_settings,
+            )
 
         # A PlanetScale/Vitess tablet can be momentarily unavailable even once the vtgate
         # handshake succeeds, so retry the whole metadata-discovery block (reopening the
         # connection) on a transient `code = Unavailable` rather than failing setup on the
         # first blip — see `_retry_on_transient_tablet_unavailable`.
-        primary_keys, arrow_schema, chunk_size, partition_settings, rows_to_sync = (
-            _retry_on_transient_tablet_unavailable(_discover_metadata, logger)
-        )
+        setup = _retry_on_transient_tablet_unavailable(_discover_metadata, logger)
+        primary_keys = setup.primary_keys
+        setup_projection = setup.projection
+        chunk_size = setup.chunk_size
+        rows_to_sync = setup.rows_to_sync
+        partition_settings = setup.partition_settings
         binary_reporter = BinaryColumnReporter(logger)
+
+        def _refreshed_projection(connection: pymysql.Connection) -> TableProjection[MySQLColumn]:
+            """Re-read the catalog on the streaming connection, right before the read query.
+
+            A probe that fails keeps the setup projection, which is where this read would have
+            started anyway. See `resolve_table_projection` for why the read resolves again.
+            """
+            try:
+                with connection.cursor() as cursor:
+                    fresh_table = self.get_table_metadata(cursor, schema, table_name)
+            except Exception as e:
+                logger.debug(f"Could not re-read the catalog before streaming: {e}", exc_info=e)
+                return setup_projection
+            return _resolve_projection(fresh_table, primary_keys)
 
         def _stream_with_optional_force_index(force_index_name: str | None) -> Iterator[Any]:
             """Open a fresh connection and stream rows.
@@ -1611,6 +1701,10 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         )
                 except Exception as e:
                     logger.warning(f"Failed to set session timeouts on MySQL sync connection: {e}")
+
+                projection = _refreshed_projection(streaming_connection)
+                arrow_schema = projection.table.to_arrow_schema()
+
                 ss_cursor = streaming_connection.cursor(SSCursor)
                 try:
                     query, args = _build_query(
@@ -1621,7 +1715,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         incremental_field_type,
                         db_incremental_field_last_value,
                         force_index_name=force_index_name,
-                        enabled_columns=enabled_columns,
+                        enabled_columns=projection.enabled_columns,
                         primary_keys=primary_keys,
                         row_filters=row_filters,
                     )

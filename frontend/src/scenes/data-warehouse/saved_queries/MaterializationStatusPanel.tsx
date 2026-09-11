@@ -209,8 +209,12 @@ export function MaterializationStatusPanel({
             <div className="flex flex-col flex-1 gap-4">
                 <div>
                     <div className="flex flex-row items-center gap-2">
-                        {!hideTitle && <h3 className="mb-0">Materialization</h3>}
-                        <LemonTag type="warning">BETA</LemonTag>
+                        {!hideTitle && (
+                            <>
+                                <h3 className="mb-0">Materialization</h3>
+                                <LemonTag type="warning">BETA</LemonTag>
+                            </>
+                        )}
                         {savedQuery?.latest_error && savedQuery.status === 'Failed' && (
                             <Tooltip title={savedQuery.latest_error} interactive>
                                 <LemonTag type="danger">Error</LemonTag>
@@ -384,7 +388,7 @@ export function MaterializationStatusPanel({
                                         )}
                                     </div>
                                 </div>
-                                {incrementalFlagOn && !savedQuery.managed_viewset_kind && (
+                                {incrementalFlagOn && !savedQuery.managed_viewset_kind && incrementalCheck && (
                                     <div className="mt-4 max-w-160">
                                         <h4 className="mb-0">Refresh mode</h4>
                                         <IncrementalConfigOptions

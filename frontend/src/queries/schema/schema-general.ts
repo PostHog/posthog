@@ -2919,6 +2919,8 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     assignedToUserIds?: integer[]
     /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean
+    /** Match accounts with at least one active relationship of any definition. */
+    assignedOnly?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
     /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -9578,6 +9580,8 @@ export const externalDataSources = [
     'GoogleAdSense',
     'Sequenzy',
     'Skio',
+    'Smartlead',
+    'Substack',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

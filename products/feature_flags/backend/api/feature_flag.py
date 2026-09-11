@@ -1601,6 +1601,13 @@ class FeatureFlagSerializer(
             raise
 
     def _validate_filters_inner(self, filters, operation: str):
+        # Unknown keys survive normalization during the validation rollout. Reserve the
+        # config discriminator before that path can store an unsupported format.
+        if "version" in filters:
+            raise serializers.ValidationError(
+                "filters.version is reserved. Remove it from the request.", code="reserved_config_version"
+            )
+
         # An empty filters dict on an update carries no instruction, so the merged state is
         # the stored state and there is nothing to validate. Returning it untouched also
         # keeps normalization off flags the request never addressed: DRF hands DictField an

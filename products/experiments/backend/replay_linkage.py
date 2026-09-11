@@ -466,6 +466,7 @@ def _resolve_exposure_read(team: Team, experiment: Experiment, context: Experime
                 table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
                 placeholders=placeholders,
                 sentinel_placeholders={"experiment_date_to"},
+                end_is_data_horizon=True,
                 spill_to_disk=True,
             )
     except Exception:

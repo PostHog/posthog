@@ -89,6 +89,56 @@ Do not add frontend-only controls that imply a backend capability. If the UI exp
 
 `InboxView` is the layout shell for `/inbox/*`. It owns the page header, tab bar, reviewer scope control, and nested route outlet. Route files live in `apps/code/src/renderer/routes/inbox/`.
 
+Under the spaces layout Self-driving is a rail destination that owns the column
+beside the rail (`railPaneHasSidebar`, `railPane.ts`). `InboxPane` draws the
+report list there and `ChannelsSidebar` mounts it; the pane beside it holds the
+report you picked. So `/inbox` renders `InboxHomePane` (nothing selected, or
+triage) instead of the page list, and a row opens the canonical
+`/reports/$reportId` with `?from=/inbox`, which is what keeps the rail lit and
+the list in place. Off that layout nothing changes: `/inbox` is still the full
+`ReportsInboxView` page.
+
+The pane's list is grouped by how long ago each report was found, in the same
+widening buckets the task list uses (`groupReportsByAge`, over
+`getRelativeDateGroup`): Today, Yesterday, This week, This month, Earlier. A
+separator per calendar day left most of the list one row per header, because
+reports arrive over weeks. The bucket leads and the chosen sort orders the rows
+inside it, so "Priority first" reads as the most urgent thing found today, then
+the most urgent thing found this week.
+
+A report opened from a pane closes back to it: `ReportDetailCloseButton` sits at
+the end of the header row and navigates to the `?from=` source, leaving the list
+standing and the pane on its empty state, the way Activity closes an item. A
+report with no source draws no button, because there is no list beside it.
+
+`InboxDetailFrameView` draws one header row, and only its container changes: on
+the report's own page it goes to the app header bar through the header store,
+and in a pane (Activity) the frame draws its own `ChromeBar` at the top. There
+is no second, padded header shape. `DetailBackLink` takes the report as a prop
+and renders its crumb trail.
+
+The trail names where the report lives, not the surface it is being read on. So
+a report opened from Activity still reads "Self-driving / <report>": the first
+crumb is the `?from=` source when a route carried one, and Self-driving
+otherwise. Activity is a place you can read a report from, not a place a report
+belongs to.
+
+Triage is a route, `/inbox/triage` (`triageRoute.ts`), not a mode flag. It is a
+place you can be, so it survives a reload, restores with the rail, and a report
+opened out of it carries `?from=/inbox/triage`, which is what makes the close
+button land back in the queue. `InboxTriagePane` renders it for both layouts;
+the button in the list header is a `Link`, and `useInboxTriageHotkey` gives the
+list its "t". Nothing holds triage in a store: the URL is the state.
+
+`useSetHeaderContent` takes the title row or `null`; a view with nothing to name
+pushes null. Beside the rail's list the pane names nothing, so `InboxView`
+pushes null there and the row collapses. The report a row opens pushes its own.
+
+`useInboxSectionedReports` assembles the list both surfaces read, so the sidebar
+and the page can never disagree about what is in the inbox. React Query dedupes
+the requests, but paging is a side effect, so only one caller may drive it: the
+sidebar pages, `InboxHomePane` passes `autoPage: false`.
+
 The tab components are intentionally simple:
 
 - `PullRequestsTab` partitions scoped reports with `isPullRequestReport`.
@@ -97,6 +147,12 @@ The tab components are intentionally simple:
 - `DismissedTab` (the "Archive" tab) lists its own `useInboxDismissedReports` query (matching `isDismissedReport`); read-only detail route, restore action per card.
 
 The detail components share the same shape: load the report, render a common header, then render tab-specific sections. Detail sections should explain the report in product terms, not expose backend object names.
+
+Filter option tables and their labels live in `filterOptions.tsx`, not in the
+component that draws them: the page's separate controls and the pane's menu are
+two renderings of one set of choices, and they drifted when each held its own
+copy. `hasActiveReportsListFilters` (the filter store) is the single answer to
+"is this list filtered", so every surface drawing the list agrees.
 
 ## Data Flow
 
@@ -147,7 +203,13 @@ An empty Reports view has two distinct causes, and they need different copy: not
 
 ## UI Architecture
 
-The current UI is single-column, route-based, and card/list oriented. Do not reintroduce the old split-pane list/detail layout.
+The page body is single-column, route-based, and card/list oriented. Do not reintroduce the old split-pane list/detail layout inside it: under the spaces layout the list moved out to the rail's sidebar column, which is app chrome shared with Spaces and Activity, not a pane the page draws.
+
+Header and toolbar buttons take their size from the `Button` prop, never from
+hand-written height, padding or text classes: `size="sm"` for a button with a
+label, `size="icon-sm"` for an icon-only one. A row of buttons that each carry
+their own `h-7 px-2.5 text-[12px]` drifts apart the moment one of them is
+edited, and it sits a size away from every other toolbar in the app.
 
 Shared primitives exist to keep the surfaces consistent:
 
@@ -165,7 +227,7 @@ Components come from `@posthog/quill`; layout is `div`s with Tailwind. Radix is 
 
 - Do not add any `@radix-ui/*` import. Use `@posthog/quill` plus `div` + Tailwind.
 - Do not reuse the deleted legacy `ReportListRow`, `ReportDetailPane`, or old list/detail stores.
-- Do not put page-level Inbox title or navigation into the global app header; `InboxView` owns the Inbox page chrome.
+- The Inbox title is a breadcrumb row, not a page header. `InboxView` pushes it into the header store and `ContentHeader` draws it, the same tight row task detail and the loop scenes use. Do not add a second in-page title above the list. Beside the rail's list the pane draws no row at all, because an empty pane and triage name nothing the column's own title does not already say. The row comes back for the report a row opens, which pushes its own crumb and actions.
 - Responder configuration stays in Settings (`/settings/agents`). The Inbox header carries a "Configure agents" link toward it, but do not embed configuration UI in the Inbox itself.
 - Scout (`signals_scout`) is a real Cloud source product. Keep it covered wherever source products surface: `INBOX_SOURCE_OPTIONS`, `SOURCE_PRODUCT_META`, and the scout-name display in `SignalCard`.
 - Scout management UI (fleet configuration, run history) lives in `features/scouts/` and is backed by the PostHog Cloud scout endpoints (`/api/projects/{teamId}/signals/scout/`). Do not add scout controls that have no backing endpoint there.

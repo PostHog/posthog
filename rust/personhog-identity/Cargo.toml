@@ -10,6 +10,7 @@ personhog-proto = { path = "../personhog-proto" }
 common-database = { path = "../common/database" }
 common-alloc = { path = "../common/alloc" }
 common-metrics = { path = "../common/metrics" }
+metrics = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
 
 async-trait = { workspace = true }

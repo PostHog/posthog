@@ -12,6 +12,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { BusinessKnowledgeTabs } from '../components/BusinessKnowledgeTabs'
 import { CreateKnowledgeSourceModal } from '../components/CreateKnowledgeSourceModal'
 import { EditKnowledgeSourceModal } from '../components/EditKnowledgeSourceModal'
 import { RefreshStatusCell } from '../components/RefreshStatusCell'
@@ -47,6 +48,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
                     </LemonButton>
                 }
             />
+            <BusinessKnowledgeTabs activeTab="sources" />
 
             <div className="flex gap-4 text-sm text-muted mb-2">
                 <span>{readyCount} ready</span>

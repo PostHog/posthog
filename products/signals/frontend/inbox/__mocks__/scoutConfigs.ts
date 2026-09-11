@@ -1,4 +1,5 @@
 import type {
+    ScoutCostsApi,
     ScoutSuggestionItemApi,
     ScoutSuggestionSetApi,
     SignalScoutConfigApi,
@@ -242,5 +243,26 @@ export function mockScoutSuggestionSet(overrides: Partial<ScoutSuggestionSetApi>
         fleet_snapshot: mockScoutConfigs.map((config) => config.skill_name),
         items: mockScoutSuggestions,
         ...overrides,
+    }
+}
+
+/**
+ * A cost row per scout, cycling the three cases the surfaces have to tell apart: a scout that spent
+ * and filed reports, one that spent and filed nothing, and one whose runs had no spend attributed.
+ */
+export function mockScoutCosts(configs: SignalScoutConfigApi[]): ScoutCostsApi {
+    return {
+        window_days: 7,
+        available: true,
+        scouts: configs.map((config, index) => {
+            const unpriced = index % 3 === 2
+            return {
+                skill_name: config.skill_name,
+                spend_usd: unpriced ? 0 : 1.68 + index * 4.2,
+                run_count: 14 + index,
+                priced_run_count: unpriced ? 0 : 14,
+                reports_touched: index % 3 === 1 ? 0 : 11,
+            }
+        }),
     }
 }

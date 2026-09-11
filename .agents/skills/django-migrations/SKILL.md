@@ -25,26 +25,30 @@ Adding migrations is fine. **Deleting a historical one — any `*/migrations/NNN
 To retire a model/table:
 
 1. Remove all usage and the model class. `makemigrations`, then wrap the generated `DeleteModel` in `migrations.SeparateDatabaseAndState(state_operations=[...])` (state only, no DB change). KEEP this file. Keep the app in `INSTALLED_APPS`.
-   **If the model has a `ForeignKey` to `posthog_team`, `posthog_user`, `posthog_organization` or `posthog_project`, drop that constraint in `database_operations` in this same migration.** This is required, not a cleanup. Django stops cascading into a table it can no longer see, so the child rows survive a parent delete. Those constraints are `DEFERRABLE INITIALLY DEFERRED`, so the parent delete runs its whole cascade and then fails at `COMMIT`, and team and organization deletion stay broken until someone drops the table.
+   **If the model has a `ForeignKey` to `posthog_team`, `posthog_user`, `posthog_organization` or `posthog_project`, drop that constraint with `DropForeignKey` in `database_operations` in this same migration.** This is required, not a cleanup. Django stops cascading into a table it can no longer see, so the child rows survive a parent delete. Those constraints are `DEFERRABLE INITIALLY DEFERRED`, so the parent delete runs its whole cascade and then fails at `COMMIT`, and team and organization deletion stay broken until someone drops the table.
 2. Deploy, wait at least one full deploy cycle.
 3. `DROP TABLE` later in a NEW `RunSQL` migration — never by deleting old files. Treat this as owed work rather than an option whenever step 1 left a foreign key to a hot parent in place.
-   `DROP TABLE` takes `ACCESS EXCLUSIVE` on every table its foreign keys reference, so a drop that still points at a hot parent must `SET LOCAL lock_timeout` to bound the wait. See [hot table hazard](#hot-table-hazard).
+   `DROP TABLE` takes `ACCESS EXCLUSIVE` on every table its foreign keys reference. Leave `lock_timeout` alone, and never set it to 0 here: migrations already run with one, and the drop should fail fast and let `bin/migrate` retry rather than queue that lock. See [hot table hazard](#hot-table-hazard).
    `python manage.py audit_orphan_hot_table_fks` lists tables already in this state. Run it against a long-lived database: a squashed history has no `CreateModel` for a table that left Django's state before the squash, so a fresh database never creates it and the migration files hold no trace of it.
 
 Full guide: `safe-django-migrations.md` (`## Dropping Tables`, `### Removing a whole product or app`). Deleting a migration your branch added but never merged to master is allowed (regenerating).
 
-## Retire a column in two phases
+## Retire a column
 
-Deleting the field and running `makemigrations` is not the first phase.
-Django generates a plain `RemoveField`, which drops the column in the same deploy that removes the code.
-Old pods still write to that column, and a rollback finds it gone.
+**Default: don't drop it.** Take the field out of the ORM and leave the column. It keeps its data and needs no deploy coordination.
 
-1. Remove all usage and the field from the model. `makemigrations`, then wrap the generated `RemoveField` in `migrations.SeparateDatabaseAndState(state_operations=[...], database_operations=[])`. The column stays in Postgres. Example: `posthog/migrations/1328_remove_userproductlist_reason_state.py`.
-2. Deploy, wait at least one full deploy cycle, and confirm no deployed code reads the column.
-3. Drop the column in a NEW `RunSQL` migration with `ALTER TABLE ... DROP COLUMN IF EXISTS`. Example: `posthog/migrations/1340_drop_userproductlist_reason_columns.py`.
+Deleting the field and running `makemigrations` is not that. Django names every concrete field in every `SELECT` and `INSERT` it writes, so the generated `RemoveField` drops the column in the same deploy that stops the code asking for it, and every pod still on the old release fails its queries. A `# deprecated` comment does not help, because the field is still on the model.
 
-`RemoveFieldAnalyzer` scores a bare `RemoveField` at 5, the highest risk the "Migration Risk Analysis" CI job reports.
-The phase 2 drop scores low only when `check_drop_properly_staged` finds the phase 1 state removal in an ancestor migration, so the two phases must land in that order and never in one migration.
+Two helpers in `posthog.migration_helpers` do it properly:
+
+- `deprecate_field(models.IntegerField(null=True))` wraps the field in place. No migration. Reads and writes warn, and the column leaves every query. The field must already be `null=True`, because nothing writes the column once it is hidden. Use `raise_on_access=True` to prove no caller is left.
+- `untrack_field("mymodel", "myfield")` replaces the generated `RemoveField` with a state-only migration, so the field leaves the model class and the column stays.
+
+**A foreign key column must use `untrack_field` plus `DropForeignKey` in the same migration.** Once Django cannot see the field, a parent delete stops cascading into it, and the deferred constraint fails the delete at `COMMIT` forever after. `deprecate_field` cannot be used on a foreign key at all, because it writes no migration and so has nowhere to put the constraint drop.
+
+Only drop the column after one of those has been deployed for a full deploy cycle, and drop it with `RunSQL ... DROP COLUMN IF EXISTS` in a migration that follows the state removal. Coming from `deprecate_field`, delete the wrapped line and replace the generated `RemoveField` with `untrack_field` first; both migrations can go in one PR. Never ship the plain `RemoveField` that `makemigrations` writes, because it removes state and drops the column in one operation and the analyzer cannot tell it from an unstaged drop.
+
+Check non-ORM readers first (`nodejs/`, `rust/`, Temporal workers, Metabase). Hiding a field from Django says nothing about them.
 
 Full guide: `safe-django-migrations.md` (`## Dropping Columns`).
 
@@ -96,6 +100,8 @@ Two things a callable does not do for you:
 - **Add a CHECK constraint** → `AddConstraintNotValid` then `ValidateConstraint` in a later migration (or same migration with `atomic = False`).
 - **Add a ForeignKey to a [hot table](#hot-table-hazard)** → declare the FK with `db_constraint=False` on the model (so `CreateModel` / `AddField` emit no parent lock), then add the DB constraint back with `AddForeignKeyNotValid` and follow up with `ValidateForeignKey` in a later migration. See [foreign keys to hot tables](#foreign-keys-to-hot-tables).
 - **Index expressed only as raw SQL** (no Django `Index`) → `CreateIndexConcurrently` / `DropIndexConcurrently` wrapped in `SeparateDatabaseAndState`.
+- **Retire a column** → `deprecate_field` on the model, or `untrack_field` in place of the generated `RemoveField`. See [retire a column](#retire-a-column).
+- **Drop a foreign key left behind by a retirement** → `DropForeignKey(table, column=...)` or `DropForeignKey(table, to_table=...)`. It reads the name from `pg_constraint`, so nothing is hardcoded and a retry is a no-op.
 
 All concurrent-index ops require `atomic = False`.
 

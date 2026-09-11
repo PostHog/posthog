@@ -16,6 +16,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
+from temporalio.common import WorkflowIDConflictPolicy
 
 from posthog.api.proxy_record_diagnostics import diagnose as diagnose_proxy_record
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -542,6 +543,15 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             record.delete()
         else:
             previous_status = record.status
+            # The workflow id is fixed per record, so a repeat delete collides with the
+            # deletion already running. Join that run only when the record was already
+            # deleting. Any other status means the last run is failing, and joining it
+            # would leave the record deleting forever once it closes.
+            delete_conflict_policy = (
+                WorkflowIDConflictPolicy.USE_EXISTING
+                if previous_status == ProxyRecord.Status.DELETING
+                else WorkflowIDConflictPolicy.FAIL
+            )
             record.status = ProxyRecord.Status.DELETING
             record.save()
 
@@ -561,6 +571,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                         inputs,
                         id=workflow_id,
                         task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                        id_conflict_policy=delete_conflict_policy,
                     )
                 )
             except Exception as e:

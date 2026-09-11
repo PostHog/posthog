@@ -9,8 +9,7 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
 - **Config.** Each scout has one `SignalScoutConfig` per `(project, skill_name)` carrying `run_interval_minutes` (default 1440), `enabled`, `emit`, `network_access` (`trusted` default, `full` for scouts that read arbitrary external sites), and a `last_run_at` stamp.
   A config is **auto-registered** the first time the coordinator sees a `signals-scout-*` skill without one, so authoring a prefixed skill is enough to get a scout.
   A skill named anything else needs its config created with it.
-  Prepare a fresh per-team scout and its config together with `posthog:scout-create-prepare`; the nested `config` object sets its schedule, emit posture, and destinations before it can run.
-  Show the returned confirmation message, wait for the user to type `confirm`, then call `posthog:scout-create-execute` with the returned `confirmation_hash` and that literal confirmation.
+  Create a fresh per-team scout and its config together with `posthog:scout-create`; the nested `config` object sets its schedule, emit posture, and destinations before it can run.
   The lower-level `posthog:scout-config-create` remains available when a skill already exists without a config.
   Config responses also carry the scout's `description`, read live from the skill's frontmatter — not a config field you set.
 - **Coordinator.** A periodic Temporal workflow ticks (~every 30 min).
@@ -26,7 +25,7 @@ Config responses expose `status` and `pause_reason` read-only; writes flow throu
 Slowing it = a larger `run_interval_minutes`.
 Dry-running it = `emit=false`.
 Letting it reach sites outside the trusted-domain allowlist = `network_access="full"`.
-All of these via `posthog:scout-config-update` (get the `id` from `-config-list`), or set at creation time in the nested `config` object passed to `posthog:scout-create-prepare`.
+All of these via `posthog:scout-config-update` (get the `id` from `-config-list`), or set at creation time in the nested `config` object passed to `posthog:scout-create`.
 
 ## Path A — per-team (skills store)
 
@@ -40,11 +39,8 @@ posthog:skill-list {"search": "signals-scout"}
 # Read a canonical scout to use as a template
 posthog:skill-get {"skill_name": "signals-scout-error-tracking"}
 
-# New scout from scratch: prepare the complete definition and config.
-posthog:scout-create-prepare {"name": "signals-scout-<scope>", "description": "...", "body": "...", "config": {"run_interval_minutes": 120}}
-
-# Show the returned message and wait for the user to type `confirm`, then execute.
-posthog:scout-create-execute {"confirmation_hash": "<returned-hash>", "confirmation": "confirm"}
+# New scout from scratch: create the complete definition and config.
+posthog:scout-create {"name": "signals-scout-<scope>", "description": "...", "body": "...", "config": {"run_interval_minutes": 120}}
 
 # Adapt an existing per-team scout — use the SMALLEST primitive (find/replace, not full-body)
 posthog:skill-get {"skill_name": "signals-scout-<scope>"}          # get current version first
@@ -99,7 +95,7 @@ There's no free test run, and it's slow (async, one run per call): firing the sa
 The loop is **dogfood → run once ready → inspect**:
 
 1. Dogfood the discriminator + explore patterns yourself against the live project (above), refining the body until the logic holds — the cheap, iterable part.
-2. Create the scout and its config together via `posthog:scout-create-prepare` → `-execute` (the default `emit=true` goes in the nested `config`), leaving `run_interval_minutes` at a sustainable value — no short-interval trick needed.
+2. Create the scout and its config together via `posthog:scout-create` (the default `emit=true` goes in the nested `config`), leaving `run_interval_minutes` at a sustainable value — no short-interval trick needed.
    Then spend one `-run-now` to watch the whole scout execute end-to-end, and inspect once it finishes:
    - `posthog:inbox-reports-list` — the reports it actually wrote.
    - `posthog:scout-runs-list` — run summaries.

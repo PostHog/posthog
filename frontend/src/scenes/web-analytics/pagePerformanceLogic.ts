@@ -170,14 +170,14 @@ const OVERVIEW_METRICS: {
     },
     {
         key: 'llm_referrals',
-        label: 'LLM referrals',
+        label: 'AI referrals',
         value: (t) => t.llm,
         previous: (t) => t.llmPrevious,
         series: (p) => p.llm,
     },
     {
         key: 'agent_crawls',
-        label: 'Agent crawls',
+        label: 'AI crawls',
         value: (t) => t.crawls,
         previous: (t) => t.crawlsPrevious,
         series: (p) => p.crawls,
@@ -399,18 +399,6 @@ export const resolvePagePerformanceBucket = (window: PagePerformanceWindow): Pag
     return 'week'
 }
 
-const PAGE_TABLE_COLUMNS = [
-    'context.columns.breakdown_value',
-    'context.columns.visitors',
-    'context.columns.google_search',
-    'context.columns.llm_referrals',
-    'context.columns.agent_crawls',
-    'context.columns.conversions',
-    'context.columns.avg_time',
-]
-
-const PAGE_TABLE_VISITORS_INDEX = PAGE_TABLE_COLUMNS.indexOf('context.columns.visitors')
-
 const BUCKET_HOGQL_FN: Record<PagePerformanceBucket, string> = {
     hour: 'toStartOfHour',
     day: 'toStartOfDay',
@@ -427,12 +415,6 @@ export const parseMetricCell = (value: unknown): MetricCellValue | null =>
     Array.isArray(value) && value.length >= 2
         ? { current: Number(value[0] ?? 0), previous: Number(value[1] ?? 0) }
         : null
-
-/** The row's own human visitor count, which every other metric on that row is a share of. */
-export const pageVisitorsFromRecord = (record: unknown): number => {
-    const cell = Array.isArray(record) ? record[PAGE_TABLE_VISITORS_INDEX] : null
-    return Array.isArray(cell) ? Number(cell[0] ?? 0) : 0
-}
 
 /** Shares below 10% get a decimal, so a page holding 0.4% of site traffic doesn't read as 0%. */
 export const formatShare = (part: number, whole: number): string | null => {
@@ -704,6 +686,7 @@ export interface pagePerformanceLogicValues {
     pageCandidateQuery: WebStatsTableQuery
     pageCandidates: string[] | null
     pageTableQuery: DataTableNode
+    pageTableInput: string
     pathExpr: string
     previousPathExpr: string
     window: PagePerformanceWindow
@@ -714,9 +697,7 @@ export interface pagePerformanceLogicActions {
     closeBreakdown: () => {
         value: true
     }
-    loadOverview: () => {
-        value: true
-    }
+    loadOverview: (reset?: boolean) => { reset: boolean }
     loadOverviewFailure: (error: string) => {
         error: string
     }
@@ -727,9 +708,7 @@ export interface pagePerformanceLogicActions {
         overviewTotals: OverviewTotals
         overviewSeries: OverviewSeriesPoint[]
     }
-    loadCandidates: () => {
-        value: true
-    }
+    loadCandidates: (reset?: boolean) => { reset: boolean }
     loadCandidatesFailure: (error: string) => {
         error: string
     }
@@ -852,13 +831,13 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
         setOrderBy: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
         openBreakdown: (breakdown: PagePerformanceBreakdownState) => ({ breakdown }),
         closeBreakdown: true,
-        loadOverview: true,
+        loadOverview: (reset: boolean = false) => ({ reset }),
         loadOverviewFailure: (error: string) => ({ error }),
         loadOverviewSuccess: (overviewTotals: OverviewTotals, overviewSeries: OverviewSeriesPoint[]) => ({
             overviewTotals,
             overviewSeries,
         }),
-        loadCandidates: true,
+        loadCandidates: (reset: boolean = false) => ({ reset }),
         loadCandidatesFailure: (error: string) => ({ error }),
         loadCandidatesSuccess: (pageCandidates: string[]) => ({ pageCandidates }),
     }),
@@ -879,14 +858,14 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
         overviewTotals: [
             null as OverviewTotals | null,
             {
-                loadOverview: () => null,
+                loadOverview: (state, { reset }) => (reset ? null : state),
                 loadOverviewSuccess: (_, { overviewTotals }) => overviewTotals,
             },
         ],
         overviewSeries: [
             [] as OverviewSeriesPoint[],
             {
-                loadOverview: () => [],
+                loadOverview: (state, { reset }) => (reset ? [] : state),
                 loadOverviewSuccess: (_, { overviewSeries }) => overviewSeries,
             },
         ],
@@ -908,8 +887,13 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
         pageCandidates: [
             null as string[] | null,
             {
-                loadCandidates: () => null,
-                loadCandidatesSuccess: (_, { pageCandidates }) => pageCandidates,
+                loadCandidates: (state, { reset }) => (reset ? null : state),
+                loadCandidatesSuccess: (state, { pageCandidates }) =>
+                    state &&
+                    state.length === pageCandidates.length &&
+                    state.every((page, index) => page === pageCandidates[index])
+                        ? state
+                        : pageCandidates,
             },
         ],
         candidatesError: [
@@ -1219,6 +1203,14 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
             ): string =>
                 JSON.stringify([overviewHumanQuery, overviewCrawlerQuery, filterTestAccounts, webAnalyticsFilters]),
         ],
+        pageTableInput: [
+            (s) => [s.overviewInput, s.orderBy, s.conversionGoal],
+            (
+                overviewInput: string,
+                orderBy: PagePerformanceOrderBy,
+                conversionGoal: WebAnalyticsConversionGoal | null
+            ): string => JSON.stringify([overviewInput, orderBy, conversionGoal]),
+        ],
         candidatesInput: [
             (s) => [s.pageCandidateQuery],
             (pageCandidateQuery: WebStatsTableQuery): string => JSON.stringify(pageCandidateQuery),
@@ -1297,10 +1289,12 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                 isPathCleaningEnabled: boolean
             ): string => {
                 return [
-                    pluralize(overviewTotals?.pages ?? 0, 'page'),
+                    overviewTotals ? pluralize(overviewTotals.pages, 'page') : null,
                     `conversion goal: ${goalLabel ?? 'not set'}`,
                     `path cleaning ${isPathCleaningEnabled ? 'on' : 'off'}`,
-                ].join(' · ')
+                ]
+                    .filter(Boolean)
+                    .join(' · ')
             },
         ],
     })),
@@ -1317,7 +1311,7 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
             error instanceof Error ? error.message : 'Could not load search and AI data'
 
         return {
-            loadOverview: async (_, breakpoint) => {
+            loadOverview: async ({ reset }, breakpoint) => {
                 await breakpoint(300)
                 const signal = signalFor('overviewRequest')
                 const overviewNode = (query: string): HogQLQuery => ({
@@ -1331,8 +1325,16 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                 })
                 try {
                     const [humanResponse, crawlerResponse] = await Promise.all([
-                        performQuery(overviewNode(values.overviewHumanQuery), { signal }),
-                        performQuery(overviewNode(values.overviewCrawlerQuery), { signal }),
+                        performQuery(
+                            overviewNode(values.overviewHumanQuery),
+                            { signal },
+                            reset ? 'blocking' : 'force_blocking'
+                        ),
+                        performQuery(
+                            overviewNode(values.overviewCrawlerQuery),
+                            { signal },
+                            reset ? 'blocking' : 'force_blocking'
+                        ),
                     ])
                     breakpoint()
                     const { window: dateWindow } = values
@@ -1362,17 +1364,22 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                         mergePagePerformanceSeries(human, crawler)
                     )
                 } catch (error) {
-                    if (isCancellation(error)) {
+                    if (isCancellation(error) || cache.disposables.isDisposed) {
                         return
                     }
+                    breakpoint()
                     actions.loadOverviewFailure(failureMessage(error))
                 }
             },
-            loadCandidates: async (_, breakpoint) => {
+            loadCandidates: async ({ reset }, breakpoint) => {
                 await breakpoint(300)
                 const signal = signalFor('candidatesRequest')
                 try {
-                    const candidatesResponse = await performQuery(values.pageCandidateQuery, { signal })
+                    const candidatesResponse = await performQuery(
+                        values.pageCandidateQuery,
+                        { signal },
+                        reset ? 'blocking' : 'force_blocking'
+                    )
                     breakpoint()
                     const pageCandidates = (candidatesResponse.results ?? []).flatMap((candidate) => {
                         if (!Array.isArray(candidate) || typeof candidate[0] !== 'string' || candidate[0] === '') {
@@ -1382,9 +1389,10 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                     })
                     actions.loadCandidatesSuccess(pageCandidates)
                 } catch (error) {
-                    if (isCancellation(error)) {
+                    if (isCancellation(error) || cache.disposables.isDisposed) {
                         return
                     }
+                    breakpoint()
                     actions.loadCandidatesFailure(failureMessage(error))
                 }
             },
@@ -1396,15 +1404,15 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
     }),
     subscriptions(({ actions }) => ({
         overviewInput: () => {
-            actions.loadOverview()
+            actions.loadOverview(true)
         },
         candidatesInput: () => {
-            actions.loadCandidates()
+            actions.loadCandidates(true)
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadOverview()
-        actions.loadCandidates()
+        actions.loadOverview(true)
+        actions.loadCandidates(true)
     }),
 ])
 

@@ -491,7 +491,7 @@ jobs:
               run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"
 
     frontend-bundle-size:
-        name: Frontend bundle size
+        name: Frontend checks
         needs: [changes]
         # Not on the hourly cron: the vs-base comparison build is pull_request-only,
         # so a cron run measures an absolute size with nothing to compare it against.
@@ -574,6 +574,9 @@ jobs:
             # Runs against the PR's own metafile, before the base rebuild overwrites it.
             - name: Check toolbar graph stays inside its module boundary
               run: pnpm --filter=@posthog/frontend check-toolbar-graph
+
+            - name: Check toolbar for CSP eval violations
+              run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
 
             # Keep the PR-side poster available after the base reset below. This is especially
             # important on the PR that introduces or updates the poster itself.
@@ -684,9 +687,6 @@ jobs:
                       exit 0
                   fi
                   node frontend/bin/check-eager-graph.mjs --assert-report "$REPORT" --fail-forbidden-hits
-
-            - name: Check toolbar for CSP eval violations
-              run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
 
             - name: Calculate dist folder size
               id: dist-size

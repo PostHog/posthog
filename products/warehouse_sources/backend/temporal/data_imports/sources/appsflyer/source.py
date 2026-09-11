@@ -56,8 +56,12 @@ class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://hq1.appsflyer.com": "AppsFlyer authentication failed. Please check your API token (V2).",
-            "403 Client Error: Forbidden for url: https://hq1.appsflyer.com": "AppsFlyer denied access. Please check that your account's subscription includes the aggregate Pull API and the app id is correct.",
+            "403 Client Error: Forbidden for url: https://hq1.appsflyer.com": "AppsFlyer denied access. Please check that your account's subscription includes the report being synced and the app id is correct.",
             "404 Client Error: Not Found for url: https://hq1.appsflyer.com": "AppsFlyer app not found. Please check the app id.",
+            # A 400 from the Pull API is always a rejected request shape: the daily report quota is
+            # used up, the date range predates the raw-data lookback limit, or the row cap is
+            # invalid. None of those change if we send the identical call again.
+            "400 Client Error: Bad Request for url: https://hq1.appsflyer.com": "AppsFlyer rejected the report request. Your account's daily quota for this report may be used up, which resets at 00:00 UTC. Otherwise please check that your subscription includes this report.",
             # AppsFlyer overloads 416 as a catch-all for request/authorization validation failures on
             # the aggregate Pull API (e.g. the account isn't authorized for this report or app id). The
             # request shape is fixed, so retrying the identical call can never satisfy it.
@@ -70,9 +74,11 @@ class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
             name=SchemaExternalDataSourceType.APPS_FLYER,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="AppsFlyer",
-            caption="""Enter your AppsFlyer credentials to pull aggregate performance reports into the PostHog Data warehouse.
+            caption="""Enter your AppsFlyer credentials to pull aggregate performance reports and raw event data into the PostHog Data warehouse.
 
-You can find your API token (V2) in AppsFlyer under your account menu > Security center > AppsFlyer API tokens. The app id is your app's identifier as shown in the dashboard (e.g. `id123456789` for iOS or the package name for Android) — add one source per app.""",
+You can find your API token (V2) in AppsFlyer under your account menu > Security center > AppsFlyer API tokens. The app id is your app's identifier as shown in the dashboard (e.g. `id123456789` for iOS or the package name for Android). Add one source per app.
+
+Raw data tables (installs, in-app events and ad revenue) and the Master API report need an AppsFlyer subscription that covers them, and AppsFlyer limits raw data to the last 90 days.""",
             iconPath="/static/services/appsflyer.png",
             docsUrl="https://posthog.com/docs/cdp/sources/appsflyer",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -111,6 +111,7 @@ You still get full git history for commands like `git log` and `git diff`. Blobs
 
 `hogli start` keeps a blobless clone healthy, because git does not consolidate the pack files these on-demand fetches create.
 It repacks in the background when they build up. Run `hogli doctor:git` to do it yourself.
+If `git fetch` fails with `Could not read <sha>`, the clone is missing commits. Run `hogli doctor:git --fix` to download them again.
 
 > The `feature-flags` container relies on the presence of the GeoLite cities
 > database in the `/share` directory. If you haven't run `hogli start` this database may not exist.

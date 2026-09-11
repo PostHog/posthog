@@ -333,6 +333,7 @@ export class ToolExecutor {
                     toolMeta: tool._meta,
                     toolName: tool.name,
                     params: validation.data,
+                    includeAppData: state.clientProfile.consumer === 'posthog_ai',
                     suppressStructuredContentForFormattedResults: shouldSuppressStructuredContent({
                         isCliModeEnabled: state.clientProfile.isCliModeEnabled(),
                         useSingleExec: state.useSingleExec,

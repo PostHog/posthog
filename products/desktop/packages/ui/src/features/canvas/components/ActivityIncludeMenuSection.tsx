@@ -1,17 +1,9 @@
 import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import {
-  cn,
   DropdownMenuCheckboxItem,
-  DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   MenuLabel,
 } from "@posthog/quill";
-import type { SourceProduct } from "@posthog/shared/types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
   type ActivityInboxScope,
@@ -20,59 +12,33 @@ import {
 } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
 import {
-  INBOX_PRIORITY_OPTIONS,
-  INBOX_SORT_OPTIONS,
+  INBOX_PRIORITY_MENU_OPTIONS,
+  INBOX_SORT_MENU_OPTIONS,
   inboxPriorityFilterLabel,
+  inboxSortOptionFromKey,
+  inboxSortOptionKey,
   inboxSourceFilterLabel,
 } from "@posthog/ui/features/inbox/filterOptions";
 import { useInboxSourceFilterOptions } from "@posthog/ui/features/inbox/hooks/useInboxSourceFilterOptions";
 import type { InboxPrFilter } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
-import { type ReactElement, useMemo } from "react";
+import {
+  FilterCheckboxSubMenu,
+  FilterClearItem,
+  type FilterOption,
+  FilterRadioSubMenu,
+} from "@posthog/ui/primitives/FilterMenu";
+import type { ReactElement } from "react";
 
-const SCOPE_OPTIONS: readonly {
-  value: ActivityInboxScope;
-  label: string;
-}[] = [
+const SCOPE_OPTIONS: readonly FilterOption<ActivityInboxScope>[] = [
   { value: "for-you", label: "For you" },
   { value: "entire-project", label: "Entire project" },
 ];
 
-const REPORT_OPTIONS: readonly { value: InboxPrFilter; label: string }[] = [
+const REPORT_OPTIONS: readonly FilterOption<InboxPrFilter>[] = [
   { value: "all", label: "All reports" },
   { value: "with_pr", label: "Has a PR" },
   { value: "without_pr", label: "No PR yet" },
 ];
-
-function selectedLabel<T extends string>(
-  options: readonly { value: T; label: string }[],
-  value: T,
-): string {
-  return options.find((option) => option.value === value)?.label ?? "";
-}
-
-function ActivityFilterValue({
-  label,
-  value,
-  active,
-}: {
-  label: string;
-  value: string;
-  active: boolean;
-}): ReactElement {
-  return (
-    <>
-      <span>{label}</span>
-      <span
-        className={cn(
-          "flex-1 pl-4 text-right",
-          active ? "text-primary" : "text-muted-foreground/80",
-        )}
-      >
-        {value}
-      </span>
-    </>
-  );
-}
 
 export function ActivityIncludeMenuSection(): ReactElement {
   const reportsInboxEnabled = useReportsInboxEnabled();
@@ -128,14 +94,6 @@ export function ActivityIncludeMenuSection(): ReactElement {
   const sourceOptions = useInboxSourceFilterOptions(sourceProductFilter, {
     enabled: inboxAvailable && inboxEnabled,
   });
-  const selectedSources = useMemo(
-    () => new Set(sourceProductFilter),
-    [sourceProductFilter],
-  );
-  const activeSort = INBOX_SORT_OPTIONS.find(
-    (option) =>
-      option.field === sortField && option.direction === sortDirection,
-  );
   return (
     <>
       <MenuLabel>Include</MenuLabel>
@@ -160,169 +118,55 @@ export function ActivityIncludeMenuSection(): ReactElement {
         <>
           <DropdownMenuSeparator />
           <MenuLabel>Self-driving</MenuLabel>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="pr-1">
-              <ActivityFilterValue
-                label="Scope"
-                value={selectedLabel(SCOPE_OPTIONS, inboxScope)}
-                active={inboxScope !== "for-you"}
-              />
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent side="right" sideOffset={4}>
-              <DropdownMenuRadioGroup
-                value={inboxScope}
-                onValueChange={(value) =>
-                  setInboxScope(value as ActivityInboxScope)
-                }
-              >
-                {SCOPE_OPTIONS.map((option) => (
-                  <DropdownMenuRadioItem
-                    key={option.value}
-                    value={option.value}
-                  >
-                    {option.label}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="pr-1">
-              <ActivityFilterValue
-                label="Source"
-                value={inboxSourceFilterLabel(sourceProductFilter)}
-                active={sourceProductFilter.length > 0}
-              />
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent side="right" sideOffset={4}>
-              <DropdownMenuCheckboxItem
-                checked={sourceProductFilter.length === 0}
-                closeOnClick={false}
-                onCheckedChange={clearSourceProductFilter}
-              >
-                All sources
-              </DropdownMenuCheckboxItem>
-              {sourceOptions.map((option) => (
-                <DropdownMenuCheckboxItem
-                  key={option.value}
-                  checked={selectedSources.has(option.value)}
-                  closeOnClick={false}
-                  onCheckedChange={() =>
-                    toggleSourceProduct(option.value as SourceProduct)
-                  }
-                >
-                  {option.icon}
-                  {option.label}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="pr-1">
-              <ActivityFilterValue
-                label="Reports"
-                value={selectedLabel(REPORT_OPTIONS, prFilter)}
-                active={prFilter !== "all"}
-              />
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent side="right" sideOffset={4}>
-              <DropdownMenuRadioGroup
-                value={prFilter}
-                onValueChange={(value) => setPrFilter(value as InboxPrFilter)}
-              >
-                {REPORT_OPTIONS.map((option) => (
-                  <DropdownMenuRadioItem
-                    key={option.value}
-                    value={option.value}
-                  >
-                    {option.label}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="pr-1">
-              <ActivityFilterValue
-                label="Sort by"
-                value={activeSort?.label ?? "Priority first"}
-                active={sortField !== "priority" || sortDirection !== "asc"}
-              />
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent side="right" sideOffset={4}>
-              <DropdownMenuRadioGroup
-                value={`${sortField}:${sortDirection}`}
-                onValueChange={(value) => {
-                  const option = INBOX_SORT_OPTIONS.find(
-                    (candidate) =>
-                      `${candidate.field}:${candidate.direction}` === value,
-                  );
-                  if (option) setSort(option.field, option.direction);
-                }}
-              >
-                {INBOX_SORT_OPTIONS.map((option) => (
-                  <DropdownMenuRadioItem
-                    key={`${option.field}:${option.direction}`}
-                    value={`${option.field}:${option.direction}`}
-                  >
-                    {option.icon}
-                    {option.label}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="pr-1">
-              <ActivityFilterValue
-                label="Priority"
-                value={inboxPriorityFilterLabel(priorityFilter)}
-                active={priorityFilter.length > 0}
-              />
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent side="right" sideOffset={4}>
-              <DropdownMenuCheckboxItem
-                checked={priorityFilter.length === 0}
-                closeOnClick={false}
-                onCheckedChange={clearPriorityFilter}
-              >
-                All priorities
-              </DropdownMenuCheckboxItem>
-              {INBOX_PRIORITY_OPTIONS.map((option) => (
-                <DropdownMenuCheckboxItem
-                  key={option.value}
-                  checked={priorityFilter.includes(option.value)}
-                  closeOnClick={false}
-                  onCheckedChange={() => togglePriority(option.value)}
-                >
-                  <span
-                    aria-hidden
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: option.accent }}
-                  />
-                  {option.value}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+          <FilterRadioSubMenu
+            label="Scope"
+            options={SCOPE_OPTIONS}
+            value={inboxScope}
+            defaultValue="for-you"
+            onChange={setInboxScope}
+          />
+          <FilterCheckboxSubMenu
+            label="Source"
+            summary={inboxSourceFilterLabel(sourceProductFilter)}
+            allLabel="All sources"
+            options={sourceOptions}
+            selected={sourceProductFilter}
+            onToggle={toggleSourceProduct}
+            onClear={clearSourceProductFilter}
+          />
+          <FilterRadioSubMenu
+            label="Reports"
+            options={REPORT_OPTIONS}
+            value={prFilter}
+            defaultValue="all"
+            onChange={setPrFilter}
+          />
+          <FilterRadioSubMenu
+            label="Sort by"
+            options={INBOX_SORT_MENU_OPTIONS}
+            value={inboxSortOptionKey(sortField, sortDirection)}
+            defaultValue={inboxSortOptionKey("priority", "asc")}
+            onChange={(key) => {
+              const option = inboxSortOptionFromKey(key);
+              if (option) setSort(option.field, option.direction);
+            }}
+          />
+          <FilterCheckboxSubMenu
+            label="Priority"
+            summary={inboxPriorityFilterLabel(priorityFilter)}
+            allLabel="All priorities"
+            options={INBOX_PRIORITY_MENU_OPTIONS}
+            selected={priorityFilter}
+            onToggle={togglePriority}
+            onClear={clearPriorityFilter}
+          />
         </>
       )}
-      {filtersActive && (
-        <>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            data-attr="clear-activity-filters"
-            variant="destructive"
-            onClick={() => resetMenuFilters(authIdentity)}
-          >
-            Clear filters
-          </DropdownMenuItem>
-        </>
-      )}
+      <FilterClearItem
+        active={filtersActive}
+        dataAttr="clear-activity-filters"
+        onClear={() => resetMenuFilters(authIdentity)}
+      />
     </>
   );
 }

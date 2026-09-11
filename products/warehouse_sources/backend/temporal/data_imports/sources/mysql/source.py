@@ -306,8 +306,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # PostHog's connecting host, so the handshake is rejected before any credentials are
             # checked. Only a DB admin can fix this server-side (GRANT for the host, or allow our
             # egress / SSH-tunnel host) — retrying connects from the same host fails identically.
-            # Match the stable tail phrase, not the volatile host in the message prefix.
-            "is not allowed to connect to this MySQL server": "Your MySQL/MariaDB server isn't allowing connections from PostHog's host (error 1130). Ask your database admin to grant access for the connecting host (or allow our IP / SSH-tunnel host), then retry the sync.",
+            # Match the stable tail phrase, not the volatile host in the message prefix, and not the
+            # vendor name that follows it: MariaDB renders this same error as "...this MariaDB
+            # server", not "...this MySQL server", so anchoring on the vendor name missed every
+            # MariaDB server.
+            "is not allowed to connect to this": "Your MySQL/MariaDB server isn't allowing connections from PostHog's host (error 1130). Ask your database admin to grant access for the connecting host (or allow our IP / SSH-tunnel host), then retry the sync.",
             # MySQL/MariaDB error 1226 (ER_USER_LIMIT_REACHED): the connecting user account has a
             # `MAX_CONNECTIONS_PER_HOUR` resource limit set (via `CREATE USER`/`GRANT ... WITH
             # MAX_CONNECTIONS_PER_HOUR`), and this hour's quota is used up. The counter only resets

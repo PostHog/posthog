@@ -22,12 +22,4 @@ database "posthog" {
       remote_table    = "channel_definition"
     }
   }
-  # prod-eu materializes eight properties prod-us does not.
-  patch_table "events" {
-    column "mat_$ai_experiment_id" {
-      type    = "Nullable(String)"
-      comment = "column_materializer::properties::$ai_experiment_id"
-      after   = "mat_$ai_prompt_name"
-    }
-  }
 }

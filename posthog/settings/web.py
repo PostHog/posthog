@@ -587,6 +587,7 @@ SPECTACULAR_SETTINGS = {
             "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
             # Matches replay_vision's VisionAlertState.
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
+            "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
             #
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
