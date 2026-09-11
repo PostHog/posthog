@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { EMPTY_POLLS_BEFORE_BACKOFF, SSE_RECONNECT_MAX_MS } from 'lib/wizard-sync/pollLoop'
+import { EMPTY_POLLS_BEFORE_BACKOFF, MAX_POLL_BACKOFF_MS, SSE_RECONNECT_MAX_MS } from 'lib/wizard-sync/pollLoop'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -45,6 +45,9 @@ function makeSession(overrides: Partial<WizardSessionDTOApi> = {}): WizardSessio
 
 // Max jittered gap for the default 3s interval is 3.6s — advancing past it guarantees the next tick.
 const PAST_MAX_JITTERED_INTERVAL_MS = 4000
+
+// Same for the 60s ceiling the offline guard waits out: 72s at most.
+const PAST_MAX_JITTERED_BACKOFF_MS = MAX_POLL_BACKOFF_MS * 1.2 + 1000
 
 // A poll tick settles over several microtasks: the request, the outcome branch, then the next
 // timer. One `Promise.resolve()` is not always enough to see the tick that follows.
@@ -231,6 +234,18 @@ describe('wizardSessionStreamLogic polling mode', () => {
 
         setOnLine(true)
         window.dispatchEvent(new Event('online'))
+        await expectLogic(logic).toDispatchActions(['sessionUpdated'])
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(1)
+    })
+
+    // A wrong offline signal (a VPN, a virtual adapter) never flips back, so no `online` event is
+    // coming. The loop has to probe anyway, or the widget sits on its spinner for the whole visit.
+    it('still probes once the backoff ceiling passes while the browser claims to be offline', async () => {
+        mockLatestRetrieve.mockResolvedValue(makeSession())
+        setOnLine(false)
+
+        logic.actions.connect()
+        jest.advanceTimersByTime(PAST_MAX_JITTERED_BACKOFF_MS)
         await expectLogic(logic).toDispatchActions(['sessionUpdated'])
         expect(mockLatestRetrieve).toHaveBeenCalledTimes(1)
     })

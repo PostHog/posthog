@@ -100,8 +100,9 @@ export interface PollLoopOptions {
  *   errors stop the loop, so an outage or a deleted resource is not hammered at full cadence.
  * - Consecutive empty ticks past EMPTY_POLLS_BEFORE_BACKOFF back off the same way, so an endpoint
  *   with nothing to report (no session yet, killswitched) winds down instead of polling forever.
- * - Ticks are skipped entirely while `navigator.onLine` is false, so a client with no network stops
- *   filing failed requests until it has one again.
+ * - Ticks are skipped while `navigator.onLine` is false, so a client with no network stops filing
+ *   failed requests until it has one again. One tick per MAX_POLL_BACKOFF_MS still goes through,
+ *   because the browser signal can be wrong and there is no event to correct it.
  */
 export function createPollLoop(options: PollLoopOptions): () => () => void {
     // Outside the setup function on purpose. The disposables plugin re-runs setup on a tab-visibility
@@ -114,6 +115,8 @@ export function createPollLoop(options: PollLoopOptions): () => () => void {
         // listener below must not revive a loop that reached a terminal tick or a permanent error.
         let finished = false
         let inFlight = false
+        // The next tick probes even if the browser still claims to be offline.
+        let offlineProbeDue = false
         let timer: number | undefined
 
         const nextDelayMs = (): number => {
@@ -149,12 +152,16 @@ export function createPollLoop(options: PollLoopOptions): () => () => void {
             }
             // The browser reports no network, so a request can only fail in the transport. Skipping
             // it keeps a disconnected client quiet instead of filing a failed request per tick.
-            // `onOnline` wakes the loop as soon as the network returns; this timer is the fallback
-            // for the cases the event misses.
-            if (navigator.onLine === false) {
+            // `onOnline` wakes the loop when the network returns, but that signal can also stay
+            // stuck at false while the API is reachable (a VPN, a virtual adapter), and no event
+            // corrects it. So let one tick through per gap instead of trusting it forever: one
+            // request a minute at worst, the loop's own failure ceiling.
+            if (navigator.onLine === false && !offlineProbeDue) {
+                offlineProbeDue = true
                 scheduleNext(MAX_POLL_BACKOFF_MS)
                 return
             }
+            offlineProbeDue = false
             inFlight = true
             try {
                 const outcome = await options.tick()
