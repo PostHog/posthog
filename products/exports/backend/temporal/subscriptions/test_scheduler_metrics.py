@@ -27,5 +27,5 @@ def test_record_scheduler_fetch_emits_progress_and_saturation_signals() -> None:
     run_meter = meter.with_additional_attributes.return_value
     run_meter.create_counter.return_value.add.assert_called_once_with(1)
     meter.create_counter.return_value.add.assert_called_once_with(500)
-    meter.create_histogram_float.return_value.record.assert_called_once_with(2_700.0)
-    meter.create_gauge_float.return_value.set.assert_called_once_with(1_789_128_000.0)
+    meter.create_gauge_float.return_value.set.assert_any_call(2_700.0)
+    meter.create_gauge_float.return_value.set.assert_any_call(1_789_128_000.0)
