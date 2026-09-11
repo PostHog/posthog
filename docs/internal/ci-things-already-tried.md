@@ -362,6 +362,9 @@ _Also asked as:_ Docker Hub rate limit in CI, unauthenticated pull limit, DOCKER
 
 ## CI orchestration
 
+The required Docker image workflow runs only when a pull request opens or changes.
+A separate non-required workflow handles `hobby-preview` and `no-depot-docker-cache` label additions, while Hobby label events still handle preview cleanup.
+
 ### Move CI from the Depot runners to Blacksmith
 
 **Verdict: rejected** · Apr 2026 to May 2026 · [#54559](https://github.com/PostHog/posthog/pull/54559), removed by [#57991](https://github.com/PostHog/posthog/pull/57991)
