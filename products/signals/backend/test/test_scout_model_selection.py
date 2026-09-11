@@ -42,8 +42,8 @@ def _scouts(scouts: dict, team_id: int = _TEAM_ID) -> dict:
 
 
 def _tier_counts(payload: object, model: str, n: int = 400) -> dict[str | None, int]:
-    # Service tiers seen across many run ids, holding the model and runtime fixed: the arms of a
-    # same-model queue trial must differ by tier and by nothing else.
+    # Tiers across many run ids, with model and runtime held fixed: a same-model queue trial's arms
+    # must differ by tier alone.
     counts: dict[str | None, int] = {}
     for i in range(n):
         resolved = _resolve_full(run_id=f"run-{i}", payload=payload)
@@ -166,10 +166,8 @@ class TestResolveScoutModel:
 
     @parameterized.expand(
         [
-            # A pinned runtime can't rescue a malformed fraction, and a present-but-malformed `model`
-            # names nothing to route to. Both drop the entry and keep the agent default. A bad `model`
-            # can't fall back to the key the way a bad pin falls back to inference: with `model` set
-            # the key is read as a label, so routing the run would hand the label over as a model id.
+            # A bad `model` drops the entry rather than falling back to the key the way a bad pin
+            # falls back to inference: with `model` set the key is a label, not a model id to route to.
             ("fraction", {"fraction": "lots", "runtime_adapter": "codex"}),
             ("model_empty", {"model": "", "fraction": 1}),
             ("model_non_string", {"model": 5, "fraction": 1}),
@@ -183,16 +181,14 @@ class TestResolveScoutModel:
         )
 
     def test_labelled_entry_resolves_to_the_model_it_names(self) -> None:
-        # With `model` set the key is only a label, so both the stamp and the runtime must come from
-        # `model`. A label handed to the agent server names no model it can serve, and inferring the
+        # The key is only a label, so the stamp and the runtime both come from `model`. Inferring the
         # runtime off this label would say `claude` for a GPT arm and route it to the wrong provider.
         resolved = _resolve_full(payload=_scouts({_SKILL: {"claude-sounding-label": {"model": _GPT, "fraction": 1}}}))
         assert resolved == ScoutModel(model=_GPT, runtime_adapter="codex")
 
     def test_two_labelled_arms_of_one_model_are_separate_slices(self) -> None:
-        # The shape labels exist for: one model, two queues, fully allocated so no run falls through
-        # to the remainder. Keyed by model id these two entries would collapse into one, and the
-        # flex-vs-standard read would be a model compared against itself on a single queue.
+        # Keyed by model id these two entries would collapse into one, and the flex-vs-standard read
+        # would compare a model against itself on a single queue.
         payload = _scouts(
             {
                 _SKILL: {

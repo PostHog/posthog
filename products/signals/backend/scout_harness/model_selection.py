@@ -113,9 +113,8 @@ DEFAULT_MODEL_KEY = "default"
 
 # Keys recognized in the object form of a model entry (the alternative to a bare fraction):
 # `{"model": "gpt-5.6-sol", "fraction": <0..1>, "runtime_adapter": "claude"|"codex",
-# "reasoning_effort": "high", "service_tier": "flex"}`. `model` is what lets a map hold several
-# entries for one model: with it the entry's key is only a label for the arm, so two arms of the
-# same model get a key each, which duplicate JSON keys cannot express.
+# "reasoning_effort": "high", "service_tier": "flex"}`. With `model` set the entry's key is only a
+# label for the arm, which is how one model holds several arms.
 MODEL_KEY = "model"
 FRACTION_KEY = "fraction"
 RUNTIME_ADAPTER_KEY = "runtime_adapter"
