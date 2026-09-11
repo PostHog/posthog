@@ -1,7 +1,7 @@
 import datetime as dt
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
@@ -18,9 +18,9 @@ async def test_schedule_does_not_access_temporal_outside_dev(deployment: str | N
     client = MagicMock(spec=Client)
     with (
         override_settings(CLOUD_DEPLOYMENT=deployment, DEBUG=True),
-        patch(f"{MODULE}.a_schedule_exists", new_callable=AsyncMock) as exists,
-        patch(f"{MODULE}.a_create_schedule", new_callable=AsyncMock) as create,
-        patch(f"{MODULE}.a_update_schedule", new_callable=AsyncMock) as update,
+        patch(f"{MODULE}.a_schedule_exists") as exists,
+        patch(f"{MODULE}.a_create_schedule") as create,
+        patch(f"{MODULE}.a_update_schedule") as update,
     ):
         await create_alerts_product_check_due_schedule(client)
     exists.assert_not_awaited()
@@ -35,9 +35,9 @@ async def test_dev_schedule_creates_or_updates_with_bounded_policy(already_exist
     client = MagicMock(spec=Client)
     with (
         override_settings(CLOUD_DEPLOYMENT="DEV", ALERTS_PRODUCT_EVALUATION_TASK_QUEUE="evaluation-test-queue"),
-        patch(f"{MODULE}.a_schedule_exists", new_callable=AsyncMock, return_value=already_exists) as exists,
-        patch(f"{MODULE}.a_create_schedule", new_callable=AsyncMock) as create,
-        patch(f"{MODULE}.a_update_schedule", new_callable=AsyncMock) as update,
+        patch(f"{MODULE}.a_schedule_exists", return_value=already_exists) as exists,
+        patch(f"{MODULE}.a_create_schedule") as create,
+        patch(f"{MODULE}.a_update_schedule") as update,
     ):
         await create_alerts_product_check_due_schedule(client)
 
