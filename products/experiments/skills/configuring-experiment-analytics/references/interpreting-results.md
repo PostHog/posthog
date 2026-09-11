@@ -5,9 +5,20 @@
 Start with `experiment-metrics-recalculation-latest-retrieve`.
 It takes the experiment ID.
 It returns the most recent terminal run: a completed run, or a failed run that still carries the metrics that succeeded.
-Each entry carries per-variant exposures, counts, means, credible intervals, chance to beat control, and significance.
+Each entry carries per-variant exposures, sums, and `significant`.
 The run also carries `query_to`, the data freshness cutoff the numbers were computed against.
 Use `query_to` to tell the user how fresh the results are.
+
+The interval and probability fields depend on the `method` field on each variant result.
+Read `method` before you read them.
+
+- `bayesian`: `chance_to_win` and `credible_interval`.
+- `frequentist`: `p_value` and `confidence_interval`.
+
+The other method's fields are absent, not null.
+Their absence is not missing data.
+When a statistic is null, read `validation_failures` on that variant.
+A non-empty list means the statistics test did not run, and the list says why.
 
 The entries are keyed by `metric_uuid`.
 They do not carry the metric name, its primary or secondary role, or its goal direction.
