@@ -2256,10 +2256,12 @@ export class SessionService {
       session.editingQueuedId = previous.editingQueuedId;
       session.isPromptPending = previous.isPromptPending;
       session.promptStartedAt = previous.promptStartedAt;
+      session.currentPromptId = previous.currentPromptId;
       session.pausedDurationMs = previous.pausedDurationMs;
     }
 
     this.d.store.setSession(session);
+    this.updatePromptStateFromEvents(taskRunId, session.events);
     this.subscribeToChannel(taskRunId);
 
     try {

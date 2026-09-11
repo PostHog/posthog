@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -16,7 +17,6 @@ import { FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
 import { EditorFilterProps, FilterType } from '~/types'
 
-import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { FunnelDataWarehouseStepDefinitionPopover } from './FunnelDataWarehouseStepDefinitionPopover'
 
 export const FUNNEL_STEP_COUNT_LIMIT = 30
