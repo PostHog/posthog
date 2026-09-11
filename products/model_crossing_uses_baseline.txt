@@ -458,7 +458,7 @@ warehouse_sources.DataWarehouseTable products.data_warehouse.backend.logic.data_
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.logic.data_load.create_table write(create) 1
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.column_annotation drf-field-queryset 1
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.column_annotation other(Assign) 1
-warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.saved_query instance-many(exclude) 1
+warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.saved_query.sync_cadence instance-many(exclude) 1
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.table construct 2
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.table drf-model-serializer 2
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.table instance-many(all) 1

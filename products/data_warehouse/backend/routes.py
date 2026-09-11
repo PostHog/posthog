@@ -9,11 +9,14 @@ from products.data_warehouse.backend.presentation.views import (
     expression,
     managed_viewset,
     query_tab_state,
-    saved_query,
     saved_query_column_annotation,
     saved_query_draft,
     table,
     view_link,
+)
+from products.data_warehouse.backend.presentation.views.saved_query import (
+    folders as saved_query_folders,
+    viewset as saved_query_viewset,
 )
 
 
@@ -23,13 +26,13 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"warehouse_saved_query_folders",
-        saved_query.DataWarehouseSavedQueryFolderViewSet,
+        saved_query_folders.DataWarehouseSavedQueryFolderViewSet,
         "project_warehouse_saved_query_folders",
         ["team_id"],
     )
     saved_queries_router = routers.projects.register(
         r"warehouse_saved_queries",
-        saved_query.DataWarehouseSavedQueryViewSet,
+        saved_query_viewset.DataWarehouseSavedQueryViewSet,
         "project_warehouse_saved_queries",
         ["team_id"],
     )
