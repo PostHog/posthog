@@ -17,7 +17,7 @@ Every command calls the same functions the API and the Temporal activities call.
 - `autoresearch_score` — load the champion, score the inference population, emit `autoresearch_prediction` events.
   `--pipeline-id --user-id --dry-run --seed-fixture-bundle --prediction-date --backfill-days`
   `--prediction-date` / `--backfill-days` backdate the emitted events, which is the only way to get matured predictions for online validation without waiting out the horizon. They are mutually exclusive; a future date or a non-positive window is refused before anything runs.
-  `--dry-run` scores through the champion's real path (sandbox or recipe) and prints the distribution without emitting. `--user-id` is the person HogQL applies access control for; without it the queries run as the pipeline's creator.
+  `--dry-run` scores through the champion's real path (sandbox or recipe) and prints the distribution without emitting. `--seed-fixture-bundle` uploads the fixture bundle, fits it through `fit_champion_model()` (so it needs a sandbox provider), and only then swaps it in as champion, because scoring loads the persisted `model.pkl` and never fits. `--user-id` is the person HogQL applies access control for; without it the queries run as the pipeline's creator.
 - `autoresearch_validate` — pre-flight target viability, before committing to a run.
   `--team-id --target --horizon --user-id`
   `--user-id` is the person HogQL applies access control for; without it the counts run fail-closed. Note there is no `--mode` flag. Note also that `autoresearch_train` does **not** call this, so a target that fails here still trains.

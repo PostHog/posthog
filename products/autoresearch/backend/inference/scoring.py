@@ -27,6 +27,7 @@ import json
 import math
 import uuid
 import hashlib
+import inspect
 import importlib
 from datetime import UTC, date, datetime
 from typing import Any
@@ -61,6 +62,7 @@ from products.autoresearch.backend.inference.sandbox import (
     _HOLDOUT_FOLD,
     _LABEL_COL,
     _MATERIALIZE_ROW_LIMIT,
+    _MAX_FEATURE_COLS,
     SandboxInferenceError,
     _num,
     _numeric_feature_cols,
@@ -254,24 +256,28 @@ def score_population(
     """
     acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
     is_backfill = prediction_date < date.today()
-    cutoff_ts = (
-        int(datetime(prediction_date.year, prediction_date.month, prediction_date.day, tzinfo=UTC).timestamp())
+    # One instant for every query in the run. A live run that let each query evaluate its own
+    # now() could count more anchors than it materialized when someone became eligible in between.
+    cutoff_ts = int(
+        datetime(prediction_date.year, prediction_date.month, prediction_date.day, tzinfo=UTC).timestamp()
         if is_backfill
-        else None
+        else django_timezone.now().timestamp()
     )
 
     if model.artifact_prefix:
         result = score_via_sandbox(team=team, pipeline=pipeline, model=model, cutoff_ts=cutoff_ts, user=acting_user)
         return ScoredPopulation(rows=result.scored_rows, holdout_auc=result.holdout_auc)
 
+    if is_backfill:
+        # A recipe-only champion fits at scoring time, and its training labels are decided as of
+        # now(), so a fit for a past date would learn from outcomes after that date and hand
+        # online validation a lookahead score. Only a persisted model can be re-scored in the past.
+        raise InferenceRunError(
+            "Only a bundle-backed champion can be backfilled: a recipe-only champion fits at scoring time "
+            "on labels decided as of today"
+        )
     recipe = model.model_recipe or {}
     if recipe.get("stub"):
-        if is_backfill:
-            # The stub's SQL evaluates at now(), so a past prediction date would stamp
-            # today's data on that date and hand online validation a lookahead score.
-            raise InferenceRunError(
-                "A stub champion evaluates its features at now(), so it cannot be backfilled to a past date"
-            )
         rows = _fetch_stub_feature_rows(team=team, pipeline=pipeline, recipe=recipe, user=acting_user)
         return ScoredPopulation(rows=_score_rows(rows), holdout_auc=model.holdout_score)
 
@@ -447,6 +453,11 @@ def _person_rows(result: HogQLResult) -> list[dict[str, Any]]:
     """Rows as dicts with the person key coerced to str, so it is JSON-serializable and joins to str-keyed sets."""
     if not result.rows or not result.columns:
         return []
+    # as_dicts() keeps only the last value of a repeated column name, so the matrix would hold
+    # fewer features than the SQL declares.
+    duplicates = sorted({c for c in result.columns if result.columns.count(c) > 1})
+    if duplicates:
+        raise InferenceRunError(f"Feature SQL returned duplicate output columns: {', '.join(duplicates)}")
     rows = result.as_dicts()
     for row in rows:
         if row.get("distinct_id") is not None:
@@ -634,7 +645,16 @@ def _fetch_training_rows(
         lookback_days=pipeline.training_lookback_days,
         training_population=pipeline.training_population,
     )
-    return _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Training features"))
+    rows = _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Training features"))
+    _require_one_row_per_person(rows, source="training feature_sql", expected_count=None)
+    # The wrapper LEFT JOINs the labels onto the feature rows; a row that matched no anchor
+    # would be filed as a negative holdout example.
+    unlabeled = sum(1 for r in rows if r.get(_LABEL_COL) is None or r.get(_FOLD_COL) is None)
+    if unlabeled:
+        raise InferenceRunError(
+            f"{unlabeled} training feature row(s) matched no labeled anchor; distinct_id must be the anchor person_id"
+        )
+    return rows
 
 
 def _fetch_inference_rows(
@@ -680,6 +700,11 @@ def _fit_on_training_predict_on_inference(
     if not feature_cols:
         logger.warning("autoresearch_no_numeric_features", pipeline_id=pipeline_id)
         return ScoredPopulation(rows=_score_rows(inference_rows), holdout_auc=None)
+    if len(feature_cols) > _MAX_FEATURE_COLS:
+        # The row bound does not bound the matrix: the agent's SQL chooses the column count.
+        raise InferenceRunError(
+            f"Recipe feature SQL returned {len(feature_cols)} numeric columns; at most {_MAX_FEATURE_COLS} are allowed"
+        )
 
     train_rows = [r for r in training_rows if (r.get(_FOLD_COL) or 0) != _HOLDOUT_FOLD]
     holdout_rows = [r for r in training_rows if (r.get(_FOLD_COL) or 0) == _HOLDOUT_FOLD]
@@ -695,14 +720,9 @@ def _fit_on_training_predict_on_inference(
         logger.warning("autoresearch_insufficient_labels", pipeline_id=pipeline_id, n_pos=n_pos, n_neg=n_neg)
         return ScoredPopulation(rows=_score_rows(inference_rows), holdout_auc=None)
 
-    model_class_path = recipe.get("model_class", "sklearn.linear_model.LogisticRegression")
-    model_params = recipe.get("model_params", {})
+    model_class_path = str(recipe.get("model_class", "sklearn.linear_model.LogisticRegression"))
     try:
-        # The one in-process importlib surface: the allowlist is the only defense here,
-        # because a recipe-only champion has no sandbox around its model class.
-        validate_model_class(model_class_path)
-        module_path, class_name = model_class_path.rsplit(".", 1)
-        estimator = getattr(importlib.import_module(module_path), class_name)(**model_params)
+        estimator = _estimator_for(recipe, seed=_stable_seed(pipeline_id))
         estimator.fit(X_train, y_train)
     except Exception:
         logger.exception("autoresearch_anchored_fit_failed", pipeline_id=pipeline_id, model_class=model_class_path)
@@ -730,6 +750,30 @@ def _fit_on_training_predict_on_inference(
     )
     scored = [{**row, "p_y": round(float(p), 4)} for row, p in zip(inference_rows, proba)]
     return ScoredPopulation(rows=scored, holdout_auc=holdout_auc)
+
+
+def _stable_seed(pipeline_id: str) -> int:
+    return int(hashlib.sha256(pipeline_id.encode()).hexdigest()[:8], 16)
+
+
+def _estimator_for(recipe: dict[str, Any], *, seed: int) -> Any:
+    """
+    Instantiate the recipe's allowlisted sklearn class. This is the one in-process importlib
+    surface, and the allowlist is the only defense, because a recipe-only champion has no
+    sandbox around its model class.
+
+    A stochastic estimator gets a seed derived from the pipeline unless the recipe sets one:
+    a retry after a partial capture refits, and two fits that disagree would leave one
+    cadence with scores from both, because the event UUIDs are the same either way.
+    """
+    model_class_path = str(recipe.get("model_class", "sklearn.linear_model.LogisticRegression"))
+    validate_model_class(model_class_path)
+    module_path, class_name = model_class_path.rsplit(".", 1)
+    model_class = getattr(importlib.import_module(module_path), class_name)
+    params = dict(recipe.get("model_params") or {})
+    if "random_state" in inspect.signature(model_class.__init__).parameters:
+        params.setdefault("random_state", seed)
+    return model_class(**params)
 
 
 def _matrix(rows: list[dict[str, Any]], feature_cols: list[str]) -> np.ndarray:

@@ -256,6 +256,12 @@ class TestPopulationKindCompilation(SimpleTestCase):
                 )[0],
             ),
             (
+                "labeler_labeled_users_aggregate",
+                lambda: build_random_t0_labeler_sql(
+                    target_event="x", horizon_days=7, lookback_days=90, training_population={}
+                )[0].split("labeled_users AS")[1],
+            ),
+            (
                 "kind_membership_subquery",
                 lambda: build_inference_anchors_sql(
                     lookback_days=90, inference_population={"kind": "performed_event_within_days", "days": 30}

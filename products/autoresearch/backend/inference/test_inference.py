@@ -12,14 +12,16 @@ from posthog.api.capture import CaptureInternalResult
 
 from products.autoresearch.backend.dataset.labeling import PREDICTION_EVENT_NAME
 from products.autoresearch.backend.inference import scoring
-from products.autoresearch.backend.inference.sandbox import _MATERIALIZE_ROW_LIMIT
+from products.autoresearch.backend.inference.sandbox import _MATERIALIZE_ROW_LIMIT, SandboxScoreResult
 from products.autoresearch.backend.inference.scoring import (
     InferenceRunError,
     ScoredPopulation,
+    _estimator_for,
     _fetch_inference_rows,
     _fetch_population_distinct_ids,
     _fetch_stub_feature_rows,
     _fetch_training_rows,
+    _fit_on_training_predict_on_inference,
     _resolve_distinct_ids,
     _score_rows,
     run_inference_for_pipeline,
@@ -270,9 +272,13 @@ class TestPredictionDateGuards(TeamScopedTestMixin, BaseTest):
         # Advancing the watermark on a backfill makes the coordinator treat the pipeline as
         # freshly scored, suppressing today's live run for a whole cadence.
         pipeline, model = self._pipeline_and_model()
-        scored = ScoredPopulation(rows=[{"distinct_id": str(uuid4()), "p_y": 0.4}], holdout_auc=None)
+        model.artifact_prefix = "tasks/autoresearch/team_1/pipeline_x/run_y"
+        model.save(update_fields=["artifact_prefix"])
+        sandbox_result = SandboxScoreResult(
+            scored_rows=[{"distinct_id": str(uuid4()), "p_y": 0.4}], holdout_auc=0.6, n_train=1, n_features=1
+        )
         with (
-            patch.object(scoring, "_score_via_anchors", return_value=scored),
+            patch.object(scoring, "score_via_sandbox", return_value=sandbox_result) as sandbox,
             patch.object(scoring, "capture_batch_internal", _capture_accepting_everything()) as capture,
         ):
             run = run_inference_for_pipeline(
@@ -281,21 +287,27 @@ class TestPredictionDateGuards(TeamScopedTestMixin, BaseTest):
 
         assert run.status == AutoresearchRun.Status.COMPLETED
         assert capture.call_args.kwargs["process_person_profile"] is False
+        assert isinstance(sandbox.call_args.kwargs["cutoff_ts"], int)
         pipeline.refresh_from_db()
         assert pipeline.last_scored_at is None
 
-    def test_backfilling_a_stub_champion_is_refused(self):
-        # The stub evaluates features at now(), so backfilling it would stamp today's data on
-        # a past date and validate it against that date's outcome.
+    @parameterized.expand([("stub", _STUB_RECIPE), ("anchors", _ANCHORS_RECIPE)])
+    def test_backfilling_a_recipe_only_champion_is_refused(self, _name, recipe):
+        # A recipe-only champion fits at scoring time on labels decided as of now(), so a fit
+        # for a past date would learn from outcomes after it.
         pipeline, model = self._pipeline_and_model()
-        model.model_recipe = _STUB_RECIPE
+        model.model_recipe = recipe
         model.save(update_fields=["model_recipe"])
-        with patch.object(scoring, "_fetch_stub_feature_rows") as fetch:
+        with (
+            patch.object(scoring, "_fetch_stub_feature_rows") as stub,
+            patch.object(scoring, "_score_via_anchors") as anchors,
+        ):
             with self.assertRaises(InferenceRunError):
                 run_inference_for_pipeline(
                     pipeline=pipeline, model=model, prediction_date=date.today() - timedelta(days=30)
                 )
-        fetch.assert_not_called()
+        stub.assert_not_called()
+        anchors.assert_not_called()
 
 
 class TestRecipeRouting(TeamScopedTestMixin, BaseTest):
@@ -339,6 +351,22 @@ class TestRecipeRouting(TeamScopedTestMixin, BaseTest):
             )
         assert result == scored
         anchored.assert_called_once()
+
+    @parameterized.expand([("bundle", "score_via_sandbox"), ("recipe", "_score_via_anchors")])
+    def test_live_run_resolves_one_cutoff_for_every_query(self, _name, scorer):
+        # Two queries that each evaluate their own now() disagree on the anchors whenever a
+        # person becomes eligible between them, and the count check fails a valid cadence.
+        pipeline, model = self._pipeline_and_model(_ANCHORS_RECIPE)
+        if scorer == "score_via_sandbox":
+            model.artifact_prefix = "tasks/autoresearch/team_1/pipeline_x/run_y"
+            model.save(update_fields=["artifact_prefix"])
+        with patch.object(scoring, scorer) as mocked:
+            score_population(
+                team=self.team, pipeline=pipeline, model=model, prediction_date=date.today(), user=self.user
+            )
+        cutoff = mocked.call_args.kwargs["cutoff_ts"]
+        assert isinstance(cutoff, int)
+        assert abs(cutoff - int(scoring.django_timezone.now().timestamp())) < 120
 
     def test_recipe_only_champion_records_its_holdout_auc(self):
         # Twenty labeled rows with a clean signal fit a real LogisticRegression; a column that
@@ -627,6 +655,37 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
         assert mock_run_hogql.call_args.kwargs["query"].values["cutoff_ts"] == 1_700_000_000
         assert count.call_args.kwargs["cutoff_ts"] == 1_700_000_000
 
+    @parameterized.expand(
+        [
+            ("duplicate_person", [["p1", 1, 0, 1], ["p1", 2, 1, 2]]),
+            ("unlabeled_row", [["p1", 1, 0, 1], ["p2", 2, None, None]]),
+        ]
+    )
+    def test_training_rows_that_do_not_key_one_labeled_person_fail_the_run(self, _name, rows):
+        # A duplicated person weights the fit twice and distorts the holdout AUC; a row that
+        # matched no anchor would be filed as a negative holdout example.
+        pipeline = self._make_pipeline()
+        result = HogQLResult(columns=["distinct_id", "events_total", "__label", "__fold"], rows=rows)
+        with patch.object(scoring, "run_hogql", return_value=result):
+            with self.assertRaises(InferenceRunError):
+                _fetch_training_rows(
+                    team=self.team, pipeline=pipeline, feature_sql=_ANCHORS_FEATURE_SQL, user=self.user
+                )
+
+    def test_duplicate_output_columns_fail_the_run(self):
+        # as_dicts() keeps only the last value of a repeated name, so the matrix would hold
+        # fewer features than the SQL declares while the sandbox path refuses the same result.
+        pipeline = self._make_pipeline()
+        result = HogQLResult(columns=["distinct_id", "n", "n"], rows=[["p1", 1, 2]])
+        with (
+            patch.object(scoring, "run_hogql", return_value=result),
+            patch.object(scoring, "count_inference_anchors", return_value=1),
+        ):
+            with self.assertRaises(InferenceRunError):
+                _fetch_inference_rows(
+                    team=self.team, pipeline=pipeline, feature_sql=_ANCHORS_FEATURE_SQL, cutoff_ts=None, user=self.user
+                )
+
     def test_inference_rows_that_drop_an_anchor_fail_the_run(self):
         # An inner join or a WHERE on the joined table drops people with every returned row
         # still looking valid; the anchor count is the only thing that notices.
@@ -639,4 +698,27 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
             with self.assertRaises(InferenceRunError):
                 _fetch_inference_rows(
                     team=self.team, pipeline=pipeline, feature_sql=_ANCHORS_FEATURE_SQL, cutoff_ts=None, user=self.user
+                )
+
+
+class TestRecipeFit(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("seeded_from_the_pipeline", {}, 1234),
+            ("recipe_seed_wins", {"random_state": 7}, 7),
+        ]
+    )
+    def test_stochastic_estimator_gets_a_stable_seed(self, _name, params, expected):
+        # A retry after a partial capture refits; two fits that disagree leave one cadence
+        # with scores from both under the same event UUIDs.
+        recipe = {"model_class": "sklearn.ensemble.RandomForestClassifier", "model_params": params}
+        assert _estimator_for(recipe, seed=1234).random_state == expected
+
+    def test_too_many_feature_columns_fail_before_any_matrix_is_built(self):
+        # The row bound does not bound the matrix; the agent's SQL chooses the column count.
+        rows = [{"distinct_id": f"p{i}", "a": 1, "b": 2, "c": 3, "__label": i % 2, "__fold": i % 5} for i in range(10)]
+        with patch.object(scoring, "_MAX_FEATURE_COLS", 2):
+            with self.assertRaises(InferenceRunError):
+                _fit_on_training_predict_on_inference(
+                    training_rows=rows, inference_rows=rows[:2], recipe=_ANCHORS_RECIPE, pipeline_id="p"
                 )

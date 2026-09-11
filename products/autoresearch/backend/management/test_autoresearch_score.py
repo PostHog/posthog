@@ -9,6 +9,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.autoresearch.backend.inference.sandbox import SandboxInferenceError
 from products.autoresearch.backend.management.commands import autoresearch_score
 from products.autoresearch.backend.management.commands.autoresearch_score import Command
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
@@ -35,15 +36,31 @@ class TestResolvePredictionDates(SimpleTestCase):
 
 
 class TestSeedFixtureBundle(TeamScopedTestMixin, BaseTest):
-    def test_upload_failure_leaves_the_current_champion_in_place(self):
+    def _pipeline_with_champion(self):
         pipeline = AutoresearchPipeline.objects.create(
             team=self.team, created_by=self.user, name="seed", target_event="$pageview", horizon_days=7
         )
         champion = AutoresearchModel.objects.create(
             pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION, model_recipe={"stub": True}, recipe_hash="old"
         )
-        with patch.object(autoresearch_score, "write_bundle", side_effect=OSError("storage down")):
-            with self.assertRaises(OSError):
+        return pipeline, champion
+
+    @parameterized.expand(
+        [
+            ("upload_fails", "write_bundle", OSError("storage down")),
+            ("fit_fails", "fit_champion_model", SandboxInferenceError("train.py failed")),
+        ]
+    )
+    def test_a_failed_step_leaves_the_current_champion_in_place(self, _name, step, error):
+        # Scoring loads the persisted model.pkl and never fits, so a promoted bundle with no
+        # fit would fail every cadence while the working champion sat archived behind it.
+        pipeline, champion = self._pipeline_with_champion()
+        with (
+            patch.object(autoresearch_score, "write_bundle"),
+            patch.object(autoresearch_score, "fit_champion_model"),
+            patch.object(autoresearch_score, step, side_effect=error),
+        ):
+            with self.assertRaises(type(error)):
                 call_command("autoresearch_score", "--pipeline-id", str(pipeline.pk), "--seed-fixture-bundle")
         champion.refresh_from_db()
         assert champion.role == AutoresearchModel.Role.CHAMPION
@@ -52,3 +69,19 @@ class TestSeedFixtureBundle(TeamScopedTestMixin, BaseTest):
             .exclude(pk=champion.pk)
             .exists()
         )
+
+    def test_the_fitted_fixture_becomes_champion_with_its_metrics(self):
+        pipeline, old_champion = self._pipeline_with_champion()
+        metrics = {"holdout_auc": 0.81, "n_train": 40, "n_features": 6}
+        with (
+            patch.object(autoresearch_score, "write_bundle"),
+            patch.object(autoresearch_score, "fit_champion_model", return_value=metrics) as fit,
+            patch.object(autoresearch_score, "run_inference_for_pipeline") as run,
+        ):
+            run.return_value.status = "completed"
+            run.return_value.metrics = {}
+            call_command("autoresearch_score", "--pipeline-id", str(pipeline.pk), "--seed-fixture-bundle")
+        new_champion = AutoresearchModel.objects.get(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
+        assert new_champion.pk != old_champion.pk
+        assert new_champion.holdout_score == 0.81
+        assert fit.call_args.kwargs["prefix"] == new_champion.artifact_prefix

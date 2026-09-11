@@ -100,9 +100,9 @@ def _identified_users_and_clause() -> str:
 PREDICTION_EVENT_NAME = "autoresearch_prediction"
 
 
-def _own_events_excluded_clause() -> str:
-    """`AND event != '<prediction event>'` fragment for an unaliased events-table WHERE."""
-    return f" AND event != '{PREDICTION_EVENT_NAME}'"
+def _own_events_excluded_clause(alias: str = "") -> str:
+    """`AND event != '<prediction event>'` fragment for an events-table WHERE; pass ``"e."`` for an aliased scan."""
+    return f" AND {alias}event != '{PREDICTION_EVENT_NAME}'"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -536,7 +536,7 @@ def _build_labeled_users_cte(
             FROM events e
             INNER JOIN user_t0 u ON e.person_id = u.person_id
             WHERE e.timestamp >= now() - toIntervalDay({{lookback}})
-              AND e.timestamp < now()
+              AND e.timestamp < now(){_own_events_excluded_clause("e.")}
             GROUP BY u.person_id, u.t0_ts{anchor_having}
         )
     """

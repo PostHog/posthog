@@ -24,6 +24,7 @@ from django.utils import timezone
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
+from products.autoresearch.backend.inference.sandbox import fit_champion_model
 from products.autoresearch.backend.inference.scoring import (
     ScoredPopulation,
     _summarize_scores,
@@ -96,7 +97,7 @@ class Command(BaseCommand):
     def _run(self, pipeline: AutoresearchPipeline, user: User | None, prediction_dates: list[date], options):
         champion: AutoresearchModel | None
         if options["seed_fixture_bundle"]:
-            champion = self._seed_fixture_bundle(pipeline)
+            champion = self._seed_fixture_bundle(pipeline, user)
         else:
             champion = (
                 AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
@@ -191,11 +192,12 @@ class Command(BaseCommand):
             return [prediction_date]
         return [today]
 
-    def _seed_fixture_bundle(self, pipeline: AutoresearchPipeline) -> AutoresearchModel:
-        """Upload the reference fixture bundle and make a fresh model pointing at it the champion."""
+    def _seed_fixture_bundle(self, pipeline: AutoresearchPipeline, user: User | None) -> AutoresearchModel:
+        """Upload the reference fixture bundle, fit it, and make a fresh model pointing at it the champion."""
         bundle = ArtifactBundle.from_dir(_FIXTURE_BUNDLE_DIR)
-        # The upload happens before any champion is archived, so a storage failure leaves
-        # the pipeline with the champion it had.
+        # The upload and the fit happen before any champion is archived, so a storage or
+        # sandbox failure leaves the pipeline with the champion it had. Scoring loads the
+        # persisted model.pkl and never fits, so an unfitted bundle would fail every cadence.
         model = AutoresearchModel.objects.create(
             pipeline=pipeline,
             role=AutoresearchModel.Role.CHALLENGER,
@@ -206,6 +208,9 @@ class Command(BaseCommand):
         )
         prefix = bundle_prefix(team_id=pipeline.team_id, pipeline_id=str(pipeline.pk), training_run_id=str(model.pk))
         write_bundle(prefix, bundle)
+        metrics = fit_champion_model(team=pipeline.team, pipeline=pipeline, prefix=prefix, bundle=bundle, user=user)
+        model.holdout_score = metrics.get("holdout_auc")
+        model.metrics = metrics
         now = timezone.now()
         with transaction.atomic():
             AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).update(
@@ -214,6 +219,6 @@ class Command(BaseCommand):
             model.role = AutoresearchModel.Role.CHAMPION
             model.artifact_prefix = prefix
             model.promoted_at = now
-            model.save(update_fields=["role", "artifact_prefix", "promoted_at"])
-        self.stdout.write(self.style.SUCCESS(f"Seeded fixture bundle at {prefix}"))
+            model.save(update_fields=["role", "artifact_prefix", "promoted_at", "holdout_score", "metrics"])
+        self.stdout.write(self.style.SUCCESS(f"Seeded and fitted the fixture bundle at {prefix}"))
         return model
