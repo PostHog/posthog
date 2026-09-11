@@ -228,7 +228,21 @@ class MCPDiscoverCandidateSerializer(serializers.Serializer):
     registry_name = serializers.CharField(help_text="Official registry name, empty for measured-only servers.")
     title = serializers.CharField(help_text="Human-readable server name.")
     description = serializers.CharField(help_text="What the server does.")
-    score = serializers.FloatField(help_text="Rank score in [0, 1] under the ranking version used.")
+    score = serializers.FloatField(
+        help_text="The server's own standing in [0, 1] under the ranking version used: liveness x trust, "
+        "independent of the query."
+    )
+    relevance = serializers.FloatField(
+        allow_null=True,
+        help_text="How well the server's own text answered `intent`, in [0, 1]. Null when the intent held no "
+        "words worth matching on.",
+    )
+    combined_score = serializers.FloatField(
+        allow_null=True,
+        help_text="The value candidates are ordered by: relevance and score combined, weighted toward "
+        "relevance. Null when the intent held no words worth matching on, in which case order falls back to "
+        "`score`.",
+    )
     why = JSONDictField(
         help_text="Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether "
         "real usage signal contributed."

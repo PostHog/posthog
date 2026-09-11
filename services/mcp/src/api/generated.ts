@@ -51612,8 +51612,18 @@ export namespace Schemas {
       title: string;
       /** What the server does. */
       description: string;
-      /** Rank score in [0, 1] under the ranking version used. */
+      /** The server's own standing in [0, 1] under the ranking version used: liveness x trust, independent of the query. */
       score: number;
+      /**
+         * How well the server's own text answered `intent`, in [0, 1]. Null when the intent held no words worth matching on.
+         * @nullable
+         */
+      relevance: number | null;
+      /**
+         * The value candidates are ordered by: relevance and score combined, weighted toward relevance. Null when the intent held no words worth matching on, in which case order falls back to `score`.
+         * @nullable
+         */
+      combined_score: number | null;
       /** Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether real usage signal contributed. */
       why: MCPDiscoverCandidateWhy;
       /** Probed liveness state (alive_open, alive_auth, dead, ...). */

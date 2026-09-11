@@ -125,7 +125,23 @@ export const MCPDiscoverCandidateApi = zod
         registry_name: zod.string().describe('Official registry name, empty for measured-only servers.'),
         title: zod.string().describe('Human-readable server name.'),
         description: zod.string().describe('What the server does.'),
-        score: zod.number().describe('Rank score in [0, 1] under the ranking version used.'),
+        score: zod
+            .number()
+            .describe(
+                "The server's own standing in [0, 1] under the ranking version used: liveness x trust, independent of the query."
+            ),
+        relevance: zod
+            .number()
+            .nullable()
+            .describe(
+                "How well the server's own text answered `intent`, in [0, 1]. Null when the intent held no words worth matching on."
+            ),
+        combined_score: zod
+            .number()
+            .nullable()
+            .describe(
+                'The value candidates are ordered by: relevance and score combined, weighted toward relevance. Null when the intent held no words worth matching on, in which case order falls back to `score`.'
+            ),
         why: zod
             .record(zod.string(), zod.unknown())
             .describe(
@@ -176,7 +192,23 @@ export const MCPDiscoverResponseApi = zod
                             .describe('Official registry name, empty for measured-only servers.'),
                         title: zod.string().describe('Human-readable server name.'),
                         description: zod.string().describe('What the server does.'),
-                        score: zod.number().describe('Rank score in [0, 1] under the ranking version used.'),
+                        score: zod
+                            .number()
+                            .describe(
+                                "The server's own standing in [0, 1] under the ranking version used: liveness x trust, independent of the query."
+                            ),
+                        relevance: zod
+                            .number()
+                            .nullable()
+                            .describe(
+                                "How well the server's own text answered `intent`, in [0, 1]. Null when the intent held no words worth matching on."
+                            ),
+                        combined_score: zod
+                            .number()
+                            .nullable()
+                            .describe(
+                                'The value candidates are ordered by: relevance and score combined, weighted toward relevance. Null when the intent held no words worth matching on, in which case order falls back to `score`.'
+                            ),
                         why: zod
                             .record(zod.string(), zod.unknown())
                             .describe(
