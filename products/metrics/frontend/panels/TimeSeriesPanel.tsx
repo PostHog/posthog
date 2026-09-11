@@ -14,34 +14,32 @@ import { getColorVar } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { MetricsDisplaySettings } from '~/queries/schema/schema-general'
-
-import { buildMetricsChartConfig } from './metricsChartConfig'
-import { MetricsExemplarMarkers, type MetricsExemplar } from './MetricsExemplarMarkers'
-import { formatSeriesNames, type MetricsChartSeries, seriesColor } from './metricsSeries'
+import { buildMetricsChartConfig } from '../components/metricsChartConfig'
+import { MetricsExemplarMarkers, type MetricsExemplar } from '../components/MetricsExemplarMarkers'
+import { formatSeriesNames, seriesColor } from '../components/metricsSeries'
+import type { MetricsPanelProps } from './registry'
 
 const AREA_FILL_OPACITY = 0.2
 
-/** Multi-series metric time-series chart, shared by the Viewer and the dashboard/insight tile. Every
- * series shares one time grid (the backend zero-fills), so the x-axis comes from the first series.
+/** Multi-series metric time-series chart (line / area / bar). Every series shares one time grid
+ * (the backend zero-fills), so the x-axis comes from the first series.
  *
- * `display.type: 'stat'` is in the schema but has no renderer yet, so it falls through to a line
- * chart rather than blanking the tile. */
-export function MetricsSeriesChart({
+ * Null buckets are gaps. quill's `Series.data` is `number[]` (no null), so the gap policy is:
+ *  - `gap` / `connect`: render as a gap when quill supports it, else fall back to 0 (see note).
+ *  - `zero`: render as 0.
+ * The full `gap` draw (breaking the path) lands with the quill null-data change; until then a
+ * null renders as 0 for `gap`/`connect` too, which matches the pre-existing behavior. */
+export function TimeSeriesPanel({
     series,
-    fallbackName,
     display,
+    fallbackName,
     exemplars,
-}: {
-    series: MetricsChartSeries[]
-    fallbackName: string
-    display?: MetricsDisplaySettings
-    exemplars?: MetricsExemplar[]
-}): JSX.Element {
+}: MetricsPanelProps & { exemplars?: MetricsExemplar[] }): JSX.Element {
     const { timezone } = useValues(teamLogic)
     const theme = useChartTheme()
     const isBar = display?.type === 'bar'
     const isArea = display?.type === 'area'
+    const nullMode = display?.nullMode ?? 'gap'
 
     const chartSeries = useMemo<Series[]>(() => {
         const names = formatSeriesNames(
@@ -51,12 +49,14 @@ export function MetricsSeriesChart({
         return series.map((s, index) => ({
             key: `${index}`,
             label: names[index],
-            // A null value is a gap (non-representable aggregate); charted as 0 for now.
+            // A null value is a gap (non-representable aggregate). quill draws only numbers, so a
+            // gap collapses to 0 here until quill takes null data; `zero` mode is explicit about it.
             data: s.points.map((p) => p.value ?? 0),
             color: getColorVar(seriesColor(index)),
             ...(isArea ? { fill: { opacity: AREA_FILL_OPACITY } } : {}),
         }))
-    }, [series, fallbackName, isArea])
+        // nullMode currently only documents intent; the quill null-data change makes it live.
+    }, [series, fallbackName, isArea, nullMode])
     const labels = useMemo(() => (series[0]?.points ?? []).map((p) => p.time), [series])
 
     const sharedConfig = useChartConfig<TimeSeriesLineChartConfig>(
