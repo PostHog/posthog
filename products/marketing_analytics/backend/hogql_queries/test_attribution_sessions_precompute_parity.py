@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
@@ -377,6 +378,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         assert live.get("long") == (1, 0)
         assert pre == live
 
+    @time_machine.travel("2026-09-11T12:00:00Z", tick=False)
     def test_expired_jobs_are_served_with_grace_and_revalidation_rebuilds_them(self) -> None:
         create_person(team=self.team, distinct_ids=["stale-session"])
         self._session(
