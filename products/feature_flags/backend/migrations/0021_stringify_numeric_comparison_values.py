@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db import migrations
 
 import structlog
@@ -12,7 +14,7 @@ BATCH_SIZE = 500
 NUMERIC_COMPARISON_OPERATORS = frozenset({"gt", "gte", "lt", "lte"})
 
 
-def _stringified_value(value):
+def _stringified_value(value: Any) -> str | None:
     """The stored value as a string, or None when the property needs no change.
 
     Booleans are excluded because `bool` is a subclass of `int`: "True" is not a number, so
