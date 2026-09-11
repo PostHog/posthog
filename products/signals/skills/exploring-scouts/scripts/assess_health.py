@@ -122,6 +122,13 @@ def table(headers: list[str], body: list[list[str]]) -> list[str]:
     return out
 
 
+def _is_timeout_reason(reason: str | None) -> bool:
+    # The harness words a run that hit its poll budget as "... timed out after 900s"; other
+    # writers say "timeout". Match both so a mixed history never hides a real timeout.
+    text = (reason or "").lower()
+    return "timed out" in text or "timeout" in text
+
+
 def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count: int | None,
                  now: datetime | None, config_last_run: str | None) -> dict:
     runs = sorted(runs, key=lambda r: r.get("started_at") or "")
@@ -139,7 +146,7 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
         for r in runs
         if r.get("status") == "failed"
         and (
-            "timeout" in (r.get("failure_reason") or "").lower()
+            _is_timeout_reason(r.get("failure_reason"))
             or (
                 not r.get("failure_reason")
                 and (m := minutes_between(r.get("started_at"), r.get("completed_at"))) is not None

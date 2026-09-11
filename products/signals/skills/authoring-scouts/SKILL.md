@@ -155,7 +155,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
 - `model`: pins the model the scout's runs use. Leave unset to follow the fleet default, which is what most scouts should do; set it when a scout's job needs a stronger model (long research) or a cheaper one (a frequent, mechanical probe) and say why in the body.
   Early access: on a project not enrolled in the `scouts-model-config` preview, any non-null value is rejected with "Choosing a scout model is not available on this project yet.", so only recommend pinning where that flag is on.
 - `mcp_gateway_server_ids`: MCP store servers (by id) this scout's runs may mount, chosen from the connections members have shared with the whole team.
-  Empty (the default) mounts none. Personal connections never back a scout run, so runs behave the same whoever edits the scout.
+  Empty (the default) mounts none of the shared servers. The intent is that only team-shared connections back a scout run, so runs behave the same whoever edits the scout; where MCP gateway enforcement is not yet active on the project, the launch path may still mount the acting user's personal connections, so check the run's mounted servers in its transcript when that matters.
   Treat it like `network_access`: it hands the scout third-party tools with whatever access the shared connection carries, changes are activity-logged, and the body should name what the scout uses each server for.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.
   Set them at create time: a scout that lands already grouped saves a follow-up edit, and the desktop app's scout list filters on them.
