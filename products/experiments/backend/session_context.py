@@ -544,6 +544,66 @@ def _compute_chunk_contexts(
     window_start = recording_start - EVENT_WINDOW_SLACK
     window_end = recording_end + EVENT_WINDOW_SLACK
 
+    flag_evaluations, branch_exposures, stamped = _query_chunk_variant_evidence(
+        team,
+        user,
+        shared_hogql,
+        resolved,
+        session_ids,
+        recording_start,
+        recording_end,
+        window_start,
+        window_end,
+        candidates,
+    )
+
+    exposures, scan_window_by_id = _combine_exposure_evidence(
+        resolved, session_ids, window_start, window_end, flag_evaluations, branch_exposures
+    )
+    candidates, stamped = _rescue_candidates_with_evidence(
+        team,
+        user,
+        shared_hogql,
+        resolved,
+        session_ids,
+        window_start,
+        window_end,
+        candidates,
+        flag_evaluations,
+        exposures,
+        stamped,
+    )
+    surfaced_by_session = _surface_experiments_for_sessions(
+        windows, candidates, resolved, exposures, flag_evaluations, stamped, scan_window_by_id
+    )
+    sources_by_experiment, hits_by_session, dropped_metric_uuids = _scan_session_metrics(
+        team, user, shared_hogql, session_ids, window_start, window_end, surfaced_by_session
+    )
+    capped_session_ids = {
+        session_id
+        for session_id, session_surfaced in surfaced_by_session.items()
+        if dropped_metric_uuids & _single_scan_accepted_uuids(session_surfaced, sources_by_experiment)
+    }
+
+    return _build_context_items(surfaced_by_session, sources_by_experiment, hits_by_session), capped_session_ids
+
+
+def _query_chunk_variant_evidence(
+    team: Team,
+    user: User,
+    shared_hogql: SharedHogQLDatabase,
+    resolved: _ResolvedCandidates,
+    session_ids: list[str],
+    recording_start: datetime,
+    recording_end: datetime,
+    window_start: datetime,
+    window_end: datetime,
+    candidates: list[Experiment],
+) -> tuple[
+    dict[str, dict[tuple[str, _ScanWindow], list[tuple[str, datetime]]]],
+    dict[str, dict[int, list[tuple[str, datetime]]]],
+    dict[str, dict[tuple[str, _ScanWindow], list[str]]],
+]:
     # Flag evaluations are variant evidence for every experiment — the replay shows exactly
     # what the session was served, whatever the exposure criteria say — and double as the
     # exposure moment for experiments with the default criteria shape.
@@ -608,6 +668,17 @@ def _compute_chunk_contexts(
             branch_exposures = branch_exposures_future.result()
             stamped = stamped_future.result()
 
+    return flag_evaluations, branch_exposures, stamped
+
+
+def _combine_exposure_evidence(
+    resolved: _ResolvedCandidates,
+    session_ids: list[str],
+    window_start: datetime,
+    window_end: datetime,
+    flag_evaluations: dict[str, dict[tuple[str, _ScanWindow], list[tuple[str, datetime]]]],
+    branch_exposures: dict[str, dict[int, list[tuple[str, datetime]]]],
+) -> tuple[dict[str, dict[int, list[tuple[str, datetime]]]], dict[int, Optional[_ScanWindow]]]:
     # Each experiment's run window intersected with this chunk's scan window: the range its
     # flag evidence was read over, and so the key assembly uses to pick that evidence back up.
     scan_window_by_id = {
@@ -632,12 +703,29 @@ def _compute_chunk_contexts(
         session_exposures.update(branch_exposures.get(session_id, {}))
         exposures[session_id] = session_exposures
 
+    return exposures, scan_window_by_id
+
+
+def _rescue_candidates_with_evidence(
+    team: Team,
+    user: User,
+    shared_hogql: SharedHogQLDatabase,
+    resolved: _ResolvedCandidates,
+    session_ids: list[str],
+    window_start: datetime,
+    window_end: datetime,
+    candidates: list[Experiment],
+    flag_evaluations: dict[str, dict[tuple[str, _ScanWindow], list[tuple[str, datetime]]]],
+    exposures: dict[str, dict[int, list[tuple[str, datetime]]]],
+    stamped: dict[str, dict[tuple[str, _ScanWindow], list[str]]],
+) -> tuple[list[Experiment], dict[str, dict[tuple[str, _ScanWindow], list[str]]]]:
     # The exposure queries cover every overlapping experiment's flag (not just the capped
     # candidates), so a flag with verifiable in-session evidence rescues its experiment even
     # when it fell outside the cap above. Rescued keys join the stamped-property evidence too,
     # through a follow-up query for just those keys (the main stamped scan already ran on the
     # pre-rescue candidates) — it stays bounded, since rescues are limited to real overlapping
     # experiments a session in the chunk demonstrably called.
+    candidate_keys = {experiment.feature_flag.key for experiment in candidates}
     evidenced_keys: set[str] = set()
     for session_id in session_ids:
         evidenced_keys |= {flag_key for flag_key, _window in flag_evaluations.get(session_id, {})}
@@ -655,6 +743,18 @@ def _compute_chunk_contexts(
         for session_id, values_by_key in rescued_stamped.items():
             stamped.setdefault(session_id, {}).update(values_by_key)
 
+    return candidates, stamped
+
+
+def _surface_experiments_for_sessions(
+    windows: list[_SessionWindow],
+    candidates: list[Experiment],
+    resolved: _ResolvedCandidates,
+    exposures: dict[str, dict[int, list[tuple[str, datetime]]]],
+    flag_evaluations: dict[str, dict[tuple[str, _ScanWindow], list[tuple[str, datetime]]]],
+    stamped: dict[str, dict[tuple[str, _ScanWindow], list[str]]],
+    scan_window_by_id: dict[int, Optional[_ScanWindow]],
+) -> dict[str, list[tuple[Experiment, str, list[str], Optional[datetime]]]]:
     surfaced_by_session: dict[str, list[tuple[Experiment, str, list[str], Optional[datetime]]]] = {}
     for window in windows:
         session_id = window.session_id
@@ -707,6 +807,18 @@ def _compute_chunk_contexts(
             surfaced.append((experiment, variant, variants_seen, first_exposure_timestamp))
         surfaced_by_session[session_id] = surfaced
 
+    return surfaced_by_session
+
+
+def _scan_session_metrics(
+    team: Team,
+    user: User,
+    shared_hogql: SharedHogQLDatabase,
+    session_ids: list[str],
+    window_start: datetime,
+    window_end: datetime,
+    surfaced_by_session: dict[str, list[tuple[Experiment, str, list[str], Optional[datetime]]]],
+) -> tuple[dict[int, list[MetricEventSource]], dict[str, dict[str, MetricHit]], set[str]]:
     # Only the experiments that actually surfaced get their metrics scanned — one scan covers
     # the union across the chunk's sessions, shared saved metrics dedupe by uuid inside the
     # scan, and each session's experiments claim their own metrics' hits back by uuid.
@@ -753,14 +865,14 @@ def _compute_chunk_contexts(
         hits_by_session = {}
         dropped_metric_uuids = set()
 
-    capped_session_ids: set[str] = set()
-    if dropped_metric_uuids:
-        capped_session_ids = {
-            session_id
-            for session_id, session_surfaced in surfaced_by_session.items()
-            if dropped_metric_uuids & _single_scan_accepted_uuids(session_surfaced, sources_by_experiment)
-        }
+    return sources_by_experiment, hits_by_session, dropped_metric_uuids
 
+
+def _build_context_items(
+    surfaced_by_session: dict[str, list[tuple[Experiment, str, list[str], Optional[datetime]]]],
+    sources_by_experiment: dict[int, list[MetricEventSource]],
+    hits_by_session: dict[str, dict[str, MetricHit]],
+) -> dict[str, list[ExperimentSessionContextItem]]:
     results: dict[str, list[ExperimentSessionContextItem]] = {}
     for session_id, session_surfaced in surfaced_by_session.items():
         session_hits = hits_by_session.get(session_id, {})
@@ -789,7 +901,7 @@ def _compute_chunk_contexts(
                 )
             )
         results[session_id] = sorted(items, key=lambda item: item.experiment_name.lower())
-    return results, capped_session_ids
+    return results
 
 
 def _single_scan_accepted_uuids(
