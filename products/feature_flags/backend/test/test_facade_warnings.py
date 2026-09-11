@@ -1,4 +1,4 @@
-from typing import cast, get_args
+from typing import Any, get_args
 
 import pytest
 
@@ -14,6 +14,8 @@ from products.feature_flags.backend.facade.warnings import (
     parse_management_warning,
     serialize_management_warning,
 )
+
+V2_EMPTY: dict[str, Any] = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
 
 
 class TestManagementWarning:
@@ -87,48 +89,37 @@ class TestManagementWarning:
             ("wrong_attr", {"code": "RULE_ORDER_CHANGES_TRAFFIC", "attr": False}),
         ]
     )
-    def test_invalid_construction_is_rejected(self, _name: str, members: dict[str, object]) -> None:
+    def test_invalid_construction_is_rejected(self, _name: str, members: dict[str, Any]) -> None:
         with pytest.raises(ValueError):
-            ManagementWarning(**cast(ManagementWarningWire, members))
+            ManagementWarning(**members)
 
 
 class TestManagementWarningValidator:
     def test_no_registered_detectors(self) -> None:
-        config = parse_v2_config({"version": 2, "return_type": "boolean", "default_value": False, "rules": []})
         validator: WarningDetector = ManagementWarningValidator()
-        assert validator(config) == []
+        assert validator(parse_v2_config(V2_EMPTY)) == []
 
-    @parameterized.expand([("without_previous", False), ("with_previous", True)])
-    def test_detectors_receive_configs_and_preserve_warning_order(self, _name: str, with_previous: bool) -> None:
-        config = parse_v2_config({"version": 2, "return_type": "boolean", "default_value": False, "rules": []})
-        previous = (
-            parse_v2_config({"version": 2, "return_type": "boolean", "default_value": True, "rules": []})
-            if with_previous
-            else None
-        )
+    @parameterized.expand(
+        [("without_previous", None), ("with_previous", parse_v2_config({**V2_EMPTY, "default_value": True}))]
+    )
+    def test_detectors_receive_configs_and_preserve_warning_order(self, _name: str, previous: ConfigV2 | None) -> None:
+        config = parse_v2_config(V2_EMPTY)
         first_warning = ManagementWarning(code="RULE_ORDER_CHANGES_TRAFFIC")
         second_warning = ManagementWarning(code="UNREACHABLE_LOWER_RULE")
         third_warning = ManagementWarning(code="ASSIGNMENT_RESET_CHANGES_TRAFFIC")
-        received: list[str] = []
+        calls: list[tuple[str, ConfigV2, ConfigV2 | None]] = []
 
         def first(config: ConfigV2, previous: ConfigV2 | None = None) -> list[ManagementWarning]:
-            assert config is expected_config
-            assert previous is expected_previous
-            received.append("first")
+            calls.append(("first", config, previous))
             return [first_warning, second_warning]
 
         def second(config: ConfigV2, previous: ConfigV2 | None = None) -> list[ManagementWarning]:
-            assert config is expected_config
-            assert previous is expected_previous
-            received.append("second")
+            calls.append(("second", config, previous))
             return [third_warning, first_warning]
 
-        expected_config = config
-        expected_previous = previous
         validator = ManagementWarningValidator()
         validator.register(first)
         validator.register(second)
 
         assert validator(config, previous) == [first_warning, second_warning, third_warning, first_warning]
-        assert received == ["first", "second"]
-        assert ManagementWarningValidator()(config, previous) == []
+        assert calls == [("first", config, previous), ("second", config, previous)]
