@@ -19,6 +19,7 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
 )
 from products.signals.backend.report_assignments import update_assignments_for_pull_request
+from products.signals.backend.report_claims import get_active_claim
 
 
 class TestPrimaryPullRequest(SimpleTestCase):
@@ -73,7 +74,8 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         response = self.client.post(self._claim_url(report), data={}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
-        assignment = SignalReportAssignment.all_teams.get(report=report)
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
         assert assignment.actor_kind == SignalActorKind.USER
         assert assignment.actor_user_id == self.user.id
         assert assignment.actor_task_id is None
@@ -97,12 +99,15 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
     def test_identical_claim_is_idempotent(self):
         report = self._create_report()
         self.client.post(self._claim_url(report), data={}, format="json")
-        claimed_at = SignalReportAssignment.all_teams.get(report=report).claimed_at
+        initial_claim = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert initial_claim is not None
+        claimed_at = initial_claim.claimed_at
 
         response = self.client.post(self._claim_url(report), data={}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
-        assignment = SignalReportAssignment.all_teams.get(report=report)
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
         assert assignment.claimed_at == claimed_at
         assert (
             ActivityLog.objects.filter(
@@ -131,7 +136,8 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assignment = SignalReportAssignment.all_teams.get(report=report)
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
         assert assignment.actor_kind == SignalActorKind.AGENT
         assert assignment.actor_user_id == self.user.id
         assert assignment.actor_task_id is None
@@ -174,7 +180,15 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert SignalReportArtefact.objects.filter(report=report, type="work_claim").count() == 1
         from products.signals.backend.serializers import SignalReportSerializer
 
-        SignalReportAssignment.all_teams.filter(report=report).update(pr_state="merged", pr_merged=True)
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=report,
+            pr_url="https://github.com/example/app/pull/1",
+            repository="example/app",
+            pr_number=1,
+            pr_state="merged",
+            pr_merged=True,
+        )
         serialized = SignalReportSerializer(report).data
         assert serialized["implementation_pr_merged"] is False
         assert serialized["implementation_pr_state"] == "unknown"
@@ -315,7 +329,8 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assignment = SignalReportAssignment.all_teams.get(report=report)
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
         assert assignment.actor_kind == SignalActorKind.AGENT
         assert assignment.actor_agent == "mcp"
 
@@ -338,7 +353,8 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assignment = SignalReportAssignment.all_teams.get(report=report)
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
         assert assignment.actor_kind == SignalActorKind.TASK
         assert assignment.actor_user_id is None
         assert assignment.actor_task_id == task.id
@@ -387,12 +403,61 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_first_for_repository.assert_called_once_with(self.team.id, "PostHog/posthog")
         github.get_pull_request.assert_called_once_with("PostHog/posthog", 123)
-        assignment = SignalReportAssignment.all_teams.get(report=report)
-        assert assignment.repository == "posthog/posthog"
-        assert assignment.pr_number == 123
-        assert assignment.pr_state == SignalReportAssignment.PrState.OPEN
-        assert assignment.pr_merged is False
+        pr = SignalReportPullRequest.objects.for_team(self.team.id).get(repository="posthog/posthog", number=123)
+        assert pr.repository == "posthog/posthog"
+        assert pr.number == 123
+        assert pr.state == SignalReportAssignment.PrState.OPEN
+        assert pr.state != "merged"
         assert response.json()["work_state"] == "in_review"
+
+    @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository")
+    def test_refresh_shared_pr_reconciles_other_reports_after_entire_stack_is_attached(self, integration):
+        github = integration.return_value
+        github.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
+        reports = [self._create_report() for _ in range(2)]
+        shared = "https://github.com/example/app/pull/1"
+        for report in reports:
+            assert (
+                self.client.post(self._claim_url(report), {"pull_requests": [shared]}, format="json").status_code == 200
+            )
+        github.get_pull_request.side_effect = [
+            {"success": True, "state": "closed", "merged": True},
+            {"success": True, "state": "open", "merged": False},
+        ]
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                self._claim_url(reports[0]),
+                {"pull_requests": [shared, "https://github.com/example/app/pull/2"]},
+                format="json",
+            )
+        assert response.status_code == 200
+        for report in reports:
+            report.refresh_from_db()
+        assert reports[0].status == SignalReport.Status.READY
+        assert reports[1].status == SignalReport.Status.RESOLVED
+
+    def test_releasing_latest_claim_does_not_restore_legacy_owner(self):
+        report = self._create_report()
+        legacy = SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=report,
+            actor_kind="user",
+            actor_user=self.user,
+        )
+        first = self.client.post(self._claim_url(report), {}, format="json")
+        assert first.status_code == 200
+        assert first.json()["assignee"]["claim_id"] == str(legacy.id)
+        released = self.client.post(self._claim_url(report), {"release": True}, format="json")
+        assert released.status_code == 200
+        assert get_active_claim(team_id=self.team.id, report_id=report.id) is None
+        unclaimed = self.client.get(self._list_url(unclaimed="true"))
+        assert str(report.id) in [item["id"] for item in unclaimed.json()["results"]]
+        assert self.client.get(self._list_url(assignee="me")).json()["results"] == []
+        again = self.client.post(self._claim_url(report), {}, format="json")
+        assert again.status_code == 200
+        assert again.json()["assignee"]["claim_id"] != str(legacy.id)
+        legacy.refresh_from_db()
+        assert legacy.actor_user_id == self.user.id
 
     @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository")
     def test_merged_pull_request_resolves_report_on_claim(self, mock_first_for_repository):
@@ -415,10 +480,10 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         report.refresh_from_db()
-        assignment = SignalReportAssignment.all_teams.get(report=report)
         assert report.status == SignalReport.Status.RESOLVED
-        assert assignment.pr_state == SignalReportAssignment.PrState.MERGED
-        assert assignment.pr_merged is True
+        pr = SignalReportPullRequest.objects.for_team(self.team.id).get(repository="posthog/posthog", number=123)
+        assert pr.state == SignalReportAssignment.PrState.MERGED
+        assert pr.state == "merged"
         assert response.json()["work_state"] == "done"
 
     @patch(
@@ -436,11 +501,11 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         mock_first_for_repository.assert_called_once_with(self.team.id, "PostHog/posthog")
-        assignment = SignalReportAssignment.all_teams.get(report=report)
-        assert assignment.repository == "posthog/posthog"
-        assert assignment.pr_number == 123
-        assert assignment.pr_state == SignalReportAssignment.PrState.UNKNOWN
-        assert assignment.pr_merged is False
+        pr = SignalReportPullRequest.objects.for_team(self.team.id).get(repository="posthog/posthog", number=123)
+        assert pr.repository == "posthog/posthog"
+        assert pr.number == 123
+        assert pr.state == SignalReportAssignment.PrState.UNKNOWN
+        assert pr.state != "merged"
 
     def test_only_current_actor_can_release_and_pr_is_preserved(self):
         report = self._create_report()
@@ -468,12 +533,10 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         )
 
         assert released.status_code == status.HTTP_200_OK
-        assignment = SignalReportAssignment.all_teams.get(report=report)
-        assert assignment.actor_kind is None
-        assert assignment.actor_user_id is None
-        assert assignment.actor_agent is None
-        assert assignment.pr_url == "https://github.com/PostHog/posthog/pull/123"
-        assert assignment.pr_state == SignalReportAssignment.PrState.UNKNOWN
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is None
+        assert released.json()["implementation_pr_url"] == "https://github.com/PostHog/posthog/pull/123"
+        assert released.json()["implementation_pr_state"] == "unknown"
         assert released.json()["work_state"] == "in_review"
         assert released.json()["assignee"] is None
 
@@ -522,7 +585,8 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         response = self.client.post(self._claim_url(report), data={}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
-        assert SignalReportAssignment.all_teams.filter(report=report).exists()
+        assert get_active_claim(team_id=self.team.id, report_id=report.id) is not None
+        assert not SignalReportAssignment.all_teams.filter(report=report).exists()
 
     def test_resolved_report_cannot_be_claimed(self):
         report = self._create_report(report_status=SignalReport.Status.RESOLVED)

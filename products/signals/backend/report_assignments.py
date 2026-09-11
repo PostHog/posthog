@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TypedDict
 
 from django.db import transaction
-from django.utils import timezone
 
 import structlog
 
@@ -16,7 +15,7 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import WorkClaim, WorkRelease
+from products.signals.backend.artefact_schemas import TaskRunArtefact, WorkClaim, WorkRelease
 from products.signals.backend.models import (
     InvalidStatusTransition,
     SignalReport,
@@ -24,11 +23,14 @@ from products.signals.backend.models import (
     SignalReportAssignment,
 )
 from products.signals.backend.pull_requests import (
+    PullRequestStateSource,
     apply_report_completion,
     import_report_pull_requests,
     link_pull_request,
     update_pull_request_state,
 )
+from products.signals.backend.report_claims import ReportClaim, actor_owns_claim, claim_from_artefact, get_active_claim
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -58,7 +60,7 @@ class InvalidPullRequestUrl(Exception):
 
 
 class AssigneeSnapshot(TypedDict):
-    kind: str
+    kind: str | None
     user_id: int | None
     task_id: str | None
     agent: str | None
@@ -87,11 +89,9 @@ class PullRequestDetails:
     merged: bool
 
 
-def assignment_snapshot(assignment: SignalReportAssignment | None) -> AssignmentSnapshot:
-    if assignment is None:
-        return {"assignee": None, "implementation_pr": None}
+def assignment_snapshot(report: SignalReport, assignment: ReportClaim | None) -> AssignmentSnapshot:
     assignee: AssigneeSnapshot | None = None
-    if assignment.actor_kind:
+    if assignment is not None:
         assignee = {
             "kind": assignment.actor_kind,
             "user_id": assignment.actor_user_id,
@@ -102,7 +102,7 @@ def assignment_snapshot(assignment: SignalReportAssignment | None) -> Assignment
     from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
 
     implementation_pr: PullRequestSnapshot | None = None
-    pr = fetch_implementation_pr_state_for_reports([str(assignment.report_id)]).get(str(assignment.report_id))
+    pr = fetch_implementation_pr_state_for_reports([str(report.id)]).get(str(report.id))
     if pr is not None:
         parsed = GitHubIntegration.parse_pull_request_url(pr.url)
         implementation_pr = {
@@ -115,50 +115,38 @@ def assignment_snapshot(assignment: SignalReportAssignment | None) -> Assignment
     return {"assignee": assignee, "implementation_pr": implementation_pr}
 
 
-def actor_owns_assignment(assignment: SignalReportAssignment, actor: ArtefactAttribution) -> bool:
-    if assignment.actor_kind != actor.kind:
-        return False
-    if actor.kind == "user":
-        return assignment.actor_user_id == actor.user_id
-    if actor.kind == "task":
-        return str(assignment.actor_task_id) == actor.task_id
-    if actor.kind == "agent":
-        return assignment.actor_user_id == actor.user_id and assignment.actor_agent == actor.agent_name
-    return actor.kind == "system"
-
-
-def _set_actor(assignment: SignalReportAssignment, actor: ArtefactAttribution) -> None:
-    assignment.actor_kind = actor.kind
-    assignment.actor_user_id = actor.user_id
-    assignment.actor_task_id = actor.task_id
-    assignment.actor_agent = actor.agent_name
-    assignment.claimed_at = timezone.now()
-
-
-def _clear_actor(assignment: SignalReportAssignment) -> None:
-    assignment.actor_kind = None
-    assignment.actor_user_id = None
-    assignment.actor_task_id = None
-    assignment.actor_agent = None
-    assignment.claimed_at = None
-    assignment.claim_id = None
-
-
-def ensure_claim(assignment: SignalReportAssignment, *, migrated: bool = False) -> None:
-    if assignment.claim_id or not assignment.actor_kind:
-        return
+def create_claim(report: SignalReport, actor: ArtefactAttribution) -> ReportClaim:
     claim = SignalReportArtefact.add_log(
-        team_id=assignment.team_id,
-        report_id=str(assignment.report_id),
-        content=WorkClaim(migrated=migrated),
-        attribution=assignment_actor(assignment),
+        team_id=report.team_id,
+        report_id=str(report.id),
+        content=WorkClaim(),
+        attribution=actor,
     )
-    assignment.claim = claim
+    if actor.task_id:
+        associations = SignalReportArtefact.objects.filter(
+            team_id=report.team_id,
+            report_id=report.id,
+            type="task_run",
+            task_id=actor.task_id,
+        )
+        if not associations.exists():
+            SignalReportArtefact.add_log(
+                team_id=report.team_id,
+                report_id=str(report.id),
+                content=TaskRunArtefact(task_id=actor.task_id, product="tasks", type="agent_run"),
+                attribution=actor,
+                claim_id=str(claim.id),
+            )
+        else:
+            associations.filter(claim__isnull=True).update(claim=claim)
+    return claim_from_artefact(claim)
 
 
 def assignment_actor(assignment: SignalReportAssignment) -> ArtefactAttribution:
     if assignment.actor_kind == "task" and assignment.actor_task_id:
-        return ArtefactAttribution.from_task(str(assignment.actor_task_id))
+        if tasks_facade.task_exists(str(assignment.actor_task_id), assignment.team_id):
+            return ArtefactAttribution.from_task(str(assignment.actor_task_id))
+        return ArtefactAttribution.system()
     if assignment.actor_kind == "agent" and assignment.actor_user_id and assignment.actor_agent:
         return ArtefactAttribution.from_agent(assignment.actor_user_id, assignment.actor_agent)
     if assignment.actor_kind == "user" and assignment.actor_user_id:
@@ -166,35 +154,27 @@ def assignment_actor(assignment: SignalReportAssignment) -> ArtefactAttribution:
     return ArtefactAttribution.system()
 
 
-def release_claim(assignment: SignalReportAssignment, actor: ArtefactAttribution, *, takeover: bool = False) -> None:
-    if assignment.actor_kind:
-        ensure_claim(assignment, migrated=True)
-        artefact = SignalReportArtefact.add_log(
-            team_id=assignment.team_id,
-            report_id=str(assignment.report_id),
-            content=WorkRelease(reason="taken_over" if takeover else "released"),
-            attribution=actor,
-        )
-        artefact.claim_id = assignment.claim_id
-        artefact.save(update_fields=["claim"])
-    _clear_actor(assignment)
+def release_claim(claim: ReportClaim, actor: ArtefactAttribution, *, takeover: bool = False) -> None:
+    if not SignalReportArtefact.objects.filter(team_id=claim.team_id, id=claim.claim_id).exists():
+        import_report_pull_requests(SignalReport.objects.get(team_id=claim.team_id, id=claim.report_id))
+    SignalReportArtefact.add_log(
+        team_id=claim.team_id,
+        report_id=str(claim.report_id),
+        content=WorkRelease(reason="taken_over" if takeover else "released"),
+        attribution=actor,
+        claim_id=str(claim.claim_id),
+    )
 
 
-def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> SignalReportAssignment:
-    """Record an internal task as the current owner without going through the public claim API."""
+def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> ReportClaim:
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
-        assignment = SignalReportAssignment.all_teams.select_for_update().filter(report_id=report.id).first()
-        if assignment is None:
-            assignment = SignalReportAssignment(team_id=team_id, report_id=report.id)
+        import_report_pull_requests(report)
+        claim = get_active_claim(team_id=team_id, report_id=report_id)
         actor = ArtefactAttribution.from_task(task_id)
-        if assignment.actor_kind and not actor_owns_assignment(assignment, actor):
+        if claim is not None and not actor_owns_claim(claim, actor):
             raise ReportClaimConflict("This report already has an active claim.")
-        if not actor_owns_assignment(assignment, actor):
-            _set_actor(assignment, actor)
-        ensure_claim(assignment)
-        assignment.save()
-        return assignment
+        return claim or create_claim(report, actor)
 
 
 def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
@@ -302,28 +282,17 @@ def sync_task_pull_request_to_assignments(
         )
         for report in reports:
             import_report_pull_requests(report, notify_reviewers=True)
-            assignment = SignalReportAssignment.all_teams.filter(team_id=team_id, report_id=report.id).first()
-            if assignment is None:
-                assignment = SignalReportAssignment(team_id=team_id, report_id=report.id)
-                _set_actor(assignment, actor)
-            if actor_owns_assignment(assignment, actor):
-                ensure_claim(assignment)
-            claim_id = (
-                str(assignment.claim_id) if assignment.claim_id and actor_owns_assignment(assignment, actor) else None
-            )
-            if claim_id is None:
-                historical = (
-                    SignalReportArtefact.objects.filter(
-                        team_id=team_id,
-                        report_id=report.id,
-                        type="work_claim",
-                        task_id=task_id,
-                    )
-                    .order_by("-created_at")
-                    .first()
+            historical = (
+                SignalReportArtefact.objects.filter(
+                    team_id=team_id,
+                    report_id=report.id,
+                    type="work_claim",
+                    task_id=task_id,
                 )
-                claim_id = str(historical.id) if historical else None
-            assignment.save()
+                .order_by("-created_at", "-id")
+                .first()
+            )
+            claim_id = str(historical.id) if historical else None
             link_pull_request(
                 report=report,
                 details=PullRequestDetails(
@@ -331,15 +300,8 @@ def sync_task_pull_request_to_assignments(
                 ),
                 actor=actor,
                 claim_id=claim_id,
-                migrated=True,
+                state_source=PullRequestStateSource.TASK_OUTPUT,
             )
-            if not assignment.pr_url:
-                assignment.pr_url = pr_url
-                assignment.repository = repository
-                assignment.pr_number = parsed.number
-                assignment.pr_state = state
-                assignment.pr_merged = merged
-                assignment.save()
         return len(reports)
 
 
@@ -382,7 +344,7 @@ def claim_report(
     pull_requests: list[str] | None = None,
     claim_id: str | None = None,
     takeover: bool = False,
-) -> SignalReportAssignment | None:
+) -> ReportClaim | None:
     """Claim, release, or attach a PR to one report and return the current assignment."""
     if release and (pr_url or pull_requests or takeover):
         raise ReportClaimConflict("Release cannot be combined with pull requests or takeover.")
@@ -394,19 +356,20 @@ def claim_report(
     with transaction.atomic():
         locked_report = SignalReport.objects.select_for_update().get(id=report.id, team_id=report.team_id)
         import_report_pull_requests(locked_report, notify_reviewers=True)
-        assignment = SignalReportAssignment.all_teams.select_for_update().filter(report_id=locked_report.id).first()
-        before = assignment_snapshot(assignment)
+        assignment = get_active_claim(team_id=report.team_id, report_id=report.id)
+        before = assignment_snapshot(locked_report, assignment)
         if claim_id and (assignment is None or str(assignment.claim_id) != claim_id):
             raise ReportClaimConflict("This claim is no longer active.")
-        if claim_id and assignment is not None and not actor_owns_assignment(assignment, actor):
+        if claim_id and assignment is not None and not actor_owns_claim(assignment, actor):
             raise ReportClaimConflict("This claim belongs to another actor.")
 
         if release:
             if assignment is None:
                 return None
-            if assignment.actor_kind and not actor_owns_assignment(assignment, actor):
+            if assignment.actor_kind and not actor_owns_claim(assignment, actor):
                 raise ReportClaimConflict("Only the current assignee can release this report.")
             release_claim(assignment, actor)
+            assignment = None
         else:
             if locked_report.status not in CLAIMABLE_REPORT_STATUSES:
                 existing_prs = set(
@@ -417,52 +380,35 @@ def claim_report(
                 if (
                     not takeover
                     and assignment is not None
-                    and actor_owns_assignment(assignment, actor)
+                    and actor_owns_claim(assignment, actor)
                     and all((pr.repository, pr.number) in existing_prs for pr in details)
                 ):
                     return assignment
                 raise ReportClaimConflict(f"Reports with status '{locked_report.status}' cannot be claimed.")
+            if assignment is not None and not actor_owns_claim(assignment, actor):
+                if not takeover:
+                    raise ReportClaimConflict(
+                        "This report already has an active claim. Use takeover=true to take ownership."
+                    )
+                release_claim(assignment, actor, takeover=True)
+                assignment = None
             if assignment is None:
-                assignment = SignalReportAssignment(
-                    team_id=locked_report.team_id,
-                    report_id=locked_report.id,
-                )
-            if not actor_owns_assignment(assignment, actor):
-                if assignment.actor_kind:
-                    if not takeover:
-                        raise ReportClaimConflict(
-                            "This report already has an active claim. Use takeover=true to take ownership."
-                        )
-                    release_claim(assignment, actor, takeover=True)
-                _set_actor(assignment, actor)
-            ensure_claim(assignment)
+                assignment = create_claim(locked_report, actor)
 
-        assignment.save()
         for pr_details in details:
             link_pull_request(
                 report=locked_report,
                 details=pr_details,
                 actor=actor,
-                claim_id=str(assignment.claim_id) if assignment.claim_id else None,
+                claim_id=str(assignment.claim_id) if assignment else None,
             )
-        # Keep the single-PR columns populated until old application versions have drained.
-        if details and not assignment.pr_url:
-            primary = details[0]
-            assignment.pr_url = primary.url
-            assignment.repository = primary.repository
-            assignment.pr_number = primary.number
-            assignment.pr_state = primary.state
-            assignment.pr_merged = primary.merged
-            assignment.save()
-
         if details:
             apply_report_completion(locked_report)
 
-        after = assignment_snapshot(assignment)
+        after = assignment_snapshot(locked_report, assignment)
         if before == after:
             return assignment
 
-        assignment.save()
         changes: list[Change] = []
         if before["assignee"] != after["assignee"]:
             changes.append(

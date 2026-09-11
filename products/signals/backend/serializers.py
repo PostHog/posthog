@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSchemaSt
 
 if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import ImplementationPr
+    from products.signals.backend.report_claims import ReportClaim
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .daily_limit import reports_generated_today, team_day_start
@@ -1107,9 +1108,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "claimed_at": assignment.claimed_at,
         }
 
-    @staticmethod
-    def _get_assignment(obj: SignalReport) -> SignalReportAssignment | None:
-        return getattr(obj, "assignment", None)
+    def _get_assignment(self, obj: SignalReport) -> "ReportClaim | None":
+        from products.signals.backend.report_claims import get_active_claim
+
+        claims = self.context.setdefault("claims_map", {})
+        report_id = str(obj.id)
+        if report_id not in claims:
+            claims[report_id] = get_active_claim(team_id=obj.team_id, report_id=report_id)
+        return claims[report_id]
 
     @extend_schema_field(SignalReportRefundSerializer(allow_null=True))
     def get_refund(self, obj: SignalReport) -> dict | None:

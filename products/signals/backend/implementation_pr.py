@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Literal, cast
 from uuid import NAMESPACE_URL, uuid5
 
 from django.db.models import Q
-from django.utils import timezone
 
 import structlog
 
@@ -276,18 +275,7 @@ def _close_implementation_pr(
             logger.warning("close_implementation_pr_unparseable_url", report_id=str(report_id), pr_url=pr_url)
             return False
 
-        # Nothing serializes this call with a re-claim that swaps the pull request or with a merge
-        # webhook, and both write the same row. Scope every write back to the pull request this call
-        # read, so a result that arrives late lands on nothing instead of on its replacement.
-        assignment_for_pr = SignalReportAssignment.all_teams.filter(
-            report_id=report_id,
-            report__team_id=team_id,
-            repository=parsed.repository.lower(),
-            pr_number=parsed.number,
-        )
-        shared_pr = SignalReportPullRequest.objects.for_team(team_id).filter(
-            repository=parsed.repository.lower(), number=parsed.number
-        )
+        from products.signals.backend.report_assignments import update_assignments_for_pull_request
 
         # One pull request can back several reports. Closing it for one dismissal would close the
         # work the others still depend on, and the close webhook would then suppress them too, so
@@ -332,21 +320,12 @@ def _close_implementation_pr(
                 status_code=pr_status.get("status_code"),
             )
             return False
-        if pr_status.get("merged"):
-            shared_pr.update(
-                state=SignalReportPullRequest.State.MERGED, checked_at=timezone.now(), updated_at=timezone.now()
-            )
-            assignment_for_pr.update(
-                pr_state=SignalReportAssignment.PrState.MERGED,
-                pr_merged=True,
-            )
-        elif pr_status.get("state") == "closed":
-            shared_pr.exclude(state=SignalReportPullRequest.State.MERGED).update(
-                state=SignalReportPullRequest.State.CLOSED, checked_at=timezone.now(), updated_at=timezone.now()
-            )
-            assignment_for_pr.update(
-                pr_state=SignalReportAssignment.PrState.CLOSED,
-                pr_merged=False,
+        if pr_status.get("merged") or pr_status.get("state") == "closed":
+            update_assignments_for_pull_request(
+                team_ids=[team_id],
+                repository=parsed.repository,
+                pr_number=parsed.number,
+                pr_state="merged" if pr_status.get("merged") else "closed",
             )
         if pr_status.get("state") != "open" or pr_status.get("merged"):
             logger.info(
@@ -382,12 +361,11 @@ def _close_implementation_pr(
         # Closing a merged pull request is a no-op that still reports success, so a merge that landed
         # during the round trip must keep its state. A merge is terminal: no later webhook would
         # correct a downgrade here.
-        assignment_for_pr.exclude(pr_state=SignalReportAssignment.PrState.MERGED).update(
-            pr_state=SignalReportAssignment.PrState.CLOSED,
-            pr_merged=False,
-        )
-        shared_pr.exclude(state=SignalReportPullRequest.State.MERGED).update(
-            state=SignalReportPullRequest.State.CLOSED, checked_at=timezone.now(), updated_at=timezone.now()
+        update_assignments_for_pull_request(
+            team_ids=[team_id],
+            repository=parsed.repository,
+            pr_number=parsed.number,
+            pr_state="closed",
         )
         return True
     except Exception:

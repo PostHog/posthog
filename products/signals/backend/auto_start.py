@@ -28,13 +28,13 @@ from products.signals.backend.free_trial import capture_signal_report_free_trial
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
-    SignalReportAssignment,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_IMPLEMENTATION
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -418,9 +418,7 @@ def _create_implementation_task_if_absent(
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
             return False
-        if SignalReportAssignment.all_teams.filter(
-            team_id=team_id, report_id=report_id, actor_kind__isnull=False
-        ).exists():
+        if get_active_claim(team_id=team_id, report_id=report_id) is not None:
             return False
         # The gate reads the unified task↔report view (`associated_task_runs` merges the legacy
         # `SignalReportTask` rows with the `task_run` artefact log). Unifying only *adds* sources,

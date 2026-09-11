@@ -36,9 +36,7 @@ tools:
             has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded
             automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote
             by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is
-            always a mistake), `task_run` (associates a tasks.Task with the report — this IS the task↔report
-            association: content.task_id defaults to your own task, product/type label the run and default to
-            tasks/agent_run, and re-associating an already-linked task is idempotent, returning the existing entry),
+            always a mistake),
             `note` (free-form: note). Status types are latest-wins — appending a new version supersedes the previous one
             as the report's canonical status: `priority_judgment` (explanation, priority P0–P4),
             `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice),
@@ -46,7 +44,8 @@ tools:
             are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up
             next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object
             matching the chosen type and is validated against its schema. Writes are attributed to your task
-            automatically. Returns the created artefact including its id.
+            automatically. Pass claim_id to associate the work with your current claim; stale or foreign claims are
+            rejected. Returns the created artefact including its id.
     inbox-report-artefacts-delete:
         operation: signals_report_artefacts_destroy
         enabled: true
@@ -140,7 +139,8 @@ tools:
         title: Update work on a signal report
         description: >
             Start, resume, or release work on a report. Returns assignee.claim_id for the work attempt. Pass claim_id on
-            subsequent updates; stale or foreign claims are rejected. Another actor's active claim requires explicit
+            subsequent updates; stale or foreign claims are rejected. For internal task agents, claiming automatically
+            records the task association. Task-run artefacts are read-only through the API. Another actor's active claim requires explicit
             takeover=true. Add pull_requests (an array of GitHub URLs) in the same call, including when starting work.
             Links are additive and retries are deduplicated. Use release=true to end ownership without removing PRs or
             history. A report resolves when every linked PR is closed or merged and at least one merged; it is

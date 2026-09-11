@@ -1,4 +1,6 @@
 from collections.abc import Sequence
+from enum import StrEnum
+from functools import partial
 from typing import TYPE_CHECKING
 
 from django.db import transaction
@@ -10,6 +12,23 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact, 
 
 if TYPE_CHECKING:
     from products.signals.backend.report_assignments import PullRequestDetails
+
+
+class PullRequestStateSource(StrEnum):
+    GITHUB = "github"
+    TASK_OUTPUT = "task_output"
+    LEGACY_ASSIGNMENT = "legacy_assignment"
+
+
+def reconcile_reports_for_pull_request(*, team_id: int, pr_id: str) -> None:
+    from products.signals.backend.implementation_pr import report_ids_for_implementation_pr
+
+    pr = SignalReportPullRequest.objects.for_team(team_id).get(id=pr_id)
+    report_ids = report_ids_for_implementation_pr(team_id=team_id, repository=pr.repository, pr_number=pr.number)
+    with transaction.atomic():
+        reports = SignalReport.objects.select_for_update().filter(team_id=team_id, id__in=report_ids).order_by("id")
+        for report in reports:
+            apply_report_completion(report)
 
 
 def completion_state(states: Sequence[str]) -> str | None:
@@ -24,7 +43,7 @@ def link_pull_request(
     details: "PullRequestDetails",
     actor: ArtefactAttribution,
     claim_id: str | None,
-    migrated: bool = False,
+    state_source: PullRequestStateSource = PullRequestStateSource.GITHUB,
     notify_reviewers: bool = True,
 ) -> SignalReportPullRequest:
     if (
@@ -46,11 +65,13 @@ def link_pull_request(
     pr = SignalReportPullRequest.objects.for_team(report.team_id).select_for_update().get(id=pr.id)
     if pr.state != SignalReportPullRequest.State.MERGED and details.state != SignalReportPullRequest.State.UNKNOWN:
         # Imported/task snapshots must not overwrite a state already verified with GitHub.
-        if not migrated or pr.checked_at is None:
+        if state_source == PullRequestStateSource.GITHUB or pr.checked_at is None:
             pr.state = details.state
-            if not migrated:
+            if state_source == PullRequestStateSource.GITHUB:
                 pr.checked_at = timezone.now()
             pr.save(update_fields=["state", "checked_at", "updated_at"])
+            # Wait for the complete PR batch and release its locks before locking shared reports.
+            transaction.on_commit(partial(reconcile_reports_for_pull_request, team_id=report.team_id, pr_id=str(pr.id)))
     links = SignalReportArtefact.objects.filter(
         team_id=report.team_id,
         report_id=report.id,
@@ -62,12 +83,12 @@ def link_pull_request(
         link = SignalReportArtefact.add_log(
             team_id=report.team_id,
             report_id=str(report.id),
-            content=PullRequestLink(url=pr.url, migrated=migrated),
+            content=PullRequestLink(url=pr.url),
             attribution=actor,
+            claim_id=claim_id,
         )
-        link.claim_id = claim_id
         link.pull_request = pr
-        link.save(update_fields=["claim", "pull_request"])
+        link.save(update_fields=["pull_request"])
         if (
             notify_reviewers
             and not SignalReportArtefact.objects.filter(
@@ -97,13 +118,31 @@ def apply_report_completion(report: SignalReport) -> None:
 def import_report_pull_requests(report: SignalReport, *, notify_reviewers: bool = False) -> None:
     from posthog.models.github_integration_base import GitHubIntegrationBase
 
+    from products.signals.backend.artefact_schemas import WorkClaim
     from products.signals.backend.models import SignalReportAssignment
-    from products.signals.backend.report_assignments import PullRequestDetails, assignment_actor, ensure_claim
+    from products.signals.backend.report_assignments import PullRequestDetails, assignment_actor
 
     assignment = SignalReportAssignment.all_teams.filter(team_id=report.team_id, report_id=report.id).first()
+    legacy_claim_id = None
     if assignment is not None and assignment.actor_kind:
-        ensure_claim(assignment, migrated=True)
-        assignment.save(update_fields=["claim"])
+        history = SignalReportArtefact.objects.filter(team_id=report.team_id, report_id=report.id, type="work_claim")
+        if not history.exists():
+            SignalReportArtefact.objects.create(
+                id=assignment.id,
+                team_id=report.team_id,
+                report_id=report.id,
+                type="work_claim",
+                content=WorkClaim().model_dump_json(),
+                actor_kind=assignment.actor_kind,
+                created_by_id=assignment.actor_user_id,
+                task_id=assignment_actor(assignment).task_id,
+                actor_agent=assignment.actor_agent,
+            )
+            SignalReportArtefact.objects.filter(id=assignment.id, team_id=report.team_id).update(
+                created_at=assignment.claimed_at or assignment.created_at,
+            )
+        if history.filter(id=assignment.id).exists():
+            legacy_claim_id = str(assignment.id)
     candidates: list[tuple[str, str, ArtefactAttribution, str | None]] = []
     if assignment is not None and assignment.pr_url:
         candidates.append(
@@ -111,7 +150,7 @@ def import_report_pull_requests(report: SignalReport, *, notify_reviewers: bool 
                 assignment.pr_url,
                 "merged" if assignment.pr_merged else assignment.pr_state or "unknown",
                 assignment_actor(assignment),
-                str(assignment.claim_id) if assignment.claim_id else None,
+                legacy_claim_id,
             )
         )
     for url, state, actor, claim_id in candidates:
@@ -137,7 +176,7 @@ def import_report_pull_requests(report: SignalReport, *, notify_reviewers: bool 
             ),
             actor=actor,
             claim_id=claim_id,
-            migrated=True,
+            state_source=PullRequestStateSource.LEGACY_ASSIGNMENT,
             notify_reviewers=notify_reviewers,
         )
         if assignment is not None and url == assignment.pr_url and actor.kind != assignment.actor_kind:
@@ -151,8 +190,6 @@ def import_report_pull_requests(report: SignalReport, *, notify_reviewers: bool 
 
 
 def update_pull_request_state(*, team_id: int, repository: str, number: int, state: str) -> int:
-    from products.signals.backend.models import SignalReportAssignment
-
     report_ids = SignalReportArtefact.objects.filter(
         team_id=team_id,
         pull_request__team_id=team_id,
@@ -178,12 +215,6 @@ def update_pull_request_state(*, team_id: int, repository: str, number: int, sta
             pr.state = state
         pr.checked_at = timezone.now()
         pr.save(update_fields=["state", "checked_at", "updated_at"])
-        SignalReportAssignment.all_teams.filter(
-            team_id=team_id, repository=repository.lower(), pr_number=number
-        ).update(
-            pr_state=pr.state,
-            pr_merged=pr.state == SignalReportPullRequest.State.MERGED,
-        )
         for report in reports:
             apply_report_completion(report)
         return len(reports)

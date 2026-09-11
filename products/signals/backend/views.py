@@ -74,7 +74,6 @@ from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
     DISMISSAL_REASON_WRONG_REPO,
     NON_WRITABLE_ARTEFACT_TYPES,
-    SIGNALS_PRODUCT,
     ArtefactContentValidationError,
     ChannelAssignment,
     Dismissal,
@@ -109,7 +108,6 @@ from products.signals.backend.models import (
     ArtefactAttribution,
     AutonomyPriority,
     InvalidStatusTransition,
-    SignalActorKind,
     SignalReport,
     SignalReportAction,
     SignalReportArtefact,
@@ -119,9 +117,16 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
+from products.signals.backend.report_claims import (
+    actor_owns_claim,
+    get_active_claim,
+    get_active_claims,
+    reports_with_active_claim,
+)
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerPayloadIndex,
@@ -166,11 +171,7 @@ from products.signals.backend.slack_notification_targets import (
     saved_notification_integration,
     validate_slack_notification_target,
 )
-from products.signals.backend.task_attribution import (
-    TASK_ID_HEADER,
-    resolve_request_attribution,
-    resolve_task_id_from_header,
-)
+from products.signals.backend.task_attribution import TASK_ID_HEADER, resolve_request_attribution
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
@@ -991,7 +992,7 @@ class SignalReportViewSet(
         # The serializer renders the reverse OneToOne rows inline.
         return (
             queryset.filter(team=self.team)
-            .select_related("refund", "assignment", "assignment__actor_user", "tracker_issue")
+            .select_related("refund", "tracker_issue")
             .annotate(
                 artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
                 channel_id=channel_id_subquery,
@@ -1262,7 +1263,9 @@ class SignalReportViewSet(
         has_review_pr = Q(id__in=active_prs.values("report_id")) | (
             (~Q(id__in=new_links.values("report_id")) & has_review_pr) | task_pr
         )
-        is_unclaimed = ~Q(status=SignalReport.Status.RESOLVED) & Q(assignment__actor_kind__isnull=True) & ~has_review_pr
+        is_unclaimed = (
+            ~Q(status=SignalReport.Status.RESOLVED) & ~reports_with_active_claim(team_id=self.team_id) & ~has_review_pr
+        )
         return queryset.filter(is_unclaimed) if wants_unclaimed else queryset.exclude(is_unclaimed)
 
     def _apply_signal_report_assignee_filter(self, queryset):
@@ -1272,30 +1275,7 @@ class SignalReportViewSet(
         if raw.strip().lower() != "me":
             raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me."})
         actor = self._request_attribution()
-        # The tenant bound sits on the report side of the join, and Postgres derives no equality
-        # between the two team columns. Repeating it on the assignment binds the leading column of
-        # the actor indexes, which turns a full index scan into a seek. An assignment always
-        # carries its report's team, so this narrows nothing.
-        if actor.kind == "user":
-            return queryset.filter(
-                assignment__team_id=self.team_id,
-                assignment__actor_kind=actor.kind,
-                assignment__actor_user_id=actor.user_id,
-            )
-        if actor.kind == "task":
-            return queryset.filter(
-                assignment__team_id=self.team_id,
-                assignment__actor_kind=actor.kind,
-                assignment__actor_task_id=actor.task_id,
-            )
-        if actor.kind == "agent":
-            return queryset.filter(
-                assignment__team_id=self.team_id,
-                assignment__actor_kind=actor.kind,
-                assignment__actor_user_id=actor.user_id,
-                assignment__actor_agent=actor.agent_name,
-            )
-        return queryset.filter(assignment__team_id=self.team_id, assignment__actor_kind=SignalActorKind.SYSTEM)
+        return queryset.filter(reports_with_active_claim(team_id=self.team_id, actor=actor))
 
     def _apply_signal_report_channel_filter(self, queryset):
         # `channel_id=<uuid>` narrows to reports assigned to one space. Absent or empty
@@ -1712,6 +1692,7 @@ class SignalReportViewSet(
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             "pull_requests_map": pull_requests_map,
+            "claims_map": dict.fromkeys(report_ids) | get_active_claims(team_id=self.team_id, report_ids=report_ids),
             "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
@@ -2130,6 +2111,7 @@ class SignalReportViewSet(
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             "pull_requests_map": pull_requests_map,
+            "claims_map": dict.fromkeys(report_ids) | get_active_claims(team_id=self.team_id, report_ids=report_ids),
             "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
@@ -4381,62 +4363,6 @@ class SignalReportArtefactViewSet(
             )
         content = request.validated_data["content"]
         attribution = resolve_request_attribution(request, self.team.id)
-        if artefact_type == SignalReportArtefact.ArtefactType.TASK_RUN:
-            # task_run artefacts are the task↔report association itself, so they get
-            # associate-me ergonomics: content.task_id defaults to the calling agent's task
-            # (the header), product/type default to a generic agent-run label, the named task
-            # must belong to this project, attribution is always the recorded task, and
-            # re-associating an already-linked task is idempotent (returns the existing entry).
-            if not isinstance(content, dict):
-                return Response(
-                    {"error": "task_run content must be a JSON object."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            task_id = content.get("task_id") or resolve_task_id_from_header(request, self.team.id)
-            if not task_id:
-                return Response(
-                    {"error": "Provide content.task_id, or call with an X-PostHog-Task-Id header."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if not tasks_facade.task_exists(task_id, self.team.id):
-                return Response(
-                    {"error": "Unknown task for this project."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            content = {**content, "task_id": str(task_id)}
-            asserted_product = content.get("product")
-            if isinstance(asserted_product, str) and asserted_product.strip() == SIGNALS_PRODUCT:
-                # `signals` is the built-in pipeline's own namespace, and it is what the
-                # per-report task cap counts. A client that could assert it would be able to fill
-                # another report's discussion allowance with associations to arbitrary tasks of
-                # its own, permanently — the log is append-only. Server-side writers reach
-                # `append_task_run_artefact` in-process and never come through here; custom agents
-                # carry their own identifier pair. Mirrors the tasks write serializer, which
-                # rejects the pipeline's reserved relationship labels for the same reason.
-                #
-                # Compared on the stripped value because `identifier_part_must_be_routing_safe`
-                # strips before storing, so an unstripped comparison would let `" signals "` land
-                # in the reserved namespace. The regex it then applies rejects every other
-                # variation, so whitespace is the only normalization the two sides must agree on.
-                return Response(
-                    {"error": f"content.product '{SIGNALS_PRODUCT}' is reserved for server-created runs."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            content.setdefault("product", "tasks")
-            content.setdefault("type", "agent_run")
-            existing = (
-                SignalReportArtefact.objects.filter(
-                    team=self.team,
-                    report_id=report_id,
-                    type=SignalReportArtefact.ArtefactType.TASK_RUN,
-                    task_id=task_id,
-                )
-                .order_by("created_at")
-                .first()
-            )
-            if existing is not None:
-                return Response(self._write_response_data(existing), status=status.HTTP_200_OK)
-            attribution = ArtefactAttribution.from_task(str(task_id))
         # The write boundary: parse the raw payload into the type's content model once; the
         # typed model is what flows into the append helpers.
         try:
@@ -4449,28 +4375,25 @@ class SignalReportArtefactViewSet(
         if isinstance(parsed_content, ChannelAssignment):
             self._validate_channel_assignment(parsed_content, request)
         with transaction.atomic():
-            SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
+            report = SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
+            import_report_pull_requests(report)
             claim_id = request.validated_data.get("claim_id")
             if claim_id:
-                from dataclasses import replace
-
-                from products.signals.backend.report_assignments import actor_owns_assignment
-
-                assignment = SignalReportAssignment.all_teams.filter(team_id=self.team.id, report_id=report_id).first()
+                assignment = get_active_claim(team_id=self.team.id, report_id=report_id)
                 if (
                     assignment is None
                     or assignment.claim_id != claim_id
-                    or not actor_owns_assignment(assignment, attribution)
+                    or not actor_owns_claim(assignment, attribution)
                 ):
                     return Response(
                         {"detail": "Claim is stale or belongs to another actor."}, status=status.HTTP_409_CONFLICT
                     )
-                attribution = replace(attribution, claim_id=str(claim_id))
             artefact = SignalReportArtefact.append(
                 team_id=self.team.id,
                 report_id=report_id,
                 content=parsed_content,
                 attribution=attribution,
+                claim_id=str(claim_id) if claim_id else None,
             )
         if isinstance(parsed_content, SuggestedReviewers):
             # on_commit so a rolled-back write emits nothing, matching every other reviewer write path.
