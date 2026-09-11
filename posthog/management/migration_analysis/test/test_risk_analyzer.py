@@ -1,7 +1,9 @@
+import pytest
 from unittest.mock import MagicMock
 
 from django.conf import settings
 from django.db import migrations, models
+from django.db.migrations.state import ModelState, ProjectState
 
 from parameterized import parameterized
 
@@ -11,6 +13,7 @@ from posthog.management.migration_analysis.policies import (
     AtomicFalsePolicy,
     ConcurrentIndexIdempotencyPolicy,
     HotTableAlterPolicy,
+    OrphanedForeignKeyPolicy,
 )
 from posthog.management.migration_analysis.utils import _model_name_for_table
 from posthog.migration_helpers import (
@@ -2816,3 +2819,142 @@ class TestGuardedCatchupMigrations:
         migration = self._migration("0812_backfill_fk", self._guarded_ops())
         risk = self.analyzer.analyze_migration(migration, "posthog.0812")
         assert not any("catch-up" in message for message in risk.info_messages)
+
+
+class TestOrphanedForeignKeyPolicy:
+    """A state-only removal must drop the foreign keys it hides from Django.
+
+    Regression coverage for the incident where retiring a model with
+    SeparateDatabaseAndState left its FK to posthog_team in the database. Django stopped
+    cascading into the table, the deferred constraint failed the parent delete at COMMIT,
+    and team and organization deletion stayed broken until the table was dropped.
+    """
+
+    def setup_method(self):
+        self.policy = OrphanedForeignKeyPolicy()
+
+    def _state(self, **fields):
+        state = ProjectState()
+        state.add_model(
+            ModelState(
+                app_label="posthog",
+                name="Child",
+                fields=[("id", models.AutoField(primary_key=True)), *fields.items()],
+                options={"db_table": "posthog_child"},
+            )
+        )
+        for name, table in [("Team", "posthog_team"), ("Widget", "posthog_widget")]:
+            state.add_model(
+                ModelState(
+                    app_label="posthog",
+                    name=name,
+                    fields=[("id", models.AutoField(primary_key=True))],
+                    options={"db_table": table},
+                )
+            )
+        return state
+
+    def _check(self, state, database_operations, monkeypatch, removed="owner"):
+        migration = MagicMock()
+        migration.app_label = "posthog"
+        migration.name = "0001_test"
+        migration.operations = [
+            migrations.SeparateDatabaseAndState(
+                state_operations=[migrations.RemoveField(model_name="child", name=removed)],
+                database_operations=database_operations,
+            )
+        ]
+        monkeypatch.setattr(OrphanedForeignKeyPolicy, "_state_before", lambda _s, _m: state)
+        monkeypatch.setattr(OrphanedForeignKeyPolicy, "_tables_adopted_elsewhere", lambda _s, _a: set())
+        return self.policy.check_migration(migration)
+
+    def test_a_removal_carried_by_run_sql_is_seen(self, monkeypatch):
+        state = self._state(owner=models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True))
+        migration = MagicMock()
+        migration.app_label = "posthog"
+        migration.name = "0001_test"
+        migration.operations = [
+            migrations.RunSQL(
+                sql="SELECT 1",
+                state_operations=[migrations.RemoveField(model_name="child", name="owner")],
+            )
+        ]
+        monkeypatch.setattr(OrphanedForeignKeyPolicy, "_state_before", lambda _s, _m: state)
+        monkeypatch.setattr(OrphanedForeignKeyPolicy, "_tables_adopted_elsewhere", lambda _s, _a: set())
+
+        violations = self.policy.check_migration(migration)
+
+        assert len(violations) == 1
+
+    def test_a_many_to_many_field_is_not_flagged(self, monkeypatch):
+        state = self._state(owner=models.ManyToManyField("posthog.Team"))
+
+        violations = self._check(state, [], monkeypatch)
+
+        assert violations == []
+
+    def test_a_hot_parent_blocks(self, monkeypatch):
+        state = self._state(owner=models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True))
+
+        violations = self._check(state, [], monkeypatch)
+
+        assert len(violations) == 1
+        assert violations[0].startswith("❌ BLOCKED")
+        assert "posthog_team" in violations[0]
+
+    def test_any_other_parent_warns(self, monkeypatch):
+        state = self._state(owner=models.ForeignKey("posthog.Widget", on_delete=models.CASCADE, null=True))
+
+        violations = self._check(state, [], monkeypatch)
+
+        assert len(violations) == 1
+        assert violations[0].startswith("⚠️ WARNING")
+
+    def test_a_matching_drop_clears_it(self, monkeypatch):
+        state = self._state(owner=models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True))
+
+        violations = self._check(state, [DropForeignKey("posthog_child", column="owner_id")], monkeypatch)
+
+        assert violations == []
+
+    def test_a_drop_of_another_column_does_not_clear_it(self, monkeypatch):
+        state = self._state(
+            owner=models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True),
+            other=models.ForeignKey("posthog.Widget", on_delete=models.CASCADE, null=True),
+        )
+
+        violations = self._check(state, [DropForeignKey("posthog_child", column="other_id")], monkeypatch)
+
+        assert len(violations) == 1
+        assert "owner" in violations[0]
+
+    def test_the_remedy_names_a_custom_db_column(self, monkeypatch):
+        state = self._state(
+            owner=models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, db_column="owner_fk_id")
+        )
+
+        violations = self._check(state, [], monkeypatch)
+
+        assert 'column="owner_fk_id"' in violations[0]
+
+    def test_a_plain_field_is_not_flagged(self, monkeypatch):
+        state = self._state(owner=models.IntegerField(null=True))
+
+        violations = self._check(state, [], monkeypatch)
+
+        assert violations == []
+
+    @pytest.mark.parametrize(
+        "sql,expected",
+        [
+            ("ALTER TABLE posthog_child DROP CONSTRAINT posthog_child_owner_id_fk;", 0),
+            ("-- this migration must not DROP CONSTRAINT anything\nSELECT 1;", 1),
+            ("/* a later migration will DROP CONSTRAINT this */ SELECT 1;", 1),
+        ],
+    )
+    def test_only_an_executed_constraint_drop_suppresses(self, sql, expected, monkeypatch):
+        state = self._state(owner=models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True))
+
+        violations = self._check(state, [migrations.RunSQL(sql=sql)], monkeypatch)
+
+        assert len(violations) == expected
