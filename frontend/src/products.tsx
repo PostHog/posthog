@@ -94,6 +94,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
     '/alerts': ['Alerts', 'alerts'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
+    '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
     '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
@@ -197,6 +198,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
     '/mcp-analytics/missing-capabilities': ['MCPAnalytics', 'mcpAnalyticsMissingCapabilities'],
     '/mcp-analytics/notifications': ['MCPAnalytics', 'mcpAnalyticsNotifications'],
+    '/mcp-registry': ['MCPRegistry', 'mcpRegistry'],
     '/mcp-servers/server/:id': ['McpGatewayServer', 'mcpGatewayServer'],
     '/mcp-servers/agent/:id': ['McpGatewayAgent', 'mcpGatewayAgent'],
     '/mcp-servers/member/:id': ['McpGatewayMember', 'mcpGatewayMember'],
@@ -562,6 +564,7 @@ export const productConfiguration: Record<string, any> = {
         description:
             'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
     },
+    BusinessKnowledgeSettings: { name: 'Business knowledge settings', projectBased: true, iconType: 'conversations' },
     Transformations: {
         projectBased: true,
         name: 'Transformations',
@@ -826,6 +829,11 @@ export const productConfiguration: Record<string, any> = {
         name: 'MCP tool',
         layout: 'app-container',
         iconType: 'mcp_analytics',
+    },
+    MCPRegistry: {
+        name: 'MCP registry',
+        projectBased: true,
+        description: 'Find an MCP server for a task, ranked by whether it answers and how well it works.',
     },
     McpGateway: {
         projectBased: true,
@@ -1108,6 +1116,7 @@ export const productUrls = {
     alert: (alertId: string): string => `/alerts?alert_type=insights&alert_id=${alertId}`,
     alerts: (): string => '/alerts',
     businessKnowledge: (): string => '/business-knowledge',
+    businessKnowledgeSettings: (): string => '/business-knowledge/settings',
     transformations: (): string => '/transformations',
     eventFiltering: (): string => '/event-filtering',
     cohort: (id: string | number): string => `/cohorts/${id}`,
@@ -1364,6 +1373,7 @@ export const productUrls = {
     mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
     mcpAnalyticsMissingCapabilities: (): string => '/mcp-analytics/missing-capabilities',
     mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
+    mcpRegistry: (): string => '/mcp-registry',
     mcpGateway: (): string => '/mcp-servers',
     mcpGatewayTab: (tab: string): string => `/mcp-servers/${tab}`,
     mcpGatewayServer: (id: string, scope?: string): string =>
@@ -1986,7 +1996,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
         flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
         sceneKey: 'BusinessKnowledge',
-        sceneKeys: ['BusinessKnowledge'],
+        sceneKeys: ['BusinessKnowledge', 'BusinessKnowledgeSettings'],
     },
     {
         path: 'Clusters',

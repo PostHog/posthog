@@ -2,7 +2,7 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -84,7 +84,7 @@ class TestEnrollmentCensusCriteria(BaseTest):
             ("at_cap", BUILD_LOAD_EXCLUSION_METRICS, False),
         ]
     )
-    @freeze_time("2026-01-15")
+    @time_machine.travel("2026-01-15", tick=False)
     def test_build_load_cap_excludes_team_with_too_many_running_metrics(
         self, _name: str, metric_count: int, expect_excluded: bool
     ) -> None:
@@ -117,7 +117,7 @@ class TestEnrollmentCensusCriteria(BaseTest):
         report = build_census_report([small, large], window_days=14)
         assert [candidate.stats.team_id for candidate in report.candidates] == [2, 1]
 
-    @freeze_time("2026-01-15")
+    @time_machine.travel("2026-01-15", tick=False)
     def test_build_load_counts_running_experiments_and_all_metric_kinds(self) -> None:
         def _experiment(metrics: list[dict], **kwargs: Any) -> Experiment:
             return Experiment.objects.create(

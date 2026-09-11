@@ -246,6 +246,7 @@ async def arun_scout_suggestions(
             model=runtime.model,
             runtime_adapter=runtime.runtime_adapter,
             reasoning_effort=runtime.reasoning_effort,
+            service_tier=runtime.service_tier,
         )
         session, batch = await MultiTurnSession.start(
             prompt=build_suggestions_prompt(fleet),

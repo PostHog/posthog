@@ -47,7 +47,10 @@ POOLS = {
         # `default_namespace` once every environment is listed
         # (PostHog/charts#14843).
         "default_namespace": "posthog",
-        "namespace_by_environment": {"dev": "flags-cache-jumphost"},
+        "namespace_by_environment": {
+            "dev": "flags-cache-jumphost",
+            "prod-eu": "flags-cache-jumphost",
+        },
         "app_label": "flags-cache-jumphost",
         "claimed_label_key": "flags-jumphost-claimed",
     },

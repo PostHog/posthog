@@ -3595,7 +3595,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 const flattenedTables: TreeDataItem[] = []
                 const flattenedViews: TreeDataItem[] = []
-                const additionalItems: TreeDataItem[] = []
                 const defaultSchemaName =
                     typeof selectedDirectSource?.job_inputs?.schema === 'string'
                         ? selectedDirectSource.job_inputs.schema
@@ -3625,19 +3624,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     if (item.record?.type === 'managed-views') {
                         return
                     }
-
-                    additionalItems.push(item)
                 })
 
                 const hasLoadedTables = Object.keys(allTablesMap).length > 0
                 if (!databaseLoading && databaseLoadError) {
-                    return [
-                        ...createSchemaErrorNodes('direct-connection', () => actions.refreshDatabaseSchema()),
-                        ...additionalItems,
-                    ]
+                    return createSchemaErrorNodes('direct-connection', () => actions.refreshDatabaseSchema())
                 }
                 if (!databaseLoading && !hasLoadedTables) {
-                    return [...createDirectConnectionEmptyNodes(connectionId), ...additionalItems]
+                    return createDirectConnectionEmptyNodes(connectionId)
                 }
 
                 return [
@@ -3654,7 +3648,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                               },
                           ]
                         : []),
-                    ...additionalItems,
                 ]
             },
         ],
