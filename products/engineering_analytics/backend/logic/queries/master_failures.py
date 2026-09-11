@@ -20,10 +20,11 @@ from products.engineering_analytics.backend.facade.contracts import MasterFailur
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
+    UNPAGED_SCAN_LIMIT,
     run_windowed_job_created_floor_constant,
 )
 
-# Failed default-branch runs in the window is a triage view, not an archive — cap it.
+# Failed default-branch runs in the window is a triage view, not an archive, so cap it.
 _RUN_CAP = 500
 
 _FAILED_RUNS_SELECT = f"""
@@ -40,6 +41,7 @@ _FAILED_JOBS_SELECT = f"""
     SELECT run_id, name
     FROM __JOBS_SOURCE__ AS j
     WHERE run_id IN {{run_ids}} AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 # Trailing "(G/N)" shard suffix, incl. nested parens ("Product tests (experiments (1/2))") —

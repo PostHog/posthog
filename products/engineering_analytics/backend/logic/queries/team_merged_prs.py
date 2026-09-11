@@ -8,19 +8,22 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.logic._shared import WindowedCount
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import UNPAGED_SCAN_LIMIT
 
-_SELECT = """
+_SELECT = f"""
     SELECT
         members.team_slug AS owner_team,
-        countIf(pr.merged_at >= {date_from}) AS merged_pr_count,
-        countIf(pr.merged_at < {date_from}) AS merged_pr_count_prior
+        countIf(pr.merged_at >= {{date_from}}) AS merged_pr_count,
+        countIf(pr.merged_at < {{date_from}}) AS merged_pr_count_prior
     FROM __PR_SOURCE__ AS pr
     JOIN __MEMBERS_SOURCE__ AS members ON pr.author_handle = members.member_handle
     WHERE pr.merged_at IS NOT NULL
-        AND pr.merged_at >= {scan_from}
-        AND pr.merged_at <= {date_to}
+        AND pr.merged_at >= {{scan_from}}
+        AND pr.merged_at <= {{date_to}}
         AND NOT pr.is_bot
     GROUP BY owner_team
+    ORDER BY owner_team
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 

@@ -8,6 +8,8 @@ under ``'unowned'``.
 
 from datetime import UTC, datetime, timedelta
 
+from posthog.hogql import ast
+
 from products.engineering_analytics.backend.facade.contracts import (
     TrunkQuarantineDebt,
     TrunkQuarantinedTest,
@@ -16,9 +18,15 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.ownership import QuarantinedTestFile, resolve_test_ownership
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
+# The board is a standing work queue, so the cap is generous rather than a page. Oldest first, so a
+# repo that somehow exceeds it loses the newest debt and keeps the debt that has aged past its TTL.
+_LIMIT = 5000
+
 _QUARANTINED_SELECT = """
     SELECT runner, nodeid, source_path, crate, status, quarantine_setting, test_case_id, quarantined_at
     FROM __TRUNK_SOURCE__
+    ORDER BY quarantined_at ASC, nodeid ASC
+    LIMIT {limit_plus_one}
 """
 
 
@@ -54,6 +62,8 @@ def query_trunk_quarantine_debt(
             trunk_url=None,
             teams=[],
             tests=[],
+            truncated=False,
+            limit=_LIMIT,
         )
     org_url_slug = curated.trunk_org_url_slug()
     trunk_url = _trunk_url(org_url_slug, curated.repository)
@@ -61,9 +71,11 @@ def query_trunk_quarantine_debt(
     quarantined = curated.run(
         _QUARANTINED_SELECT.replace("__TRUNK_SOURCE__", source),
         query_type="engineering_analytics.trunk_quarantine_debt",
-        placeholders={},
+        placeholders={"limit_plus_one": ast.Constant(value=_LIMIT + 1)},
     )
     rows = quarantined.results or []
+    truncated = len(rows) > _LIMIT
+    rows = rows[:_LIMIT]
     if not rows:
         return TrunkQuarantineDebt(
             available=True,
@@ -73,6 +85,8 @@ def query_trunk_quarantine_debt(
             trunk_url=trunk_url,
             teams=[],
             tests=[],
+            truncated=False,
+            limit=_LIMIT,
         )
 
     parsed = [
@@ -125,4 +139,6 @@ def query_trunk_quarantine_debt(
         trunk_url=trunk_url,
         teams=teams,
         tests=tests,
+        truncated=truncated,
+        limit=_LIMIT,
     )

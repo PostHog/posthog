@@ -44,6 +44,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     LATEST_COMPLETED_RUN_FAILED,
     RUN_DURATION_PERCENTILE_CONDITION,
     SUCCESSFUL_RUN_CONDITION,
+    UNPAGED_SCAN_LIMIT,
     branch_filter_clause,
     date_to_filter_clause,
     default_branch_predicate,
@@ -86,9 +87,12 @@ _SELECT = f"""
     LIMIT {_LIMIT}
 """
 
-# Success rate over the equal-length window before date_from — the delta baseline the UI renders as
+# Success rate over the equal-length window before date_from, the delta baseline the UI renders as
 # an honest Δpp instead of a server-baked percentage. Kept as its own slim scan so the main query's
-# window (and its LIMIT semantics) stay untouched.
+# window (and its LIMIT semantics) stay untouched. It is a lookup keyed by workflow name with no rank
+# of its own, so it takes the wide ceiling rather than _LIMIT: capping it at _LIMIT would return an
+# arbitrary 100 workflows instead of the 100 _SELECT ranked, and every unmatched row would read as
+# "no previous window".
 _PREV_SELECT = f"""
     SELECT
         repo_owner,
@@ -98,6 +102,7 @@ _PREV_SELECT = f"""
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{prev_from}} AND run_started_at < {{date_from}} __BRANCH__ __RUN_SCOPE__
     GROUP BY repo_owner, repo_name, workflow_name
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 # Merge-queue run counts over the same window with no branch/run_scope filter, so the list can rank
