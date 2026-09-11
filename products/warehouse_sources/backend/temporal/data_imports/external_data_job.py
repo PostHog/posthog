@@ -69,6 +69,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ResumableSource,
     error_message_matches,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
+    TEMPORARY_HOST_RESOLUTION_PREFIX,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -116,16 +122,24 @@ LOGGER = get_logger(__name__)
 MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 15
 MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
 
+MISSING_INTEGRATION_MESSAGE = (
+    "The connected account for this source is no longer available — it may have been disconnected. "
+    "Please reconnect the source's account."
+)
+
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
     # Raised by `_check_direct_host` when a direct (untunneled) database connection's host doesn't
     # resolve, or resolves to a private/internal address. Mirrors the `SSH tunnel host not allowed`
     # entry: a config problem only the customer can fix, so retrying just re-hits the same
     # rejection. Match the stable prefix and exclude the volatile host details that follow it.
-    "Database host not allowed": (
-        "PostHog rejected this source's database host because it either couldn't be resolved, or "
-        "resolves to a private/internal address. Check the host is spelled correctly and reachable "
-        "from the public internet, then re-enable the sync."
+    DATABASE_HOST_NOT_ALLOWED_ERROR: DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    # Raised by `_pinned_ssh_host` for the bastion, the same class of config problem as the entry
+    # above: the tunnel host doesn't resolve, or resolves to a private/internal address.
+    SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR: (
+        "PostHog rejected this source's SSH tunnel host because it either couldn't be resolved, or "
+        "resolves to a private/internal address. Check the tunnel host is spelled correctly and "
+        "reachable from the public internet, then re-enable the sync."
     ),
     # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private key
     # can't be parsed, or password auth is missing a username/password. Shared by every
@@ -145,7 +159,13 @@ Any_Source_Errors: dict[str, str | None] = {
         "rows to update. Choose a unique primary key in the table's sync settings, or switch it to full "
         "table replication, then re-enable the sync."
     ),
-    "Integration matching query does not exist": "The connected account for this source is no longer available — it may have been disconnected. Please reconnect the source's account.",
+    "Integration matching query does not exist": MISSING_INTEGRATION_MESSAGE,
+    # `OAuthMixin.get_oauth_integration` catches `Integration.DoesNotExist` and re-raises these
+    # two, so the ORM wording above never reaches here for the sources that go through it. Left
+    # unclassified they were retried to exhaustion and then shown raw, echoing an internal
+    # integration id back at the customer.
+    "Integration not found:": MISSING_INTEGRATION_MESSAGE,
+    "Missing integration ID": MISSING_INTEGRATION_MESSAGE,
     # A fatal TLS alert from the remote host (raised in the shared HTTP transport for every
     # REST-based source). The server refused the handshake, which is deterministic for a given
     # host/TLS config — retrying replays the identical failure, so it's not transient. Usually a
@@ -254,9 +274,23 @@ Transient_Error_Messages: dict[str, str] = {
     # and again through Temporal, so reaching here means the outage outlasted both and the stored
     # text is a bare status plus the vendor URL. Only the gateway statuses are mapped: a 500 can be
     # one request the vendor mishandles every time, which is not an outage that clears on its own.
+    # The host policy's own lookup never answered. Every SQL source reaches it through the shared
+    # tunnel layer, so it is mapped here rather than per source.
+    TEMPORARY_HOST_RESOLUTION_PREFIX: (
+        "PostHog couldn't resolve your source's host: the lookup kept failing without an answer. "
+        "Check that the host name is correct and that its DNS records are answering; the next sync "
+        "runs on schedule."
+    ),
     "502 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     "503 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     "504 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+    # Mixpanel signals a server-side abort inside an already-committed 200 body, so the export
+    # stops part-way through a day (mixpanel.py `EXPORT_TRUNCATED_ERROR`). The day is re-fetched
+    # in-process first; this copy is what the customer reads once those retries run out.
+    "Mixpanel export: stream ended early": (
+        "Mixpanel stopped sending a day of events before the export finished. This is on "
+        "Mixpanel's side and usually clears on its own; the next sync runs on schedule."
+    ),
 }
 
 

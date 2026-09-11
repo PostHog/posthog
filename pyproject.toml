@@ -234,7 +234,7 @@ dev = [
     "hypothesis~=6.151.9",
     "pyinstrument~=5.1",
     "pytest-rerunfailures~=16.1",
-    "freezegun==1.5.5",
+    "time-machine==3.5.0",
     "grpcio-tools~=1.71.0",
     "protoletariat~=3.3.10",
     "ipython~=9.3.0",
@@ -440,8 +440,8 @@ section-order = [
 [tool.ruff.lint.isort.sections]
 "django" = ["django"] # Group all Django imports into a separate section.
 "testing" = [ # Group all testing imports into a separate section.
-    "freezegun",
     "pytest",
+    "time_machine",
     "unittest",
     "posthog.test.base",
 ]

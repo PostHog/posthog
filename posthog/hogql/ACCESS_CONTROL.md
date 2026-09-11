@@ -186,6 +186,33 @@ Group restrictions retain their group type index, so a same-named property on an
 
 The restriction set is loaded once per query in `prepare_ast_for_printing()` and cached per `(team_id, user_id)` for the request lifetime.
 
+### Coverage is per table, not per column name
+
+Both enforcement points ask `restricted_property_keys_for_table_type()` in `posthog/hogql/restricted_properties.py` which keys to mask, and it answers by matching the table's type.
+A table whose type it does not recognize gets an empty set, which reads as "nothing is restricted here" rather than as an error.
+
+Naming a column `properties` does not opt a table in.
+The printer checks the column name against `RESTRICTABLE_JSON_BLOB_COLUMNS` before it consults the dispatch, so a new table can pass that check on the name alone and still return its blob unmasked.
+A table that exposes person, event, or group properties has to be added to the dispatch when it is added to the catalog.
+
+`posthog/hogql/test/test_restricted_properties.py` enforces this.
+It restricts one distinctly named key per property class, walks the catalog, and asserts the exact keys the dispatch masks in every blob column it reaches, with the exempt blobs mapped to no keys at all.
+The expected mapping is written out in the test rather than derived from `RESTRICTABLE_JSON_BLOB_COLUMNS`, so it holds the invariant in both directions: a table added to the catalog without a branch arrives masking nothing, and a column dropped from that set leaves its blob out of the walk entirely.
+Because each class restricts its own key, a table dispatched as the wrong class, or a group blob dispatched to the wrong group index, comes back carrying another class's key instead of passing on a non-empty result.
+
+The exemptions are not a statement of full coverage: `accounts.properties` and `pg_embeddings.properties` are name collisions masked nowhere by design, and `ai_events.properties` carries event properties but has no branch yet, so its blob is still returned unmasked.
+Covering a table means moving it out of the exemptions and into the expected mapping, so neither list can keep a stale entry.
+
+### Typed columns that mirror a property
+
+Masking rewrites `properties.<key>` reads and strips keys from a JSON blob. It does not reach a physical column that holds a copy of the same value.
+Several catalog tables expose such columns because reading them scans far less data than digging the value out of the blob: `events` exposes `$session_id`, `$window_id`, and `$group_0`..`$group_4`; `flag_evaluations` exposes `flag_key`, `response`, `session_id`, `request_id`, and `$group_0`..`$group_4`.
+
+`events`' mirror columns are not masked: restricting the property they mirror masks the blob read and leaves the column readable.
+`flag_evaluations`' mirror columns are masked, through `_FLAG_EVALUATIONS_MIRRORED_COLUMNS` in `posthog/hogql/restricted_properties.py`, consulted via `mirrored_property_for_column()` from `ClickHousePropertyResolver.visit_field` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
+That resolver rewrites a restricted mirror column to the same `Constant(value=None, type=StringType(nullable=True))` the source property lowers to, before the AST reaches the printer — so the mirror column and its source property are one AST node by the time comparisons and nullability are decided, not two independently masked spellings that could drift apart.
+Covering `events`' remaining mirror columns, or a future catalog table's, means adding it to `_FLAG_EVALUATIONS_MIRRORED_COLUMNS`'s sibling mapping (or a new one `mirrored_property_for_column` dispatches to) rather than a print-time patch.
+
 ### No user: default rules apply
 
 When no user is present, only the team **default** rules apply instead of failing every query — see `get_restricted_properties_for_team()`.

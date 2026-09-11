@@ -26,6 +26,7 @@ from products.signals.backend.implementation_pr import PrCloseReason, close_impl
 from products.signals.backend.models import (
     SignalReport,
     SignalReportRefund,
+    SignalReportTrackerIssue,
     SignalRepositoryAreaActivity,
     SignalScoutEmission,
     SignalScoutRun,
@@ -49,6 +50,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     slack_api_error_code,
 )
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
+from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
@@ -88,6 +90,69 @@ _SCOUT_SLACK_RETRY_MAX_SECONDS = 3600
 @with_team_scope()
 def close_dismissed_report_pr(report_id: str, team_id: int, reason: PrCloseReason = "suppressed") -> None:
     close_implementation_pr_for_report(team_id, report_id, reason=reason)
+    # Suppression and snoozing are reversible. Keep their tracker issue open for a restored report.
+    if reason == "resolved":
+        close_report_tracker_issue.delay(report_id=report_id, team_id=team_id, completed=False)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.close_report_tracker_issue",
+    ignore_result=True,
+    bind=True,
+    max_retries=5,
+)
+@with_team_scope()
+def close_report_tracker_issue(self, report_id: str, team_id: int, completed: bool = False) -> None:
+    if close_tracker_issue_for_report(team_id=team_id, report_id=report_id, completed=completed):
+        return
+    retry_needed = (
+        SignalReportTrackerIssue.objects.for_team(team_id)
+        .filter(
+            report_id=report_id,
+            status__in=[SignalReportTrackerIssue.Status.PENDING, SignalReportTrackerIssue.Status.CREATED],
+            closed_at__isnull=True,
+        )
+        .exists()
+    )
+    if retry_needed:
+        raise self.retry(countdown=min(60 * (2**self.request.retries), 900))
+
+
+@shared_task(
+    name="products.signals.backend.tasks.link_report_tracker_issues",
+    ignore_result=True,
+    bind=True,
+    max_retries=5,
+)
+@with_team_scope()
+def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) -> None:
+    """Cross-reference a task's new pull request with the tracker issue of every report it answers."""
+    report_ids = (
+        SignalReport.objects.filter(team_id=team_id)
+        .filter(SignalReport.reports_for_task_filter(task_id))
+        .values_list("id", flat=True)
+    )
+    retry_needed = False
+    for report_id in report_ids:
+        linked = link_pull_request_to_tracker_issue(team_id=team_id, report_id=str(report_id), pr_url=pr_url)
+        if not linked:
+            retry_needed = (
+                retry_needed
+                or SignalReportTrackerIssue.objects.for_team(team_id)
+                .filter(
+                    # PENDING counts too: a fast run can report its pull request while the
+                    # provider call is still in flight, and that issue still needs the reference.
+                    report_id=report_id,
+                    status__in=(
+                        SignalReportTrackerIssue.Status.CREATED,
+                        SignalReportTrackerIssue.Status.PENDING,
+                    ),
+                    pr_linked_at__isnull=True,
+                )
+                .exists()
+            )
+    if retry_needed:
+        raise self.retry(countdown=min(60 * (2**self.request.retries), 900))
 
 
 def _slack_retry_after_seconds(exc: Exception) -> int | None:

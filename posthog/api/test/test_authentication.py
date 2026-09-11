@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
@@ -858,7 +858,7 @@ class TestTwoFactorAPI(APIBaseTest):
     def test_2fa_expired(self):
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
 
-        with freeze_time("2023-01-01T10:00:00"):
+        with time_machine.travel("2023-01-01T10:00:00", tick=False):
             response = self.client.post(
                 "/api/login",
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
@@ -874,7 +874,7 @@ class TestTwoFactorAPI(APIBaseTest):
                 },
             )
 
-        with freeze_time("2023-01-01T10:30:00"):
+        with time_machine.travel("2023-01-01T10:30:00", tick=False):
             response = self.client.post("/api/login/token", {"token": "abcdefg"})
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(
@@ -1550,7 +1550,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
     # Password reset request
 
-    @freeze_time("2021-10-05T12:00:00")
+    @time_machine.travel("2021-10-05T12:00:00", tick=False)
     @patch("posthoganalytics.capture")
     def test_anonymous_user_can_request_password_reset(self, mock_capture):
         set_instance_setting("EMAIL_HOST", "localhost")
@@ -1734,7 +1734,7 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_invalid_token_returns_error(self):
         valid_token = password_reset_token_generator.make_token(self.user)
 
-        with freeze_time(timezone.now() - timedelta(seconds=86_401)):
+        with time_machine.travel(timezone.now() - timedelta(seconds=86_401), tick=False):
             # tokens expire after one day
             expired_token = password_reset_token_generator.make_token(self.user)
 
@@ -1858,7 +1858,7 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_cant_reset_password_with_invalid_token(self):
         valid_token = password_reset_token_generator.make_token(self.user)
 
-        with freeze_time(timezone.now() - timedelta(seconds=86_401)):
+        with time_machine.travel(timezone.now() - timedelta(seconds=86_401), tick=False):
             # tokens expire after one day
             expired_token = password_reset_token_generator.make_token(self.user)
 
@@ -2029,7 +2029,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             scopes=["*"],
         )
 
-        with freeze_time("2021-08-25T22:10:14.252"):
+        with time_machine.travel("2021-08-25T22:10:14.252", tick=False):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
@@ -2052,7 +2052,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             scopes=["*"],
         )
 
-        with freeze_time("2022-08-25T22:00:14.252"):
+        with time_machine.travel("2022-08-25T22:00:14.252", tick=False):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
@@ -2075,7 +2075,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             scopes=["*"],
         )
 
-        with freeze_time("2021-08-26T22:00:14.252"):
+        with time_machine.travel("2021-08-26T22:00:14.252", tick=False):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
@@ -2094,7 +2094,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             label="X", user=self.user, secure_value=hash_key_value(personal_api_key), scopes=["*"]
         )
 
-        with freeze_time("2022-08-25T22:00:14.252"):
+        with time_machine.travel("2022-08-25T22:00:14.252", tick=False):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
@@ -2117,7 +2117,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             scopes=["*"],
         )
 
-        with freeze_time("2021-08-25T21:14:14.252"):
+        with time_machine.travel("2021-08-25T21:14:14.252", tick=False):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
@@ -2139,7 +2139,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             scopes=["*"],
         )
 
-        with freeze_time("2021-08-24T21:14:14.252"):
+        with time_machine.travel("2021-08-24T21:14:14.252", tick=False):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
@@ -2155,15 +2155,15 @@ class TestTimeSensitivePermissions(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.patch("/api/organizations/@current", {"name": "new name"})
             assert res.status_code == 200
 
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100), tick=False):
             res = self.client.patch("/api/organizations/@current", {"name": "new name"})
             assert res.status_code == 200
 
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.patch("/api/organizations/@current", {"name": "new name"})
             assert res.status_code == 403
             assert res.json() == {
@@ -2178,15 +2178,15 @@ class TestTimeSensitivePermissions(APIBaseTest):
 
     def test_user_after_timeout_modifications_require_reauthentication(self):
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.patch("/api/users/@me", {"first_name": "new name"})
             assert res.status_code == 200
 
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100), tick=False):
             res = self.client.patch("/api/users/@me", {"first_name": "new name"})
             assert res.status_code == 200
 
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.patch("/api/users/@me", {"first_name": "new name"})
             assert res.status_code == 403
             assert res.json() == {
@@ -2201,11 +2201,11 @@ class TestTimeSensitivePermissions(APIBaseTest):
 
     def test_user_can_update_theme_without_recent_authentication(self):
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.patch("/api/users/@me", {"theme_mode": "dark"})
             assert res.status_code == 200
 
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.patch("/api/users/@me", {"theme_mode": "light"})
             assert res.status_code == 200
 
@@ -2221,14 +2221,14 @@ class TestTimeSensitivePermissions(APIBaseTest):
         OrganizationMembership.objects.create(organization=new_org, user=self.user)
 
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.patch(
                 "/api/users/@me",
                 {"set_current_organization": str(new_org.id)},
             )
             assert res.status_code == 200
 
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.patch(
                 "/api/users/@me",
                 {"set_current_organization": str(self.organization.id)},
@@ -2244,13 +2244,13 @@ class TestTimeSensitivePermissions(APIBaseTest):
     )
     def test_user_can_update_non_sensitive_fields_without_recent_authentication(self, _name, payload):
         now = datetime.now()
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.patch("/api/users/@me", payload, format="json")
             assert res.status_code != 403, f"Field update should not require re-authentication, got: {res.json()}"
 
     def test_user_can_update_hedgehog_config_without_recent_authentication(self):
         now = datetime.now()
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.patch(
                 "/api/users/@me/hedgehog_config",
                 {"enabled": True, "color": "red"},
@@ -2263,7 +2263,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
 
         dashboard = Dashboard.objects.create(team=self.team, name="Test")
         now = datetime.now()
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.post(
                 "/api/users/@me/scene_personalisation",
                 {"scene": "Person", "dashboard": dashboard.id},
@@ -2273,7 +2273,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
 
     def test_user_can_mark_a_product_intro_seen_without_recent_authentication(self):
         now = datetime.now()
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.patch(
                 "/api/users/@me/product_intro_seen",
                 {"product_key": "posthog_ai_onboarding"},
