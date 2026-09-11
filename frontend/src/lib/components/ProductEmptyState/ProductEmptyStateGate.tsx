@@ -74,7 +74,10 @@ export function ProductEmptyStateGate({ emptyState, params, children }: ProductE
 
     // When the empty state is flag-gated or scoped to specific scenes or tabs, stay a strict
     // no-op otherwise — don't even mount detection (the inner component mounts it).
-    if (emptyState.featureFlag && !featureFlags[emptyState.featureFlag]) {
+    if (
+        (emptyState.featureFlag && !featureFlags[emptyState.featureFlag]) ||
+        (emptyState.bypassFeatureFlag && featureFlags[emptyState.bypassFeatureFlag])
+    ) {
         return <>{children}</>
     }
     if (
