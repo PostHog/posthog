@@ -4,64 +4,60 @@ import { validateSkillName } from 'products/skills/frontend/skillConstants'
 import type { ScannerScoutTemplate } from './scannerScout'
 import {
     SCOUT_DISPLAY_NAME_MAX_LENGTH,
-    scoutNameToSkillName,
-    skillNameCarriesScoutName,
     isScannerScoutConfig,
     scannerScoutCreatePayload,
     scannerScoutTemplates,
     scoutBodyPlaceholders,
+    scoutSkillName,
 } from './scannerScout'
 
 describe('scannerScout', () => {
     const scannerId = '0198B7C4-1111-2222-3333-444455556666'
 
-    it('slugifies user names into valid, unique skill names and humanizes them back', () => {
-        const name = scoutNameToSkillName('Checkout friction (weekly)', 'Rage clicks', [])
-        expect(name).toBe('signals-scout-rage-clicks-checkout-friction-weekly')
-        expect(name).toMatch(/^signals-scout-[a-z0-9-]+$/)
-        expect(scoutNameToSkillName('Checkout friction (weekly)', 'Rage clicks', [name])).toBe(`${name}-2`)
-        expect(scoutNameToSkillName('', 'Rage clicks', [])).toBe('signals-scout-rage-clicks-digest')
-        expect(scoutNameToSkillName('x'.repeat(100), 'Rage clicks', []).length).toBeLessThanOrEqual(64)
+    it('derives the skill name from the scanner and the template, never from the typed name', () => {
+        // The skill name is an id: unique per team, fixed at creation, capped at 64 characters. It
+        // used to be slugified from the typed name, which is what pushed that cap onto the name
+        // field. The derivation no longer takes a name at all, so no name can overrun it.
+        const name = scoutSkillName('Rage clicks on checkout', 'daily-digest', [])
+        expect(name).toBe('signals-scout-rage-clicks-on-checkout-daily-digest')
+        expect(validateSkillName(name)).toBeUndefined()
+        expect(scoutSkillName('Rage clicks on checkout', 'daily-digest', [name])).toBe(`${name}-2`)
     })
 
     it('numbers a scout per scanner rather than across the team', () => {
-        // Skill names are unique per team, so deriving one from the label alone made the second
+        // Skill names are unique per team, so leaving the scanner out of the slug made the second
         // scanner's first daily digest `signals-scout-daily-digest-2`, and the number climbed with
         // every scanner the team set up.
-        const first = scoutNameToSkillName('Daily digest', 'Checkout rage clicks', [])
-        const second = scoutNameToSkillName('Daily digest', 'Signup drop-off', [first])
+        const first = scoutSkillName('Checkout rage clicks', 'daily-digest', [])
+        const second = scoutSkillName('Signup drop-off', 'daily-digest', [first])
         expect(first).toBe('signals-scout-checkout-rage-clicks-daily-digest')
         expect(second).toBe('signals-scout-signup-drop-off-daily-digest')
     })
 
-    it('keeps the label whole when the scanner name would overrun the cap', () => {
-        // The label is what tells two scouts on one scanner apart; the scanner name is context.
-        const name = scoutNameToSkillName('new issue watch', 'x'.repeat(80), [])
-        expect(name.length).toBeLessThanOrEqual(64)
-        expect(name.endsWith('-new-issue-watch')).toBe(true)
+    it('keeps the template key whole when the scanner name would overrun the cap', () => {
+        // Only the scanner gives way to the cap, and only inside the id. A scanner named past the
+        // cap must still leave a valid skill name that says which template the scout came from —
+        // cut mid-word, a slug ends in a hyphen, which fails skill name validation.
+        for (const key of ['daily-digest', 'trend-watch', 'new-issues', 'scratch'] as const) {
+            const name = scoutSkillName('x'.repeat(SCOUT_DISPLAY_NAME_MAX_LENGTH), key, [])
+            expect(name.length).toBeLessThanOrEqual(64)
+            expect(validateSkillName(name)).toBeUndefined()
+            expect(name.endsWith(`-${key}`)).toBe(true)
+        }
     })
 
-    it('derives a valid skill name from a name far longer than one', () => {
-        // The name field accepts up to SCOUT_DISPLAY_NAME_MAX_LENGTH characters, so the slug has to
-        // survive being cut mid-word: a trailing or doubled hyphen fails the skill name validation.
-        const name = scoutNameToSkillName('x'.repeat(SCOUT_DISPLAY_NAME_MAX_LENGTH), 'Rage clicks', [])
-        expect(name.length).toBeLessThanOrEqual(64)
-        expect(validateSkillName(name)).toBeUndefined()
-        const wordy = scoutNameToSkillName(
-            'Robot: Replay Vision intent and friction report -- every weekday morning, ranked',
-            'Rage clicks on checkout',
-            []
-        )
-        expect(wordy.length).toBeLessThanOrEqual(64)
-        expect(validateSkillName(wordy)).toBeUndefined()
-    })
-
-    it('reads a name that ends in a number as carried, not as a collision suffix', () => {
-        // Stripping `-10` off "Weekly top 10" leaves a skill name that no longer matches the label,
-        // which would give the scout a display name it doesn't need and drop the scanner from it.
-        expect(skillNameCarriesScoutName('signals-scout-rage-clicks-weekly-top-10', 'Weekly top 10')).toBe(true)
-        expect(skillNameCarriesScoutName('signals-scout-rage-clicks-daily-digest-2', 'Daily digest')).toBe(true)
-        expect(skillNameCarriesScoutName('signals-scout-rage-clicks-daily-diges', 'Daily digest report')).toBe(false)
+    it('leads the default name with the scanner, since the id no longer carries it', () => {
+        // The scout lands in the Signals fleet beside every other product's, where four scanners'
+        // "Daily digest" is four rows of the same name.
+        const templates = scannerScoutTemplates(scannerId, 'monitor', 'Rage clicks on checkout')
+        expect(templates.map((template) => template.defaultName)).toEqual([
+            'Rage clicks on checkout daily digest',
+            'Rage clicks on checkout trend watch',
+            'Rage clicks on checkout new issue watch',
+            'Rage clicks on checkout custom scout',
+        ])
+        // A scanner can be unnamed, and " daily digest" is not a name.
+        expect(scannerScoutTemplates(scannerId, 'monitor', '')[0].defaultName).toBe('Daily digest')
     })
 
     it('claims only the scouts recorded as belonging to this scanner', () => {
@@ -76,7 +72,7 @@ describe('scannerScout', () => {
     })
 
     it('gives every template a distinct key, its own cron, and a body scoped to the scanner', () => {
-        const templates = scannerScoutTemplates(scannerId, 'monitor')
+        const templates = scannerScoutTemplates(scannerId, 'monitor', 'Rage clicks')
         expect(templates).toHaveLength(4)
         const keys = templates.map((template) => template.key)
         expect(new Set(keys).size).toBe(keys.length)
@@ -105,7 +101,7 @@ describe('scannerScout', () => {
 
     it('writes the trend template for the one output the scanner actually emits', () => {
         const trendFor = (type: 'monitor' | 'scorer' | 'classifier' | 'summarizer'): ScannerScoutTemplate =>
-            scannerScoutTemplates(scannerId, type).find((template) => template.key === 'trend-watch')!
+            scannerScoutTemplates(scannerId, type, 'Rage clicks').find((template) => template.key === 'trend-watch')!
 
         expect(trendFor('monitor').description).toContain('yes-rate')
         expect(trendFor('monitor').body).toContain('scanner_output_verdict')
@@ -114,11 +110,13 @@ describe('scannerScout', () => {
         expect(trendFor('classifier').description).toContain('tag mix')
         expect(trendFor('summarizer').description).toContain('themes')
         // A scanner whose type hasn't loaded still gets a usable template rather than nothing.
-        expect(scannerScoutTemplates(scannerId, undefined)).toHaveLength(4)
+        expect(scannerScoutTemplates(scannerId, undefined, 'Rage clicks')).toHaveLength(4)
     })
 
     it('gives the new-issue template a catalog to diff against, so "new" means something', () => {
-        const newIssues = scannerScoutTemplates(scannerId, 'monitor').find((template) => template.key === 'new-issues')!
+        const newIssues = scannerScoutTemplates(scannerId, 'monitor', 'Rage clicks').find(
+            (template) => template.key === 'new-issues'
+        )!
         // Novelty needs remembered history: without the catalog every run reports everything.
         // The key is scanner-scoped so it matches what the first move searches on.
         expect(newIssues.body).toContain(`${scannerId}:pattern:known-issues`)
@@ -129,7 +127,7 @@ describe('scannerScout', () => {
     it('stamps both tags and the reviewed name, prompt, and cron on the create payload', () => {
         const payload = scannerScoutCreatePayload('Checkout friction', {
             name: 'signals-scout-daily-digest',
-            body: scannerScoutTemplates(scannerId, 'monitor')[0].body,
+            body: scannerScoutTemplates(scannerId, 'monitor', 'Rage clicks')[0].body,
             cron: '30 7 * * *',
         })
         expect(payload.name).toBe('signals-scout-daily-digest')

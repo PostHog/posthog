@@ -112,8 +112,11 @@ export function ScannerScoutFormModal({
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     // Rebuilding the templates on every keystroke would regenerate three multi-KB prompts.
     const template = useMemo(
-        () => (createTemplateKey ? scannerScoutTemplate(createTemplateKey, scannerId, scanner?.scanner_type) : null),
-        [createTemplateKey, scannerId, scanner?.scanner_type]
+        () =>
+            createTemplateKey
+                ? scannerScoutTemplate(createTemplateKey, scannerId, scanner?.scanner_type, scannerName)
+                : null,
+        [createTemplateKey, scannerId, scanner?.scanner_type, scannerName]
     )
     const config = scoutConfigsForScanner.find((candidate) => candidate.skill_name === settingsSkillName)
     const [activeTab, setActiveTab] = useState<ScoutFormTab>('instructions')
