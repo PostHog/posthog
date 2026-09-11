@@ -39,6 +39,7 @@ import { GroupTypeIndex, PropertyFilterType } from '~/types'
 
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
 import { ColumnConfiguratorLogicProps, columnConfiguratorLogic } from './columnConfiguratorLogic'
+import { EditColumnModal } from './EditColumnModal'
 
 let uniqueNode = 0
 
@@ -116,6 +117,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                 Configure columns
             </LemonButton>
             <ColumnConfiguratorModal query={query} setQuery={setQuery} />
+            <EditColumnModal metadataSource={query.source} />
         </BindLogic>
     )
 }
@@ -126,16 +128,17 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
         scope: RestrictionScope.Project,
     })
     const { modalVisible, columns, saveAsDefault } = useValues(columnConfiguratorLogic)
-    const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
-        useActions(columnConfiguratorLogic)
+    const {
+        hideModal,
+        moveColumn,
+        setColumns,
+        selectColumn,
+        unselectColumn,
+        save,
+        toggleSaveAsDefault,
+        openColumnEditor,
+    } = useActions(columnConfiguratorLogic)
     const { context } = useValues(columnConfiguratorLogic)
-
-    const onEditColumn = (column: string, index: number): void => {
-        const newColumn = window.prompt('Edit column', column)
-        if (newColumn) {
-            setColumns(columns.map((c, i) => (i === index ? newColumn : c)))
-        }
-    }
 
     let taxonomicGroupTypes: TaxonomicFilterGroupType[] = []
     if (isGroupsQuery(query.source)) {
@@ -233,7 +236,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                         key={column}
                                         column={column}
                                         dataIndex={index}
-                                        onEdit={onEditColumn}
+                                        onEdit={openColumnEditor}
                                         onRemove={unselectColumn}
                                     />
                                 ))}
@@ -286,7 +289,7 @@ const SelectedColumn = ({
 }: {
     column: string
     dataIndex: number
-    onEdit: (column: string, index: number) => void
+    onEdit: (index: number) => void
     onRemove: (column: string) => void
 }): JSX.Element => {
     const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: column })
@@ -333,7 +336,7 @@ const SelectedColumn = ({
                 />
                 <div className="flex-1" />
                 <Tooltip title="Edit">
-                    <LemonButton onClick={() => onEdit(column, dataIndex)} size="small">
+                    <LemonButton onClick={() => onEdit(dataIndex)} size="small">
                         <IconPencil data-attr="column-display-item-edit-icon" />
                     </LemonButton>
                 </Tooltip>
