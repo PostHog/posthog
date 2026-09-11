@@ -117,6 +117,7 @@ from products.exports.backend.temporal.subscriptions.workflows import (
     ProcessSubscriptionWorkflow,
     ScheduleAllSubscriptionsWorkflow,
     _record_subscription_dispatch_outcome,
+    _start_claimed_subscription_children,
     _summarize_export_failure_details,
 )
 from products.product_analytics.backend.facade.models import Insight
@@ -1329,7 +1330,7 @@ async def test_deleted_subscription_is_inactive_across_delivery_activities(team,
 
     assert abort_info == DeliveryAbort()
     assert result.recipient_results == []
-    assert schedule_advanced is False
+    assert schedule_advanced is None
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.next_delivery_date == original_next_delivery_date
 
@@ -4091,6 +4092,102 @@ async def test_claimed_subscription_page_refills_after_payload_trim_and_admissio
     assert reservation_calls == 2
     assert len(page.subscriptions) == 2
     assert [item.subscription_id for item in page.subscriptions] == [subscriptions[0].id, subscriptions[2].id]
+
+
+async def test_claimed_subscription_refill_does_not_move_tenant_cursor_backwards(team, user):
+    teams = sorted(
+        [
+            team,
+            *[
+                await sync_to_async(Team.objects.create)(
+                    organization=team.organization, name=f"Refill cursor team {index}"
+                )
+                for index in range(2)
+            ],
+        ],
+        key=lambda subscription_team: subscription_team.id,
+    )
+    due_at = datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    for index, subscription_team in enumerate(teams):
+        insight = await sync_to_async(Insight.objects.create)(
+            team=subscription_team,
+            short_id=f"refill-cursor-{index}",
+            name=f"Refill cursor insight {index}",
+        )
+        subscriptions = [
+            await sync_to_async(create_subscription)(team=subscription_team, insight=insight, created_by=user)
+            for _ in range(2)
+        ]
+        await sync_to_async(Subscription.objects.filter(id__in=[item.id for item in subscriptions]).update)(
+            next_delivery_date=due_at
+        )
+
+    reservation_calls = 0
+
+    def reject_last_first_rank(
+        *, requests: Sequence[SchedulerClaimRequest], **_kwargs: Any
+    ) -> SchedulerAdmissionResult:
+        nonlocal reservation_calls
+        reservation_calls += 1
+        admitted_requests = requests[:-1] if reservation_calls == 1 else requests
+        return SchedulerAdmissionResult(
+            reservations=tuple(
+                SchedulerClaimReservation(
+                    claim_id=uuid.uuid4(),
+                    claim_token=uuid.uuid4(),
+                    tenant_key=request.tenant_key,
+                    occurrence_key=request.occurrence_key,
+                    workflow_id=request.workflow_id,
+                )
+                for request in admitted_requests
+            ),
+            already_claimed=len(requests) - len(admitted_requests),
+            deferred_for_capacity=0,
+        )
+
+    with patch(
+        "products.exports.backend.temporal.subscriptions.activities.reserve_scheduler_claims",
+        side_effect=reject_last_first_rank,
+    ):
+        page = await ActivityEnvironment().run(
+            fetch_claimed_due_subscriptions_activity,
+            FetchDueSubscriptionsActivityInputs(
+                buffer_minutes=15,
+                max_subscriptions_per_run=3,
+                region="refill-cursor-test",
+                use_durable_claims=True,
+                claim_token_seed="refill-cursor-run",
+            ),
+        )
+
+    assert reservation_calls == 2
+    assert [item.team_id for item in page.subscriptions] == [teams[0].id, teams[1].id, teams[0].id]
+    assert page.next_discovery_cursor == str(teams[2].id)
+
+
+async def test_claimed_subscription_dispatch_ignores_duplicate_occurrences() -> None:
+    claim_id = str(uuid.uuid4())
+    claim_token = str(uuid.uuid4())
+    subscription = DueSubscription(
+        subscription_id=1,
+        team_id=2,
+        distinct_id="duplicate-test",
+        next_delivery_date="2026-09-09T00:00:00+00:00",
+        resource_type=Subscription.ResourceType.INSIGHT,
+        scheduler_claim_id=claim_id,
+        scheduler_claim_token=claim_token,
+    )
+
+    with (
+        patch("temporalio.workflow.start_child_workflow", new_callable=AsyncMock) as start_child,
+        patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as execute_activity,
+        patch("temporalio.workflow.logger.warning"),
+        patch("products.exports.backend.temporal.subscriptions.workflows._record_subscription_dispatch_outcome"),
+    ):
+        await _start_claimed_subscription_children([subscription, subscription], "eu")
+
+    start_child.assert_awaited_once()
+    execute_activity.assert_not_awaited()
 
 
 async def test_claimed_subscription_pages_rotate_across_tenants_with_unequal_due_times(team, user):

@@ -308,6 +308,22 @@ async def _run_legacy_subscription_children(subscription_infos: list[DueSubscrip
 
 
 async def _start_claimed_subscription_children(subscription_infos: list[DueSubscription], region: str) -> None:
+    unique_subscription_infos: list[DueSubscription] = []
+    seen_occurrences: set[tuple[int, str | None]] = set()
+    for subscription in subscription_infos:
+        occurrence = (subscription.subscription_id, subscription.next_delivery_date)
+        if occurrence in seen_occurrences:
+            temporalio.workflow.logger.warning(
+                "subscription_scheduler.duplicate_occurrence_ignored",
+                extra={
+                    "subscription_id": subscription.subscription_id,
+                    "next_delivery_date": subscription.next_delivery_date,
+                },
+            )
+            continue
+        seen_occurrences.add(occurrence)
+        unique_subscription_infos.append(subscription)
+
     async def start_one(subscription: DueSubscription) -> tuple[str, int | None]:
         child = _build_scheduled_subscription_child(subscription)
         claim_inputs = (
@@ -366,7 +382,7 @@ async def _start_claimed_subscription_children(subscription_infos: list[DueSubsc
                 )
             return "failed", subscription.subscription_id
 
-    results = await asyncio.gather(*(start_one(subscription) for subscription in subscription_infos))
+    results = await asyncio.gather(*(start_one(subscription) for subscription in unique_subscription_infos))
     accepted = sum(outcome == "accepted" for outcome, _ in results)
     already_running = sum(outcome == "already_running" for outcome, _ in results)
     failed_ids = [subscription_id for outcome, subscription_id in results if outcome == "failed" and subscription_id]

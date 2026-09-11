@@ -367,7 +367,7 @@ def _select_due_subscription_candidate_ids(
             for team_rank, (subscription_id, next_delivery_date) in enumerate(rows, start=1)
         )
     candidates.sort()
-    return [subscription_id for _, _, _, subscription_id in candidates[:candidate_limit]]
+    return list(dict.fromkeys(subscription_id for _, _, _, subscription_id in candidates))[:candidate_limit]
 
 
 async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedExportableInsights:
@@ -633,7 +633,7 @@ async def _fetch_due_subscriptions(
             },
         )
 
-    last_examined_team_id: int | None = None
+    examined_team_ids: set[int] = set()
     if inputs.use_durable_claims:
         claimed_subscriptions: list[DueSubscription] = []
         candidate_index = 0
@@ -661,7 +661,7 @@ async def _fetch_due_subscriptions(
             safe_candidates = candidates[:safe_candidate_count]
             candidate_index += safe_candidate_count
             reservation_result = await reserve_candidates(safe_candidates)
-            last_examined_team_id = safe_candidates[-1].team_id
+            examined_team_ids.update(candidate.team_id for candidate in safe_candidates)
             for candidate in safe_candidates:
                 claim = reservation_result.reservations.get(_subscription_occurrence_key(candidate))
                 if claim is not None:
@@ -695,7 +695,11 @@ async def _fetch_due_subscriptions(
 
         await release_payload_deferred_claims()
     if inputs.use_durable_claims:
-        cursor_team_id = str(last_examined_team_id) if last_examined_team_id is not None else None
+        cursor_team_id = None
+        for selected_team_id in page.selected_team_ids:
+            if selected_team_id not in examined_team_ids:
+                break
+            cursor_team_id = str(selected_team_id)
         if len(selection.items) < len(subscriptions_for_payload):
             cursor_team_id = str(selection.items[-1].team_id) if selection.items else None
     else:
@@ -1325,13 +1329,13 @@ async def notify_subscription_delivery_failure(subscription_id: int, failure_id:
 
 
 @temporalio.activity.defn
-async def advance_next_delivery_date(subscription_id: int) -> bool:
+async def advance_next_delivery_date(subscription_id: int) -> None:
     subscription = await database_sync_to_async(Subscription.objects.get, thread_sensitive=False)(pk=subscription_id)
     # Disabled subs (e.g. auto-disabled this run / paused by user) don't get a
     # future delivery date — avoids showing a misleading "next delivery" in the UI.
     if not subscription.enabled or subscription.deleted:
         await LOGGER.ainfo("advance_next_delivery_date.skipped_inactive", subscription_id=subscription_id)
-        return False
+        return
     subscription.set_next_delivery_date(subscription.next_delivery_date)
     await database_sync_to_async(subscription.save, thread_sensitive=False)(update_fields=["next_delivery_date"])
     await LOGGER.ainfo(
@@ -1339,7 +1343,6 @@ async def advance_next_delivery_date(subscription_id: int) -> bool:
         subscription_id=subscription_id,
         next_delivery_date=subscription.next_delivery_date,
     )
-    return True
 
 
 @temporalio.activity.defn
