@@ -106,7 +106,13 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
             onRetry={loadTask}
             isMobile={isMobile}
         >
-            <TaskRunLog taskId={taskId} optimisticStreamKey={optimisticStreamKey} optimisticRunId={optimisticRunId} />
+            <TaskRunLog
+                taskId={taskId}
+                optimisticStreamKey={optimisticStreamKey}
+                optimisticRunId={optimisticRunId}
+                interactionKey={isActiveCreation ? activeCreation?.interactionKey : undefined}
+                autoFocus={isActiveCreation && activeCreation?.composerWasFocused}
+            />
         </TaskRunSceneShell>
     )
 }

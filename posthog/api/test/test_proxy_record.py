@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.common import WorkflowIDConflictPolicy
 
 from posthog.api.proxy_record import ProxyRecordUpdateSerializer
 from posthog.models import ProxyRecord
@@ -600,15 +601,16 @@ class TestProxyRecordAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("valid", ProxyRecord.Status.VALID),
-            ("issuing", ProxyRecord.Status.ISSUING),
-            ("warning", ProxyRecord.Status.WARNING),
+            ("valid", ProxyRecord.Status.VALID, WorkflowIDConflictPolicy.FAIL),
+            ("issuing", ProxyRecord.Status.ISSUING, WorkflowIDConflictPolicy.FAIL),
+            ("warning", ProxyRecord.Status.WARNING, WorkflowIDConflictPolicy.FAIL),
+            ("deleting", ProxyRecord.Status.DELETING, WorkflowIDConflictPolicy.USE_EXISTING),
         ]
     )
     @patch("posthog.api.proxy_record.sync_connect")
     @patch("posthoganalytics.capture")
     def test_destroy_active_proxy_starts_deletion_workflow(
-        self, _name, initial_status, mock_capture, mock_sync_connect
+        self, _name, initial_status, expected_conflict_policy, mock_capture, mock_sync_connect
     ):
         mock_temporal = AsyncMock()
         mock_sync_connect.return_value = mock_temporal
@@ -629,6 +631,7 @@ class TestProxyRecordAPI(APIBaseTest):
         record.refresh_from_db()
         assert record.status == ProxyRecord.Status.DELETING
         mock_temporal.start_workflow.assert_called_once()
+        assert mock_temporal.start_workflow.call_args.kwargs["id_conflict_policy"] == expected_conflict_policy
 
     @patch("posthog.api.proxy_record.sync_connect")
     def test_destroy_returns_500_and_reverts_status_on_temporal_failure(self, mock_sync_connect):
