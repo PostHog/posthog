@@ -2505,6 +2505,11 @@ export type LifecycleFilter = {
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default true */
     stacked?: boolean
+    /** Take the origin of the history from the date range instead of when each counted person,
+     *  group, or data warehouse row was created. Activity in the first period counts as new, and
+     *  activity before the range is ignored.
+     * @default false */
+    onlyUseInsightDates?: boolean
 }
 
 // See posthog/hogql_queries/query_runner.py `ExecutionMode` for details on what the types mean

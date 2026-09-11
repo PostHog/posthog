@@ -10,7 +10,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import type { TrendsFilter } from '~/queries/schema/schema-general'
+import type { LifecycleFilter, TrendsFilter } from '~/queries/schema/schema-general'
 import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -129,7 +129,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
             displayItems.push(DisplayOptions.MetricSummary, DisplayOptions.MetricShowChange, DisplayOptions.MetricColor)
         }
         if (isLifecycle) {
-            displayItems.push(DisplayOptions.LifecycleStacking)
+            displayItems.push(DisplayOptions.LifecycleStacking, DisplayOptions.LifecycleInsightDates)
         }
         if (supportsValueOnSeries) {
             displayItems.push(DisplayOptions.ValueLabels)
@@ -251,6 +251,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (showSmoothing && (trendsFilter?.smoothingIntervals ?? 1) !== 1 ? 1 : 0) +
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
         (isLifecycle && showPercentagesOnSeries ? 1 : 0) +
+        (isLifecycle && (insightFilter as LifecycleFilter | undefined)?.onlyUseInsightDates ? 1 : 0) +
         (showPercentStackView ? 1 : 0) +
         (isPie && trendsFilter?.showLabelsOnSeries ? 1 : 0) +
         (showsRawValues &&

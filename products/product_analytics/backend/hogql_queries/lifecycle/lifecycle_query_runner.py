@@ -351,7 +351,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         with self.timings.measure("date_range"):
             event_filters.append(
                 parse_expr(
-                    "{timestamp_field} >= {date_from_start_of_interval} - {one_interval_period}",
+                    self.event_scan_lower_bound,
                     {**self.query_date_range.to_placeholders(), "timestamp_field": self.timestamp_field},
                     timings=self.timings,
                 )
@@ -439,6 +439,32 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         return ast.Field(chain=["person_id"])
 
     @property
+    def only_use_insight_dates(self) -> bool:
+        """True when the date range, not the actor creation date, is the origin of the history."""
+        return bool(self.query.lifecycleFilter and self.query.lifecycleFilter.onlyUseInsightDates)
+
+    @property
+    def event_scan_lower_bound(self) -> str:
+        # The default lookback lets activity just before the range turn the first period dormant.
+        if self.only_use_insight_dates:
+            return "{timestamp_field} >= {date_from_start_of_interval}"
+        return "{timestamp_field} >= {date_from_start_of_interval} - {one_interval_period}"
+
+    @property
+    def trunc_created_at(self) -> ast.Expr:
+        trunc = self.query_date_range.date_to_start_of_interval_hogql(ast.Field(chain=["created_at"]))
+        if not self.only_use_insight_dates:
+            return trunc
+        # The classifier marks a period 'new' when it equals the creation period. Activity in the
+        # first period must be 'new', even when the profile was created later, because ingestion
+        # stamps created_at when it first sees the person and imported events can predate that.
+        return parse_expr(
+            "if(all_activity[1] = {date_from_start_of_interval}, {date_from_start_of_interval}, {trunc})",
+            {**self.query_date_range.to_placeholders(), "trunc": trunc},
+            timings=self.timings,
+        )
+
+    @property
     def created_at_field(self):
         """Returns the correct created_at field to use based on aggregation type."""
         if self.is_data_warehouse_series:
@@ -489,9 +515,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     "created_at_field": self.created_at_field,
                     "event_filter": self.event_filter,
                     "trunc_timestamp": self.query_date_range.date_to_start_of_interval_hogql(self.timestamp_field),
-                    "trunc_created_at": self.query_date_range.date_to_start_of_interval_hogql(
-                        ast.Field(chain=["created_at"])
-                    ),
+                    "trunc_created_at": self.trunc_created_at,
                     "trunc_epoch": self.query_date_range.date_to_start_of_interval_hogql(
                         ast.Call(name="toDateTime", args=[ast.Constant(value="1970-01-01 00:00:00")])
                     ),

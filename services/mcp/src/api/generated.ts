@@ -4917,6 +4917,8 @@ export namespace Schemas {
     export interface LifecycleFilter {
       /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
       legendPosition?: LegendPosition | null;
+      /** Take the origin of the history from the date range instead of when each counted person, group, or data warehouse row was created. Activity in the first period counts as new, and activity before the range is ignored. */
+      onlyUseInsightDates?: boolean | null;
       showLegend?: boolean | null;
       /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect. */
       showPercentagesOnSeries?: boolean | null;
