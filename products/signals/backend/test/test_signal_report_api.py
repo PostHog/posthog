@@ -844,7 +844,10 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
 
         assert row["implementation_pr_url"] == f"https://github.com/org/repo/pull/{expected_number}"
-        assert {pr["url"] for pr in row["pull_requests"]} == {"https://github.com/org/repo/pull/7", "https://github.com/org/repo/pull/42"}
+        assert {pr["url"] for pr in row["pull_requests"]} == {
+            "https://github.com/org/repo/pull/7",
+            "https://github.com/org/repo/pull/42",
+        }
 
     @parameterized.expand(
         [
