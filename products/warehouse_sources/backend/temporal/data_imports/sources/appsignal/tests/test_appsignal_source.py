@@ -51,9 +51,17 @@ class TestAppsignalSource:
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Only the REST endpoints expose a server-side time filter; the GraphQL incident
-        # lists don't, so they stay full refresh.
-        assert incremental == {"deploy_markers", "error_samples", "performance_samples"}
+        # Only endpoints with a server-side time filter are incremental. The GraphQL incident
+        # and app lists have none, and neither does the metric-name catalog.
+        assert incremental == {
+            "deploy_markers",
+            "error_samples",
+            "performance_samples",
+            "log_lines",
+            "metric_timeseries",
+            "performance_traces",
+            "trace_spans",
+        }
 
     def test_only_immutable_sample_tables_support_append(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
