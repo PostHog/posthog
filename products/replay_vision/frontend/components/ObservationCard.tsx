@@ -118,6 +118,7 @@ export function ObservationPrimaryOutput({
     onSeek,
     expandSummary = false,
     copyable = false,
+    reasoningTooltip = false,
 }: {
     observation: ReplayObservationApi
     compact?: boolean
@@ -128,6 +129,8 @@ export function ObservationPrimaryOutput({
     expandSummary?: boolean
     /** Shows a copy button on summarizer output: the clipboard gets the title plus the summary with citations as plain timestamps. */
     copyable?: boolean
+    /** Hovering the result shows its reasoning. For list rows, which have nowhere else to print it. */
+    reasoningTooltip?: boolean
 }): JSX.Element | null {
     const snapshot = observation.scanner_snapshot
     const result = readResult(observation)
@@ -137,9 +140,7 @@ export function ObservationPrimaryOutput({
     const scannerType = snapshot.scanner_type
     const config = configFromSnapshot(snapshot)
     const prompt = showPrompt ? (config?.prompt ?? null) : null
-    // The compact rendering drops the prompt, so the hover explains this one result instead. The prompt is
-    // the same on every row, and the detail view that prints it also prints the reasoning in full.
-    const reasoning = showPrompt ? null : readReasoning(observation)
+    const reasoning = reasoningTooltip ? readReasoning(observation) : null
     const resultTooltip = reasoning ? citedTextToPlainText(reasoning, result.reasoning_segments) : null
     const textClass = 'text-sm'
     const summaryClass = expandSummary
@@ -360,7 +361,7 @@ export function ObservationResultSummary({ observation }: { observation: ReplayO
     if (!snapshot || !result) {
         return <span className="text-muted text-sm">—</span>
     }
-    return <ObservationPrimaryOutput observation={observation} compact showPrompt={false} />
+    return <ObservationPrimaryOutput observation={observation} compact showPrompt={false} reasoningTooltip />
 }
 
 export function FailureDetail({ errorReason }: { errorReason: string }): JSX.Element {
