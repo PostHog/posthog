@@ -124,6 +124,14 @@ class StringJSONDatabaseField(DatabaseField):
         return ""
 
 
+class NativeJSONDatabaseField(StringJSONDatabaseField):
+    """A physical ClickHouse `JSON` column presented like a JSON blob.
+
+    A key reads as a subcolumn (`col.key`), which resolves per row, rather than with JSONExtract, which ClickHouse
+    rejects on this type. See `clickhouse_property_resolution._substitute_value_read`.
+    """
+
+
 class MapStringDatabaseField(StringJSONDatabaseField):
     """A physical ClickHouse `Map(String, String)` column presented like a JSON blob.
 
