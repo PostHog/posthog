@@ -76,6 +76,13 @@ export const INGESTION_WARNING_TYPES = {
     // rather than a JSON batch.
     invalid_ai_event: { category: 'event', severity: 'error', captureProduced: true },
     invalid_ai_payload: { category: 'event', severity: 'error', captureProduced: true },
+    // An event posted to the wrong capture endpoint, in either direction: an AI-lane
+    // event name on /i/v1/analytics/events, or a non-AI-lane name on /i/v1/ai/events.
+    // The event is well-formed -- only its destination is wrong -- so this is not an
+    // `invalid_*` type. One type covers both directions; the warning's `path` detail
+    // says which way the misroute went, and the emitting deployment (capture-analytics
+    // vs capture-ai) distinguishes them on the metric.
+    misrouted_event: { category: 'event', severity: 'error', captureProduced: true },
     // Severity is 'warning', not 'error': the OTLP export succeeded and only
     // non-AI spans were in it, so nothing the AI pipeline owns was dropped. The
     // customer still needs to know their export produced no AI events.

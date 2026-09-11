@@ -35,7 +35,9 @@ impl WarningType {
     ///   would mean inventing an error that never gets returned.
     /// * Ones from a pipeline that has no tag vocabulary. The AI endpoints
     ///   reject via their own typed conditions, not `v1::Error`, so their tags
-    ///   would be strings no `Error` ever produces. The replay endpoint is the
+    ///   would be strings no `Error` ever produces. `MisroutedEvent` is the
+    ///   same shape: a per-event drop detail set by the lane gates, never an
+    ///   `Error`. The replay endpoint is the
     ///   same case from the other direction: its conditions are `CaptureError`
     ///   variants v1 analytics never returns, so no `Error::tag()` names them.
     ///
@@ -44,10 +46,11 @@ impl WarningType {
     /// This list exists so the trust-allowlist invariant below can still be
     /// airtight: `captureProduced` must equal "reachable by one of capture's two
     /// emit routes", and without this the direct route would be invisible to it.
-    pub const DIRECT_EMIT: [Self; 8] = [
+    pub const DIRECT_EMIT: [Self; 9] = [
         Self::HighVolumeDistinctId,
         Self::DistinctIdTruncated,
         Self::InvalidAiEvent,
+        Self::MisroutedEvent,
         Self::InvalidAiPayload,
         Self::NoAiSpansIngested,
         Self::MissingSessionId,
