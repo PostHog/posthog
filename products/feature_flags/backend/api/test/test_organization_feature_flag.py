@@ -22,6 +22,7 @@ from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.persons import create_group_type_mapping
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import sort_cohorts_topologically
@@ -31,6 +32,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.api.organization_feature_flag import (
     EXISTING_TARGET_SCHEDULE_DEPENDENCY_WARNING,
     MAX_COPY_FLAGS_TARGET_PROJECTS,
+    MISSING_TARGET_GROUP_TYPE_ERROR,
     TARGET_COPY_PERMISSION_ERROR,
     OrganizationFeatureFlagView,
 )
@@ -2968,6 +2970,93 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         )
         existing_flag.refresh_from_db()
         self.assertEqual(existing_flag.filters, {"groups": [{"rollout_percentage": 10}]})
+
+    def _create_group_flag_to_copy(self, group_type_index: int) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="group-flag-to-copy",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "$group_key",
+                                "type": "group",
+                                "value": "acme",
+                                "operator": "exact",
+                                "group_type_index": group_type_index,
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                        "aggregation_group_type_index": group_type_index,
+                    }
+                ],
+                "aggregation_group_type_index": group_type_index,
+            },
+        )
+
+    def test_copy_feature_flag_remaps_group_type_index_to_target_project(self):
+        create_group_type_mapping(
+            team=self.team_1, project_id=self.team_1.project_id, group_type="organization", group_type_index=0
+        )
+        create_group_type_mapping(
+            team=self.team_1, project_id=self.team_1.project_id, group_type="company", group_type_index=1
+        )
+        create_group_type_mapping(
+            team=self.team_2, project_id=self.team_2.project_id, group_type="company", group_type_index=0
+        )
+        create_group_type_mapping(
+            team=self.team_2, project_id=self.team_2.project_id, group_type="organization", group_type_index=1
+        )
+        cache.clear()
+        flag_to_copy = self._create_group_flag_to_copy(group_type_index=1)
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/feature_flags/copy_flags",
+            {
+                "feature_flag_key": flag_to_copy.key,
+                "from_project": self.team_1.id,
+                "target_project_ids": [self.team_2.id],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        copied_flag = FeatureFlag.objects.get(key=flag_to_copy.key, team=self.team_2)
+        self.assertEqual(copied_flag.filters["aggregation_group_type_index"], 0)
+        self.assertEqual(copied_flag.filters["groups"][0]["aggregation_group_type_index"], 0)
+        self.assertEqual(copied_flag.filters["groups"][0]["properties"][0]["group_type_index"], 0)
+        self.assertEqual(copied_flag.filters["groups"][0]["properties"][0]["value"], "acme")
+
+    def test_copy_feature_flag_fails_when_target_project_has_no_matching_group_type(self):
+        create_group_type_mapping(
+            team=self.team_1, project_id=self.team_1.project_id, group_type="company", group_type_index=1
+        )
+        cache.clear()
+        flag_to_copy = self._create_group_flag_to_copy(group_type_index=1)
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/feature_flags/copy_flags",
+            {
+                "feature_flag_key": flag_to_copy.key,
+                "from_project": self.team_1.id,
+                "target_project_ids": [self.team_2.id],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["success"], [])
+        self.assertEqual(
+            response.json()["failed"],
+            [
+                {
+                    "project_id": self.team_2.id,
+                    "error_message": MISSING_TARGET_GROUP_TYPE_ERROR.format(group_types='"company"'),
+                }
+            ],
+        )
+        self.assertFalse(FeatureFlag.objects.filter(key=flag_to_copy.key, team=self.team_2).exists())
 
 
 class TestOrganizationFeatureFlagCopyPersonalAPIKey(APIBaseTest):
