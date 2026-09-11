@@ -792,6 +792,7 @@ async def recover_subscription_scheduler_claims_activity(
     inputs = dataclasses.replace(inputs, region=_resolve_scheduler_region(inputs.region))
     if not 1 <= inputs.limit <= MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN:
         raise ValueError(f"limit must be between 1 and {MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN}")
+
     @database_sync_to_async(thread_sensitive=False)
     def load_expired_claims() -> _ExpiredSchedulerClaimsSnapshot:
         now = tz.now()
