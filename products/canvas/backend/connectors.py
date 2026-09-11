@@ -645,20 +645,6 @@ class ConnectorListing:
     tools: list[ConnectorToolListing]
 
 
-def _native_tool_schema(tool: NativeConnectorTool) -> dict[str, Any]:
-    return _native_field_schema(tool.payload_serializer())
-
-
-def _native_field_schema(field: serializers.Field) -> dict[str, Any]:
-    schema = _native_field_type_schema(field)
-    _add_choice_schema(field, schema)
-    _add_field_limits(field, schema)
-    _add_field_pattern(field, schema)
-    _add_nullable_schema(field, schema)
-    _add_field_metadata(field, schema)
-    return schema
-
-
 def _native_field_type_schema(field: serializers.Field) -> dict[str, Any]:
     if isinstance(field, serializers.Serializer):
         return {
@@ -726,6 +712,20 @@ def _add_field_metadata(field: serializers.Field, schema: dict[str, Any]) -> Non
         schema["default"] = field.default
     if field.help_text:
         schema["description"] = str(field.help_text)
+
+
+def _native_field_schema(field: serializers.Field) -> dict[str, Any]:
+    schema = _native_field_type_schema(field)
+    _add_choice_schema(field, schema)
+    _add_field_limits(field, schema)
+    _add_field_pattern(field, schema)
+    _add_nullable_schema(field, schema)
+    _add_field_metadata(field, schema)
+    return schema
+
+
+def _native_tool_schema(tool: NativeConnectorTool) -> dict[str, Any]:
+    return _native_field_schema(tool.payload_serializer())
 
 
 def _mcp_tool_listing(tool: McpConnectorTool) -> ConnectorToolListing:
