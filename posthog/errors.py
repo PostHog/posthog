@@ -87,6 +87,17 @@ def clickhouse_error_type(e: Exception) -> str:
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
 
+# ClickHouse has phrased this as `Unknown setting foo`, `Unknown setting 'foo'` and
+# `Unknown setting foo:` across versions, so accept all three.
+UNKNOWN_SETTING_PATTERN = re.compile(r"Unknown setting '?([A-Za-z_][A-Za-z0-9_]*)'?")
+
+
+def extract_unknown_setting_name(message: str) -> Optional[str]:
+    """The setting a node rejected with UNKNOWN_SETTING, or None if the message doesn't name one."""
+    match = UNKNOWN_SETTING_PATTERN.search(message)
+    return match.group(1) if match else None
+
+
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "A Parquet file backing this table has corrupted or oversized metadata and can't be read. "
     "This usually means the file wasn't written correctly during import. Re-sync the source (or "

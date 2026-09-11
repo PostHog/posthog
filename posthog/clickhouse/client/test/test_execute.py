@@ -3,8 +3,10 @@ from ipaddress import IPv4Address, IPv6Address
 import pytest
 from unittest.mock import MagicMock, patch
 
+from clickhouse_driver.errors import ServerException
+
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.client.execute import query_with_columns, sync_execute
+from posthog.clickhouse.client.execute import drop_setting_from_query, query_with_columns, sync_execute
 from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
 from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
 
@@ -136,3 +138,62 @@ def test_query_with_columns_removes_columns_by_type(types, row, expected):
         rows = query_with_columns("SELECT *", column_types_to_remove=("IPv4", "IPv6"))
 
     assert rows == [expected]
+
+
+@pytest.mark.parametrize(
+    "query,setting,expected",
+    [
+        # A rejected setting has to come out of the clause without breaking the SQL around it,
+        # whatever its position: the retry is only useful if the rewritten query still runs.
+        (
+            "SELECT 1 SETTINGS readonly=2, optimize_rewrite_aggregate_function_with_if=0, max_threads=4",
+            "optimize_rewrite_aggregate_function_with_if",
+            "SELECT 1 SETTINGS readonly=2, max_threads=4",
+        ),
+        ("SELECT 1 SETTINGS readonly=2, max_threads=4", "readonly", "SELECT 1 SETTINGS max_threads=4"),
+        ("SELECT 1 SETTINGS readonly=2, max_threads=4", "max_threads", "SELECT 1 SETTINGS readonly=2"),
+        # The only setting: the now-empty SETTINGS keyword has to go too, here and in a subquery.
+        ("SELECT 1 SETTINGS readonly=2", "readonly", "SELECT 1  "),
+        (
+            "SELECT * FROM (SELECT 1 SETTINGS optimize_move_to_prewhere = 0) SETTINGS readonly=2",
+            "optimize_move_to_prewhere",
+            "SELECT * FROM (SELECT 1  ) SETTINGS readonly=2",
+        ),
+        # A quoted value can hold a comma, so the pair can't be split on one.
+        (
+            "SELECT 1 SETTINGS force_data_skipping_indices='a, b', readonly=2",
+            "force_data_skipping_indices",
+            "SELECT 1 SETTINGS readonly=2",
+        ),
+        ("SELECT 1 SETTINGS readonly=2", "max_threads", "SELECT 1 SETTINGS readonly=2"),
+    ],
+)
+def test_drop_setting_from_query(query, setting, expected):
+    assert drop_setting_from_query(query, setting) == expected
+
+
+def test_unknown_setting_is_retried_without_that_setting(client_from_pool):
+    # A node that doesn't know a setting we inject used to kill the query outright, breaking every
+    # product on the shared query path at once. The query must survive, minus the setting.
+    client = client_from_pool.return_value.__enter__.return_value
+    client.execute.side_effect = [
+        ServerException("DB::Exception: Unknown setting force_data_skipping_indices", code=115),
+        [(1,)],
+    ]
+
+    with tags_context(product=Product.PLATFORM_AND_SUPPORT, kind="request", id="test"):
+        result = sync_execute("SELECT 1 SETTINGS force_data_skipping_indices='i', readonly=2", flush=False, team_id=1)
+
+    assert result == [(1,)]
+    assert client.execute.call_args_list[1].args[0].endswith("SELECT 1 SETTINGS readonly=2")
+
+
+def test_unknown_setting_we_did_not_send_is_not_retried(client_from_pool):
+    # Nothing to drop means the retry would fail identically, so the error has to surface.
+    client = client_from_pool.return_value.__enter__.return_value
+    client.execute.side_effect = ServerException("DB::Exception: Unknown setting from_a_profile", code=115)
+
+    with tags_context(product=Product.PLATFORM_AND_SUPPORT, kind="request", id="test"), pytest.raises(ServerException):
+        sync_execute("SELECT 1 SETTINGS readonly=2", flush=False, team_id=1)
+
+    assert client.execute.call_count == 1
