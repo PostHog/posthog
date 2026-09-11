@@ -32,7 +32,7 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: master
+                  ref: ${{ github.sha }}
                   sparse-checkout: cli/.sampo/changesets
 
             - name: Check for changesets
@@ -114,29 +114,29 @@ jobs:
                   git init -q
                   git remote add origin "$repo_url"
 
-                  # Fetch the exact tag and branch instead of using actions/checkout,
+                  # Fetch the exact tag and triggering commit instead of using actions/checkout,
                   # which would fetch every branch/tag in this large monorepo.
                   git fetch --depth=1 --filter=blob:none --no-tags origin \
                     "refs/tags/$base_tag:refs/tags/$base_tag" \
-                    "refs/heads/master:refs/remotes/origin/master"
+                    "$GITHUB_SHA:refs/remotes/origin/release"
 
                   {
                     echo "## posthog-cli release preview"
                     echo
                     echo "- Base: \`$base_tag\`"
-                    echo "- Head: \`master\`"
+                    echo "- Head: \`$GITHUB_SHA\`"
                     echo
                     echo "### CLI diff"
                     echo
                     echo "\`\`\`text"
-                    git diff --shortstat "$base_tag..origin/master" -- cli cli/.sampo
+                    git diff --shortstat "$base_tag..origin/release" -- cli cli/.sampo
                     echo "\`\`\`"
                     echo
                     echo "<details>"
                     echo "<summary>Changed CLI files</summary>"
                     echo
                     echo "\`\`\`text"
-                    git diff --stat "$base_tag..origin/master" -- cli cli/.sampo
+                    git diff --stat "$base_tag..origin/release" -- cli cli/.sampo
                     echo "\`\`\`"
                     echo "</details>"
                     echo
@@ -144,7 +144,7 @@ jobs:
                     echo "<summary>Pending CLI changesets</summary>"
                     echo
                     echo "\`\`\`text"
-                    git diff --name-only "$base_tag..origin/master" -- ':(glob)cli/.sampo/changesets/*.md'
+                    git diff --name-only "$base_tag..origin/release" -- ':(glob)cli/.sampo/changesets/*.md'
                     echo "\`\`\`"
                     echo "</details>"
                   } >> "$GITHUB_STEP_SUMMARY"
@@ -331,8 +331,8 @@ jobs:
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   RELEASE_BRANCH: chore/release-posthog-cli
-                  TARGET_SHA: ${{ github.sha }}
               run: |
+                  TARGET_SHA=$(git rev-parse HEAD)
                   if gh api "repos/${{ github.repository }}/git/ref/heads/$RELEASE_BRANCH" >/dev/null 2>&1; then
                       gh api -X PATCH "repos/${{ github.repository }}/git/refs/heads/$RELEASE_BRANCH" \
                           -f sha="$TARGET_SHA" -F force=true
@@ -358,7 +358,9 @@ jobs:
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   NEW_VERSION: ${{ steps.prepare-release.outputs.new-version }}
+                  RELEASE_COMMIT: ${{ steps.commit-release.outputs.commit-hash }}
                   RELEASE_BRANCH: chore/release-posthog-cli
+                  REPOSITORY: ${{ github.repository }}
               run: |
                   body_file="$RUNNER_TEMP/release-pr.md"
                   cat > "$body_file" <<EOF
@@ -387,8 +389,21 @@ jobs:
                   **Autonomy:** Fully autonomous
                   EOF
 
-                  existing_pr=$(gh pr list --head "$RELEASE_BRANCH" --state open --json number --jq '.[0].number' 2>/dev/null || true)
+                  release_owner=${REPOSITORY%%/*}
+                  existing_prs=$(gh api --paginate "repos/$REPOSITORY/pulls?state=open&base=master&head=$release_owner:$RELEASE_BRANCH" --jq '.[].number')
+                  if [ "$(printf '%s\n' "$existing_prs" | sed '/^$/d' | wc -l)" -gt 1 ]; then
+                      echo "::error::More than one open CLI release pull request exists"
+                      exit 1
+                  fi
+                  existing_pr=$(printf '%s\n' "$existing_prs" | sed -n '1p')
                   if [ -n "$existing_pr" ]; then
+                      existing_pr_data=$(gh api "repos/$REPOSITORY/pulls/$existing_pr")
+                      existing_head_repo=$(printf '%s' "$existing_pr_data" | jq -r '.head.repo.full_name // empty')
+                      existing_head_sha=$(printf '%s' "$existing_pr_data" | jq -r '.head.sha')
+                      if [ "$existing_head_repo" != "$REPOSITORY" ] || [ "$existing_head_sha" != "$RELEASE_COMMIT" ]; then
+                          echo "::error::The existing CLI release pull request does not contain the generated release commit"
+                          exit 1
+                      fi
                       gh pr edit "$existing_pr" --title "chore(cli): release v$NEW_VERSION" --body-file "$body_file"
                       pr_url=$(gh pr view "$existing_pr" --json url --jq '.url')
                   else
@@ -500,7 +515,7 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: master
+                  ref: ${{ github.sha }}
                   fetch-depth: 2
 
             - name: Identify release commit
