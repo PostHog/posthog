@@ -31,6 +31,7 @@ Stdlib only. Python 3.11+."""
 
 from __future__ import annotations
 
+import re
 import sys
 import json
 import argparse
@@ -38,9 +39,7 @@ import statistics
 from datetime import datetime
 from typing import Any
 
-# a failed run with no `failure_reason` whose wall-clock is this long or longer is timeout-shaped.
-# The per-run budget is 15 minutes (scout_harness/limits.py); a run that reached ~14 minutes ran
-# to the wall rather than crashing early.
+# The per-run budget is 15 minutes (scout_harness/limits.py); a failed run past ~14 minutes ran to the wall.
 TIMEOUT_MINUTES = 14.0
 # a gap larger than this multiple of the expected interval counts as a stall
 STALL_FACTOR = 2.0
@@ -122,17 +121,19 @@ def table(headers: list[str], body: list[list[str]]) -> list[str]:
     return out
 
 
+_CANCELLED_ERROR = re.compile(r"^(asyncio\.)?cancell?ed(error)?\b")
+
+
 def _is_cancelled_as_failed(run: dict) -> bool:
-    # A cancellation caught while the run was still starting is finalized as `failed` with the
-    # cancellation's text as its error, so a literal status check would count a worker shutdown
-    # as a scout failure. A cancellation with an empty error is indistinguishable and stays in.
-    text = f"{run.get('failure_reason') or ''} {run.get('error') or ''}".lower()
-    return "cancel" in text
+    # A cancellation caught while the run was still starting is stored as `failed` with the
+    # cancellation's own text as its error; one with an empty error is indistinguishable and stays in.
+    # Match only an error that IS a cancellation, not one that merely mentions cancelling a statement.
+    text = (run.get("failure_reason") or run.get("error") or "").strip().lower()
+    return bool(_CANCELLED_ERROR.match(text)) and "timeout" not in text and "timed out" not in text
 
 
 def _is_timeout_reason(reason: str | None) -> bool:
-    # The harness words a run that hit its poll budget as "... timed out after 900s"; other
-    # writers say "timeout". Match both so a mixed history never hides a real timeout.
+    # The harness says "timed out after 900s"; other writers say "timeout".
     text = (reason or "").lower()
     return "timed out" in text or "timeout" in text
 
@@ -141,8 +142,7 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
                  now: datetime | None, config_last_run: str | None) -> dict:
     runs = sorted(runs, key=lambda r: r.get("started_at") or "")
     n = len(runs)
-    # Only settled outcomes count: a cancelled run (worker shutdown, deploy) says nothing about
-    # the scout, and an in-flight row has no outcome yet.
+    # A cancelled (worker shutdown, deploy) or in-flight row has no scout outcome to score.
     settled = [
         r
         for r in runs
@@ -154,9 +154,7 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
         m for r in settled if (m := minutes_between(r.get("started_at"), r.get("completed_at"))) is not None
     ]
     median_dur = round(statistics.median(durations), 1) if durations else None
-    # A wall overrun is a failed run that ran to the budget AND whose `failure_reason`, when the
-    # row carries one, says it timed out. A named credential or tool failure is not a timeout
-    # however long it ran, and a fast upstream timeout is not over-investigation.
+    # A named credential or tool failure is not a timeout however long it ran.
     timeouts = sum(
         1
         for r in settled
@@ -176,8 +174,7 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
     expected = (int(span_min / interval) + 1) if interval and span_min > 0 else None
     adherence = pct(n, expected) if expected else "-"
 
-    # Report ids land on the row when the report tool succeeds, before the run settles, so an
-    # in-flight or cancelled writer would push the rate past 100% against a settled denominator.
+    # Report ids land on the row before the run settles, so only settled writers count.
     wrote = sum(1 for r in settled if run_wrote(r))
     # Two different stalenesses — keep them apart. `last_run_at` is the coordinator's DISPATCH
     # stamp (advanced the moment a child is enqueued, before any worker runs it); the newest
@@ -299,9 +296,7 @@ def main() -> int:
         run_rows = [r for r in run_rows if r.get("skill_name") == args.skill]
 
     cfg_rows = rows(load(args.config)) if args.config else []
-    # A cron scout's interval is not its cadence: the cron wins while it is set and its gaps are
-    # irregular by design (a weekday-only scout skips the weekend), so interval-based adherence,
-    # stall and staleness scoring would misflag a healthy one. Leave its interval unset instead.
+    # A cron scout's gaps are irregular by design, so interval-based scoring would misflag it.
     intervals = {
         r.get("skill_name"): (None if r.get("run_cron_schedule") else r.get("run_interval_minutes"))
         for r in cfg_rows
