@@ -227,3 +227,35 @@ describe('handleOpenIdConfiguration', () => {
         expect(response.headers.get('access-control-allow-origin')).toBe('*')
     })
 })
+
+describe('handleClientManifest', () => {
+    beforeEach(() => {
+        vi.resetModules()
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue(
+                new Response('Authorize at https://us.posthog.com/oauth/authorize/ with scope `openid`.', {
+                    status: 200,
+                })
+            )
+        )
+    })
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
+    it('serves the manifest the metadata advertises, with its URLs on the proxy', async () => {
+        // `agent_auth.skill` points agents at this path on the proxy, which had no route for it.
+        const { handleClientManifest } = await import('@/handlers/metadata')
+        const request = new Request('https://oauth.posthog.com/auth.md')
+
+        const response = await handleClientManifest(request)
+
+        expect(response.status).toBe(200)
+        expect(response.headers.get('content-type')).toContain('text/markdown')
+        expect(await response.text()).toBe(
+            'Authorize at https://oauth.posthog.com/oauth/authorize/ with scope `openid`.'
+        )
+    })
+})

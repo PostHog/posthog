@@ -7,6 +7,8 @@ import { POSTHOG_US_BASE_URL, proxyOrigin } from '@/lib/constants'
 
 const CACHE_TTL_MS = 600 * 1000
 
+const MANIFEST_PATH = '/auth.md'
+
 // `posthog_base_url` names the region a token came from rather than an endpoint to call, so it
 // keeps its regional value while every other regional URL is rewritten.
 const REGIONAL_VALUE_FIELDS = ['posthog_base_url']
@@ -97,4 +99,43 @@ export async function handleMetadata(request: Request): Promise<Response> {
 
 export async function handleOpenIdConfiguration(request: Request): Promise<Response> {
     return serveDocument(request, '/.well-known/openid-configuration')
+}
+
+/**
+ * The auth.md agent manifest, which the authorization server metadata points at through
+ * `agent_auth.skill`. Markdown rather than JSON, so the rewrite is a plain substitution: every URL
+ * in the document is built from the serving instance's base URL.
+ */
+export async function handleClientManifest(request: Request): Promise<Response> {
+    const origin = proxyOrigin(request)
+    const cacheKey = `${MANIFEST_PATH}|${origin}`
+    const cached = cache.get(cacheKey)
+
+    if (!cached || cached.cachedUntil <= Date.now()) {
+        try {
+            const response = await fetch(`${POSTHOG_US_BASE_URL}${MANIFEST_PATH}`)
+            if (!response.ok) {
+                throw new Error(`Failed to fetch ${MANIFEST_PATH}: ${response.statusText}`)
+            }
+
+            const body = (await response.text()).split(POSTHOG_US_BASE_URL).join(origin)
+            cache.set(cacheKey, { body, cachedUntil: Date.now() + CACHE_TTL_MS })
+        } catch (error) {
+            console.error(
+                JSON.stringify({
+                    handler: 'manifest',
+                    error: error instanceof Error ? error.message : 'unknown error',
+                })
+            )
+            return new Response('Unable to fetch the client manifest', { status: 502 })
+        }
+    }
+
+    return new Response(cache.get(cacheKey)!.body, {
+        headers: {
+            'Content-Type': 'text/markdown; charset=utf-8',
+            'Cache-Control': 'public, max-age=3600',
+            'Access-Control-Allow-Origin': '*',
+        },
+    })
 }

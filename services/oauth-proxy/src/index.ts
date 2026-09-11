@@ -9,7 +9,7 @@
  */
 import { handleAuthorize } from '@/handlers/authorize'
 import { handleCallback } from '@/handlers/callback'
-import { handleMetadata, handleOpenIdConfiguration } from '@/handlers/metadata'
+import { handleClientManifest, handleMetadata, handleOpenIdConfiguration } from '@/handlers/metadata'
 import { handleIntrospect, handleJwks, handleRevoke, handleUserInfo } from '@/handlers/passthrough'
 import { handleRegister } from '@/handlers/register'
 import { handleToken } from '@/handlers/token'
@@ -41,6 +41,10 @@ const routes: Route[] = [
     {
         paths: ['/.well-known/openid-configuration'],
         handler: handleOpenIdConfiguration,
+    },
+    {
+        paths: ['/auth.md'],
+        handler: handleClientManifest,
     },
     {
         paths: ['/.well-known/jwks.json'],
