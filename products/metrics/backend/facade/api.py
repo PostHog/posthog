@@ -42,6 +42,12 @@ from products.metrics.backend.metric_event_samples_query_runner import MetricEve
 from products.metrics.backend.metric_names_query_runner import cached_metric_names
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.prometheus_proxy import forward_prometheus_request, is_allowed_prometheus_path
+
+__all__ = [
+    "forward_prometheus_request",
+    "is_allowed_prometheus_path",
+]
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
 # as later PRs teach the runner the remaining MetricAggregation values.
