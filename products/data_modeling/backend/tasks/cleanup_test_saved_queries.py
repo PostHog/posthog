@@ -44,6 +44,7 @@ def cleanup_expired_test_saved_queries() -> None:
     # This ensures we respect the Node PROTECT constraint and handle chains properly.
     while expired_ids:
         deleted_this_pass: set = set()
+        skipped_this_pass: set = set()
 
         for saved_query in DataWarehouseSavedQuery.objects.filter(id__in=expired_ids).select_related("table"):
             # Check if any non-deleted saved query depends on this one via DAG edges
@@ -69,56 +70,62 @@ def cleanup_expired_test_saved_queries() -> None:
                     # Skip for now — will be retried on the next daily run
                     continue
 
-            _hard_delete_saved_query(saved_query)
-            deleted_this_pass.add(saved_query.id)
+            if _hard_delete_saved_query(saved_query):
+                deleted_this_pass.add(saved_query.id)
+            else:
+                skipped_this_pass.add(saved_query.id)
 
         if not deleted_this_pass:
-            # No progress — remaining queries have non-test dependents, skip them
+            # No progress — the remaining queries have dependents, or their S3 data stayed
             if expired_ids:
                 logger.warning(
-                    "Could not delete some expired test saved queries due to dependents",
+                    "Could not delete some expired test saved queries",
                     remaining_ids=[str(id) for id in expired_ids],
                 )
             break
 
-        expired_ids -= deleted_this_pass
+        # A skipped query keeps its rows, so it still counts as a live dependent this run
+        expired_ids -= deleted_this_pass | skipped_this_pass
         total_deleted += len(deleted_this_pass)
 
     logger.info("Cleaned up expired test saved queries", deleted_count=total_deleted)
 
 
-def _hard_delete_saved_query(saved_query: "DataWarehouseSavedQuery") -> None:
-    """Hard-delete a single saved query and all downstream objects."""
+def _hard_delete_saved_query(saved_query: "DataWarehouseSavedQuery") -> bool:
+    """Hard-delete a single saved query and all downstream objects. Returns False if nothing was deleted."""
     from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
     from products.data_modeling.backend.models.node import Node
     from products.data_tools.backend.models.join import DataWarehouseJoin
 
     logger.info("Hard-deleting expired test saved query", saved_query_id=str(saved_query.id), name=saved_query.name)
 
-    # 1. Delete the DAG node (must happen before saved query deletion due to PROTECT).
+    # 1. Delete the S3 data first. The rows are the only record of where the files live, so
+    #    deleting them before the files leaves Delta Lake data that nothing can reclaim.
+    if not _delete_s3_data(saved_query):
+        return False
+    # 2. Delete the DAG node (must happen before saved query deletion due to PROTECT).
     #    EndpointVersion.saved_query has on_delete=SET_NULL, so Django handles that automatically.
     Node.objects.filter(team=saved_query.team, saved_query=saved_query).delete()
-    # 2. Delete joins that reference this saved query by name
+    # 3. Delete joins that reference this saved query by name
     DataWarehouseJoin.objects.filter(
         Q(team_id=saved_query.team_id)
         & (Q(source_table_name=saved_query.name) | Q(joining_table_name=saved_query.name))
     ).delete()
-    # 3. Delete model paths
+    # 4. Delete model paths
     DataWarehouseModelPath.objects.filter(team=saved_query.team, path__lquery=f"*{{1,}}.{saved_query.id.hex}").delete()
-    # 4. Revert materialization (drops schedule, soft-deletes the table)
+    # 5. Revert materialization (drops schedule, soft-deletes the table)
     table_to_delete = saved_query.table
     saved_query.revert_materialization()
-    # 5. Delete S3 data for the materialized view
-    _delete_s3_data(saved_query)
     # 6. Hard-delete the materialized table if it exists
     if table_to_delete is not None:
         table_to_delete.delete()
     # 7. Hard-delete the saved query itself
     saved_query.delete()
+    return True
 
 
-def _delete_s3_data(saved_query: "DataWarehouseSavedQuery") -> None:
-    """Delete S3 Delta Lake files for a materialized saved query."""
+def _delete_s3_data(saved_query: "DataWarehouseSavedQuery") -> bool:
+    """Delete S3 Delta Lake files for a materialized saved query. Returns False if the files remain."""
     from django.conf import settings
 
     from posthog.exceptions_capture import capture_exception
@@ -144,3 +151,5 @@ def _delete_s3_data(saved_query: "DataWarehouseSavedQuery") -> None:
             saved_query_id=str(saved_query.id),
             s3_prefix=s3_prefix,
         )
+        return False
+    return True
