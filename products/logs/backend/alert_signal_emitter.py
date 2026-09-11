@@ -37,6 +37,10 @@ class NotifiedAlert:
     returns reloadable presentation fields as empty placeholders to keep the payload bounded;
     signal emission hydrates them from the alert row. Older workflow histories may contain the
     full values and remain compatible with the same shape.
+
+    The check configuration — `threshold_count`, `threshold_operator`, `window_minutes` — is the
+    evaluation-time snapshot and is never re-read from the row, because it has to agree with
+    `result_count` in the description.
     """
 
     alert_id: str
