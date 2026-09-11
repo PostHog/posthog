@@ -22,15 +22,15 @@ tools:
         description: >
             Find the MCP servers most likely to perform a task, ranked, with the instructions to connect to each one.
             Name the product or task in `intent` with the words the server would use about itself — relevance is
-            keyword-based, so "vercel" or "deploy to vercel" finds the Vercel MCP where a paraphrase like
-            "deploy my site" can miss it.
+            keyword-based, so "vercel" or "deploy to vercel" finds the Vercel MCP where a paraphrase like "deploy my
+            site" can miss it.
 
 
             Each candidate carries why it ranked where it did: `relevance` for how well its text matched your intent,
             `score` for its static rank score, `combined_score` for what actually ordered the list, `liveness` from a
-            real handshake against the server, `why` with the score breakdown, and `measured` with observed call
-            volume and success rate when PostHog Analytics has seen the server in use. `connect` gives the connection
-            methods, most automated first, with each step marked for the agent to run or for a person to do.
+            real handshake against the server, `why` with the score breakdown, and `measured` with observed call volume
+            and success rate when PostHog Analytics has seen the server in use. `connect` gives the connection methods,
+            most automated first, with each step marked for the agent to run or for a person to do.
 
 
             The index is a global crawl of the official MCP registry rather than a table in this project, so it is not

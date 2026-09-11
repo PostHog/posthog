@@ -51750,6 +51750,13 @@ export namespace Schemas {
       description: string;
       /** Rank score in [0, 1] under the ranking version used. */
       score: number;
+      /** How well this server's text matched the intent, in [0, 1]. */
+      relevance: number;
+      /**
+         * relevance^fit x rank_score^authority: the value that ordered this list. Null when the version has no completed run, where ordering is relevance alone.
+         * @nullable
+         */
+      combined_score: number | null;
       /** Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether real usage signal contributed. */
       why: MCPDiscoverCandidateWhy;
       /** Probed liveness state (alive_open, alive_auth, dead, ...). */
