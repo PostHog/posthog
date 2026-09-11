@@ -46,6 +46,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
+from products.signals.backend.signal_handoffs import record_task_cost
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -69,6 +70,9 @@ class RunAgenticReportInput:
     # correcting or clearing it) so the run does not bury that newer row. Defaults to None so an
     # older workflow history that predates this field replays cleanly (guard off).
     repo_selection_as_of: datetime | None = None
+    # The S3 handoff for the signal that opened this research pass. None preserves the
+    # pre-handoff workflow path and fixture callers.
+    signal_key: str | None = None
 
 
 @dataclass
@@ -657,6 +661,8 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 charts_enabled=charts_enabled,
                 steering_section=steering.section,
             )
+            if input.signal_key and result.research_task_id:
+                await record_task_cost(input.signal_key, input.team_id, result.research_task_id, "research")
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(
                 input.team_id,

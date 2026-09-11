@@ -3,7 +3,7 @@ import random
 from datetime import timedelta
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
 
@@ -57,11 +57,17 @@ def patch_side_effects():
     """Mock only the external side effects (Kafka, analytics, ClickHouse). The Postgres state
     machine is the SUT and is exercised against a real DB."""
     with (
-        patch(f"{GROUPING_MODULE_PATH}.emit_embedding_request") as emit_mock,
+        patch(f"{GROUPING_MODULE_PATH}.emit_embedding_request") as legacy_emit_mock,
+        patch(f"{GROUPING_MODULE_PATH}.write_handoff", new_callable=AsyncMock) as write_handoff_mock,
         patch(f"{GROUPING_MODULE_PATH}.posthoganalytics.capture") as capture_mock,
         patch(f"{GROUPING_MODULE_PATH}.soft_delete_report_signals") as soft_delete_mock,
     ):
-        yield {"emit": emit_mock, "capture": capture_mock, "soft_delete": soft_delete_mock}
+        yield {
+            "legacy_emit": legacy_emit_mock,
+            "write_handoff": write_handoff_mock,
+            "capture": capture_mock,
+            "soft_delete": soft_delete_mock,
+        }
 
 
 def _existing_match(report_id: str) -> ExistingReportMatch:
@@ -98,7 +104,6 @@ def _build_input(
         source_type="ticket",
         source_id=f"src-{uuid.uuid4()}",
         extra={},
-        embedding=[0.0] * 1536,
         match_result=match_result,
     )
 
@@ -136,6 +141,68 @@ async def test_new_match_creates_and_immediately_promotes_when_above_threshold(a
     report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
     assert report.status == SignalReport.Status.CANDIDATE
     assert report.promoted_at is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_legacy_emission_uses_embedding_request(ateam, patch_side_effects):
+    input_ = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD)
+    input_.metadata = {
+        "token_cost": {"research": 7, "implementation": 0},
+        "report_id": "untrusted",
+        "source_product": "untrusted",
+        "deleted": True,
+    }
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    patch_side_effects["legacy_emit"].assert_called_once()
+    metadata = patch_side_effects["legacy_emit"].call_args.kwargs["metadata"]
+    assert metadata["token_cost"]["research"] == 7
+    assert metadata["report_id"] == result.report_id
+    assert metadata["source_product"] == input_.source_product
+    assert metadata["deleted"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_handoffs_defer_promoted_and_in_progress_signal_publication(ateam, patch_side_effects):
+    patch_side_effects["write_handoff"].side_effect = [
+        "signals/processing/1/promoted.json",
+        "signals/processing/1/in-progress.json",
+    ]
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        total_weight=2.0,
+        signal_count=1,
+    )
+
+    promoted = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD)
+    promoted.metadata = {"token_cost": {"research": 17, "implementation": 0}}
+    promoted.use_handoffs = True
+    in_progress = _build_input(ateam.id, _existing_match(str(report.id)))
+    in_progress.use_handoffs = True
+    non_promoted = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5)
+    non_promoted.use_handoffs = True
+
+    promoted_result = await assign_and_emit_signal_activity(promoted)
+    in_progress_result = await assign_and_emit_signal_activity(in_progress)
+    non_promoted_result = await assign_and_emit_signal_activity(non_promoted)
+
+    assert promoted_result.signal_key == "signals/processing/1/promoted.json"
+    assert in_progress_result.promoted is False
+    assert in_progress_result.signal_key == "signals/processing/1/in-progress.json"
+    assert non_promoted_result.signal_key is None
+    assert patch_side_effects["write_handoff"].await_count == 2
+    patch_side_effects["legacy_emit"].assert_called_once()
+    assert patch_side_effects["legacy_emit"].call_args.kwargs["document_id"] == non_promoted.signal_id
+    assert (
+        patch_side_effects["write_handoff"].await_args_list[0].args[0].signal.metadata["token_cost"]["research"] == 17
+    )
+    in_progress_handoff = patch_side_effects["write_handoff"].await_args_list[1].args[0]
+    assert in_progress_handoff.signal.metadata["report_signal_count"] == 2
+    assert in_progress_handoff.signal.metadata["research_trigger"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -552,8 +619,8 @@ async def test_signal_between_buckets_is_still_assigned(ateam, patch_side_effect
     assert refreshed.promoted_at is None
     assert refreshed.signal_count == 5
     assert refreshed.total_weight == pytest.approx(2.5)
-    emit_kwargs = patch_side_effects["emit"].call_args.kwargs
-    assert emit_kwargs["metadata"].get("deleted") is not True
+    metadata = patch_side_effects["legacy_emit"].call_args.kwargs["metadata"]
+    assert metadata.get("deleted") is not True
 
 
 @pytest.mark.asyncio
@@ -756,8 +823,8 @@ async def test_deleted_report_skips_counter_updates_and_marks_signal_deleted(ate
     assert refreshed.signal_count == 3
 
     patch_side_effects["soft_delete"].assert_called_once()
-    emit_kwargs = patch_side_effects["emit"].call_args.kwargs
-    assert emit_kwargs["metadata"]["deleted"] is True
+    metadata = patch_side_effects["legacy_emit"].call_args.kwargs["metadata"]
+    assert metadata["deleted"] is True
 
 
 @pytest.mark.asyncio

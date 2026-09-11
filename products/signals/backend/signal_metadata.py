@@ -290,13 +290,16 @@ _LABEL_RE = re.compile(r"^[A-Za-z0-9#/_.-]{1,64}$")
 _URL_RE = re.compile(r"^https?://[^\s()<>\[\]]{1,500}$")
 
 
-def fetch_source_references_for_report(team: Team, report_id: str) -> list[SignalSourceReference]:
+def fetch_source_references_for_report(
+    team: Team, report_id: str, pending_metadata: dict | None = None
+) -> list[SignalSourceReference]:
     """Return issue references (label + URL) for the report's non-deleted Linear/GitHub signals.
 
     Sources whose signals don't carry a stable human-facing URL (e.g. Zendesk's `url` extra is the
     API endpoint, not an agent link) are excluded until they do. Results are deduped by URL, sorted
     for determinism, and capped at `_SOURCE_REFERENCE_CAP` so a signal-heavy report can't flood the
-    task prompt. Same candidate-bounded argMax dedup as `fetch_source_products_for_reports`.
+    task prompt. A valid pending reference wins a cap slot because it triggered the report. Same
+    candidate-bounded argMax dedup as `fetch_source_products_for_reports`.
     """
     ch_query = """
         SELECT source_product, url, html_url, identifier, issue_number
@@ -342,9 +345,33 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
         },
     )
 
+    rows = list(result.results or [])
+    pending_url: str | None = None
+    pending_source_product = pending_metadata.get("source_product") if pending_metadata else None
+    if (
+        pending_metadata
+        and not pending_metadata.get("deleted")
+        and isinstance(pending_source_product, str)
+        and pending_source_product in {"linear", "github"}
+    ):
+        extra = pending_metadata.get("extra")
+        if isinstance(extra, dict):
+            number = extra.get("number")
+            pending_url = str(
+                (extra.get("url") or "") if pending_source_product == "linear" else (extra.get("html_url") or "")
+            ).strip()
+            rows.append(
+                (
+                    pending_source_product,
+                    str(extra.get("url") or ""),
+                    str(extra.get("html_url") or ""),
+                    str(extra.get("identifier") or ""),
+                    number if isinstance(number, int) else 0,
+                )
+            )
     references: list[SignalSourceReference] = []
     seen_urls: set[str] = set()
-    for source_product, url, html_url, identifier, issue_number in result.results or []:
+    for source_product, url, html_url, identifier, issue_number in rows:
         if source_product == "linear":
             ref_url, label = url, (identifier if identifier and _LABEL_RE.match(identifier) else "Linear issue")
         else:
@@ -356,4 +383,8 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
         references.append(SignalSourceReference(source_product=source_product, label=label, url=ref_url))
 
     references.sort(key=lambda ref: (ref.source_product, ref.label, ref.url))
-    return references[:_SOURCE_REFERENCE_CAP]
+    if pending_url and _URL_RE.match(pending_url):
+        pending_reference = next((reference for reference in references if reference.url == pending_url), None)
+        if pending_reference is not None:
+            references = [pending_reference, *(reference for reference in references if reference.url != pending_url)]
+    return sorted(references[:_SOURCE_REFERENCE_CAP], key=lambda ref: (ref.source_product, ref.label, ref.url))

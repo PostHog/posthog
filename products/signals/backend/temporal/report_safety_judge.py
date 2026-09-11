@@ -12,6 +12,8 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.artefact_schemas import SafetyJudgment
 from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact
+from products.signals.backend.signal_costs import merge_costs
+from products.signals.backend.signal_handoffs import read_handoff, write_handoff
 from products.signals.backend.temporal.llm import call_llm
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
 
@@ -87,6 +89,7 @@ def _build_report_safety_judge_prompt(
 async def judge_report_safety(
     team_id: int,
     signals: list[SignalData],
+    costs: dict | None = None,
 ) -> SafetyJudgeResponse:
     """
     Assess whether a signal report contains prompt injection or manipulation attempts.
@@ -108,14 +111,16 @@ async def judge_report_safety(
         thinking=True,
         stage="report_safety_judge",
         ai_product="signals_safety",
+        costs=costs,
     )
 
 
-@dataclass
+@dataclass(frozen=False)
 class SafetyJudgeInput:
     team_id: int
     report_id: str
     signals: list[SignalData]
+    signal_key: str | None = None
 
 
 @dataclass
@@ -129,12 +134,16 @@ class SafetyJudgeOutput:
 @close_db_connections
 async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOutput:
     """Assess report for prompt injection attacks and store result as artefact."""
+    costs: dict = {}
+    safe = True
     try:
         result = await judge_report_safety(
             team_id=input.team_id,
             signals=input.signals,
+            costs=costs if input.signal_key else None,
         )
 
+        safe = result.choice
         # Append-only: each safety assessment is a point-in-time entry in the report log. The
         # report's current safety status is the latest safety_judgment row. System-attributed:
         # the judge is a plain LLM call on the worker — no user or sandbox task is in scope.
@@ -152,8 +161,17 @@ async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOu
         )
         return SafetyJudgeOutput(safe=result.choice, explanation=result.explanation if not result.choice else None)
     except Exception as e:
+        # Do not persist costs from an activity attempt that failed.
+        costs.clear()
         logger.exception(
             f"Failed to run safety judge for report {input.report_id}: {e}",
             report_id=input.report_id,
         )
         raise
+    finally:
+        if input.signal_key:
+            handoff = await read_handoff(input.signal_key, input.team_id)
+            if not safe:
+                handoff.signal.metadata["deleted"] = True
+            merge_costs(handoff.signal.metadata, costs)
+            await write_handoff(handoff)

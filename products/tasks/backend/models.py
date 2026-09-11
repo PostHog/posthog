@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
+    from products.tasks.backend.facade.contracts import TaskRunSpend
     from products.tasks.backend.logic.services.sandbox import SandboxResources
 
 from django.conf import settings
@@ -2863,6 +2864,12 @@ class TaskRun(models.Model):
         if self.completed_at and self.created_at:
             return round((self.completed_at - self.created_at).total_seconds(), 1)
         return 0.0
+
+    def get_current_spend(self) -> "TaskRunSpend":
+        """Current token and compute spend in integer cents; a placeholder until runtime accounting is available."""
+        from products.tasks.backend.facade.contracts import TaskRunSpend  # noqa: PLC0415 - avoids a facade import cycle
+
+        return TaskRunSpend(token_cost=0, compute_cost=0)
 
     def mark_completed(self, *, notify: bool = True, analytics_properties: dict | None = None) -> None:
         """Mark the progress as completed.

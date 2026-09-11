@@ -24,6 +24,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.quota import is_team_signals_quota_limited
+from products.signals.backend.signal_costs import merge_costs
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.safety_filter import SafetyFilterInput, safety_filter_activity
@@ -38,6 +39,7 @@ BUFFER_FLUSH_TIMEOUT_SECONDS = 5
 # Guards the ingestion quota gate so runs that recorded history before it was added replay
 # deterministically. Switch to workflow.deprecate_patch() once those have drained, then remove.
 _PATCH_QUOTA_INGESTION_GATE = "signals-quota-ingestion-gate-v1"
+_PATCH_STAGE_HANDOFFS = "signals-stage-handoffs-v1"
 
 OBJECT_STORAGE_SIGNALS_PREFIX = "signals/signal_batches"
 
@@ -257,6 +259,7 @@ class BufferSignalsWorkflow:
                     continue
 
             # Filter out malicious signals
+            track_costs = workflow.patched(_PATCH_STAGE_HANDOFFS)
             safety_results = await asyncio.gather(
                 *[
                     workflow.execute_activity(
@@ -269,6 +272,7 @@ class BufferSignalsWorkflow:
                             source_id=s.source_id,
                             weight=s.weight,
                             extra=s.extra,
+                            track_costs=track_costs,
                         ),
                         start_to_close_timeout=timedelta(minutes=5),
                         retry_policy=RetryPolicy(maximum_attempts=3),
@@ -279,6 +283,8 @@ class BufferSignalsWorkflow:
             safe_signals: list[EmitSignalInputs] = []
             for signal, result in zip(batch, safety_results):
                 if result.safe:
+                    if track_costs:
+                        merge_costs(signal.metadata, result.costs)
                     safe_signals.append(signal)
                 else:
                     logger.warning(

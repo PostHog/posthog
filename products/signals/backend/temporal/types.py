@@ -60,7 +60,7 @@ IMPLEMENTATION_DEBOUNCE_SECONDS = int(os.getenv("SIGNAL_IMPLEMENTATION_DEBOUNCE_
 NEW_SELF_DRIVING_GRACE = timedelta(hours=24)
 
 
-@dataclass
+@dataclass(frozen=False)
 class EmitSignalInputs:
     team_id: int
     source_product: str
@@ -74,6 +74,7 @@ class EmitSignalInputs:
     # the Temporal/S3 JSON round-trip. Surfaced to the research agent as authoritative direction when
     # present; not required by any source.
     remediation: Optional[dict] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -126,17 +127,19 @@ class NoMatchMetadata:
 MatchMetadata = MatchedMetadata | NoMatchMetadata
 
 
-@dataclass
+@dataclass(frozen=False)
 class ExistingReportMatch:
     report_id: str
     match_metadata: MatchedMetadata
+    costs: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(frozen=False)
 class NewReportMatch:
     title: str
     summary: str
     match_metadata: NoMatchMetadata
+    costs: dict[str, Any] = field(default_factory=dict)
 
 
 MatchResult = ExistingReportMatch | NewReportMatch
@@ -184,7 +187,7 @@ class ReadSignalsFromS3Output:
     signals: list["EmitSignalInputs"]
 
 
-@dataclass
+@dataclass(frozen=False)
 class SignalReportSummaryWorkflowInputs:
     """Inputs for the signal report summary workflow."""
 
@@ -193,6 +196,7 @@ class SignalReportSummaryWorkflowInputs:
     # Seconds to wait before the first cycle, so a burst of signals is researched in one run rather
     # than one run each. Defaults to 0 so histories written before this field replay unchanged.
     debounce_seconds: int = 0
+    signal_keys: list[str] = field(default_factory=list)
 
 
 @dataclass

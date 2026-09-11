@@ -10,6 +10,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.dataclasses import frozen
 
+from products.signals.backend.signal_costs import merge_costs
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.grouping import (
     AssignAndEmitSignalInput,
@@ -159,6 +160,7 @@ async def _process_signal(
     queries: list[str],
     augmented_results: list[list[SignalCandidate]],
     report_contexts: dict[str, ReportContext],
+    use_handoffs: bool,
 ) -> _SignalResult:
     """
     Process a single signal through the match → specificity → assign pipeline.
@@ -175,10 +177,14 @@ async def _process_signal(
             queries=queries,
             query_results=augmented_results,
             report_contexts=report_contexts,
+            track_costs=use_handoffs,
         ),
         start_to_close_timeout=timedelta(minutes=10),
         retry_policy=RetryPolicy(maximum_attempts=5),
     )
+
+    if use_handoffs:
+        merge_costs(signal.metadata, match_result.costs)
 
     # Step 5.5: PR-specificity verification for existing matches
     updated_title: Optional[str] = None
@@ -204,10 +210,14 @@ async def _process_signal(
                 new_signal_source_product=signal.source_product,
                 new_signal_source_type=signal.source_type,
                 group_signals=group_signals_result.signals,
+                track_costs=use_handoffs,
             ),
             start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=5),
         )
+
+        if use_handoffs:
+            merge_costs(signal.metadata, specificity_result.costs)
 
         specificity_meta = SpecificityMetadata(
             pr_title=specificity_result.pr_title,
@@ -240,10 +250,11 @@ async def _process_signal(
             source_type=signal.source_type,
             source_id=signal.source_id,
             extra=signal.extra,
-            embedding=signal_embedding,
             match_result=match_result,
             updated_title=updated_title,
             remediation=signal.remediation,
+            metadata=signal.metadata,
+            use_handoffs=use_handoffs,
         ),
         start_to_close_timeout=timedelta(minutes=5),
         retry_policy=RetryPolicy(maximum_attempts=3),
@@ -267,6 +278,7 @@ async def _process_signal_safe(
     queries: list[str],
     augmented_results: list[list[SignalCandidate]],
     report_contexts: dict[str, ReportContext],
+    use_handoffs: bool,
 ) -> Optional[_SignalResult]:
     """Wrapper around _process_signal that catches exceptions and returns None on failure."""
     try:
@@ -279,6 +291,7 @@ async def _process_signal_safe(
             queries=queries,
             augmented_results=augmented_results,
             report_contexts=report_contexts,
+            use_handoffs=use_handoffs,
         )
     except Exception as e:
         logger.exception(
@@ -311,6 +324,7 @@ async def _process_parallel_batch(
     signal_embeddings: list[list[float]],
     processed_batch_signals: list[_ProcessedBatchSignal],
     report_contexts: dict[str, ReportContext],
+    use_handoffs: bool,
 ) -> ParallelBatchResult:
     """
     Process a single parallel batch. All signals in batch_indices are processed
@@ -328,7 +342,7 @@ async def _process_parallel_batch(
     coroutines = []
     for idx in batch_indices:
         signal = batch[idx]
-        signal_id = str(uuid.uuid4())
+        signal_id = str(workflow.uuid4() if use_handoffs else uuid.uuid4())
 
         # Augment CH candidates with all previously processed signals (from earlier batches)
         augmented_results = _augment_candidates_with_batch(
@@ -348,6 +362,7 @@ async def _process_parallel_batch(
                 queries=per_signal_queries[idx],
                 augmented_results=augmented_results,
                 report_contexts=report_contexts,
+                use_handoffs=use_handoffs,
             )
         )
 
@@ -391,7 +406,7 @@ async def _process_parallel_batch(
                 signal_count=1,
             )
 
-        if result.assign_result.promoted:
+        if result.assign_result.promoted or result.assign_result.signal_key is not None:
             promoted_reports[result.assign_result.report_id] = (
                 SignalReportSummaryWorkflowInputs(
                     team_id=signal.team_id,
@@ -418,6 +433,7 @@ async def process_sequential_phase_parallel(
     per_signal_ch_results: list[list[list[SignalCandidate]]],
     signal_embeddings: list[list[float]],
     report_contexts: dict[str, ReportContext],
+    use_handoffs: bool,
 ) -> SequentialPhaseResult:
     """
     Main public function: replaces the sequential phase of _process_signal_batch with
@@ -467,6 +483,7 @@ async def process_sequential_phase_parallel(
             signal_embeddings=signal_embeddings,
             processed_batch_signals=all_processed_signals,
             report_contexts=report_contexts,
+            use_handoffs=use_handoffs,
         )
 
         report_contexts = result.report_contexts

@@ -1,5 +1,6 @@
 import re
 import json
+import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -57,6 +58,7 @@ from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTA
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.contracts import TaskRunDTO
 
 SCOUT_SKILL = "signals-scout-error-tracking"
 
@@ -95,6 +97,21 @@ def _reviewer(
         reason=None,
         is_skill_owner=is_skill_owner,
         source_skill=source_skill,
+    )
+
+
+def _task_run_dto(*, task_id: uuid.UUID, run_id: uuid.UUID, team_id: int) -> TaskRunDTO:
+    return TaskRunDTO(
+        id=run_id,
+        task_id=task_id,
+        team_id=team_id,
+        status="queued",
+        environment="cloud",
+        stage=None,
+        branch=None,
+        error_message=None,
+        output=None,
+        state={},
     )
 
 
@@ -402,7 +419,11 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
         )
         run = TaskRun.objects.create(task=task, team=team)
         created_tasks.append(task)
-        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+        return SimpleNamespace(
+            task_id=task.id,
+            team_id=team.id,
+            latest_run=_task_run_dto(task_id=task.id, run_id=run.id, team_id=team.id),
+        )
 
     kwargs = {
         "team_id": team.id,
@@ -417,8 +438,9 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
         first = _create_implementation_task_if_absent(**kwargs)
         second = _create_implementation_task_if_absent(**kwargs)
 
-    assert first is True
-    assert second is False
+    assert first is not None
+    assert first.id == created_tasks[0].runs.get().id
+    assert second is None
     assert mock_create.call_count == 1
     call_kwargs = mock_create.call_args.kwargs
     assert call_kwargs["origin_product"] == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
@@ -489,7 +511,11 @@ def test_create_implementation_task_freezes_billing_exemption(
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
         run = TaskRun.objects.create(task=task, team=team)
-        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+        return SimpleNamespace(
+            task_id=task.id,
+            team_id=team.id,
+            latest_run=_task_run_dto(task_id=task.id, run_id=run.id, team_id=team.id),
+        )
 
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task),
@@ -506,7 +532,7 @@ def test_create_implementation_task_freezes_billing_exemption(
             billing_exempt_reason=declared_reason,
         )
 
-    assert created is True
+    assert created is not None
     report.refresh_from_db()
     assert report.billing_exempt_reason == expected_reason
 
@@ -529,7 +555,11 @@ def test_create_implementation_task_threads_resolved_runtime(organization, team)
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
         run = TaskRun.objects.create(task=task, team=team)
-        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+        return SimpleNamespace(
+            task_id=task.id,
+            team_id=team.id,
+            latest_run=_task_run_dto(task_id=task.id, run_id=run.id, team_id=team.id),
+        )
 
     kwargs = {
         "team_id": team.id,
@@ -589,7 +619,11 @@ async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabl
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
         run = TaskRun.objects.create(task=task, team_id=team.id)
-        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+        return SimpleNamespace(
+            task_id=task.id,
+            team_id=team.id,
+            latest_run=_task_run_dto(task_id=task.id, run_id=run.id, team_id=team.id),
+        )
 
     pinned = AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", reasoning_effort="medium")
     with (
@@ -648,7 +682,11 @@ async def test_already_addressed_report_does_not_autostart(already_addressed):
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
         run = TaskRun.objects.create(task=task, team_id=team.id)
-        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+        return SimpleNamespace(
+            task_id=task.id,
+            team_id=team.id,
+            latest_run=_task_run_dto(task_id=task.id, run_id=run.id, team_id=team.id),
+        )
 
     pinned = AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", reasoning_effort="medium")
     with (
@@ -878,7 +916,11 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
         run = TaskRun.objects.create(task=task, team_id=team.id)
-        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+        return SimpleNamespace(
+            task_id=task.id,
+            team_id=team.id,
+            latest_run=_task_run_dto(task_id=task.id, run_id=run.id, team_id=team.id),
+        )
 
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
@@ -1024,10 +1066,14 @@ async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
 
     team, report = await sync_to_async(_setup)()
 
+    pending_metadata = {"source_product": "linear", "extra": {"identifier": "ENG-123"}}
     with patch("products.signals.backend.auto_start.maybe_autostart_implementation_task") as mock_autostart:
-        await maybe_autostart_from_report_artefacts(team_id=team.id, report_id=str(report.id))
+        await maybe_autostart_from_report_artefacts(
+            team_id=team.id, report_id=str(report.id), pending_metadata=pending_metadata
+        )
 
     assert mock_autostart.call_args.kwargs["repository_autostart_eligible"] is autostart_eligible
+    assert mock_autostart.call_args.kwargs["pending_metadata"] == pending_metadata
 
 
 @pytest.mark.asyncio
@@ -1073,7 +1119,11 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
         run = TaskRun.objects.create(task=task, team_id=team.id)
-        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+        return SimpleNamespace(
+            task_id=task.id,
+            team_id=team.id,
+            latest_run=_task_run_dto(task_id=task.id, run_id=run.id, team_id=team.id),
+        )
 
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,

@@ -73,6 +73,7 @@ async def steering_filters_signal(
     description: str,
     weight: float,
     extra: dict[str, Any],
+    metadata: dict[str, Any] | None = None,
 ) -> bool:
     """Whether this team's steering says to drop the signal.
 
@@ -94,6 +95,7 @@ async def steering_filters_signal(
         description=description,
         weight=weight,
         extra=extra,
+        metadata=metadata if metadata is not None else {},
     )
     try:
         # Closed on the way out: unlike the batch pipeline, which builds one client for a whole run,

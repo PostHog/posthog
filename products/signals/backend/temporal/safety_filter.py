@@ -164,7 +164,7 @@ def _select_safety_prompt(source_product: str | None) -> str:
     return SAFETY_FILTER_PROMPT
 
 
-@dataclass
+@dataclass(frozen=False)
 class SafetyFilterInput:
     description: str
     # Optional with a default for deploy-time backward compatibility: a batch scheduled before this
@@ -178,17 +178,19 @@ class SafetyFilterInput:
     source_id: str | None = None
     weight: float | None = None
     extra: dict = field(default_factory=dict)
+    track_costs: bool = False
 
 
-@dataclass
+@dataclass(frozen=False)
 class SafetyFilterOutput:
     safe: bool
     threat_type: str
     explanation: Optional[str]
+    costs: dict = field(default_factory=dict)
 
 
 async def safety_filter(
-    team_id: int | None, description: str, source_product: str | None = None
+    team_id: int | None, description: str, source_product: str | None = None, costs: dict | None = None
 ) -> SafetyFilterJudgeResponse:
     def validate(text: str) -> SafetyFilterJudgeResponse:
         data = json.loads(text)
@@ -202,6 +204,7 @@ async def safety_filter(
             validate=validate,
             stage="safety_filter",
             ai_product="signals_safety",
+            costs=costs,
         )
     except EmptyLLMResponseError:
         return SafetyFilterJudgeResponse(
@@ -246,7 +249,10 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
 async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Filter out unsafe signals before passing them through the pipeline."""
     try:
-        result = await safety_filter(input.team_id, input.description, input.source_product)
+        costs: dict = {}
+        result = await safety_filter(
+            input.team_id, input.description, input.source_product, costs if input.track_costs else None
+        )
     except Exception:
         logger.exception("Failed to run safety filter")
         raise
@@ -259,4 +265,5 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
         safe=result.safe,
         threat_type=result.threat_type,
         explanation=result.explanation if not result.safe else None,
+        costs=costs,
     )

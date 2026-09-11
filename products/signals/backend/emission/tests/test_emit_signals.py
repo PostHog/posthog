@@ -2,6 +2,7 @@ import json
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -41,6 +42,14 @@ FETCHER_MODULE_PATH = "products.signals.backend.emission.fetchers.data_warehouse
 ACTIVITY_MODULE_PATH = "products.signals.backend.emission.emit_signals"
 
 
+@pytest.fixture(autouse=True)
+def mock_model_pricing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        f"{PIPELINE_MODULE_PATH}.get_model_pricing",
+        AsyncMock(return_value={"prompt": "0.00001", "completion": "0.00001"}),
+    )
+
+
 def _make_config(**overrides: Any) -> SignalSourceTableConfig:
     defaults: dict[str, Any] = {
         "source_product": "test_product",
@@ -71,11 +80,20 @@ def _make_llm_response(content: str | None, stop_reason: str = "end_turn") -> Ma
         block.text = content
         response.content = [block]
     response.stop_reason = stop_reason
+    response.usage = SimpleNamespace(
+        input_tokens=1,
+        output_tokens=1,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
     return response
 
 
 def _make_output(
-    source_id: str = "1", description: str = "test signal", extra: dict[str, Any] | None = None
+    source_id: str = "1",
+    description: str = "test signal",
+    extra: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> SignalEmitterOutput:
     return SignalEmitterOutput(
         source_product="test_product",
@@ -84,6 +102,7 @@ def _make_output(
         description=description,
         weight=0.5,
         extra=extra or {},
+        metadata=metadata or {},
     )
 
 
@@ -371,24 +390,71 @@ class TestCheckActionability:
         assert '"author_login": "octocat"' in prompt
 
     @pytest.mark.asyncio
-    async def test_assumes_actionable_after_retries_exhausted(self):
+    @pytest.mark.parametrize("failure_stage", ["pricing", "model"])
+    @pytest.mark.parametrize("failures", [1, LLM_MAX_ATTEMPTS])
+    async def test_retries_failed_checks_before_assuming_actionable(
+        self, monkeypatch: pytest.MonkeyPatch, failure_stage: str, failures: int
+    ) -> None:
+        rates = {"prompt": "0.005", "completion": "0"}
+        response = _make_llm_response("NOT_ACTIONABLE")
+        pricing = AsyncMock(return_value=rates)
         mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(side_effect=Exception("API error"))
+        mock_client.messages.create = AsyncMock(return_value=response)
+        failing_call = pricing if failure_stage == "pricing" else mock_client.messages.create
+        failing_call.side_effect = [RuntimeError("unavailable")] * failures + [
+            rates if failure_stage == "pricing" else response
+        ]
+        monkeypatch.setattr(f"{PIPELINE_MODULE_PATH}.get_model_pricing", pricing)
+        output = _make_output()
 
-        with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"):
-            is_actionable = await check_actionability(mock_client, 1, _make_output(), "prompt {description}")
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.asyncio.sleep", new=AsyncMock()) as sleep,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics") as analytics,
+        ):
+            is_actionable = await check_actionability(mock_client, 1, output, "prompt {description}")
 
-        assert is_actionable is True
-        assert mock_client.messages.create.call_count == LLM_MAX_ATTEMPTS
+        recovered = failures < LLM_MAX_ATTEMPTS
+        attempts = min(failures + 1, LLM_MAX_ATTEMPTS)
+        assert is_actionable is (not recovered)
+        assert failing_call.await_count == attempts
+        assert mock_client.messages.create.await_count == (int(recovered) if failure_stage == "pricing" else attempts)
+        assert sleep.await_count == attempts - 1
+        assert analytics.capture_exception.call_count == failures
+        assert all(
+            call.kwargs["properties"]["error_type"] == "actionability_check_failed"
+            for call in analytics.capture_exception.call_args_list
+        )
+        if recovered:
+            assert output.metadata["token_cost"] == {"research": 1, "implementation": 0}
+        else:
+            assert output.metadata == {}
 
     @pytest.mark.asyncio
-    async def test_returns_true_on_none_response_content(self):
+    @pytest.mark.parametrize(
+        "responses, expected_cost",
+        [([None, "ACTIONABLE"], 1), ([None] * LLM_MAX_ATTEMPTS, 0)],
+    )
+    async def test_records_only_accepted_actionability_response(self, responses, expected_cost):
         mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(return_value=_make_llm_response(None))
+        mock_client.messages.create = AsyncMock(side_effect=[_make_llm_response(response) for response in responses])
+        output = _make_output()
 
-        is_actionable = await check_actionability(mock_client, 1, _make_output(), "prompt {description}")
+        with (
+            patch(
+                f"{PIPELINE_MODULE_PATH}.get_model_pricing",
+                new=AsyncMock(return_value={"prompt": "0.005", "completion": "0"}),
+            ),
+            patch(f"{PIPELINE_MODULE_PATH}.asyncio.sleep", new=AsyncMock()),
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"),
+        ):
+            is_actionable = await check_actionability(mock_client, 1, output, "prompt {description}")
 
         assert is_actionable is True
+        assert mock_client.messages.create.call_count == len(responses)
+        if expected_cost:
+            assert output.metadata["token_cost"] == {"research": expected_cost, "implementation": 0}
+        else:
+            assert output.metadata == {}
 
     @pytest.mark.asyncio
     async def test_passes_team_attribution_headers(self):
@@ -496,25 +562,67 @@ class TestSummarizeDescription:
         assert result.description == "Short summary."
 
     @pytest.mark.asyncio
-    async def test_retries_when_first_summary_too_long(self):
-        client = self._mock_client(["a" * 300, "Concise."])
-        output = _make_output(description="x" * 500)
-
-        with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"):
-            result = await _summarize_description(client, 1, output, self.PROMPT, self.THRESHOLD)
-
-        assert result.description == "Concise."
-
-    @pytest.mark.asyncio
-    async def test_truncates_after_all_attempts_exhausted(self):
-        client = self._mock_client(["a" * 300] * LLM_MAX_ATTEMPTS)
+    @pytest.mark.parametrize(
+        "responses, expected_description, expected_cost",
+        [(["a" * 300, "Concise."], "Concise.", 1), (["a" * 300] * LLM_MAX_ATTEMPTS, None, 0)],
+    )
+    async def test_records_only_accepted_summary_response(self, responses, expected_description, expected_cost):
+        client = self._mock_client(responses)
         original = "x" * 500
         output = _make_output(description=original)
 
-        with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"):
+        with (
+            patch(
+                f"{PIPELINE_MODULE_PATH}.get_model_pricing",
+                new=AsyncMock(return_value={"prompt": "0.005", "completion": "0"}),
+            ),
+            patch(f"{PIPELINE_MODULE_PATH}.asyncio.sleep", new=AsyncMock()),
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"),
+        ):
             result = await _summarize_description(client, 1, output, self.PROMPT, self.THRESHOLD)
 
-        assert result.description == original[: self.THRESHOLD]
+        assert result.description == (expected_description or original[: self.THRESHOLD])
+        assert client.messages.create.call_count == len(responses)
+        if expected_cost:
+            assert output.metadata["token_cost"] == {"research": expected_cost, "implementation": 0}
+        else:
+            assert output.metadata == {}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("pricing_failures", [1, LLM_MAX_ATTEMPTS])
+    async def test_retries_pricing_before_calling_model_or_truncating(
+        self, monkeypatch: pytest.MonkeyPatch, pricing_failures: int
+    ) -> None:
+        pricing = AsyncMock(
+            side_effect=[LookupError("catalog unavailable")] * pricing_failures
+            + [{"prompt": "0.005", "completion": "0"}]
+        )
+        monkeypatch.setattr(f"{PIPELINE_MODULE_PATH}.get_model_pricing", pricing)
+        client = self._mock_client(["Short summary."])
+        original = "x" * 500
+        output = _make_output(description=original)
+
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.asyncio.sleep", new=AsyncMock()) as sleep,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics") as analytics,
+        ):
+            result = await _summarize_description(client, 1, output, self.PROMPT, self.THRESHOLD)
+
+        recovered = pricing_failures < LLM_MAX_ATTEMPTS
+        attempts = min(pricing_failures + 1, LLM_MAX_ATTEMPTS)
+        assert pricing.await_count == attempts
+        assert sleep.await_count == attempts - 1
+        assert analytics.capture_exception.call_count == pricing_failures
+        assert all(
+            call.kwargs["properties"]["error_type"] == "summarization_failed"
+            for call in analytics.capture_exception.call_args_list
+        )
+        assert result.description == ("Short summary." if recovered else original[: self.THRESHOLD])
+        assert client.messages.create.await_count == int(recovered)
+        if recovered:
+            assert output.metadata["token_cost"] == {"research": 1, "implementation": 0}
+        else:
+            assert output.metadata == {}
 
     @pytest.mark.asyncio
     async def test_preserves_other_output_fields(self):
@@ -587,7 +695,9 @@ class TestSummarizeLongDescriptions:
 class TestEmitSignals:
     @pytest.mark.asyncio
     async def test_passes_correct_args_to_emit_signal(self):
-        output = _make_output(source_id="42", description="bug report")
+        output = _make_output(
+            source_id="42", description="bug report", metadata={"token_cost": {"research": 1, "implementation": 0}}
+        )
         team = MagicMock()
 
         with (
@@ -605,6 +715,7 @@ class TestEmitSignals:
             description="bug report",
             weight=0.5,
             extra={},
+            metadata={"token_cost": {"research": 1, "implementation": 0}},
         )
 
     @pytest.mark.asyncio

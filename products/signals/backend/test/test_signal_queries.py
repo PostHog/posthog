@@ -3,17 +3,21 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, FuzzyInt
-from unittest.mock import patch
+from unittest.mock import AsyncMock, call, patch
 
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.client import sync_execute
 
 from products.signals.backend.facade.api import SignalSourceSliceOutcomes, get_outcomes_for_signal_source_slice
 from products.signals.backend.implementation_pr import ImplementationPr
 from products.signals.backend.models import SignalReport
+from products.signals.backend.signal_handoffs import SignalHandoff, signal_key
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
@@ -23,10 +27,13 @@ from products.signals.backend.signal_metadata import (
     fetch_source_references_for_report,
 )
 from products.signals.backend.temporal.signal_queries import (
+    FetchSignalsForReportInput,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
+    fetch_signals_for_report_activity,
     fetch_signals_for_report_sync,
 )
+from products.signals.backend.temporal.types import SignalData
 
 _MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
 _EMBEDDING = [0.0] * 1536
@@ -251,6 +258,32 @@ class TestFetchSourceReferencesForReport(_SignalEmbeddingsTestBase):
 
         assert fetch_source_references_for_report(self.team, "r1") == []
 
+    def test_pending_reference_keeps_a_slot_when_the_cap_is_reached(self) -> None:
+        for number in range(1, 7):
+            self._emit_version(
+                document_id=f"gh{number}",
+                report_id="r1",
+                source_product="github",
+                inserted_at=self.base,
+                extra={"number": number, "html_url": f"https://github.com/acme/repo/issues/{number}"},
+            )
+
+        assert fetch_source_references_for_report(
+            self.team,
+            "r1",
+            {
+                "source_product": "linear",
+                "extra": {"identifier": "ENG-123", "url": "https://linear.app/acme/issue/ENG-123"},
+            },
+        ) == [
+            SignalSourceReference(
+                source_product="github", label=f"#{number}", url=f"https://github.com/acme/repo/issues/{number}"
+            )
+            for number in range(1, 5)
+        ] + [
+            SignalSourceReference(source_product="linear", label="ENG-123", url="https://linear.app/acme/issue/ENG-123")
+        ]
+
     def test_hostile_linear_identifier_falls_back_to_generic_label(self) -> None:
         self._emit_version(
             document_id="lin1",
@@ -343,6 +376,114 @@ class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
         )
 
         assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-apm"]) == set()
+
+
+class TestFetchSignalsForReportActivity:
+    @staticmethod
+    def _handoff(signal_id: str, report_id: str, metadata: dict[str, object] | None = None) -> SignalHandoff:
+        return SignalHandoff(
+            team_id=1,
+            signal=SignalData(
+                signal_id=signal_id,
+                content=f"handoff {signal_id}",
+                source_product="errors",
+                source_type="issue",
+                source_id=signal_id,
+                weight=1.0,
+                timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+                metadata={"report_id": report_id, **(metadata or {})},
+            ),
+        )
+
+    @staticmethod
+    async def _fetch(
+        signal_keys: list[str],
+        handoffs: list[SignalHandoff],
+        rows: list[tuple[str, str, str, datetime, datetime]] | None = None,
+    ) -> list[SignalData]:
+        with (
+            patch(
+                "products.signals.backend.temporal.signal_queries.Team.objects.aget",
+                AsyncMock(return_value=object()),
+            ),
+            patch(
+                "products.signals.backend.temporal.signal_queries.execute_hogql_query_with_retry",
+                AsyncMock(return_value=SimpleNamespace(results=rows or [])),
+            ),
+            patch(
+                "products.signals.backend.temporal.signal_queries.read_handoff",
+                AsyncMock(side_effect=handoffs),
+            ) as read_handoff,
+        ):
+            result = await ActivityEnvironment().run(
+                fetch_signals_for_report_activity,
+                FetchSignalsForReportInput(team_id=1, report_id="report-1", signal_keys=signal_keys),
+            )
+
+        assert read_handoff.await_args_list == [call(key, 1) for key in signal_keys]
+        return result.signals
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("include_clickhouse_signals", [False, True])
+    async def test_prefers_handoffs_and_merges_them_with_clickhouse_signals(
+        self, include_clickhouse_signals: bool
+    ) -> None:
+        timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+        duplicate_metadata = {
+            "report_id": "report-1",
+            "source_product": "errors",
+            "source_type": "issue",
+            "source_id": "duplicate",
+            "report_signal_count": 1,
+            "research_trigger": False,
+        }
+        ch_only_metadata = {
+            **duplicate_metadata,
+            "source_id": "ch-only",
+            "extra": {"body": "x" * 1000},
+            "remediation": {"agent": "raise the timeout"},
+            "match_metadata": {"reason": "y" * 1000},
+            "report_signal_count": 3,
+            "research_trigger": True,
+        }
+        clickhouse_rows = (
+            [
+                ("duplicate", "stale", json.dumps(duplicate_metadata), timestamp, timestamp),
+                ("ch-only", "visible", json.dumps(ch_only_metadata), timestamp, timestamp),
+            ]
+            if include_clickhouse_signals
+            else []
+        )
+        duplicate_handoff_metadata = {
+            "report_signal_count": 2,
+            "research_trigger": True,
+            "token_cost": {"research": 3},
+        }
+        handoffs = [
+            self._handoff("duplicate", "report-1", duplicate_handoff_metadata),
+            self._handoff("unpublished", "report-1"),
+        ]
+        signal_keys = [signal_key(1, handoff.signal.signal_id) for handoff in handoffs]
+
+        signals = await self._fetch(signal_keys, handoffs, clickhouse_rows)
+
+        expected_ids = (
+            ["duplicate", "ch-only", "unpublished"] if include_clickhouse_signals else ["duplicate", "unpublished"]
+        )
+        assert [signal.signal_id for signal in signals] == expected_ids
+        assert signals[0].content == "handoff duplicate"
+        assert signals[0].metadata == {"report_id": "report-1", **duplicate_handoff_metadata}
+        if include_clickhouse_signals:
+            assert signals[1].metadata == {"report_signal_count": 3, "research_trigger": True}
+            assert signals[1].extra == {"body": "x" * 1000}
+            assert signals[1].remediation == {"agent": "raise the timeout"}
+
+    @pytest.mark.asyncio
+    async def test_rejects_submitted_handoff_for_another_report(self) -> None:
+        key = signal_key(1, "wrong-report")
+
+        with pytest.raises(ValueError, match="another report"):
+            await self._fetch([key], [self._handoff("wrong-report", "report-2")])
 
 
 class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):

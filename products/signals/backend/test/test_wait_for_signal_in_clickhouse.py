@@ -67,7 +67,10 @@ async def _run(
     await env.run(
         wait_for_signal_in_clickhouse_activity,
         WaitForClickHouseInput(
-            team_id=TEAM_ID, signals=signals, max_wait_time_seconds=max_wait_time_seconds, mode=mode
+            team_id=TEAM_ID,
+            signals=signals,
+            max_wait_time_seconds=max_wait_time_seconds,
+            mode=mode,
         ),
     )
 
@@ -146,18 +149,20 @@ async def test_unconfirmed_store_defers_clickhouse_until_grace_period_elapses(st
 
 
 @pytest.mark.asyncio
-async def test_gives_up_after_max_wait_and_records_timeout():
+async def test_gives_up_after_max_wait_and_records_timeout() -> None:
     signals = _signals(1)
     with (
         patch(f"{MODULE}.Team", _team_model_mock()),
         patch(f"{MODULE}.async_get_recently_seen_documents", side_effect=_store_returning(None)),
         patch(f"{MODULE}.execute_hogql_query_with_retry", AsyncMock(return_value=_ch_result(0))) as ch,
-        patch(f"{MODULE}.asyncio.sleep", AsyncMock()),
+        patch(f"{MODULE}.asyncio.sleep", AsyncMock()) as sleep,
         patch(f"{MODULE}.metrics.increment_ch_wait_timeout") as timeout_metric,
     ):
         await _run(signals, max_wait_time_seconds=30)
 
     # A wait shorter than the grace period still checks ClickHouse once, on the final
-    # attempt, before giving up and recording the timeout.
+    # attempt, before giving up and recording the timeout. Giving up has to happen inside
+    # the wait it was given, so the final query is not followed by another poll interval.
     assert ch.await_count == 1
     timeout_metric.assert_called_once()
+    assert sum(call.args[0] for call in sleep.await_args_list) < 30

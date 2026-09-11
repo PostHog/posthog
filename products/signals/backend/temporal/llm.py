@@ -15,6 +15,7 @@ from posthog.llm.gateway_client import (
     resolve_ai_gateway_config,
 )
 
+from products.signals.backend.signal_costs import add_cost, get_model_pricing, token_usage_to_spend
 from products.signals.backend.temporal import metrics
 
 logger = structlog.get_logger(__name__)
@@ -141,6 +142,7 @@ async def call_llm(
     retries: int = MAX_RETRIES,
     stage: Optional[str] = None,
     ai_product: Optional[str] = None,
+    costs: dict | None = None,
 ) -> T:
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
     capabilities = get_model_capabilities(MATCHING_MODEL)
@@ -203,6 +205,7 @@ async def call_llm(
 
     last_exception: Exception | None = None
     stage_label = stage or "unknown"
+    pricing = await get_model_pricing(MATCHING_MODEL) if costs is not None else None
     for attempt in range(retries):
         # NOTE - we explicitly don't want to retry if we fail to call the llm, or fail to extract text content,
         # only if we fail to validate the response. A transport/extraction failure is a hot-path LLM error.
@@ -244,6 +247,8 @@ async def call_llm(
             last_exception = e
             continue
 
+        if costs is not None:
+            add_cost(costs, MATCHING_MODEL, token_cost=token_usage_to_spend(response.usage, pricing))
         metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_OK)
         return result
 

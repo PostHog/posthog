@@ -529,6 +529,7 @@ async def emit_signal(
     extra: dict | None = None,
     remediation: SignalRemediation | None = None,
     idempotency_key: str | None = None,
+    metadata: dict | None = None,
 ) -> None:
     """
     Emit a signal for grouping and potential report generation, fire-and-forget.
@@ -575,6 +576,7 @@ async def emit_signal(
     """
     if idempotency_key is not None and not idempotency_key.strip():
         raise ValueError("idempotency_key must not be empty")
+    metadata = metadata if metadata is not None else {}
 
     # Deferred: the temporal package imports the facade back (reingestion -> emit_signal), so
     # importing these workflows at module scope forms a circular import and drags the whole
@@ -659,6 +661,7 @@ async def emit_signal(
             description=description,
             weight=weight,
             extra=extra or {},
+            metadata=metadata,
         ):
             return
 
@@ -673,6 +676,7 @@ async def emit_signal(
         weight=weight,
         extra=extra or {},
         remediation=remediation_dict,
+        metadata=metadata,
     )
 
     # Ensure the buffer workflow is running (idempotent)

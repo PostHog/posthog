@@ -1,5 +1,6 @@
 import uuid
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -8,9 +9,18 @@ from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES
 from products.signals.backend.emission.direct_gate import steering_filters_signal
 from products.signals.backend.emission.registry import _SIGNAL_TABLE_CONFIGS
 from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.signal_costs import add_cost
 
 GATE_MODULE_PATH = "products.signals.backend.emission.direct_gate"
 FACADE_MODULE_PATH = "products.signals.backend.facade.api"
+
+
+@pytest.fixture(autouse=True)
+def mock_model_pricing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "products.signals.backend.emission.pipeline.get_model_pricing",
+        AsyncMock(return_value={"prompt": "0.00001", "completion": "0.00001"}),
+    )
 
 
 def _make_llm_response(verdict: str) -> MagicMock:
@@ -20,6 +30,12 @@ def _make_llm_response(verdict: str) -> MagicMock:
     response = MagicMock()
     response.content = [block]
     response.stop_reason = "end_turn"
+    response.usage = SimpleNamespace(
+        input_tokens=1,
+        output_tokens=1,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
     return response
 
 
@@ -152,17 +168,23 @@ class TestSteeringFiltersSignal:
 
 class TestEmitSignalWiring:
     @pytest.mark.asyncio
-    async def test_emit_signal_consults_the_gate_and_drops_a_filtered_signal_before_queueing(self):
+    @pytest.mark.parametrize("dropped", [False, True])
+    async def test_emit_signal_preserves_gate_costs_or_drops_filtered_signals(self, dropped: bool):
         # The gate reaches production only through the membership check in `emit_signal`, whose
         # `(source_product, source_type)` tuple has to match the enum values the set is built from.
         team = _make_team()
         team.organization.is_ai_data_processing_approved = True
         connect = AsyncMock()
+
+        async def check_gate(**kwargs):
+            add_cost(kwargs["metadata"], "test-model", token_cost=7)
+            return dropped
+
         with (
             patch(f"{FACADE_MODULE_PATH}.SignalSourceConfig") as source_config,
             patch(f"{FACADE_MODULE_PATH}.posthoganalytics"),
             patch(f"{FACADE_MODULE_PATH}.async_connect", connect),
-            patch(f"{GATE_MODULE_PATH}.steering_filters_signal", AsyncMock(return_value=True)) as gate,
+            patch(f"{GATE_MODULE_PATH}.steering_filters_signal", AsyncMock(side_effect=check_gate)) as gate,
         ):
             source_config.is_source_enabled.return_value = True
             await emit_signal(
@@ -175,8 +197,12 @@ class TestEmitSignalWiring:
             )
 
         assert gate.called
-        # A signal the gate drops never reaches Temporal, so it cannot become a report.
-        assert not connect.called
+        if dropped:
+            # A signal the gate drops never reaches Temporal, so it cannot become a report.
+            assert not connect.called
+        else:
+            queued = connect.return_value.start_workflow.call_args_list[-1].args[1].signal
+            assert queued.metadata["token_cost"] == {"research": 7, "implementation": 0}
 
 
 def test_no_pipeline_source_is_listed_as_directly_steerable():

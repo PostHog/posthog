@@ -1,6 +1,6 @@
 import json
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Union
@@ -15,10 +15,12 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import DocumentKey, async_get_recently_seen_documents, emit_embedding_request
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.signal_handoffs import read_handoff
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     SIGNAL_DOCUMENT_PRODUCT,
@@ -96,6 +98,13 @@ def _report_placeholders(report_id: str) -> dict:
     }
 
 
+# The only stored metadata the report workflows read back off a ClickHouse row (see
+# summary.select_research_signal_key). The rest of the blob repeats fields SignalData already
+# carries and adds unbounded ones like `extra` and `match_metadata`, and this list rides four more
+# activity payloads per research pass.
+_RESEARCH_SELECTION_METADATA_KEYS = ("report_signal_count", "research_trigger")
+
+
 def _parse_signal_row(row: tuple) -> SignalData:
     """Turn a ClickHouse document embedding row into a SignalData."""
     document_id, content, metadata_str, timestamp_raw, inserted_at_raw = row
@@ -113,6 +122,7 @@ def _parse_signal_row(row: tuple) -> SignalData:
         timestamp=timestamp_raw,
         inserted_at=_ensure_tz_aware(inserted_at_raw),
         extra=metadata.get("extra", {}),
+        metadata={key: metadata[key] for key in _RESEARCH_SELECTION_METADATA_KEYS if key in metadata},
         remediation=metadata.get("remediation"),
     )
 
@@ -509,6 +519,11 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
                 metrics.increment_ch_wait_completion(input.mode.value, "clickhouse")
                 return
 
+        # The caller's activity timeout has to cover this whole loop, so sleeping after the
+        # final query would push the give-up past that budget and lose the timeout branch below.
+        if attempt == max_attempts - 1:
+            break
+
         # Sleep in chunks so we keep heartbeating during the poll interval
         remaining = WAIT_POLL_INTERVAL_SECONDS
         while remaining > 0:
@@ -531,10 +546,11 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@frozen
 class FetchSignalsForReportInput:
     team_id: int
     report_id: str
+    signal_keys: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -556,7 +572,14 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
             placeholders=_report_placeholders(input.report_id),
         )
 
-        signals = [_parse_signal_row(row) for row in (result.results or [])]
+        clickhouse_signals = [_parse_signal_row(row) for row in (result.results or [])]
+        signals_by_id = {signal.signal_id: signal for signal in clickhouse_signals}
+        for signal_key in input.signal_keys:
+            handoff = await read_handoff(signal_key, input.team_id)
+            if handoff.signal.metadata.get("report_id") != input.report_id:
+                raise ValueError("Signal handoff belongs to another report")
+            signals_by_id[handoff.signal.signal_id] = handoff.signal
+        signals = list(signals_by_id.values())
 
         logger.debug(
             f"Fetched {len(signals)} signals for report {input.report_id}",

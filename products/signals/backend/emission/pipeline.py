@@ -25,6 +25,7 @@ from products.signals.backend.emission.registry import (
 )
 from products.signals.backend.emission.steering import apply_steering, steering_from_config
 from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.signal_costs import add_cost, get_model_pricing, token_usage_to_spend
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import summarize_drop_error
 from products.signals.backend.temporal.llm import effort_kwargs
@@ -180,6 +181,7 @@ async def _summarize_description(
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
         summary = ""
         try:
+            pricing = await get_model_pricing(LLM_MODEL)
             response = await asyncio.wait_for(
                 client.messages.create(
                     model=LLM_MODEL,
@@ -198,6 +200,7 @@ async def _summarize_description(
                 raise ValueError("Empty response from LLM when summarizing description")
             if len(summary) > threshold:
                 raise ValueError(f"Summary is {len(summary)} characters, must be at most {threshold}")
+            add_cost(output.metadata, LLM_MODEL, token_cost=token_usage_to_spend(response.usage, pricing))
             return dataclasses.replace(output, description=summary)
         except Exception as e:
             posthoganalytics.capture_exception(
@@ -321,6 +324,7 @@ async def check_actionability(
         if attempt > 0:
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
         try:
+            pricing = await get_model_pricing(LLM_MODEL)
             response = await asyncio.wait_for(
                 client.messages.create(
                     model=LLM_MODEL,
@@ -333,6 +337,9 @@ async def check_actionability(
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
             response_text = _extract_text(response).strip().upper()
+            if not response_text:
+                raise ValueError("Empty response from LLM when checking actionability")
+            add_cost(output.metadata, LLM_MODEL, token_cost=token_usage_to_spend(response.usage, pricing))
             return "NOT_ACTION" not in response_text
         except Exception as e:
             posthoganalytics.capture_exception(
@@ -425,6 +432,7 @@ def _estimate_output_payload_bytes(output: SignalEmitterOutput) -> int:
                 "description": output.description,
                 "weight": output.weight,
                 "extra": output.extra,
+                "metadata": output.metadata,
             },
         ).encode("utf-8")
     )
@@ -471,6 +479,7 @@ async def _emit_signals(
                     description=output.description,
                     weight=output.weight,
                     extra=output.extra,
+                    metadata=output.metadata,
                 )
                 return True
             except Exception as e:

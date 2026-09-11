@@ -19,6 +19,7 @@ from products.signals.backend.report_generation.select_repo import (
     resolve_team_github_integration,
     select_repository_for_report,
 )
+from products.signals.backend.signal_handoffs import record_task_cost
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPO_DISCOVERY_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -40,11 +41,12 @@ GITHUB_ONLY_DOMAINS = [
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+@dataclass(frozen=False)
 class SelectRepositoryInput:
     team_id: int
     report_id: str
     signals: list[SignalData]
+    signal_key: str | None = None
 
 
 def _resolve_sandbox_user_id(team_id: int) -> int | None:
@@ -160,6 +162,8 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 signal_report_id=input.report_id,
                 sandbox_environment_id=sandbox_env_id,
             )
+            if input.signal_key and result.task_id:
+                await record_task_cost(input.signal_key, input.team_id, result.task_id, "research")
             logger.info(
                 "signals repo selection completed",
                 report_id=input.report_id,
