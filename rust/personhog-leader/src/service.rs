@@ -4,7 +4,6 @@ use std::time::Instant;
 
 use common_kafka::kafka_producer::KafkaContext;
 use dashmap::DashMap;
-use futures::stream::{self, StreamExt};
 use metrics::{counter, histogram};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
 use personhog_proto::personhog::types::v1::{
@@ -51,11 +50,6 @@ const DEFAULT_FENCE_MAP_MAX_ENTRIES: usize = 250_000;
 /// The ceiling on persons per `ReleaseFences` call. The lifecycle service
 /// caps an op at this many, so a larger batch is a caller bug, not load.
 const MAX_RELEASE_BATCH_SIZE: usize = 250;
-
-/// Bound on concurrent per-person releases inside one batch. Each person
-/// still takes its own lock; the bound keeps one batch from crowding the
-/// partition's other writers out of the changelog producer's window.
-const RELEASE_BATCH_CONCURRENCY: usize = 8;
 
 /// The per-person inputs of a committed release, validated the same way
 /// whether they arrive alone or in a batch.
@@ -2116,7 +2110,10 @@ impl PersonHogLeader for PersonHogLeaderService {
                 let marks = mark_statuses(&lifecycle_db.pool, op_id, team_id, &person_ids).await;
                 record_release_phase("verify_mark", verify_started);
                 let marks = marks.map_err(mark_lookup_failed)?;
-                // Every release runs to completion before the batch
+                // The whole batch produces at once: writes landing on the
+                // same partition within its fencing window share one
+                // commit, so concurrency here means fewer commits, not
+                // more. Every release runs to completion before the batch
                 // answers: a sibling's failure must not cancel a produce
                 // in flight.
                 let release_futures: Vec<_> = releases
@@ -2126,10 +2123,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                         self.release_committed(*person_partition, team_id, op_id, release, mark)
                     })
                     .collect();
-                let results: Vec<Result<(), Status>> = stream::iter(release_futures)
-                    .buffer_unordered(RELEASE_BATCH_CONCURRENCY)
-                    .collect()
-                    .await;
+                let results = futures::future::join_all(release_futures).await;
                 // A semantic refusal is the final answer for its person and
                 // must not hide behind a sibling's transient error, which
                 // the saga would retry.
