@@ -94,6 +94,24 @@ class TestFindTrendsQualityIssues(SimpleTestCase):
                 "No series produces a length of time",
             ),
             (
+                "count_math_ignores_its_seconds_property",
+                AssistantTrendsQuery(
+                    series=[
+                        AssistantTrendsEventsNode(event="$pageview", math="total", math_property="$session_duration")
+                    ],
+                    trendsFilter=AssistantTrendsFilter(aggregationAxisFormat="duration"),
+                ),
+                "No series produces a length of time",
+            ),
+            (
+                "missing_math_ignores_its_seconds_property",
+                AssistantTrendsQuery(
+                    series=[AssistantTrendsEventsNode(event="$pageview", math_property="$session_duration")],
+                    trendsFilter=AssistantTrendsFilter(aggregationAxisFormat="duration"),
+                ),
+                "No series produces a length of time",
+            ),
+            (
                 "count_only_formula_formatted_as_duration",
                 AssistantTrendsQuery(
                     series=[

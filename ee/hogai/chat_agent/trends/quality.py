@@ -28,8 +28,10 @@ DURATION_AXIS_FORMATS = frozenset(
     {AggregationAxisFormat.DURATION, AggregationAxisFormat.DURATION_MS, AggregationAxisFormat.DURATION_NS}
 )
 
+PROPERTY_MATH_TYPES = frozenset(PropertyMathType)
+
 MATH_COMPANION_FIELDS: tuple[tuple[frozenset[str], str, str], ...] = (
-    (frozenset(PropertyMathType), "math_property", "aggregating a property"),
+    (PROPERTY_MATH_TYPES, "math_property", "aggregating a property"),
     (frozenset({"hogql"}), "math_hogql", "evaluating an expression"),
     (frozenset(GroupMathType), "math_group_type_index", "counting groups"),
 )
@@ -63,11 +65,17 @@ def _check_math_companion_field(series: TrendsSeries, label: str) -> str | None:
     return None
 
 
+def _active_math_property(series: TrendsSeries) -> str | None:
+    """The engine reads `math_property` only for a property math type. Every other math type counts, and ignores it."""
+    return series.math_property if series.math in PROPERTY_MATH_TYPES else None
+
+
 def _never_produces_a_duration(series: TrendsSeries) -> bool:
     """True when we know the series value is a count or a flag rather than a length of time."""
-    if series.math_property is None:
+    math_property = _active_math_property(series)
+    if math_property is None:
         return series.math != "hogql"
-    return series.math_property in NON_DURATION_MATH_PROPERTIES
+    return math_property in NON_DURATION_MATH_PROPERTIES
 
 
 def _check_axis_format(query: AssistantTrendsQuery) -> list[str]:
@@ -81,7 +89,7 @@ def _check_axis_format(query: AssistantTrendsQuery) -> list[str]:
     seconds_series = [
         _series_label(index)
         for index, series in enumerate(query.series)
-        if series.math_property in SECONDS_VALUED_MATH_PROPERTIES
+        if _active_math_property(series) in SECONDS_VALUED_MATH_PROPERTIES
     ]
 
     if seconds_series:
