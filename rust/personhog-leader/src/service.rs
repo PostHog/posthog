@@ -887,6 +887,15 @@ fn partition_from_metadata<T>(request: &Request<T>) -> Result<u32, Status> {
         .map_err(|_| Status::invalid_argument("x-partition metadata is not a valid u32"))
 }
 
+/// Wall time of one committed-release phase. The release is the slowest
+/// leader RPC, and its end-to-end histogram cannot say whether the time
+/// is the per-person lock, the person load, the mark-row check on the
+/// fallback pool, or the changelog produce.
+fn record_release_phase(phase: &'static str, started: Instant) {
+    histogram!("personhog_leader_release_phase_ms", "phase" => phase)
+        .record(started.elapsed().as_secs_f64() * 1000.0);
+}
+
 #[tonic::async_trait]
 impl PersonHogLeader for PersonHogLeaderService {
     async fn get_person(
@@ -1749,7 +1758,9 @@ impl PersonHogLeader for PersonHogLeaderService {
             .or_default()
             .value()
             .clone();
+        let lock_started = Instant::now();
         let _guard = mutex.lock().await;
+        record_release_phase("lock_wait", lock_started);
 
         // Releasing another op's fence would break that op's seal.
         if let Some(entry) = self.fences.get(&cache_key) {
@@ -1793,7 +1804,10 @@ impl PersonHogLeader for PersonHogLeaderService {
                 // Release must stay idempotent for the saga's retry and the
                 // sweeper, so a person the leader cannot load anymore is
                 // tolerated.
-                let current = match self.lookup_or_load_locked(partition, &cache_key).await {
+                let load_started = Instant::now();
+                let loaded = self.lookup_or_load_locked(partition, &cache_key).await;
+                record_release_phase("load", load_started);
+                let current = match loaded {
                     Ok(person) => Some(person),
                     Err(status) if status.code() == tonic::Code::NotFound => None,
                     Err(status) => return Err(status),
@@ -1835,7 +1849,10 @@ impl PersonHogLeader for PersonHogLeaderService {
                         "no-lifecycle-db",
                     ));
                 };
-                match mark_status(&fallback.pool, op_id, req.team_id, req.person_id).await {
+                let verify_started = Instant::now();
+                let mark = mark_status(&fallback.pool, op_id, req.team_id, req.person_id).await;
+                record_release_phase("verify_mark", verify_started);
+                match mark {
                     // A live mark: the op holds the person; proceed.
                     Ok(Some(status)) if status == "marked" || status == "sealed" => {}
                     // The mark already settled as deleted: this release
@@ -1907,7 +1924,10 @@ impl PersonHogLeader for PersonHogLeaderService {
                     last_seen_at: None,
                     approx_bytes: approx_person_bytes(2),
                 };
-                self.commit_document(partition, &cache_key, death).await?;
+                let produce_started = Instant::now();
+                let committed = self.commit_document(partition, &cache_key, death).await;
+                record_release_phase("produce", produce_started);
+                committed?;
                 // The death document stays cached while its mark stands,
                 // answering an authoritative not-found from memory; the
                 // prune-time settle drops it once the writer confirms,
