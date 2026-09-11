@@ -21,10 +21,6 @@ import { isBluebirdOnlyPath } from "@posthog/ui/features/canvas/bluebirdRoutes";
 import { ChannelHotkeys } from "@posthog/ui/features/canvas/components/ChannelHotkeys";
 import { ChannelRouteSync } from "@posthog/ui/features/canvas/components/ChannelRouteSync";
 import { ChannelsSidebar } from "@posthog/ui/features/canvas/components/ChannelsSidebar";
-import {
-  FeedbackModal,
-  type FeedbackModalMode,
-} from "@posthog/ui/features/canvas/components/FeedbackModal";
 import { NavRail } from "@posthog/ui/features/canvas/components/NavRail";
 import { CanvasConnectorPermissionDialog } from "@posthog/ui/features/canvas/freeform/CanvasConnectorPermissionDialog";
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
@@ -43,6 +39,7 @@ import { useNewTaskDeepLink } from "@posthog/ui/features/deep-links/useNewTaskDe
 import { useOpenTargetDeepLink } from "@posthog/ui/features/deep-links/useOpenTargetDeepLink";
 import { useTaskDeepLink } from "@posthog/ui/features/deep-links/useTaskDeepLink";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepLink";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
@@ -135,11 +132,6 @@ function RootLayout() {
   }, [router]);
   const canGoForward = historyIndex < newestIndex;
 
-  // Feedback modal shown as an intercept before "PostHog Web" opens the web
-  // app, routing once the modal is submitted or skipped.
-  const [feedbackMode, setFeedbackMode] = useState<FeedbackModalMode | null>(
-    null,
-  );
   const currentProjectId = useAuthStateValue((s) => s.currentProjectId);
 
   // The user's current project on the correct cloud (region comes from
@@ -157,27 +149,20 @@ function RootLayout() {
   const markPostHogWebFeedbackSeen = usePostHogWebFeedbackStore(
     (s) => s.markSeen,
   );
-
-  // "PostHog Web" opens the feedback modal first and performs its navigation
-  // only once the modal is submitted or skipped.
-  const handleFeedbackFinished = () => {
-    const finishedMode = feedbackMode;
-    setFeedbackMode(null);
-    if (finishedMode === "posthog-web" && posthogWebUrl) {
-      markPostHogWebFeedbackSeen();
-      void openUrlInBrowser(posthogWebUrl);
-    }
-  };
+  const openFeedback = useFeedbackStore((s) => s.open);
 
   const handleOpenPostHogWeb = () => {
     track(ANALYTICS_EVENTS.POSTHOG_WEB_OPENED);
-    // Only skip the intercept once the persisted flag has hydrated, so a stale
-    // pre-hydration default can't wrongly re-show it.
     if (posthogWebFeedbackHydrated && posthogWebFeedbackSeen && posthogWebUrl) {
       void openUrlInBrowser(posthogWebUrl);
       return;
     }
-    setFeedbackMode("posthog-web");
+    if (posthogWebUrl) {
+      openFeedback("posthog-web", () => {
+        markPostHogWebFeedbackSeen();
+        void openUrlInBrowser(posthogWebUrl);
+      });
+    }
   };
   const {
     isOpen: commandMenuOpen,
@@ -496,10 +481,6 @@ function RootLayout() {
         <UpdateAvailableModal />
         <WhatsNewModal />
         <RemoteBranchCheckoutDialog />
-        <FeedbackModal
-          mode={feedbackMode}
-          onFinished={handleFeedbackFinished}
-        />
         <ExistingWorktreeDialog />
         <CanvasConnectorPermissionDialog />
         <HedgehogMode />
