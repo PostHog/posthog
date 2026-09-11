@@ -306,6 +306,12 @@ def _subscription_occurrence_key(subscription: DueSubscription) -> str:
     return f"subscription:{subscription.subscription_id}:{subscription.next_delivery_date}"
 
 
+def _subscription_source_due_at(subscription: DueSubscription) -> datetime:
+    if subscription.next_delivery_date is None:
+        raise ValueError(f"Due subscription {subscription.subscription_id} is missing next_delivery_date")
+    return datetime.fromisoformat(subscription.next_delivery_date)
+
+
 def _select_due_subscription_candidate_ids(
     selected_team_ids: list[int], now_with_buffer: dt.datetime, candidate_limit: int
 ) -> list[int]:
@@ -613,6 +619,7 @@ async def _fetch_due_subscriptions(
                     tenant_key=str(candidate.team_id),
                     occurrence_key=_subscription_occurrence_key(candidate),
                     workflow_id=_subscription_child_workflow_id(candidate),
+                    source_due_at=_subscription_source_due_at(candidate),
                     claim_token=uuid.uuid5(
                         uuid.NAMESPACE_URL,
                         f"{inputs.claim_token_seed}:{_subscription_occurrence_key(candidate)}",

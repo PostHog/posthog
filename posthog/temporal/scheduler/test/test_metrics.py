@@ -16,6 +16,12 @@ def test_scheduler_metrics_expose_only_low_cardinality_dimensions() -> None:
     metrics.record_admission("subscriptions", "eu", "reserved", 3)
     metrics.record_claim_transition("subscriptions", "eu", "confirmed")
     metrics.set_permits_in_flight("subscriptions", "eu", 7)
+    metrics.set_claim_state(
+        "subscriptions",
+        "eu",
+        oldest_active_age_seconds=120,
+        quarantined_items=2,
+    )
     metrics.set_backlog("subscriptions", "eu", due_items_lower_bound=300, oldest_age_seconds=90)
 
     assert (
@@ -60,6 +66,20 @@ def test_scheduler_metrics_expose_only_low_cardinality_dimensions() -> None:
         )
         == 90
     )
+    assert (
+        registry.get_sample_value(
+            "posthog_temporal_scheduler_active_claim_oldest_age_seconds",
+            {"scheduler": "subscriptions", "region": "eu"},
+        )
+        == 120
+    )
+    assert (
+        registry.get_sample_value(
+            "posthog_temporal_scheduler_quarantined_items",
+            {"scheduler": "subscriptions", "region": "eu"},
+        )
+        == 2
+    )
     permits_snapshot = registry.get_sample_value(
         "posthog_temporal_scheduler_permits_snapshot_unixtime",
         {"scheduler": "subscriptions", "region": "eu"},
@@ -68,14 +88,20 @@ def test_scheduler_metrics_expose_only_low_cardinality_dimensions() -> None:
         "posthog_temporal_scheduler_backlog_snapshot_unixtime",
         {"scheduler": "subscriptions", "region": "eu"},
     )
+    claim_snapshot = registry.get_sample_value(
+        "posthog_temporal_scheduler_claim_snapshot_unixtime",
+        {"scheduler": "subscriptions", "region": "eu"},
+    )
     assert permits_snapshot is not None and permits_snapshot > 0
     assert backlog_snapshot is not None and backlog_snapshot > 0
+    assert claim_snapshot is not None and claim_snapshot > 0
 
     for method_name in [
         "observe_payload",
         "record_admission",
         "record_claim_transition",
         "set_permits_in_flight",
+        "set_claim_state",
         "set_backlog",
     ]:
         parameters = inspect.signature(getattr(metrics, method_name)).parameters
@@ -85,8 +111,15 @@ def test_scheduler_metrics_expose_only_low_cardinality_dimensions() -> None:
     assert metrics._permits_in_flight._multiprocess_mode == "mostrecent"
     assert metrics._backlog_items_lower_bound._multiprocess_mode == "mostrecent"
     assert metrics._backlog_oldest_age_seconds._multiprocess_mode == "mostrecent"
+    assert metrics._active_claim_oldest_age_seconds._multiprocess_mode == "mostrecent"
+    assert metrics._quarantined_items._multiprocess_mode == "mostrecent"
     assert metrics._permits_snapshot_unixtime._multiprocess_mode == "mostrecent"
     assert metrics._backlog_snapshot_unixtime._multiprocess_mode == "mostrecent"
+    assert metrics._claim_snapshot_unixtime._multiprocess_mode == "mostrecent"
+
+
+def test_scheduler_metrics_require_an_explicit_registry() -> None:
+    assert inspect.signature(SchedulerMetrics).parameters["registry"].default is inspect.Parameter.empty
 
 
 @pytest.mark.parametrize(
@@ -107,6 +140,22 @@ def test_scheduler_metrics_reject_unbounded_or_invalid_values(method: str, args:
 
     with pytest.raises(ValueError):
         getattr(metrics, method)(*args)
+
+
+@pytest.mark.parametrize(
+    "oldest_active_age_seconds,quarantined_items",
+    [(-1, 0), (0, -1)],
+)
+def test_scheduler_metrics_reject_invalid_claim_state(oldest_active_age_seconds: float, quarantined_items: int) -> None:
+    metrics = SchedulerMetrics(registry=CollectorRegistry())
+
+    with pytest.raises(ValueError):
+        metrics.set_claim_state(
+            "subscriptions",
+            "eu",
+            oldest_active_age_seconds=oldest_active_age_seconds,
+            quarantined_items=quarantined_items,
+        )
 
 
 @patch("posthog.temporal.scheduler.metrics.LOGGER.exception")

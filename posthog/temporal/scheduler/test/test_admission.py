@@ -1,6 +1,6 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from threading import Barrier
 
 from unittest.mock import MagicMock, patch
@@ -14,17 +14,20 @@ from prometheus_client import CollectorRegistry
 from posthog.models.temporal_scheduler import TemporalSchedulerClaim, TemporalSchedulerPermitPool
 from posthog.temporal.scheduler.admission import (
     SchedulerAdmissionLimits,
+    SchedulerClaimInvariantError,
     SchedulerClaimRequest,
     SchedulerOccurrenceHashCollision,
     complete_scheduler_claim,
     confirm_scheduler_claim,
     defer_scheduler_claim_recovery,
     list_expired_scheduler_claims,
+    list_quarantined_scheduler_claims,
     prune_inactive_scheduler_claims,
     quarantine_scheduler_claim,
     release_scheduler_claim,
     renew_scheduler_claim,
     reserve_scheduler_claims,
+    sample_scheduler_permits_in_flight,
 )
 from posthog.temporal.scheduler.metrics import SchedulerMetrics
 
@@ -32,11 +35,17 @@ SCHEDULER = "subscriptions"
 REGION = "eu"
 
 
-def _request(tenant: str, occurrence: str) -> SchedulerClaimRequest:
+def _request(
+    tenant: str,
+    occurrence: str,
+    *,
+    source_due_at: datetime = datetime(2026, 9, 10, tzinfo=UTC),
+) -> SchedulerClaimRequest:
     return SchedulerClaimRequest(
         tenant_key=tenant,
         occurrence_key=occurrence,
         workflow_id=f"workflow-{occurrence}",
+        source_due_at=source_due_at,
     )
 
 
@@ -90,6 +99,29 @@ class TestReserveSchedulerClaims(TestCase):
             0,
         )
         metrics.set_permits_in_flight.assert_called_once_with(SCHEDULER, REGION, 0)
+        metrics.set_claim_state.assert_called_once_with(
+            SCHEDULER,
+            REGION,
+            oldest_active_age_seconds=0,
+            quarantined_items=0,
+        )
+
+    def test_empty_request_restores_the_callers_lock_timeout(self) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('lock_timeout', %s, TRUE)", ["17ms"])
+
+        reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[],
+            limits=_limits(),
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW lock_timeout")
+            restored_timeout = cursor.fetchone()[0]
+
+        self.assertEqual(restored_timeout, "17ms")
 
     def test_restores_the_callers_lock_timeout_after_nested_transaction(self) -> None:
         with connection.cursor() as cursor:
@@ -285,6 +317,25 @@ class TestReserveSchedulerClaims(TestCase):
 
         self.assertEqual(result.reservations, ())
         self.assertEqual(result.already_claimed, 1)
+
+    def test_same_occurrence_cannot_change_its_source_due_time(self) -> None:
+        first_due_at = datetime(2026, 9, 10, tzinfo=UTC)
+        request = _request("team:1", "one", source_due_at=first_due_at)
+        reservation = reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[request],
+            limits=_limits(),
+        ).reservations[0]
+        self.assertTrue(release_scheduler_claim(reservation.claim_id, reservation.claim_token))
+
+        with self.assertRaisesRegex(SchedulerClaimInvariantError, "due-time"):
+            reserve_scheduler_claims(
+                scheduler=SCHEDULER,
+                region=REGION,
+                requests=[_request("team:1", "one", source_due_at=first_due_at + timedelta(minutes=1))],
+                limits=_limits(),
+            )
 
     @patch("posthog.temporal.scheduler.admission._occurrence_hash", return_value="a" * 64)
     def test_hash_collision_fails_closed(self, _hash: object) -> None:
@@ -491,6 +542,41 @@ class TestSchedulerClaimLifecycle(TestCase):
         claim = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id)
         self.assertEqual(claim.lease_expires_at, self.now + timedelta(minutes=60))
 
+    def test_renewed_claim_keeps_reporting_age_from_the_source_due_time(self) -> None:
+        self.assertTrue(
+            confirm_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=10),
+                now=self.now,
+            )
+        )
+        later = self.now + timedelta(hours=2)
+        self.assertTrue(
+            renew_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=10),
+                now=later,
+            )
+        )
+        metrics = MagicMock(spec=SchedulerMetrics)
+
+        sample_scheduler_permits_in_flight(
+            scheduler=SCHEDULER,
+            region=REGION,
+            now=later,
+            metrics=metrics,
+        )
+
+        source_due_at = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id).source_due_at
+        metrics.set_claim_state.assert_called_once_with(
+            SCHEDULER,
+            REGION,
+            oldest_active_age_seconds=max((later - source_due_at).total_seconds(), 0),
+            quarantined_items=0,
+        )
+
     def test_unconfirmed_claim_cannot_be_completed(self) -> None:
         self.assertFalse(
             complete_scheduler_claim(self.reservation.claim_id, self.reservation.claim_token, now=self.now)
@@ -568,12 +654,30 @@ class TestSchedulerClaimLifecycle(TestCase):
         self.assertEqual(self._global_in_flight(), 0)
 
     def test_quarantine_releases_capacity_and_blocks_automatic_reuse(self) -> None:
+        metrics = MagicMock(spec=SchedulerMetrics)
         self.assertTrue(
             quarantine_scheduler_claim(
                 self.reservation.claim_id,
                 self.reservation.claim_token,
                 error="poison input",
+                metrics=metrics,
             )
+        )
+
+        metrics.set_claim_state.assert_not_called()
+        metrics.record_claim_transition.assert_called_once_with(SCHEDULER, REGION, "quarantined")
+
+        metrics.reset_mock()
+        sample_scheduler_permits_in_flight(
+            scheduler=SCHEDULER,
+            region=REGION,
+            metrics=metrics,
+        )
+        metrics.set_claim_state.assert_called_once_with(
+            SCHEDULER,
+            REGION,
+            oldest_active_age_seconds=0,
+            quarantined_items=1,
         )
 
         result = reserve_scheduler_claims(
@@ -585,6 +689,14 @@ class TestSchedulerClaimLifecycle(TestCase):
         self.assertEqual(result.reservations, ())
         self.assertEqual(result.already_claimed, 1)
         self.assertEqual(self._global_in_flight(), 0)
+
+        quarantined = list_quarantined_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            limit=1,
+        )
+        self.assertEqual([claim.id for claim in quarantined], [self.reservation.claim_id])
+        self.assertEqual(quarantined[0].last_error, "poison input")
 
     def test_expired_claims_are_listed_but_not_reclaimed(self) -> None:
         later = self.now + timedelta(minutes=6)
@@ -810,9 +922,34 @@ class TestSchedulerAdmissionValidation(SimpleTestCase):
                 now=naive_now,
             )
 
+    def test_rejects_a_naive_source_due_time_before_accessing_the_database(self) -> None:
+        with self.assertRaisesRegex(ValueError, "timezone-aware"):
+            reserve_scheduler_claims(
+                scheduler=SCHEDULER,
+                region=REGION,
+                requests=[_request("team:1", "one", source_due_at=datetime(2026, 9, 10, 12, 0))],
+                limits=_limits(),
+            )
+
 
 class TestSchedulerAdmissionConcurrency(TransactionTestCase):
     reset_sequences = True
+
+    def test_empty_request_rejects_a_caller_owned_transaction(self) -> None:
+        metrics = MagicMock(spec=SchedulerMetrics)
+
+        with transaction.atomic(), self.assertRaisesRegex(RuntimeError, "durable atomic block"):
+            reserve_scheduler_claims(
+                scheduler=SCHEDULER,
+                region=REGION,
+                requests=[],
+                limits=_limits(),
+                metrics=metrics,
+            )
+
+        self.assertFalse(TemporalSchedulerPermitPool.objects.exists())
+        metrics.set_permits_in_flight.assert_not_called()
+        metrics.set_claim_state.assert_not_called()
 
     def test_empty_request_does_not_overwrite_a_concurrent_permit_update(self) -> None:
         pool = TemporalSchedulerPermitPool.objects.create(

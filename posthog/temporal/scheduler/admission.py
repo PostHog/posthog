@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 
 from django.db import connection, transaction
+from django.db.models import Min
 from django.utils import timezone
 
 from posthog.models.temporal_scheduler import TemporalSchedulerClaim, TemporalSchedulerPermitPool
@@ -56,6 +57,7 @@ class SchedulerClaimRequest:
     tenant_key: str
     occurrence_key: str
     workflow_id: str
+    source_due_at: datetime
     # Callers that perform non-transactional side effects before receiving the
     # result can supply a stable ownership token so an activity retry recovers
     # its own RESERVED claim. This is a seed, not the persisted fencing token:
@@ -114,6 +116,7 @@ def _validate_request(request: SchedulerClaimRequest) -> None:
         raise ValueError(f"occurrence_key must contain between 1 and {MAX_OCCURRENCE_KEY_CHARS} characters")
     if not request.workflow_id.strip() or len(request.workflow_id) > 512:
         raise ValueError("workflow_id must contain between 1 and 512 characters")
+    _resolve_time(request.source_due_at)
 
 
 def _resolve_time(value: datetime | None) -> datetime:
@@ -199,28 +202,70 @@ def _lock_or_create_tenant_pools(
     return pools
 
 
+def _sample_claim_state(scheduler: str, region: str, *, now: datetime) -> tuple[float, int]:
+    oldest_active_due_at = TemporalSchedulerClaim.objects.filter(
+        scheduler=scheduler,
+        region=region,
+        status__in=TemporalSchedulerClaim.ACTIVE_STATUSES,
+    ).aggregate(oldest=Min("source_due_at"))["oldest"]
+    oldest_active_age_seconds = (
+        max((now - oldest_active_due_at).total_seconds(), 0.0) if oldest_active_due_at is not None else 0.0
+    )
+    quarantined_items = TemporalSchedulerClaim.objects.filter(
+        scheduler=scheduler,
+        region=region,
+        status=TemporalSchedulerClaim.Status.QUARANTINED,
+    ).count()
+    return oldest_active_age_seconds, quarantined_items
+
+
+def _record_claim_snapshot(
+    metrics: SchedulerMetrics,
+    scheduler: str,
+    region: str,
+    *,
+    permits_in_flight: int,
+    now: datetime,
+) -> None:
+    oldest_active_age_seconds, quarantined_items = _sample_claim_state(scheduler, region, now=now)
+
+    def record() -> None:
+        metrics.set_permits_in_flight(scheduler, region, permits_in_flight)
+        metrics.set_claim_state(
+            scheduler,
+            region,
+            oldest_active_age_seconds=oldest_active_age_seconds,
+            quarantined_items=quarantined_items,
+        )
+
+    record_scheduler_metrics_safely(record)
+
+
 def sample_scheduler_permits_in_flight(
     *,
     scheduler: str,
     region: str,
+    now: datetime | None = None,
     metrics: SchedulerMetrics = DEFAULT_SCHEDULER_METRICS,
 ) -> None:
     _validate_scope(scheduler, region)
+    snapshot_time = _resolve_time(now)
 
-    def sample() -> None:
-        with transaction.atomic(durable=True):
-            pool, _ = TemporalSchedulerPermitPool.objects.get_or_create(
-                scheduler=scheduler,
-                region=region,
-                tenant_key="",
+    with transaction.atomic(durable=True), _scheduler_lock_timeout():
+        pool, _ = TemporalSchedulerPermitPool.objects.get_or_create(
+            scheduler=scheduler,
+            region=region,
+            tenant_key="",
+        )
+        locked_pool = TemporalSchedulerPermitPool.objects.select_for_update(skip_locked=True).filter(id=pool.id).first()
+        if locked_pool is not None:
+            _record_claim_snapshot(
+                metrics,
+                scheduler,
+                region,
+                permits_in_flight=locked_pool.in_flight,
+                now=snapshot_time,
             )
-            locked_pool = (
-                TemporalSchedulerPermitPool.objects.select_for_update(skip_locked=True).filter(id=pool.id).first()
-            )
-            if locked_pool is not None:
-                metrics.set_permits_in_flight(scheduler, region, locked_pool.in_flight)
-
-    record_scheduler_metrics_safely(sample)
 
 
 def reserve_scheduler_claims(
@@ -235,11 +280,16 @@ def reserve_scheduler_claims(
     _validate_scope(scheduler, region)
     _validate_limits(limits)
     hashed_requests, multiplicities = _deduplicate_requests(requests)
+    claim_time = _resolve_time(now)
     if not hashed_requests:
-        sample_scheduler_permits_in_flight(scheduler=scheduler, region=region, metrics=metrics)
+        sample_scheduler_permits_in_flight(
+            scheduler=scheduler,
+            region=region,
+            now=claim_time,
+            metrics=metrics,
+        )
         return SchedulerAdmissionResult(reservations=(), already_claimed=0, deferred_for_capacity=0)
 
-    claim_time = _resolve_time(now)
     lease_expires_at = claim_time + limits.lease_duration
 
     with transaction.atomic(durable=True), _scheduler_lock_timeout():
@@ -268,9 +318,13 @@ def reserve_scheduler_claims(
                 raise SchedulerOccurrenceHashCollision(
                     f"logical occurrence digest collision for scheduler {scheduler!r} in region {region!r}"
                 )
-            if existing.tenant_key != item.request.tenant_key or existing.workflow_id != item.request.workflow_id:
+            if (
+                existing.tenant_key != item.request.tenant_key
+                or existing.workflow_id != item.request.workflow_id
+                or existing.source_due_at != item.request.source_due_at
+            ):
                 raise SchedulerClaimInvariantError(
-                    "a logical occurrence was requested with different tenant or workflow identifiers"
+                    "a logical occurrence was requested with different tenant, workflow, or due-time identifiers"
                 )
 
         global_available = max(limits.max_in_flight - global_pool.in_flight, 0)
@@ -326,6 +380,7 @@ def reserve_scheduler_claims(
                     occurrence_hash=item.occurrence_hash,
                     occurrence_key=request.occurrence_key,
                     workflow_id=request.workflow_id,
+                    source_due_at=request.source_due_at,
                     claim_token=claim_token,
                     status=TemporalSchedulerClaim.Status.RESERVED,
                     lease_expires_at=lease_expires_at,
@@ -387,7 +442,13 @@ def reserve_scheduler_claims(
             )
         # Every admission for this scheduler/region takes the same global-pool lock.
         # Publishing before releasing it preserves database update order in the gauge.
-        record_scheduler_metrics_safely(lambda: metrics.set_permits_in_flight(scheduler, region, global_pool.in_flight))
+        _record_claim_snapshot(
+            metrics,
+            scheduler,
+            region,
+            permits_in_flight=global_pool.in_flight,
+            now=claim_time,
+        )
 
     result = SchedulerAdmissionResult(
         reservations=tuple(reservations),
@@ -676,6 +737,26 @@ def list_expired_scheduler_claims(
             status__in=TemporalSchedulerClaim.ACTIVE_STATUSES,
             lease_expires_at__lte=current_time,
         ).order_by("lease_expires_at", "id")[:limit]
+    )
+
+
+def list_quarantined_scheduler_claims(
+    *,
+    scheduler: str,
+    region: str,
+    limit: int,
+) -> list[TemporalSchedulerClaim]:
+    """Return a bounded, newest-first remediation view with the stored error summaries."""
+
+    _validate_scope(scheduler, region)
+    if limit <= 0 or limit > MAX_CLAIM_REQUESTS_PER_CALL:
+        raise ValueError(f"limit must contain between 1 and {MAX_CLAIM_REQUESTS_PER_CALL} items")
+    return list(
+        TemporalSchedulerClaim.objects.filter(
+            scheduler=scheduler,
+            region=region,
+            status=TemporalSchedulerClaim.Status.QUARANTINED,
+        ).order_by("-updated_at", "id")[:limit]
     )
 
 

@@ -31,6 +31,7 @@ class Migration(migrations.Migration):
                 ("occurrence_hash", models.CharField(max_length=64)),
                 ("occurrence_key", models.TextField()),
                 ("workflow_id", models.CharField(max_length=512)),
+                ("source_due_at", models.DateTimeField()),
                 ("claim_token", models.UUIDField(default=uuid.uuid4, editable=False)),
                 (
                     "status",
@@ -61,6 +62,11 @@ class Migration(migrations.Migration):
                         name="tsc_active_lease",
                     ),
                     models.Index(
+                        condition=models.Q(("status__in", ["reserved", "confirmed"])),
+                        fields=["scheduler", "region", "source_due_at", "id"],
+                        name="tsc_active_due",
+                    ),
+                    models.Index(
                         fields=["scheduler", "region", "tenant_key", "status"],
                         name="tsc_tenant_status",
                     ),
@@ -73,6 +79,11 @@ class Migration(migrations.Migration):
                         condition=models.Q(("status", "available")),
                         fields=["scheduler", "region", "updated_at", "id"],
                         name="tsc_available_cleanup",
+                    ),
+                    models.Index(
+                        condition=models.Q(("status", "quarantined")),
+                        fields=["scheduler", "region", "-updated_at", "id"],
+                        name="tsc_quarantined_health",
                     ),
                 ],
                 "constraints": [
