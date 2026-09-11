@@ -6,9 +6,11 @@ what puts attribution on the sessions nodes: over 5.8M sessions, reading the ing
 """
 
 import os
+import hashlib
 from datetime import datetime
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.channel_type import expand_default_channel_type_call
 
 from posthog.models.team import Team
 
@@ -32,9 +34,12 @@ SESSIONS_TTL_SECONDS: dict[str, int] = {
 # cap a cold backfill scans the whole span at once.
 CHUNK_DAYS = 1
 
-# How far back the scheduled job keeps the table warm. The reader derives its own ceiling from this,
-# so a query can never ask for a range the job does not cover.
+# Display history; the shared window helper adds team lookback and session reachback.
 PRECOMPUTE_WINDOW_DAYS = int(os.getenv("MARKETING_SESSIONS_PRECOMPUTE_WINDOW_DAYS", "90"))
+
+# Bump for changes to the lookup dictionaries used by the builtin classifier.
+SESSION_CHANNEL_CLASSIFIER_VERSION = 1
+SESSION_READ_REACHBACK_DAYS = 1
 
 SESSION_SETTLING_PERIOD_SECONDS = 24 * 60 * 60
 
@@ -57,6 +62,7 @@ SELECT
     any(toString(ifNull(events.session.$entry_pathname, ''))) AS entry_pathname
 FROM events
 WHERE and(
+    {classifier_version} = {classifier_version},
     events.$session_id IS NOT NULL,
     equals(events.event, '$pageview'),
     events.timestamp >= {time_window_min},
@@ -76,7 +82,21 @@ HAVING and(
 
 
 def base_placeholders() -> dict[str, ast.Expr]:
-    return {}
+    classifier = expand_default_channel_type_call(
+        [
+            ast.Field(chain=[name])
+            for name in ("campaign", "medium", "source", "referring_domain", "has_gclid", "has_fbclid", "gad_source")
+        ]
+    )
+    fingerprint = hashlib.sha256(classifier.to_hogql().encode()).hexdigest()
+    # The executor hashes before resolving $channel_type, so carry its identity in the input AST.
+    return {"classifier_version": ast.Constant(value=f"{SESSION_CHANNEL_CLASSIFIER_VERSION}:{fingerprint}")}
+
+
+def precompute_window_days(team: Team) -> int:
+    return (
+        PRECOMPUTE_WINDOW_DAYS + team.marketing_analytics_config.attribution_window_days + SESSION_READ_REACHBACK_DAYS
+    )
 
 
 def ensure_marketing_sessions_precomputed(
@@ -85,9 +105,11 @@ def ensure_marketing_sessions_precomputed(
     time_range_end: datetime,
     *,
     run_inserts: bool = True,
+    stale_while_revalidate_seconds: float | None = None,
 ) -> LazyComputationResult:
     return ensure_precomputed(
         run_inserts=run_inserts,
+        stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         team=team,
         insert_query=SESSIONS_INSERT_TEMPLATE,
         time_range_start=time_range_start,

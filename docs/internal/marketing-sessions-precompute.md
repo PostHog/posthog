@@ -11,6 +11,6 @@ Before enabling this writer, wire these environment variables through the deploy
 | Variable | Consumers | Default | Operational meaning |
 | --- | --- | --- | --- |
 | `MARKETING_SESSIONS_PRECOMPUTE_TEAM_IDS` | Dagster code location running the marketing session job | Built-in cloud allowlist; empty on self-hosted | Comma-separated team IDs. An explicitly empty value disables writes. |
-| `MARKETING_SESSIONS_PRECOMPUTE_WINDOW_DAYS` | Dagster writer and every process importing the shared coverage setting | `90` | Trailing coverage in days. Keep writer and reader deployments consistent. |
+| `MARKETING_SESSIONS_PRECOMPUTE_WINDOW_DAYS` | Dagster writer and every process importing the shared coverage setting | `90` | Display history in days. Add team attribution lookback and one session reachback day; the defaults cover 181 days. Keep deployments consistent. |
 
 Deploy the table migration before running the job. Verify the effective variables in each target deployment, including that an empty allowlist produces a no-op. A definition in this repository alone does not wire deployment variables; changes and verification in the deployment repositories are a rollout prerequisite.
