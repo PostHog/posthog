@@ -26,6 +26,20 @@ class TestFindTrendsQualityIssues(SimpleTestCase):
                 "math_group_type_index",
             ),
             (
+                "property_math_with_blank_math_property",
+                AssistantTrendsQuery(
+                    series=[AssistantTrendsEventsNode(event="$pageview", math="avg", math_property="   ")]
+                ),
+                "`math_property` is blank",
+            ),
+            (
+                "hogql_math_with_blank_expression",
+                AssistantTrendsQuery(
+                    series=[AssistantTrendsEventsNode(event="$pageview", math="hogql", math_hogql="")]
+                ),
+                "`math_hogql` is blank",
+            ),
+            (
                 "seconds_property_formatted_as_milliseconds",
                 AssistantTrendsQuery(
                     series=[

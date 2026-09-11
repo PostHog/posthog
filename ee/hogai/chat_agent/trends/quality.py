@@ -41,14 +41,25 @@ def _series_label(index: int) -> str:
     return chr(ord("A") + index)
 
 
+def _is_missing(value: object) -> bool:
+    """A blank string carries no value, so it is missing. A plain truthiness test would reject group type index 0."""
+    if isinstance(value, str):
+        return not value.strip()
+    return value is None
+
+
 def _check_math_companion_field(series: TrendsSeries, label: str) -> str | None:
-    """A math type without its companion field falls back to counting events, which reports a wrong number."""
+    """A math type without its companion field falls back to counting events or fails, and reports a wrong number."""
     for math_types, field, intent in MATH_COMPANION_FIELDS:
-        if series.math in math_types and getattr(series, field) is None:
-            return (
-                f"Series {label} uses the `{series.math}` math type, but `{field}` is unset. "
-                f"The query counts events instead of {intent}. Set `{field}`, or use another math type."
-            )
+        value = getattr(series, field)
+        if series.math not in math_types or not _is_missing(value):
+            continue
+        # The engine reads a blank companion field as a value, so it fails instead of falling back to a count.
+        state, outcome = ("unset", "counts events") if value is None else ("blank", "fails to run")
+        return (
+            f"Series {label} uses the `{series.math}` math type, but `{field}` is {state}. "
+            f"The query {outcome} instead of {intent}. Set `{field}`, or use another math type."
+        )
     return None
 
 
