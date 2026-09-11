@@ -4,6 +4,7 @@ import json
 import asyncio
 from datetime import timedelta
 from itertools import batched
+from typing import cast
 
 from django.conf import settings
 
@@ -81,9 +82,14 @@ class ScheduleAllEvalReportsWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ScheduleAllEvalReportsWorkflowInputs) -> None:
+        fetch_inputs = (
+            inputs
+            if temporalio.workflow.patched("eval-report-scheduled-bounded-input-2026-09")
+            else cast(ScheduleAllEvalReportsWorkflowInputs, {"buffer_minutes": inputs.buffer_minutes})
+        )
         result = await temporalio.workflow.execute_activity(
             fetch_due_eval_reports_activity,
-            inputs,
+            fetch_inputs,
             start_to_close_timeout=FETCH_ACTIVITY_TIMEOUT,
             retry_policy=FETCH_RETRY_POLICY,
         )
@@ -112,9 +118,14 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: CheckCountTriggeredReportsWorkflowInputs) -> None:
+        fetch_inputs = (
+            inputs
+            if temporalio.workflow.patched("eval-report-count-bounded-input-2026-09")
+            else cast(CheckCountTriggeredReportsWorkflowInputs, {})
+        )
         result = await temporalio.workflow.execute_activity(
             fetch_count_triggered_eval_report_candidates_activity,
-            inputs,
+            fetch_inputs,
             start_to_close_timeout=FETCH_ACTIVITY_TIMEOUT,
             retry_policy=FETCH_RETRY_POLICY,
         )
