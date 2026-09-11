@@ -220,6 +220,14 @@ class TestErrorClassification:
         assert f"BadRequestException - {aws_ses._BAD_REQUEST_EXPLANATION}" in message
         assert message.endswith("(table multi_region_endpoints, GET /v2/email/multi-region-endpoints)")
 
+    def test_an_email_identity_in_the_path_is_masked(self) -> None:
+        response = make_response(400, {"message": "bad"})
+
+        message = str(error_for_response(response, "email_identities", "/v2/email/identities/user%40example.com"))
+
+        assert message.endswith("(table email_identities, GET /v2/email/identities/{email})")
+        assert "example.com" not in message
+
     def test_a_non_json_error_body_still_produces_a_usable_message(self) -> None:
         response = requests.Response()
         response.status_code = 503

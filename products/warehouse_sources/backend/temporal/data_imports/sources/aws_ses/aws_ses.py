@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import scrub_url
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -60,7 +61,10 @@ _CREDENTIAL_ERROR_CODES = (
 
 class AwsSesError(Exception):
     def __init__(self, code: str, message: str, endpoint: str, path: str) -> None:
-        super().__init__(f"Amazon SES request failed: {code} - {message} (table {endpoint}, GET {path})")
+        # A verified SES identity can be an email address, and the fan-out puts it in the detail
+        # path. This message reaches the job log and the stored error, so mask the address the
+        # same way the tracked transport masks a recorded URL.
+        super().__init__(f"Amazon SES request failed: {code} - {message} (table {endpoint}, GET {scrub_url(path)})")
         self.code = code
         self.message = message
 
