@@ -243,6 +243,7 @@ rules:
                               |KnowledgeChunk
                               |KnowledgeDocument
                               |KnowledgeGapSuggestion
+                              |KnowledgeLearningRun
                               |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
@@ -649,6 +650,7 @@ rules:
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeGapSuggestion
+                        |KnowledgeLearningRun
                         |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint

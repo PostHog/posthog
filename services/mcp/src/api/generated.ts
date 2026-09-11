@@ -50811,6 +50811,18 @@ export namespace Schemas {
       notes: string;
     }
 
+    /**
+     * * `above` - Above the band
+     * * `below` - Below the band
+     */
+    export type LogsSeriesBandVerdictEnum = typeof LogsSeriesBandVerdictEnum[keyof typeof LogsSeriesBandVerdictEnum];
+
+
+    export const LogsSeriesBandVerdictEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
     export interface LogsSeriesBandBucket {
       /** Start of the display bucket (UTC). */
       time: string;
@@ -50826,6 +50838,11 @@ export namespace Schemas {
          * @nullable
          */
       upper: number | null;
+      /** Where the observed count sits against the band: above when it exceeds upper, below when it falls under lower. Null while it sits inside the band, or while the band is not ready.
+       *
+       * * `above` - Above the band
+       * * `below` - Below the band */
+      verdict: LogsSeriesBandVerdictEnum | null;
     }
 
     export interface LogsSeriesBandSeries {
@@ -68886,7 +68903,7 @@ export namespace Schemas {
      */
     export type PatchedSignalScoutConfigUpdateStructuredOutputSchema = { [key: string]: unknown } | null;
 
-    export interface SignalScoutSlackDestination {
+    export interface SignalScoutSlackDestinationUpdate {
       /**
          * ID of the Slack integration whose bot posts this scout's findings and reports.
          * @minimum 1
@@ -68907,7 +68924,7 @@ export namespace Schemas {
          * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
          */
       users?: string[] | null;
-      /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
+      /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post. */
       thread_reports?: boolean;
     }
 
@@ -68916,9 +68933,9 @@ export namespace Schemas {
       hog_function_id: string;
     }
 
-    export interface SignalScoutOutputDestinations {
+    export interface SignalScoutOutputDestinationsUpdate {
       /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
-      slack?: SignalScoutSlackDestination | null;
+      slack?: SignalScoutSlackDestinationUpdate | null;
       /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
       webhook?: SignalScoutWebhookDestination | null;
     }
@@ -68961,7 +68978,7 @@ export namespace Schemas {
          */
       run_cron_schedule?: string | null;
       /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
-      output_destinations?: SignalScoutOutputDestinations;
+      output_destinations?: SignalScoutOutputDestinationsUpdate;
       /**
          * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
          * @nullable
@@ -70194,6 +70211,29 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
+    }
+
+    export interface PatchedTeamLogsConfig {
+      /** Legacy single-key alias — always the first entry of `logs_distinct_id_attribute_keys`. Read-only; write the plural field instead. */
+      readonly logs_distinct_id_attribute_key?: string;
+      /**
+         * Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_distinct_id_attribute_keys?: string[];
+      /**
+         * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_session_id_attribute_keys?: string[];
+      /**
+         * Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_pattern_message_keys?: string[];
     }
 
     export interface PatchedTeamTracingConfig {
@@ -78809,6 +78849,38 @@ export namespace Schemas {
       readonly window_days: number;
     }
 
+    export interface SignalScoutSlackDestination {
+      /**
+         * ID of the Slack integration whose bot posts this scout's findings and reports.
+         * @minimum 1
+         */
+      integration_id: number;
+      /**
+         * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set.
+         * @maxLength 255
+         * @nullable
+         */
+      channel?: string | null;
+      /**
+         * Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.
+         * @minItems 1
+         * @maxItems 5
+         * @nullable
+         * @items.maxLength 255
+         * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
+         */
+      users?: string[] | null;
+      /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post. */
+      thread_reports?: boolean;
+    }
+
+    export interface SignalScoutOutputDestinations {
+      /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+      slack?: SignalScoutSlackDestination | null;
+      /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+      webhook?: SignalScoutWebhookDestination | null;
+    }
+
     /**
      * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
@@ -80347,6 +80419,19 @@ export namespace Schemas {
       started: boolean;
     }
 
+    /**
+     * Request body for an on-demand (`run now`) scout dispatch.
+     *
+     * Every field is optional: a plain trigger sends no body at all.
+     */
+    export interface SignalScoutManualRunRequest {
+      /**
+         * Optional steering for this run only, such as 'focus on the checkout regression' or 'skip the staging traffic today'. The agent reads it alongside the scout's durable notes and weighs it the same way: it directs attention, it never forces a finding. Use it instead of leaving a scout note that would also steer every later scheduled run. The note is kept on the run for history and is never read by another run. Because the agent reads it verbatim while holding privileged tools, a run that carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor access to skills, the same bar as leaving a note.
+         * @maxLength 1000
+         */
+      note?: string;
+    }
+
     export type SignalScoutRunDetailMetadataDerived = {
       has_emit_report: boolean;
       has_edit_report: boolean;
@@ -80372,6 +80457,7 @@ export namespace Schemas {
       network_access?: string;
       write_scopes?: string[];
       triggered_by?: string;
+      run_note?: string;
       derived?: SignalScoutRunDetailMetadataDerived;
       [key: string]: unknown;
      };
@@ -80470,6 +80556,7 @@ export namespace Schemas {
       network_access?: string;
       write_scopes?: string[];
       triggered_by?: string;
+      run_note?: string;
       derived?: SignalScoutRunSummaryMetadataDerived;
       [key: string]: unknown;
      };
@@ -88485,6 +88572,29 @@ export namespace Schemas {
       readonly email_sending_suspension_reason: string;
       /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. */
       readonly sending_allowance: EmailSendingAllowance | null;
+    }
+
+    export interface TeamLogsConfig {
+      /** Legacy single-key alias — always the first entry of `logs_distinct_id_attribute_keys`. Read-only; write the plural field instead. */
+      readonly logs_distinct_id_attribute_key: string;
+      /**
+         * Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_distinct_id_attribute_keys: string[];
+      /**
+         * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_session_id_attribute_keys: string[];
+      /**
+         * Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_pattern_message_keys: string[];
     }
 
     export const TeamMCPGatewayConfigMemberDefaultPreset = {...MCPPolicyPresetEnum,...BlankEnum,} as const
