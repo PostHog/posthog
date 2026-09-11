@@ -56,7 +56,13 @@ def _strip_tenant_params(query_string: str) -> str:
     # The tenant is bound by the proxy from the URL team; a client must not
     # also assert one via query param. Snuffle in header mode ignores these
     # anyway, but they are dropped so a misconfigured Snuffle cannot honor one.
-    pairs = [(k, v) for k, v in parse_qsl(query_string, keep_blank_values=True) if k not in ("team_id", "tenant")]
+    # personal_api_key is dropped too — a caller's PostHog key must never leave
+    # PostHog and reach Snuffle.
+    pairs = [
+        (k, v)
+        for k, v in parse_qsl(query_string, keep_blank_values=True)
+        if k not in ("team_id", "tenant", "personal_api_key")
+    ]
     return urlencode(pairs)
 
 
@@ -99,6 +105,12 @@ def forward_prometheus_request(
     except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout) as exc:
         # Do not leak the upstream URL or exception text into the response.
         raise PrometheusUpstreamUnavailable("PromQL backend is unreachable") from exc
+
+    if response.status_code in (401, 403):
+        # Snuffle only rejects the service ClickHouse credential we sent, never
+        # the caller, so this is our misconfiguration — it must not read back as
+        # the caller's own auth failure.
+        raise PrometheusUpstreamUnavailable("PromQL backend rejected the request")
 
     return PrometheusUpstreamResponse(
         status_code=response.status_code,

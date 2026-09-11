@@ -101,6 +101,34 @@ def test_forward_overrides_client_supplied_team_header() -> None:
     assert b"team_id" not in req.url.query
 
 
+def test_forward_strips_personal_api_key_from_query_string() -> None:
+    # A personal API key passed as a query param must never reach Snuffle.
+    captured: dict = {}
+    _forward(captured, response=httpx.Response(200, json={}), query_string="query=up&personal_api_key=phx_secret")
+    assert b"personal_api_key" not in captured["request"].url.query
+
+
+def test_upstream_auth_rejection_raises_unavailable() -> None:
+    # Snuffle only rejects the service ClickHouse credential we send, never the
+    # caller, so a 401/403 upstream is our misconfiguration and must surface as
+    # a 503, not the caller's own auth failure.
+    with patch("products.metrics.backend.prometheus_proxy.settings") as mock_settings:
+        mock_settings.METRICS_PROMQL_INTERNAL_URL = BASE
+        mock_settings.METRICS_PROMQL_INTERNAL_BASIC_AUTH = ""
+        mock_settings.METRICS_PROMQL_TIMEOUT_SECONDS = 60.0
+        with pytest.raises(PrometheusUpstreamUnavailable):
+            forward_prometheus_request(
+                team_id=42,
+                method="GET",
+                upstream_path="query",
+                query_string="query=1",
+                body=b"",
+                content_type="",
+                accept="",
+                transport=httpx.MockTransport(lambda r: httpx.Response(401, json={"status": "error"})),
+            )
+
+
 def test_forward_post_body_and_content_type() -> None:
     captured: dict = {}
     body = b"query=sum%20by%20(job)(rate(x%5B5m%5D))&start=1&end=2&step=60"
