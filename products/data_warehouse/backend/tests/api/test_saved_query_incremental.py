@@ -2,10 +2,8 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.data_warehouse.backend.presentation.views.saved_query import (
-    CheckIncrementalThrottle,
-    DataWarehouseSavedQueryViewSet,
-)
+from products.data_warehouse.backend.presentation.views.saved_query.schemas import CheckIncrementalThrottle
+from products.data_warehouse.backend.presentation.views.saved_query.views import DataWarehouseSavedQueryViewSet
 
 GROUPED = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 CONFIG = {"enabled": True, "incremental_key": "day", "unique_key": ["day"]}
