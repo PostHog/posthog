@@ -184,7 +184,8 @@ class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     premium_feature_on_cloud = AvailableFeature.APPROVALS
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        # Experiment policies are mirrors of flag policies and nothing evaluates them yet.
+        # TODO(experiment-approval-policies): temporary. Experiment policies are hidden mirrors of flag policies
+        # until they are enforced. See experiment_policy_sync.py.
         queryset = queryset.exclude(action_key__in=SYNCED_ACTION_KEYS)
         filters = self.request.query_params
 
@@ -214,6 +215,7 @@ class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 organization=self.organization,
                 team=self.team,
             )
+            # TODO(experiment-approval-policies): ignore hidden mirrors so this error cannot reveal them.
             .exclude(action_key__in=SYNCED_ACTION_KEYS)
             .exists()
         ):

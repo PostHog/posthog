@@ -984,6 +984,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="expire old change requests",
     )
 
+    # TODO(experiment-approval-policies): temporary. See products/approvals/backend/experiment_policy_sync.py.
     sender.add_periodic_task(
         crontab(minute="15"),
         sync_experiment_approval_policies.s(),

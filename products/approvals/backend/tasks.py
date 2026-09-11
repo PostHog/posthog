@@ -166,6 +166,7 @@ def expire_old_change_requests() -> dict[str, Any]:
     return result
 
 
+# TODO(experiment-approval-policies): temporary. See experiment_policy_sync.py for what to remove.
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def sync_experiment_approval_policies() -> None:

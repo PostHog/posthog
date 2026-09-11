@@ -1,3 +1,22 @@
+"""TEMPORARY: mirror feature flag approval policies to experiment approval policies.
+
+This module exists only until experiment-owned flags leave `feature_flag.*` policy scope and the
+`experiment.*` policies are enforced. Delete it in the PR that ships that enforcement. The last sync
+run before that deploy is the final copy, so organizations keep the approvals they configured.
+
+Every part of the sync carries the tag `TODO(experiment-approval-policies)`. Remove all of them:
+- this module and `tests/test_experiment_policy_sync.py`
+- the `sync_experiment_approval_policies` task in `tasks.py`
+- its beat entry in `posthog/tasks/scheduled.py`
+- the `experiment.*` exclusions in `ApprovalPolicyViewSet`
+- the `experiment.*` rejection in `ApprovalPolicySerializer.validate_action_key`
+- the tests in `test_approvals_api.py` that create `experiment.*` rows to check they stay hidden
+
+No column marks a row as a mirror. This is on purpose, because the sync is short-lived. So the sync
+treats every `experiment.*` row as a mirror. It overwrites or deletes any `experiment.*` row that a
+person created before the API started to reject these keys.
+"""
+
 from uuid import UUID
 
 from django.db import connection, transaction
@@ -9,8 +28,7 @@ from products.approvals.backend.models import ApprovalPolicy
 logger = get_logger(__name__)
 
 # Each feature flag action and the experiment action that replaces it once experiment-owned flags
-# leave `feature_flag.*` scope. Until then the experiment policies are mirrors: they are hidden from
-# the API and nothing evaluates them, so organizations keep configuring flag policies only.
+# leave `feature_flag.*` scope. Until then nothing evaluates the experiment policies.
 ACTION_MAP = {
     "feature_flag.enable": "experiment.launch",
     "feature_flag.disable": "experiment.pause",

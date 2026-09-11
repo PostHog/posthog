@@ -425,6 +425,7 @@ class TestApprovalPolicyViewSet(APIBaseTest):
             approver_config={"quorum": 1, "users": [self.user.id]},
             created_by=self.user,
         )
+        # TODO(experiment-approval-policies): remove the mirror row with the sync.
         mirror = ApprovalPolicy.objects.create(
             organization=self.organization,
             team=self.team,
@@ -559,6 +560,7 @@ class TestApprovalPolicyViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already exists" in response.json()["detail"]
 
+    # TODO(experiment-approval-policies): remove with the sync.
     def test_create_experiment_policy_is_rejected(self):
         ApprovalPolicy.objects.create(
             organization=self.organization,
