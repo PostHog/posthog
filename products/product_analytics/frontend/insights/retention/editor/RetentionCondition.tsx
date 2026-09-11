@@ -8,6 +8,8 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/le
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getOrdinalSuffix } from 'lib/utils/strings'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getRetentionPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
@@ -15,16 +17,8 @@ import { getRetentionPropertyFilterGroupTypes } from 'scenes/insights/utils/prop
 import { groupsModel } from '~/models/groupsModel'
 import { EditorFilterProps, EntityTypes, FilterType, RetentionPeriod, RetentionType } from '~/types'
 
-import {
-    dateOptionPlurals,
-    dateOptions,
-    retentionOptionDescriptions,
-    retentionOptions,
-} from 'products/product_analytics/frontend/insights/retention/constants'
-import { MAX_BRACKETS, retentionLogic } from 'products/product_analytics/frontend/insights/retention/retentionLogic'
-
-import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
-import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/types'
+import { dateOptionPlurals, dateOptions, retentionOptionDescriptions, retentionOptions } from '../constants'
+import { MAX_BRACKETS, retentionLogic } from '../retentionLogic'
 
 const MAX_RANGE = 1000
 

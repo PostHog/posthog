@@ -34,7 +34,7 @@ import {
     TrendsFilterLegacy,
     TrendsFormulaNode,
 } from './schema-general'
-import { integer } from './type-utils'
+import { integer, positive_integer } from './type-utils'
 
 /**
  * This filter only works with absolute dates.
@@ -1089,7 +1089,7 @@ export interface AssistantStickinessFilter {
     computedAs?: StickinessComputationMode
 }
 
-export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
+export interface AssistantStickinessQuery extends Omit<AssistantInsightsQueryBase, 'aggregation_group_type_index'> {
     kind: NodeKind.StickinessQuery
 
     /**
@@ -1106,7 +1106,7 @@ export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
      * How many base intervals comprise one stickiness period. Defaults to 1.
      * For example, `interval: "day"` with `intervalCount: 7` groups by 7-day periods.
      */
-    intervalCount?: integer
+    intervalCount?: positive_integer
 
     /**
      * Events or actions to include. Each series measures how many intervals (e.g. days) within
