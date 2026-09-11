@@ -219,9 +219,16 @@ describe('scoutRunsWindow report channel', () => {
     })
 
     describe('scoutRunFailureLine', () => {
-        it('takes the first sentence of a close-out, without its markdown heading marker', () => {
-            const run = makeRun({ status: 'failed', summary: '## Stopped mid-plan\nEligibility is healthy. More.' })
-            expect(scoutRunFailureLine(run, NOW)).toBe('Stopped mid-plan')
+        // The close-out is agent prose, so its first line can open with any markdown marker. Each
+        // has to go before the sentence split, or the split stops on the marker's own punctuation.
+        it.each<[string, string, string]>([
+            ['a heading', '## Stopped mid-plan\nEligibility is healthy. More.', 'Stopped mid-plan'],
+            ['a bullet', '- Stopped mid-plan. More.', 'Stopped mid-plan.'],
+            ['an ordered item', '1. Stopped mid-plan. More.', 'Stopped mid-plan.'],
+            ['an ordered item in brackets', '1) Stopped mid-plan. More.', 'Stopped mid-plan.'],
+            ['a decimal that is not a marker', '1.5s of runtime. More.', '1.5s of runtime.'],
+        ])('takes the first sentence of a close-out opening with %s', (_name, summary, expected) => {
+            expect(scoutRunFailureLine(makeRun({ status: 'failed', summary }), NOW)).toBe(expected)
         })
 
         it('names the duration when the run never wrote a close-out', () => {

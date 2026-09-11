@@ -387,11 +387,15 @@ export function scoutRunFailureLine(run: SignalScoutRunSummary, now: Date): stri
     const summary = run.summary?.trim()
     if (summary) {
         // Markdown headings and list bullets read as punctuation in a one-line preview, so drop them.
+        // An ordered item's marker goes separately, because its own period ends the sentence match
+        // below and the line collapses to "1.". The trailing space is required, so a version or a
+        // decimal in ordinary prose is left alone.
         const firstLine =
             summary
                 .split('\n')
                 .find((line) => line.trim().length > 0)
-                ?.replace(/^[#>\-*\s]+/, '') ?? ''
+                ?.replace(/^[#>\-*\s]+/, '')
+                .replace(/^\d+[.)]\s+/, '') ?? ''
         const firstSentence = firstLine.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? firstLine
         if (firstSentence.trim()) {
             return firstSentence.trim()
