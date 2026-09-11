@@ -1334,6 +1334,7 @@ async def test_deleted_subscription_is_inactive_across_delivery_activities(team,
 
     assert abort_info == DeliveryAbort()
     assert result.recipient_results == []
+    assert result.skipped is True
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.next_delivery_date == original_next_delivery_date
 

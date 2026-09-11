@@ -33,10 +33,12 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
 from products.exports.backend.temporal.subscriptions.delivery_common import deliver_slack
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
+    SUBSCRIPTION_ASSET_EXPORT_SCHEDULE_TO_CLOSE_TIMEOUT,
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     DeliveryAbort,
+    DeliveryStatus,
     GenerateAIReportResult,
     SnapshotInsightsResult,
     SubscriptionTriggerType,
@@ -124,9 +126,10 @@ async def test_deliver_subscription_wraps_email_delivery_error(team, user, activ
 @pytest.mark.parametrize("patch_active", [True, False], ids=["patched_v2", "pre_patch_v1"])
 async def test_process_subscription_picks_delivery_activity_from_patch(patch_active) -> None:
     picked = None
+    export_schedule_to_close = None
 
     async def fake_execute_activity(activity, inputs, **_kwargs):
-        nonlocal picked
+        nonlocal export_schedule_to_close, picked
         if activity is create_delivery_record:
             return uuid.uuid4()
         if activity is validate_subscription_for_delivery:
@@ -140,6 +143,7 @@ async def test_process_subscription_picks_delivery_activity_from_patch(patch_act
                 selected_insight_count=4,
             )
         if activity is export_asset_activity:
+            export_schedule_to_close = _kwargs.get("schedule_to_close_timeout")
             return ExportAssetResult(exported_asset_id=1, success=True)
         if activity is snapshot_subscription_insights:
             return SnapshotInsightsResult()
@@ -173,6 +177,7 @@ async def test_process_subscription_picks_delivery_activity_from_patch(patch_act
         await ProcessSubscriptionWorkflow().run(inputs)
 
     assert picked is (deliver_subscription_v2 if patch_active else deliver_subscription)
+    assert export_schedule_to_close == SUBSCRIPTION_ASSET_EXPORT_SCHEDULE_TO_CLOSE_TIMEOUT
     assert inputs.slo is not None
     assert inputs.slo.completion_properties["target_type"] == "email"
     assert inputs.slo.completion_properties["selected_insight_count"] == 4
@@ -223,6 +228,57 @@ async def test_process_ai_subscription_picks_delivery_activity_from_patch(patch_
     assert picked is (deliver_subscription_v2 if patch_active else deliver_subscription)
     assert inputs.slo is not None
     assert inputs.slo.completion_properties["target_type"] == "slack"
+
+
+@pytest.mark.parametrize(
+    "workflow_type",
+    [ProcessSubscriptionWorkflow, ProcessAISubscriptionWorkflow],
+    ids=["standard", "ai"],
+)
+async def test_late_inactive_delivery_is_recorded_as_skipped(
+    workflow_type: type[ProcessSubscriptionWorkflow] | type[ProcessAISubscriptionWorkflow],
+) -> None:
+    record_updates = []
+
+    async def fake_execute_activity(activity, inputs, **_kwargs):
+        if activity is create_delivery_record:
+            return uuid.uuid4()
+        if activity is validate_subscription_for_delivery:
+            return None
+        if activity is create_export_assets:
+            return CreateExportAssetsResult(exported_asset_ids=[1], total_insight_count=1)
+        if activity is export_asset_activity:
+            return ExportAssetResult(exported_asset_id=1, success=True)
+        if activity is snapshot_subscription_insights:
+            return SnapshotInsightsResult()
+        if activity is generate_ai_subscription_report:
+            return GenerateAIReportResult()
+        if activity in (deliver_subscription, deliver_subscription_v2):
+            return DeliverSubscriptionResult(skipped=True)
+        if activity is update_delivery_record:
+            record_updates.append(inputs)
+            return None
+        raise AssertionError(f"unexpected activity {activity}")
+
+    with (
+        patch("temporalio.workflow.execute_activity", side_effect=fake_execute_activity),
+        patch("temporalio.workflow.patched", return_value=True),
+        patch("temporalio.workflow.info") as mock_info,
+        patch("temporalio.workflow.uuid4", return_value=uuid.uuid4()),
+        patch("temporalio.workflow.logger", MagicMock()),
+    ):
+        mock_info.return_value = MagicMock(workflow_id="wf-late-inactive-subscription")
+        await workflow_type().run(
+            TrackedSubscriptionInputs(
+                subscription_id=1,
+                team_id=1,
+                distinct_id="u1",
+                trigger_type=SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
+            )
+        )
+
+    assert len(record_updates) == 1
+    assert record_updates[0].status == DeliveryStatus.SKIPPED
 
 
 @pytest.mark.parametrize(

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from urllib.parse import urlparse
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -682,18 +682,18 @@ class SubscriptionDelivery(UUIDModel):
 
 def unsubscribe_using_token(token: str) -> Subscription:
     info = decode_jwt(token, audience=PosthogJwtAudience.UNSUBSCRIBE)
-    subscription = Subscription.objects.get(pk=info["id"])
+    with transaction.atomic():
+        subscription = Subscription.objects.select_for_update().get(pk=info["id"])
+        emails = subscription.target_value.split(",")
 
-    emails = subscription.target_value.split(",")
+        if info["email"] in emails:
+            emails = [email for email in emails if email != info["email"]]
+            subscription.target_value = ",".join(emails)
+            if not emails:
+                subscription.deleted = True
 
-    if info["email"] in emails:
-        emails = [email for email in emails if email != info["email"]]
-
-        subscription.target_value = ",".join(emails)
-
-        if not emails:
-            subscription.deleted = True
-
-        subscription.save()
+            # Do not write the scheduler-owned next_delivery_date from this
+            # in-memory row. A concurrent schedule advance must remain durable.
+            subscription.save(update_fields=["target_value", "deleted"])
 
     return subscription

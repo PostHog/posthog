@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Any, ClassVar, Optional
 
 from django.conf import settings
@@ -997,11 +998,32 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         export_insights_in_payload = "dashboard_export_insights" in validated_data
         dashboard_export_insight_ids = validated_data.get("dashboard_export_insights", [])
         analytics_props = get_request_analytics_properties(request)
+        delete_requested = validated_data.get("deleted") is True
+        deletion_slo = (
+            slo_operation(
+                spec=SloSpec(
+                    distinct_id=str(request.user.distinct_id),
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    operation=SloOperation.SUBSCRIPTION_DELETE,
+                    team_id=instance.team_id,
+                    resource_id=str(instance.id),
+                ),
+                properties={
+                    "subscription_id": instance.id,
+                    "target_type": instance.target_type,
+                    "frequency": instance.frequency,
+                    "resource_type": instance.resource_type,
+                },
+            )
+            if delete_requested
+            else nullcontext(None)
+        )
 
         # The view can have loaded `instance` before the scheduler advanced next_delivery_date.
         # Refresh it under a row lock before saving so DRF's full-row update cannot restore that
         # stale occurrence and leave a completed durable claim blocking future deliveries.
-        with transaction.atomic():
+        # Enter the SLO before the transaction so lock waits and commit failures are included.
+        with deletion_slo as deletion_slo_handle, transaction.atomic():
             instance = Subscription.objects.select_for_update().get(pk=instance.pk)
             # Validation originally ran against the view's pre-lock instance. Re-check
             # the effective target and export selection now that the row is locked so a
@@ -1012,25 +1034,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             previous_target_value = instance.target_value
             was_disabled = instance.enabled is False
             is_delete = not instance.deleted and validated_data.get("deleted") is True
+            if deletion_slo_handle is not None and not is_delete:
+                deletion_slo_handle.completion_properties["no_op"] = True
 
             if is_delete:
-                with slo_operation(
-                    spec=SloSpec(
-                        distinct_id=str(request.user.distinct_id),
-                        area=SloArea.ANALYTIC_PLATFORM,
-                        operation=SloOperation.SUBSCRIPTION_DELETE,
-                        team_id=instance.team_id,
-                        resource_id=str(instance.id),
-                    ),
-                    properties={
-                        "subscription_id": instance.id,
-                        "target_type": instance.target_type,
-                        "frequency": instance.frequency,
-                        "resource_type": instance.resource_type,
-                    },
-                ):
-                    with attribute_subscription_saves(analytics_props):
-                        instance = super().update(instance, validated_data)
+                with attribute_subscription_saves(analytics_props):
+                    instance = super().update(instance, validated_data)
             else:
                 # Snapshot delivery-relevant values from the locked row so the inferred path can
                 # tell whether this edit actually changed what gets delivered. Only read the M2M
