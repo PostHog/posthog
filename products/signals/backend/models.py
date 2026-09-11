@@ -11,9 +11,9 @@ from django.utils import timezone
 from django.utils.functional import Promise
 
 from asgiref.sync import async_to_sync
-from django_deprecate_fields import deprecate_field
 from pydantic import ValidationError
 
+from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
@@ -340,9 +340,6 @@ class SignalReport(UUIDModel):
     )
     cluster_centroid_updated_at = deprecate_field(models.DateTimeField(blank=True, null=True))
     # Deprecated - unused
-    conversation = deprecate_field(
-        models.ForeignKey("posthog_ai.Conversation", null=True, blank=True, on_delete=models.SET_NULL)
-    )
     relevant_user_count = deprecate_field(models.IntegerField(blank=True, null=True))
 
     class Meta:
