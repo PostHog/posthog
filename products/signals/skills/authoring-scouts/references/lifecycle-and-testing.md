@@ -11,11 +11,11 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
   A skill named anything else needs its config created with it.
   Create a fresh per-team scout and its config together with `posthog:scout-create`; the nested `config` object sets its schedule, emit posture, and destinations before it can run, and `files` bundles reference files in the same call.
   The lower-level `posthog:scout-config-create` remains available when a skill already exists without a config.
-  Config responses also carry the scout's `description`, read live from the skill's frontmatter — not a config field you set — plus `scout_origin` (`canonical` or `custom`) and `owners`.
+  Config responses also carry the scout's `description`, read live from the skill's frontmatter (not a config field you set), plus `scout_origin` (`canonical` or `custom`) and `owners`.
 - **Coordinator.** A periodic Temporal workflow ticks (~every 30 min).
   Each tick it bounds candidates to projects enrolled via the `signals-scout` feature-flag allowlist, then dispatches every **enabled** scout whose schedule is **due**, most-overdue first, capped per tick.
   On a rolling interval, due means `last_run_at is None` (a never-run scout is maximally overdue) or `now - last_run_at ≥ run_interval_minutes`.
-  On a cron schedule, due means the first slot after the latest of `last_run_at`, the last schedule edit, and the config's creation has passed — so a fresh or re-scheduled cron scout waits for its next slot instead of firing at once.
+  On a cron schedule, due means the first slot after the latest of `last_run_at`, the last schedule edit, and the config's creation has passed, so a fresh or re-scheduled cron scout waits for its next slot instead of firing at once.
   There is no sampling — every due scout runs.
   `last_run_at` advances for everything dispatched.
 - **Run.** Each dispatched scout becomes one sandboxed agent run with a hard budget of 15 minutes; a run still going at the wall is killed and its row marked failed.
@@ -25,7 +25,7 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
 Pausing a scout = `enabled=false`.
 That records `status=paused_by_user`, which automatic lifecycle sweeps never resume or re-pause; `enabled=true` resumes from any pause, including a system-applied one (`status=paused_by_system`, cause in the read-only `pause_reason`).
 Config responses expose `status` and `pause_reason` read-only; writes flow through `enabled`.
-Slowing it = a larger `run_interval_minutes` (or, on a cron scout, a sparser `run_cron_schedule` — the cron wins while it is set).
+Slowing it = a larger `run_interval_minutes` (or, on a cron scout, a sparser `run_cron_schedule`; the cron wins while it is set).
 Dry-running it = `emit=false`.
 Letting it reach sites outside the trusted-domain allowlist = `network_access="full"`.
 All of these via `posthog:scout-config-update` (get the `id` from `-config-list`), or set at creation time in the nested `config` object passed to `posthog:scout-create`.
@@ -91,7 +91,7 @@ Free and instant — refine the body, re-run the queries, repeat, until the logi
 Only once you're happy do you spend a real run.
 `posthog:scout-run-now {"id": <config_id>}` dispatches one run of the scout immediately, regardless of its schedule (get the `id` from `-config-list`) — the **initial real run**, the scout executing end-to-end in the harness.
 An optional `note` steers that run alone (read next to the durable notes, never by a later run; needs `llm_skill:write`), so you can aim the first run at the case you dogfooded.
-The run is **asynchronous** — the call returns a workflow id right away; poll `-runs-list` (pass `skill_name` to scope to this scout) / `-runs-retrieve` for the result.
+The run is **asynchronous**: the call returns a workflow id right away; poll `-runs-list` (pass `skill_name` to scope to this scout) / `-runs-retrieve` for the result.
 A disabled scout can still be run this way (test before enabling), and a manual run doesn't touch the schedule or `last_run_at`.
 It inherits the scheduled path's guards (403 not enabled, 429 over quota / daily run budget, 409 a run already in progress) and draws from the **same daily run budget** as scheduled runs — a dry-run (`emit=false`) counts too.
 There's no free test run, and it's slow (async, one run per call): firing the same scout repeatedly in a short window burns the project's daily allowance (and can starve its scheduled scouts).

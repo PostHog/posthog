@@ -119,7 +119,7 @@ How the flag is produced:
 
 Practical implications for triage:
 
-- A `true` value means "you are a suggested reviewer for this report" — a plausible owner,
+- A `true` value means "you are a suggested reviewer for this report": a plausible owner,
   not an assignee. When the pipeline derived the reviewers, that usually means you wrote (or
   recently touched) the relevant code; when a scout or a person named you by `user_uuid`, it
   means they judged you the owner. It's a recommendation, not authoritative.
@@ -128,7 +128,7 @@ Practical implications for triage:
   GitHub account linked (a reviewer set by `user_uuid` doesn't have this problem), or (c) the
   source material wasn't tied to a specific repo / commits.
 - If the user asks "what should _I_ look at?", lead with `is_suggested_reviewer: true`
-  reports — these are the ones routed to the user as a likely owner. Mention the rest as a
+  reports: these are the ones routed to the user as a likely owner. Mention the rest as a
   secondary group rather than mixing them in.
 - If the user has _no_ suggested reports but the inbox isn't empty, say so explicitly
   ("nothing in the inbox is tied to code you've authored recently") rather than pretending
