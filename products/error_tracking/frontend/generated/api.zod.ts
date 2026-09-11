@@ -1310,6 +1310,40 @@ export const ErrorTrackingSymbolSetsFinishUploadUpdateBody = /* @__PURE__ */ zod
     content_hash: zod.string().describe('Hash of the uploaded symbol set content.'),
 })
 
+/**
+ * Report which of the given symbol sets still need `bulk_start_upload`. Symbol sets already uploaded with identical content are omitted and marked as still in use.
+ */
+export const errorTrackingSymbolSetsBulkCheckUploadCreateBodyForceDefault = false
+export const errorTrackingSymbolSetsBulkCheckUploadCreateBodySkipOnConflictDefault = false
+
+export const ErrorTrackingSymbolSetsBulkCheckUploadCreateBody = /* @__PURE__ */ zod.object({
+    symbol_sets: zod
+        .array(
+            zod.object({
+                chunk_id: zod.string().describe('Symbol set reference to upload.'),
+                release_id: zod
+                    .string()
+                    .nullish()
+                    .describe('Optional error tracking release ID associated with this symbol set.'),
+                content_hash: zod
+                    .string()
+                    .nullish()
+                    .describe('Optional hash of the symbol set content, used to skip unchanged uploads.'),
+            })
+        )
+        .describe(
+            'Symbol sets the client intends to upload, with per-symbol release IDs and content hashes. Send at most 1000 per request.'
+        ),
+    force: zod
+        .boolean()
+        .default(errorTrackingSymbolSetsBulkCheckUploadCreateBodyForceDefault)
+        .describe('Whether to overwrite uploaded symbol sets whose content hash changed.'),
+    skip_on_conflict: zod
+        .boolean()
+        .default(errorTrackingSymbolSetsBulkCheckUploadCreateBodySkipOnConflictDefault)
+        .describe('Whether to skip uploaded symbol sets whose content hash changed instead of failing.'),
+})
+
 export const ErrorTrackingSymbolSetsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
     ids: zod.array(zod.uuid()).describe('Symbol set IDs to delete.'),
 })
@@ -1322,11 +1356,6 @@ export const errorTrackingSymbolSetsBulkStartUploadCreateBodyForceDefault = fals
 export const errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault = false
 
 export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ zod.object({
-    chunk_ids: zod
-        .array(zod.string())
-        .optional()
-        .describe('Legacy list of symbol set references to upload, all associated with `release_id`.'),
-    release_id: zod.string().nullish().describe('Optional error tracking release ID used with `chunk_ids`.'),
     symbol_sets: zod
         .array(
             zod.object({
@@ -1351,4 +1380,9 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
         .boolean()
         .default(errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault)
         .describe('Whether to skip uploaded symbol sets whose content hash changed instead of failing.'),
+    chunk_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Legacy list of symbol set references to upload, all associated with `release_id`.'),
+    release_id: zod.string().nullish().describe('Optional error tracking release ID used with `chunk_ids`.'),
 })

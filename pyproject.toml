@@ -41,7 +41,6 @@ dependencies = [
     "django~=5.2.0",
     "django-axes[ipware]==8.3.1",
     "django-cors-headers~=4.9.0",
-    "django-deprecate-fields==0.2.3",
     "django-extensions~=4.1.0",
     "django-filter~=26.1",
     "django-loginas==0.3.14",
@@ -100,7 +99,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=6.31.1",
-    "posthoganalytics==7.49.0",
+    "posthoganalytics==7.51.2",
     "polars==1.37.1",
     "psycopg2-binary==2.9.11",
     "psycopg[binary]==3.2.10",
@@ -327,6 +326,9 @@ profile = "black"
 
 [tool.ruff]
 line-length = 120
+# Pinned apart from requires-python. Raising it to py314 makes ruff format drop the parentheses
+# in `except (A, B):` (PEP 758) across the repo, and makes UP037 flag every quoted annotation.
+target-version = "py313"
 force-exclude = true
 exclude = [
     ".git",
@@ -356,7 +358,6 @@ ignore = [
     "UP046",  # ~39: generic class → PEP 695 (unsafe)
     "UP047",  # ~37: generic func → PEP 695 (unsafe)
     "UP042",  # ~28: str+Enum → StrEnum (unsafe: changes str()/format() output)
-    "UP037",  # ~2152: quoted annotation (auto-fixable, new at py314)
 ]
 select = [
     "B",

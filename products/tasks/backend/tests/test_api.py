@@ -9460,7 +9460,9 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         self.assertEqual(data_events[-1]["data"]["notification"]["params"]["message"], "late hello")
         self.assertEqual(events[-1]["event"], "stream-end")
 
-    def _make_thin_tail_run_with_backlog(self) -> tuple[Task, TaskRun]:
+    def _make_thin_tail_run_with_backlog(
+        self, tail_event_ids: list[str] | None = None, tail_method: str = "_posthog/live"
+    ) -> tuple[Task, TaskRun]:
         task = self.create_task()
         run = TaskRun.objects.create(
             task=task,
@@ -9485,14 +9487,27 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         ]
         object_storage.write(run.log_url, "\n".join(json.dumps(entry) for entry in backlog).encode("utf-8"))
 
-        async def _write() -> None:
-            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
-            for event in [
+        if tail_event_ids is None:
+            tail = [
                 {"type": "notification", "event_id": "boot1-1", "notification": {"method": "chunk"}},
                 {"type": "notification", "event_id": "boot1-3", "notification": {"method": "_posthog/console"}},
                 {"type": "notification", "event_id": "boot1-4", "notification": {"method": "_posthog/live"}},
                 {"type": "notification", "notification": {"method": "_posthog/unstamped"}},
-            ]:
+            ]
+        else:
+            notification: dict = (
+                {"method": "session/update", "params": {"update": {"sessionUpdate": tail_method}}}
+                if tail_method.startswith("agent_")
+                else {"method": tail_method}
+            )
+            tail = [
+                {"type": "notification", "event_id": event_id, "notification": notification}
+                for event_id in tail_event_ids
+            ]
+
+        async def _write() -> None:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
+            for event in tail:
                 await redis_stream.write_event(event)
             await redis_stream.mark_complete()
 
@@ -9554,6 +9569,26 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
             ["boot1-4", None],
         )
         self.assertEqual(events[-1]["event"], "stream-end")
+
+    @parameterized.expand(
+        [
+            ("overlap", ["boot1-3", "boot1-6"], "_posthog/live", False),
+            ("in_flight_chunks", ["boot1-6", "boot1-7"], "agent_message_chunk", False),
+            ("trimmed_unlogged", ["boot1-6", "boot1-7"], "_posthog/live", True),
+        ]
+    )
+    def test_stream_thin_tail_backlog_gap_counted_only_when_log_lags_trim(
+        self, _name: str, tail_event_ids: list[str], method: str, expect_gap: bool
+    ):
+        task, run = self._make_thin_tail_run_with_backlog(tail_event_ids=tail_event_ids, tail_method=method)
+
+        with patch.object(views_api, "observe_stream_backlog_gap") as observe_gap:
+            response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
+            events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(events[-1]["event"], "stream-end")
+        self.assertEqual(observe_gap.call_count, 1 if expect_gap else 0)
 
     def test_stream_thin_tail_out_of_range_log_cursor_replays_in_full(self):
         task, run = self._make_thin_tail_run_with_backlog()

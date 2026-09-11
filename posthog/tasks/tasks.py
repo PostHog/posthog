@@ -750,15 +750,22 @@ def clickhouse_mutation_count() -> None:
 
 @shared_task(ignore_result=True)
 def clickhouse_clear_removed_data() -> None:
+    from posthog.models.async_deletion.celery_fallback import CELERY_SWEEP_MAX_COHORTS, celery_sweeps_enabled
     from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
 
-    sweep_cohort_deletions()
+    # Also guarded at registration; this covers a stale beat schedule or a hand-run task.
+    if not celery_sweeps_enabled():
+        return
+    sweep_cohort_deletions(max_cohorts=CELERY_SWEEP_MAX_COHORTS)
 
 
 @shared_task(ignore_result=True)
 def clear_clickhouse_deleted_person() -> None:
+    from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
     from posthog.models.async_deletion.delete_person import remove_deleted_person_data
 
+    if not celery_sweeps_enabled():
+        return
     remove_deleted_person_data()
 
 
@@ -1634,6 +1641,8 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
         flush: If True, delete existing cache and rebuild from scratch
         hours_back: Number of hours to look back (default: 14 = 12h schedule + 2h buffer)
     """
+
+    from uuid import UUID
 
     from django.db.models import Count
 

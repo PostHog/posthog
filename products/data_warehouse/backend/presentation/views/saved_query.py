@@ -1449,12 +1449,6 @@ class IncrementalEligibilitySerializer(serializers.Serializer):
     )
 
 
-# Same bound other SQL-accepting endpoints put on caller-supplied queries (see
-# `posthog/api/query_performance_proxy.py`): parsing runs synchronously on an API worker, so the
-# body has to be capped before it reaches the parser.
-CHECK_INCREMENTAL_MAX_QUERY_LENGTH = 64 * 1024
-
-
 class CheckIncrementalThrottle(PersonalApiKeyOrUserRateThrottle):
     """check_incremental parses caller-supplied SQL synchronously on a read scope. The editor calls
     it on a debounce, so a per-caller budget far above typing speed only stops scripted floods of
@@ -1462,6 +1456,11 @@ class CheckIncrementalThrottle(PersonalApiKeyOrUserRateThrottle):
 
     scope = "check_incremental"
     rate = "120/minute"
+
+
+# The check parses synchronously on an API worker. The bound keeps a scripted flood of large bodies
+# from tying up workers while sitting well above any view the editor produces.
+CHECK_INCREMENTAL_MAX_QUERY_LENGTH = 256 * 1024
 
 
 class CheckIncrementalSerializer(serializers.Serializer):
@@ -1682,7 +1681,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             clear_incremental_state(saved_query)
 
         try:
-            materialize_saved_query(saved_query)
+            materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
         except MissingDagNodeError:
             raise exceptions.ValidationError(
                 detail="This view isn't fully set up to materialize. Save the query again, then try syncing."
@@ -1857,7 +1856,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # Enable materialization - this handles model path setup and schedule creation
         # If this fails, it will set is_materialized = False
         try:
-            saved_query.schedule_materialization(trigger_immediate_run=True)
+            saved_query.schedule_materialization(trigger_immediate_run=True, triggered_by_id=request.user.pk)
         except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
             # The check above already refused every cadence the lineage forbids, so reaching here
             # means the lineage moved mid-request. Say so plainly rather than forwarding a message

@@ -366,6 +366,7 @@ class ExperimentQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            end_is_data_horizon=True,
             # High-volume teams' builds OOM even at capped window widths; spilling the
             # GROUP BY to disk degrades gracefully instead of failing the build.
             spill_to_disk=True,
@@ -403,6 +404,7 @@ class ExperimentQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            end_is_data_horizon=True,
             spill_to_disk=True,
         )
 
@@ -920,7 +922,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Extract exposure configuration from actors query
         # Fall back to experiment exposure_criteria if not provided
-        from posthog.schema import ExperimentEventExposureConfig
+        from posthog.schema import ActionsNode, ExperimentEventExposureConfig
 
         exposure_config: ExperimentEventExposureConfig | ActionsNode
         activation_config: ExperimentEventExposureConfig | ActionsNode | None = None

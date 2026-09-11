@@ -377,6 +377,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "autostart_base_branches": "base branch overrides",
         "issue_tracking_integration": "issue tracker",
         "issue_tracking_config": "issue tracker target",
+        "default_open_pull_request_ready": "PRs open as",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -543,6 +544,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "subject_name",
         "subject_status",
         # Subject FKs are immutable after create and not JSON-serializable for the change detail.
+        "metric",
         "saved_query",
         "table",
     ],

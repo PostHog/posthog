@@ -207,7 +207,7 @@ def _strip_host_permissions(settings_path: Path) -> None:
         return
     try:
         settings = json.loads(settings_path.read_text())
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return
     perms = settings.get("permissions")
     if not isinstance(perms, dict):
@@ -230,7 +230,7 @@ def _force_sandbox_claude_defaults(settings_path: Path) -> None:
     """
     try:
         settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         settings = {}
 
     settings["effortLevel"] = "max"

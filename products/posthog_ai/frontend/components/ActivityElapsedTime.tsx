@@ -31,8 +31,7 @@ export function ActivityElapsedTime({
             className="tabular-nums text-muted"
             title="Elapsed time for this activity group, including tools and waiting, not the whole response."
         >
-            · {seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`}{' '}
-            elapsed
+            · {seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`}
         </span>
     )
 }
