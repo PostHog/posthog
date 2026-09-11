@@ -5,12 +5,28 @@ export type FetchImplementation = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+export type ApiRequestMetricRequest = {
+  method: string;
+  path: string;
+};
+
+export type ApiRequestMetricResult = {
+  durationMs: number;
+  outcome: "success" | "http_error" | "network_error";
+  status: number | null;
+};
+
+export type ApiRequestMetricRecorder = (result: ApiRequestMetricResult) => void;
+
 type ApiFetcherConfig = {
   getAccessToken: () => Promise<string>;
   refreshAccessToken: () => Promise<string>;
   appVersion: string;
   fetch?: FetchImplementation;
   userAgent?: string | null;
+  onRequestStart?: (
+    request: ApiRequestMetricRequest,
+  ) => ApiRequestMetricRecorder | undefined;
 };
 
 /**
@@ -112,44 +128,72 @@ export const buildApiFetcher: (
 
   return {
     fetch: async (input) => {
-      let response = await makeRequest(input, await config.getAccessToken());
+      const startedAt = performance.now();
+      const recordRequest = config.onRequestStart?.({
+        method: input.method.toUpperCase(),
+        path: input.path,
+      });
+      let response: Response | undefined;
+      let outcome: ApiRequestMetricResult["outcome"] = "network_error";
 
-      if (!response.ok && (await isAuthFailureResponse(response))) {
-        try {
-          response = await makeRequest(
-            input,
-            await config.refreshAccessToken(),
-          );
-        } catch {
-          const cloned = response.clone();
-          const errorResponse = await response
+      try {
+        response = await makeRequest(input, await config.getAccessToken());
+
+        if (!response.ok && (await isAuthFailureResponse(response))) {
+          try {
+            response = await makeRequest(
+              input,
+              await config.refreshAccessToken(),
+            );
+          } catch {
+            const failedResponse = response;
+            const cloned = failedResponse.clone();
+            const errorResponse = await failedResponse
+              .json()
+              .catch(() =>
+                cloned
+                  .text()
+                  .then((t) => ({ error: t || `${failedResponse.status}` })),
+              );
+            throw new ApiRequestError(
+              failedResponse.status,
+              JSON.stringify(errorResponse),
+              errorResponse,
+            );
+          }
+        }
+
+        if (!response.ok) {
+          const failedResponse = response;
+          const cloned = failedResponse.clone();
+          const errorResponse = await failedResponse
             .json()
             .catch(() =>
-              cloned.text().then((t) => ({ error: t || `${response.status}` })),
+              cloned
+                .text()
+                .then((t) => ({ error: t || `${failedResponse.status}` })),
             );
           throw new ApiRequestError(
-            response.status,
+            failedResponse.status,
             JSON.stringify(errorResponse),
             errorResponse,
           );
         }
-      }
 
-      if (!response.ok) {
-        const cloned = response.clone();
-        const errorResponse = await response
-          .json()
-          .catch(() =>
-            cloned.text().then((t) => ({ error: t || `${response.status}` })),
-          );
-        throw new ApiRequestError(
-          response.status,
-          JSON.stringify(errorResponse),
-          errorResponse,
-        );
+        outcome = "success";
+        return response;
+      } catch (error) {
+        if (response) {
+          outcome = "http_error";
+        }
+        throw error;
+      } finally {
+        recordRequest?.({
+          durationMs: performance.now() - startedAt,
+          outcome,
+          status: response?.status ?? null,
+        });
       }
-
-      return response;
     },
   };
 };

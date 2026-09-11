@@ -252,6 +252,37 @@ describe("recordNavigationSettled", () => {
   });
 });
 
+describe("recordApiRequest", () => {
+  it("records duration by route with a normalized API operation", async () => {
+    const { initializePostHog, recordApiRequest } = await loadAnalytics();
+    initializePostHog();
+
+    recordApiRequest(
+      125,
+      "/tasks/$taskId",
+      "GET",
+      "/api/projects/2/tasks/0190abcd-1234-7890-8abc-def012345678/",
+      200,
+      "success",
+    );
+
+    expect(mockPosthog.metrics.histogram).toHaveBeenCalledWith(
+      "desktop.api.request.duration",
+      125,
+      {
+        unit: "ms",
+        attributes: {
+          method: "GET",
+          operation: "/api/projects/$id/tasks/$id/",
+          outcome: "success",
+          route: "/tasks/$taskId",
+          status_class: "2xx",
+        },
+      },
+    );
+  });
+});
+
 describe("initializePostHog", () => {
   it("is idempotent across repeat calls", async () => {
     const { initializePostHog } = await loadAnalytics();

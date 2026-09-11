@@ -357,6 +357,41 @@ export function recordNavigationSettled(
   });
 }
 
+export function recordApiRequest(
+  durationMs: number,
+  route: string,
+  method: string,
+  path: string,
+  status: number | null,
+  outcome: "success" | "http_error" | "network_error",
+): void {
+  if (!isInitialized) {
+    return;
+  }
+
+  posthog.metrics.histogram("desktop.api.request.duration", durationMs, {
+    unit: "ms",
+    attributes: {
+      method,
+      operation: normalizeApiOperation(path),
+      outcome,
+      route,
+      status_class: status === null ? "none" : `${Math.floor(status / 100)}xx`,
+    },
+  });
+}
+
+function normalizeApiOperation(path: string): string {
+  return path
+    .split("?", 1)[0]
+    .replace(/\/[0-9]+(?=\/|$)/g, "/$id")
+    .replace(
+      /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\/|$)/gi,
+      "/$id",
+    )
+    .replace(/\/[A-Za-z0-9-]{16,}(?=\/|$)/g, "/$id");
+}
+
 /**
  * Record a survey response via posthog-js's `survey sent` event. Pass one entry
  * per answered question; they're submitted together as a single response. The

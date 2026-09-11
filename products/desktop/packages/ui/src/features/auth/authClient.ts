@@ -3,6 +3,8 @@ import type { AuthState } from "@posthog/core/auth/schemas";
 import type { HostTrpcClient } from "@posthog/host-router/client";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import { getCloudUrlFromRegion, NotAuthenticatedError } from "@posthog/shared";
+import { getRouterOrNull } from "@posthog/ui/router/routerRef";
+import { recordApiRequest } from "@posthog/ui/shell/posthogAnalyticsImpl";
 import { useMemo } from "react";
 import { useAuthStateValue } from "./store";
 
@@ -20,6 +22,7 @@ export function createAuthenticatedClient(
     getValidAccessToken,
     refreshAccessToken,
     authState.currentProjectId ?? undefined,
+    { onRequestStart: recordApiRequestStart },
   );
 
   if (authState.currentProjectId) {
@@ -27,6 +30,28 @@ export function createAuthenticatedClient(
   }
 
   return client;
+}
+
+function recordApiRequestStart({
+  method,
+  path,
+}: {
+  method: string;
+  path: string;
+}) {
+  const route = getRouterOrNull()?.state.matches.at(-1)?.routeId ?? "unknown";
+
+  return ({
+    durationMs,
+    status,
+    outcome,
+  }: {
+    durationMs: number;
+    status: number | null;
+    outcome: "success" | "http_error" | "network_error";
+  }) => {
+    recordApiRequest(durationMs, route, method, path, status, outcome);
+  };
 }
 
 function tokenAccessors(hostClient: HostTrpcClient) {
