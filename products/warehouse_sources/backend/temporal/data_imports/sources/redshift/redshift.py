@@ -801,6 +801,10 @@ class QualifiedRelation:
     name: str
 
 
+# (incremental field, comparison operator, last synced value) — the rows a run is about to read.
+type IncrementalProbeWindow = tuple[str, str, str | int | float | None]
+
+
 @frozen
 class RedshiftTableSetup:
     """Everything `build_pipeline` learns about a table before it can stream rows."""
@@ -1268,6 +1272,43 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             logger.warning(_no_primary_key_warning(cursor, schema, table_name, table_type))
         return None
 
+    @staticmethod
+    def _duplicate_primary_keys_query(
+        schema: str,
+        table_name: str,
+        primary_keys: list[str],
+        incremental_window: Optional[IncrementalProbeWindow],
+        row_filters: Optional[list[ValidatedRowFilter]],
+    ) -> sql.Composed:
+        table = sql.Identifier(schema, table_name)
+        filter_conditions = render_psycopg_row_filter_conditions(row_filters or [])
+        key_columns = [sql.Identifier(key) for key in primary_keys]
+
+        conditions = list(filter_conditions)
+        if incremental_window is not None:
+            field, operator, last_value = incremental_window
+            # The candidate set is this run's rows; the count below spans the whole table.
+            candidates = sql.SQL("SELECT DISTINCT {cols} FROM {table} WHERE {field} {op} {value}").format(
+                cols=sql.SQL(", ").join(key_columns),
+                table=table,
+                field=sql.Identifier(field),
+                op=sql.SQL(operator),
+                value=sql.Literal(last_value),
+            )
+            if filter_conditions:
+                candidates = candidates + sql.SQL(" AND ") + and_join(filter_conditions)
+            conditions.append(
+                sql.SQL("({cols}) IN ({candidates})").format(
+                    cols=sql.SQL(", ").join(key_columns), candidates=candidates
+                )
+            )
+
+        query = sql.SQL("SELECT {cols} FROM {table}").format(cols=sql.SQL(", ").join(key_columns), table=table)
+        if conditions:
+            query = query + sql.SQL(" WHERE ") + and_join(conditions)
+        group_by = sql.SQL(", ").join(sql.SQL(str(i + 1)) for i, _ in enumerate(primary_keys))
+        return query + sql.SQL(" GROUP BY {group} HAVING COUNT(*) > 1 LIMIT 1").format(group=group_by)
+
     def has_duplicate_primary_keys(
         self,
         cursor: psycopg.Cursor,
@@ -1275,35 +1316,23 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         table_name: str,
         primary_keys: list[str] | None,
         logger: FilteringBoundLogger,
-        incremental_window: Optional[tuple[str, str, Any]] = None,
-    ) -> bool:
-        """Whether the key repeats. `incremental_window` narrows the scan to the rows this run
-        reads, as (field, operator, last value), which is the set a merge has to tell apart."""
+        incremental_window: Optional[IncrementalProbeWindow] = None,
+        row_filters: Optional[list[ValidatedRowFilter]] = None,
+    ) -> bool | None:
+        """Whether the key repeats. None when the check could not run, which is not the same as
+        proving the key unique.
+
+        `incremental_window` narrows which keys are examined to the ones this run reads, but each
+        of those keys is still counted across the whole table: a row that repeats a key synced by
+        an earlier run is exactly the case a merge cannot resolve. Row filters are applied on both
+        sides, because a key only has to be unique among the rows extraction actually reads.
+        """
         if not primary_keys or len(primary_keys) == 0:
             return False
 
         try:
-            sql_query = cast(
-                LiteralString,
-                f"""
-                SELECT {", ".join(["{}" for _ in primary_keys])}
-                FROM {{}}.{{}}
-                {"WHERE {} " + incremental_window[1] + " {}" if incremental_window else ""}
-                GROUP BY {", ".join([str(i + 1) for i, _ in enumerate(primary_keys)])}
-                HAVING COUNT(*) > 1
-                LIMIT 1
-            """,
-            )
-            window_args = (
-                [sql.Identifier(incremental_window[0]), sql.Literal(incremental_window[2])]
-                if incremental_window
-                else []
-            )
-            query = sql.SQL(sql_query).format(
-                *[sql.Identifier(key) for key in primary_keys],
-                sql.Identifier(schema),
-                sql.Identifier(table_name),
-                *window_args,
+            query = self._duplicate_primary_keys_query(
+                schema, table_name, primary_keys, incremental_window, row_filters
             )
             _explain_query(cursor, query, logger)
             logger.debug(f"Running query: {query.as_string()}")
@@ -1327,9 +1356,9 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             # to error tracking. Mirrors the graceful-skip probes elsewhere in this driver.
             if "system requested abort" in str(e):
                 logger.debug(f"has_duplicate_primary_keys: query aborted by Redshift, skipping check: {e}")
-                return False
+                return None
             capture_exception(e)
-            return False
+            return None
 
     def get_table_metadata(
         self,
@@ -1663,10 +1692,17 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         # key here is unique until this proves it.
                         if should_probe_for_duplicates(primary_keys, declared_keys, constraints_enforced=False):
                             assert primary_keys is not None
-                            full_probe = needs_full_probe(primary_keys, inputs.verified_primary_keys)
-                            window = (
+                            # A run with no stored cursor re-reads the whole table (a reset, or the
+                            # first sync), so a window would describe rows the run is not limited to.
+                            full_probe = (
+                                needs_full_probe(primary_keys, inputs.verified_primary_keys)
+                                or not should_use_incremental_field
+                                or incremental_field is None
+                                or db_incremental_field_last_value is None
+                            )
+                            window: IncrementalProbeWindow | None = (
                                 None
-                                if full_probe or not should_use_incremental_field or incremental_field is None
+                                if full_probe or incremental_field is None
                                 else (
                                     incremental_field,
                                     incremental_type_to_operator(incremental_field_type)
@@ -1677,8 +1713,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                             )
                             logger.debug(f"Checking duplicate primary keys (full_probe={full_probe})...")
                             try:
-                                duplicate_primary_keys = self.has_duplicate_primary_keys(
-                                    cursor, schema, table_name, primary_keys, logger, incremental_window=window
+                                probed = self.has_duplicate_primary_keys(
+                                    cursor,
+                                    schema,
+                                    table_name,
+                                    primary_keys,
+                                    logger,
+                                    incremental_window=window,
+                                    row_filters=row_filters,
                                 )
                             except psycopg.errors.QueryCanceled:
                                 # A full scan of a large table can outlive the statement timeout.
@@ -1689,7 +1731,9 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                                     "the key stays unverified"
                                 )
                             else:
-                                if full_probe and not duplicate_primary_keys:
+                                duplicate_primary_keys = probed is True
+                                # Only a check that ran proves anything.
+                                if full_probe and probed is False:
                                     verified_primary_keys = primary_keys
                     except psycopg.errors.QueryCanceled:
                         if should_use_incremental_field:
