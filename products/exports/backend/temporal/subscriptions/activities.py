@@ -238,7 +238,7 @@ def _reconcile_expired_subscription_claim(
 
 def _reconcile_expired_subscription_claims(
     expired_claims: list[tuple[uuid.UUID, uuid.UUID, str, dt.datetime]],
-    statuses: list[_WorkflowClaimStatus | None],
+    statuses: typing.Sequence[_WorkflowClaimStatus | None],
     *,
     pruned: int,
     recovery_deadline: float,
