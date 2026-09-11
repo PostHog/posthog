@@ -37,6 +37,7 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
     _load_detector_evaluation_ids,
     _load_evaluation_target,
     _period_for_scheduled_report,
+    _resolve_scheduler_region,
     _update_next_delivery_date,
     prepare_report_context_activity,
     run_eval_report_agent_activity,
@@ -603,6 +604,29 @@ async def test_prepare_activity_reads_detector_polarity_from_evaluation(team, us
     context = await prepare_report_context_activity(PrepareReportContextInput(report_id=str(report.id)))
 
     assert context.true_is_failure is True
+
+
+class TestEvalReportSchedulerRegion(SimpleTestCase):
+    def test_empty_region_uses_the_configured_deployment(self):
+        with self.settings(CLOUD_DEPLOYMENT="EU"):
+            assert _resolve_scheduler_region("") == "eu"
+
+    def test_mismatched_region_is_rejected(self):
+        with self.settings(CLOUD_DEPLOYMENT="EU"):
+            with self.assertRaisesRegex(ValueError, "does not match configured deployment region"):
+                _resolve_scheduler_region("us")
+
+    def test_cursor_acknowledgement_rejects_a_mismatched_region(self):
+        with self.settings(CLOUD_DEPLOYMENT="EU"):
+            with self.assertRaisesRegex(ValueError, "does not match configured deployment region"):
+                _ack_eval_report_cursor_rows(
+                    AckEvalReportCursorRowsInput(
+                        trigger_type="count_triggered",
+                        region="us",
+                        cursor_before="",
+                        report_rows=[("00000000-0000-0000-0000-000000000000", 1)],
+                    )
+                )
 
 
 class TestCountTriggeredReportChecks(BaseTest):

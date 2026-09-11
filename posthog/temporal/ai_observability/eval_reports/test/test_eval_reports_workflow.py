@@ -30,6 +30,8 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME,
     COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
     COUNT_TRIGGER_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT,
+    COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT,
+    COUNT_TRIGGER_DISCOVERY_SCHEDULE_TO_CLOSE_TIMEOUT,
     COUNT_TRIGGER_MAX_CONCURRENT_CHECKS,
     FETCH_ACTIVITY_TIMEOUT,
     FETCH_RETRY_POLICY,
@@ -219,8 +221,10 @@ async def test_scheduled_coordinator_acknowledges_cursor_after_child_starts() ->
 async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() -> None:
     events: list[str] = []
 
-    async def fake_execute_activity(activity, _inputs, **_kwargs):
+    async def fake_execute_activity(activity, _inputs, **kwargs):
         if activity is fetch_count_triggered_eval_report_candidates_activity:
+            assert kwargs["start_to_close_timeout"] == COUNT_TRIGGER_DISCOVERY_SCHEDULE_TO_CLOSE_TIMEOUT
+            assert kwargs["schedule_to_close_timeout"] == COUNT_TRIGGER_DISCOVERY_SCHEDULE_TO_CLOSE_TIMEOUT
             return FetchDueEvalReportsOutput(
                 report_ids=["report-a"],
                 report_id_groups=[["report-a"]],
@@ -246,6 +250,7 @@ async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() ->
             region="eu",
             cursor_before="41",
             team_by_report_id={"report-a": 42},
+            activity_schedule_to_close_timeout=COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT,
         )
         events.append("start")
         return _DueReportCandidates(["report-a"], {"report-a": "count-window"})
@@ -1035,6 +1040,8 @@ async def test_batched_count_check_acknowledges_each_window_before_checking_the_
                 ]
             )
         if activity is ack_eval_report_cursor_rows_activity:
+            assert kwargs["start_to_close_timeout"] == COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT
+            assert kwargs["schedule_to_close_timeout"] == COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT
             events.append(f"ack:{inputs.report_rows[0][0]}")
             acknowledged_inputs.append(inputs)
             return True
@@ -1064,6 +1071,7 @@ async def test_batched_count_check_acknowledges_each_window_before_checking_the_
                 region="eu",
                 cursor_before="41",
                 team_by_report_id={"due-a": 42, "due-b": 43},
+                activity_schedule_to_close_timeout=COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT,
             ),
         )
 

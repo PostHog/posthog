@@ -7,6 +7,7 @@ from temporalio.client import ScheduleActionStartWorkflow, ScheduleOverlapPolicy
 
 from posthog.temporal.ai_observability.eval_reports.constants import (
     COUNT_TRIGGERED_COORDINATOR_EXECUTION_TIMEOUT,
+    COUNT_TRIGGERED_COORDINATOR_PHASE_BUDGET,
     SCHEDULED_COORDINATOR_EXECUTION_TIMEOUT,
 )
 from posthog.temporal.ai_observability.eval_reports.schedule import (
@@ -23,6 +24,10 @@ from posthog.temporal.ai_observability.eval_reports.types import (
 def test_count_triggered_report_cap_reserves_temporal_pending_child_headroom() -> None:
     assert DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN <= MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN
     assert MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN < 2_000
+
+
+def test_count_triggered_coordinator_reserves_time_after_each_check_window() -> None:
+    assert COUNT_TRIGGERED_COORDINATOR_PHASE_BUDGET < COUNT_TRIGGERED_COORDINATOR_EXECUTION_TIMEOUT
 
 
 @pytest.mark.asyncio

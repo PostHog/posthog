@@ -27,6 +27,7 @@ COUNT_TRIGGERED_COORDINATOR_EXECUTION_TIMEOUT = timedelta(minutes=4)
 
 # Activity timeouts
 FETCH_ACTIVITY_TIMEOUT = timedelta(seconds=60)
+COUNT_TRIGGER_DISCOVERY_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=20)
 COUNT_TRIGGER_CHECK_BATCH_SIZE = 5
 # Max number of per-report countIf columns in a single ClickHouse count query. Candidates
 # are grouped one team per group at this width, so one check activity runs exactly one query,
@@ -67,6 +68,17 @@ AGENT_ACTIVITY_TIMEOUT = timedelta(seconds=660)  # 11 minutes (agent timeout + b
 STORE_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 DELIVER_ACTIVITY_TIMEOUT = timedelta(seconds=120)
 UPDATE_SCHEDULE_ACTIVITY_TIMEOUT = timedelta(seconds=30)
+COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=10)
+# One completed check window can start at most 100 report children (five groups of 20),
+# which is one REPORT_START_BATCH_SIZE activation. Reserve an explicit slice for that
+# acceptance round plus workflow-task overhead before cursor acknowledgement.
+COUNT_TRIGGER_DISPATCH_HEADROOM = timedelta(seconds=20)
+COUNT_TRIGGERED_COORDINATOR_PHASE_BUDGET = (
+    COUNT_TRIGGER_DISCOVERY_SCHEDULE_TO_CLOSE_TIMEOUT
+    + COUNT_TRIGGER_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT
+    + COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT
+    + COUNT_TRIGGER_DISPATCH_HEADROOM
+)
 
 # Heartbeat timeouts
 AGENT_HEARTBEAT_TIMEOUT = timedelta(seconds=120)

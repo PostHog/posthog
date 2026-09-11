@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.db import connection, transaction
 from django.db.models import Q, QuerySet
 
@@ -197,7 +198,7 @@ async def fetch_due_eval_reports_activity(
     """Return a list of time-based evaluation report IDs that are due for delivery."""
     from posthog.temporal.ai_observability.eval_reports.types import MAX_SCHEDULED_EVAL_REPORTS_PER_RUN
 
-    _validate_discovery_inputs(inputs.max_reports_per_run, MAX_SCHEDULED_EVAL_REPORTS_PER_RUN, inputs.region)
+    region = _validate_discovery_inputs(inputs.max_reports_per_run, MAX_SCHEDULED_EVAL_REPORTS_PER_RUN, inputs.region)
     if not 0 <= inputs.buffer_minutes <= 60:
         raise ValueError("buffer_minutes must be between 0 and 60")
     now_with_buffer = dt.datetime.now(tz=dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
@@ -220,7 +221,7 @@ async def fetch_due_eval_reports_activity(
         return _fetch_eval_report_candidate_page(
             due_reports,
             scheduler=_SCHEDULED_EVAL_REPORTS_SCHEDULER,
-            region=inputs.region,
+            region=region,
             max_reports_per_run=inputs.max_reports_per_run,
             candidate_sql=_SCHEDULED_REPORT_CANDIDATE_SQL,
             candidate_sql_params=[now_with_buffer],
@@ -250,7 +251,7 @@ async def fetch_due_eval_reports_activity(
     record_scheduler_metrics_safely(
         lambda: DEFAULT_SCHEDULER_METRICS.observe_payload(
             _SCHEDULED_EVAL_REPORTS_SCHEDULER,
-            inputs.region,
+            region,
             "discovery",
             selection.encoded_size_bytes,
         )
@@ -258,7 +259,7 @@ async def fetch_due_eval_reports_activity(
     record_scheduler_metrics_safely(
         lambda: DEFAULT_SCHEDULER_METRICS.set_backlog(
             _SCHEDULED_EVAL_REPORTS_SCHEDULER,
-            inputs.region,
+            region,
             candidates.items_lower_bound,
             oldest_age_seconds,
         )
@@ -271,7 +272,7 @@ async def fetch_due_eval_reports_activity(
         payload_bytes=selection.encoded_size_bytes,
         limited_by=limited_by,
         cursor_before=candidates.team_cursor,
-        region=inputs.region,
+        region=region,
     )
     from posthog.temporal.ai_observability.eval_reports.metrics import record_coordinator_reports_found
 
@@ -300,7 +301,9 @@ async def fetch_count_triggered_eval_report_candidates_activity(
 
     from posthog.temporal.ai_observability.eval_reports.types import MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN
 
-    _validate_discovery_inputs(inputs.max_reports_per_run, MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN, inputs.region)
+    region = _validate_discovery_inputs(
+        inputs.max_reports_per_run, MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN, inputs.region
+    )
 
     @database_sync_to_async(thread_sensitive=False)
     def get_report_candidates() -> _EvalReportCandidatePage:
@@ -317,7 +320,7 @@ async def fetch_count_triggered_eval_report_candidates_activity(
         return _fetch_eval_report_candidate_page(
             reports,
             scheduler=_COUNT_TRIGGERED_EVAL_REPORTS_SCHEDULER,
-            region=inputs.region,
+            region=region,
             max_reports_per_run=inputs.max_reports_per_run,
             candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
             rotate_item_cursor=True,
@@ -339,7 +342,7 @@ async def fetch_count_triggered_eval_report_candidates_activity(
     record_scheduler_metrics_safely(
         lambda: DEFAULT_SCHEDULER_METRICS.observe_payload(
             _COUNT_TRIGGERED_EVAL_REPORTS_SCHEDULER,
-            inputs.region,
+            region,
             "discovery",
             selection.encoded_size_bytes,
         )
@@ -350,7 +353,7 @@ async def fetch_count_triggered_eval_report_candidates_activity(
         candidates_lower_bound=candidates.items_lower_bound,
         payload_bytes=selection.encoded_size_bytes,
         limited_by=limited_by,
-        region=inputs.region,
+        region=region,
     )
     from posthog.temporal.ai_observability.eval_reports.metrics import (
         record_coordinator_candidate_inventory,
@@ -362,7 +365,7 @@ async def fetch_count_triggered_eval_report_candidates_activity(
         lambda: record_coordinator_candidate_inventory(
             candidates.items_lower_bound,
             "count_triggered",
-            inputs.region,
+            region,
             saturated=candidates.items_lower_bound > len(report_ids),
         )
     )
@@ -377,11 +380,22 @@ async def fetch_count_triggered_eval_report_candidates_activity(
     )
 
 
-def _validate_discovery_inputs(max_reports_per_run: int, hard_maximum: int, region: str) -> None:
+def _resolve_scheduler_region(region: str) -> str:
+    configured_region = (settings.CLOUD_DEPLOYMENT or "").lower()
+    resolved_region = region or configured_region or "local"
+    if not resolved_region.strip() or len(resolved_region) > 32:
+        raise ValueError("region must contain between 1 and 32 characters")
+    if configured_region and resolved_region != configured_region:
+        raise ValueError(
+            f"region {resolved_region!r} does not match configured deployment region {configured_region!r}"
+        )
+    return resolved_region
+
+
+def _validate_discovery_inputs(max_reports_per_run: int, hard_maximum: int, region: str) -> str:
     if not 1 <= max_reports_per_run <= hard_maximum:
         raise ValueError(f"max_reports_per_run must be between 1 and {hard_maximum}")
-    if not region.strip() or len(region) > 32:
-        raise ValueError("region must contain between 1 and 32 characters")
+    return _resolve_scheduler_region(region)
 
 
 def _effective_limit(payload_limit: str, items_lower_bound: int, selected_count: int) -> str:
@@ -651,6 +665,8 @@ def _advance_eval_report_cursors(
 async def ack_eval_report_cursors_activity(inputs: AckEvalReportCursorsInput) -> bool:
     """Advance discovery only after the coordinator has durably received and processed a page."""
 
+    region = _resolve_scheduler_region(inputs.region)
+
     if inputs.trigger_type == "scheduled":
         scheduler = _SCHEDULED_EVAL_REPORTS_SCHEDULER
         rotate_item_cursor = True
@@ -679,7 +695,7 @@ async def ack_eval_report_cursors_activity(inputs: AckEvalReportCursorsInput) ->
             _EvalReportCandidatePage([], 0, None, inputs.cursor_before, {}),
             selected_rows,
             scheduler=scheduler,
-            region=inputs.region,
+            region=region,
             rotate_item_cursor=rotate_item_cursor,
         )
 
@@ -687,6 +703,7 @@ async def ack_eval_report_cursors_activity(inputs: AckEvalReportCursorsInput) ->
 
 
 def _ack_eval_report_cursor_rows(inputs: AckEvalReportCursorRowsInput) -> bool:
+    region = _resolve_scheduler_region(inputs.region)
     if inputs.trigger_type == "scheduled":
         scheduler = _SCHEDULED_EVAL_REPORTS_SCHEDULER
     elif inputs.trigger_type == "count_triggered":
@@ -698,7 +715,7 @@ def _ack_eval_report_cursor_rows(inputs: AckEvalReportCursorRowsInput) -> bool:
         _EvalReportCandidatePage([], 0, None, inputs.cursor_before, {}),
         inputs.report_rows,
         scheduler=scheduler,
-        region=inputs.region,
+        region=region,
         rotate_item_cursor=True,
     )
 

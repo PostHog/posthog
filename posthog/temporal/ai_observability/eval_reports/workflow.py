@@ -35,6 +35,8 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
     COUNT_TRIGGER_CHECK_BATCH_SIZE,
     COUNT_TRIGGER_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT,
+    COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT,
+    COUNT_TRIGGER_DISCOVERY_SCHEDULE_TO_CLOSE_TIMEOUT,
     COUNT_TRIGGER_MAX_CONCURRENT_CHECKS,
     DELIVER_ACTIVITY_TIMEOUT,
     DELIVER_HEARTBEAT_TIMEOUT,
@@ -87,6 +89,7 @@ class _IncrementalCursorAck(NamedTuple):
     cursor_before: str
     team_by_report_id: dict[str, int]
     use_snapshot_activity: bool = True
+    activity_schedule_to_close_timeout: timedelta | None = None
 
 
 class _CountCheckWindowResult(NamedTuple):
@@ -208,11 +211,18 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: CheckCountTriggeredReportsWorkflowInputs) -> None:
+        bounded_phase_timeouts = temporalio.workflow.patched("eval-report-count-phase-budgets-2026-09")
+        discovery_options: dict[str, Any] = {
+            "start_to_close_timeout": FETCH_ACTIVITY_TIMEOUT,
+            "retry_policy": FETCH_RETRY_POLICY,
+        }
+        if bounded_phase_timeouts:
+            discovery_options["start_to_close_timeout"] = COUNT_TRIGGER_DISCOVERY_SCHEDULE_TO_CLOSE_TIMEOUT
+            discovery_options["schedule_to_close_timeout"] = COUNT_TRIGGER_DISCOVERY_SCHEDULE_TO_CLOSE_TIMEOUT
         result = await temporalio.workflow.execute_activity(
             fetch_count_triggered_eval_report_candidates_activity,
             inputs,
-            start_to_close_timeout=FETCH_ACTIVITY_TIMEOUT,
-            retry_policy=FETCH_RETRY_POLICY,
+            **discovery_options,
         )
         # Batched path: one check activity per team-group, each sharing one ClickHouse
         # count query, instead of one activity per report. Gated on the fetch output so
@@ -238,6 +248,9 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
                     cursor_before=result.cursor_before,
                     team_by_report_id=result.team_by_report_id,
                     use_snapshot_activity=temporalio.workflow.patched("eval-report-cursor-ack-snapshot-2026-09"),
+                    activity_schedule_to_close_timeout=(
+                        COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT if bounded_phase_timeouts else None
+                    ),
                 )
             due_reports = await _check_count_triggered_eval_report_candidates_batched(
                 result.report_id_groups or [],
@@ -258,7 +271,14 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
             )
 
         if incremental_ack is None:
-            await _ack_eval_report_cursors(result, "count_triggered", inputs.region)
+            await _ack_eval_report_cursors(
+                result,
+                "count_triggered",
+                inputs.region,
+                activity_schedule_to_close_timeout=(
+                    COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT if bounded_phase_timeouts else None
+                ),
+            )
 
 
 async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -> _DueReportCandidates:
@@ -366,6 +386,7 @@ async def _check_count_triggered_eval_report_candidates_batched(
                 incremental_ack.cursor_before,
                 team_by_report_id=incremental_ack.team_by_report_id,
                 use_snapshot_activity=incremental_ack.use_snapshot_activity,
+                activity_schedule_to_close_timeout=incremental_ack.activity_schedule_to_close_timeout,
             )
             if not advanced:
                 break
@@ -512,6 +533,7 @@ async def _ack_eval_report_cursors(
     result: FetchDueEvalReportsOutput,
     trigger_type: str,
     region: str,
+    activity_schedule_to_close_timeout: timedelta | None = None,
 ) -> None:
     if result.cursor_before is None or not result.report_ids:
         return
@@ -521,6 +543,7 @@ async def _ack_eval_report_cursors(
         trigger_type,
         region,
         result.cursor_before,
+        activity_schedule_to_close_timeout=activity_schedule_to_close_timeout,
     )
 
 
@@ -532,7 +555,15 @@ async def _ack_eval_report_ids(
     *,
     team_by_report_id: dict[str, int] | None = None,
     use_snapshot_activity: bool = False,
+    activity_schedule_to_close_timeout: timedelta | None = None,
 ) -> bool:
+    activity_options: dict[str, Any] = {
+        "start_to_close_timeout": UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
+        "retry_policy": UPDATE_SCHEDULE_RETRY_POLICY,
+    }
+    if activity_schedule_to_close_timeout is not None:
+        activity_options["start_to_close_timeout"] = activity_schedule_to_close_timeout
+        activity_options["schedule_to_close_timeout"] = activity_schedule_to_close_timeout
     if use_snapshot_activity:
         if team_by_report_id is None:
             raise ValueError("team_by_report_id is required for snapshot cursor acknowledgement")
@@ -544,8 +575,7 @@ async def _ack_eval_report_ids(
                 cursor_before=cursor_before,
                 report_rows=[(report_id, team_by_report_id[report_id]) for report_id in report_ids],
             ),
-            start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
-            retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
+            **activity_options,
         )
     else:
         advanced = await temporalio.workflow.execute_activity(
@@ -556,8 +586,7 @@ async def _ack_eval_report_ids(
                 cursor_before=cursor_before,
                 report_ids=report_ids,
             ),
-            start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
-            retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
+            **activity_options,
         )
     if not advanced:
         temporalio.workflow.logger.warning(
