@@ -150,6 +150,19 @@ class TestMetronomeResources:
         assert resource["endpoint"]["json"] == expected_body
         assert resource["endpoint"]["params"] == {"limit": 100}
 
+    @parameterized.expand([("usage",), ("usage_daily",), ("usage_hourly",)])
+    def test_usage_endpoints_page_by_cursor_and_send_no_page_size(self, endpoint) -> None:
+        # `POST /v1/usage` takes `next_page` in the query string but accepts no `limit`, and it
+        # rejects the whole request when `limit` is present. Answering that by dropping the cursor
+        # instead of the page size would import the first page and report success.
+        resource = cast(
+            dict[str, Any],
+            get_resource(endpoint, should_use_incremental_field=False, window_starting_on=EPOCH_RFC_3339),
+        )
+
+        assert resource["endpoint"]["params"] == {}
+        assert isinstance(resource["endpoint"]["paginator"], MetronomeCursorPaginator)
+
     @parameterized.expand([("invoices",), ("contracts",)])
     def test_get_resource_rejects_fanout_endpoints(self, endpoint) -> None:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
