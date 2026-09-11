@@ -10,7 +10,7 @@ import {
     type WarmTaskRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { taskWarmLogic } from './taskWarmLogic'
+import { taskWarmLogic, type WarmSubmission } from './taskWarmLogic'
 
 const WARM_REQUEST: WarmTaskRequestApi = {
     repository: 'posthog/posthog',
@@ -82,12 +82,13 @@ describe('taskWarmLogic', () => {
 
             jest.useFakeTimers()
             logic.actions.noteDraft(false, WARM_REQUEST)
-            logic.actions.prepareSubmit()
+            const submission: WarmSubmission = { projectId: '997', lease: null }
+            logic.actions.prepareSubmit(submission)
             await jest.advanceTimersByTimeAsync(5000)
             jest.useRealTimers()
             expect(cancelledRuns).toEqual([])
 
-            logic.actions.consumeWarm(runId)
+            logic.actions.consumeWarm(submission, runId)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.warmLease).toBeNull()
@@ -104,8 +105,9 @@ describe('taskWarmLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(warmCalls).toBe(1)
 
-        logic.actions.prepareSubmit()
-        logic.actions.consumeWarm('warm-run-1')
+        const submission: WarmSubmission = { projectId: '997', lease: null }
+        logic.actions.prepareSubmit(submission)
+        logic.actions.consumeWarm(submission, 'warm-run-1')
         await expectLogic(logic).toFinishAllListeners()
 
         jest.useFakeTimers()
@@ -362,7 +364,8 @@ describe('taskWarmLogic', () => {
 
         logic.actions.prewarm(WARM_REQUEST)
         await started
-        logic.actions.prepareSubmit()
+        const submission: WarmSubmission = { projectId: '997', lease: null }
+        logic.actions.prepareSubmit(submission)
         if (warmFirst) {
             resolveHeldWarm()
             await expectLogic(logic).toFinishAllListeners()
@@ -370,7 +373,7 @@ describe('taskWarmLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(cancelledRuns).toEqual([])
         }
-        logic.actions.consumeWarm(runId)
+        logic.actions.consumeWarm(submission, runId)
 
         resolveHeldWarm()
         await expectLogic(logic).toFinishAllListeners()
@@ -379,6 +382,48 @@ describe('taskWarmLogic', () => {
         expect(cancelledRuns).toEqual(runId === 'warm-run-1' ? [] : ['warm-run-1'])
         expect(cancelBodies).toEqual(runId === 'warm-run-1' ? [] : [{ only_if_awaiting_first_message: true }])
     })
+
+    it.each([false, true])(
+        'preserves an earlier warm that a later submission may use (in flight: %s)',
+        async (inFlight) => {
+            let finishWarm!: () => void
+            let warmStarted!: () => void
+            const started = new Promise<void>((resolve) => {
+                warmStarted = resolve
+            })
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/warm/': async () => {
+                        await new Promise<void>((resolve) => {
+                            finishWarm = resolve
+                            warmStarted()
+                        })
+                        return [200, { task_id: 'warm-task-1', run_id: 'warm-run-1' }]
+                    },
+                },
+            })
+
+            logic.actions.prewarm(WARM_REQUEST)
+            await started
+            if (!inFlight) {
+                finishWarm()
+                await expectLogic(logic).toFinishAllListeners()
+            }
+            const first: WarmSubmission = { projectId: '997', lease: null }
+            const second: WarmSubmission = { projectId: '997', lease: null }
+            logic.actions.prepareSubmit(first)
+            logic.actions.prepareSubmit(second)
+            logic.actions.consumeWarm(first, 'cold-run')
+            finishWarm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(cancelledRuns).toEqual([])
+            logic.actions.consumeWarm(second, 'warm-run-1')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(cancelledRuns).toEqual([])
+            expect(logic.values.warmLease).toBeNull()
+        }
+    )
 
     it.each([false, true])('releases a warm when the composer unmounts (in flight: %s)', async (inFlight) => {
         let finishWarm!: () => void

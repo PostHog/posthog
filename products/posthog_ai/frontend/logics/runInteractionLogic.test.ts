@@ -1565,4 +1565,109 @@ describe('runInteractionLogic', () => {
         expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
         expect(logic.values.queuedMessages).toEqual([])
     })
+    it('changing mode after a lost response preserves the first submitted warm', async () => {
+        let finishWarm!: () => void
+        ;(tasksWarmResumeCreate as jest.Mock).mockReturnValueOnce(
+            new Promise((resolve) => {
+                finishWarm = () => resolve({ task_id: TASK_ID, run_id: 'warm-run' })
+            })
+        )
+        ;(tasksRunCreate as jest.Mock)
+            .mockRejectedValueOnce(new Error('Connection lost'))
+            .mockResolvedValueOnce({ latest_run: { id: 'retry-run' } })
+        jest.useFakeTimers()
+        try {
+            setStatus('completed')
+            logic.actions.setComposerFormValues({ draft: 'continue from the checkpoint' })
+            await jest.advanceTimersByTimeAsync(300)
+            expect(tasksWarmResumeCreate).toHaveBeenCalledTimes(1)
+            logic.actions.submitComposerForm()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.startingRun).toBe(false)
+            expect(logic.values.composerForm.draft).toBe('continue from the checkpoint')
+            logic.actions.setMode('plan')
+            logic.actions.submitComposerForm()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(tasksRunCreate).toHaveBeenCalledTimes(2)
+            expect(tasksRunCreate).toHaveBeenLastCalledWith(
+                '997',
+                TASK_ID,
+                expect.objectContaining({ initial_permission_mode: 'plan' }),
+                expect.anything()
+            )
+            expect(onRunStarted).toHaveBeenCalledWith('retry-run', expect.anything())
+            finishWarm()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(tasksRunsCancelCreate).not.toHaveBeenCalled()
+        } finally {
+            finishWarm()
+            jest.useRealTimers()
+        }
+    })
+
+    it.each([false, true])(
+        'preserves a submitted warm across composers (warm response ready: %s)',
+        async (warmReady) => {
+            let finishWarm!: () => void
+            let finishFirstRun!: () => void
+            let finishSecondRun!: () => void
+            ;(tasksWarmResumeCreate as jest.Mock).mockReturnValueOnce(
+                new Promise((resolve) => {
+                    finishWarm = () => resolve({ task_id: TASK_ID, run_id: 'warm-run' })
+                })
+            )
+            ;(tasksRunCreate as jest.Mock)
+                .mockReturnValueOnce(
+                    new Promise((resolve) => {
+                        finishFirstRun = () => resolve({ latest_run: { id: 'warm-run' } })
+                    })
+                )
+                .mockReturnValueOnce(
+                    new Promise((resolve) => {
+                        finishSecondRun = () => resolve({ latest_run: { id: 'cold-run' } })
+                    })
+                )
+            logic.unmount()
+            logic = runInteractionLogic({
+                taskId: TASK_ID,
+                runId: RUN_ID,
+                interactionKey: 'optimistic-panel',
+                streamKey: 'panel-stream',
+            })
+            logic.mount()
+            const panelStream = runStreamLogic({ streamKey: 'panel-stream' })
+            ;(panelStream.actions as any).setStubStatus('cancelled')
+            const second = runInteractionLogic({ taskId: TASK_ID, runId: RUN_ID })
+            second.mount()
+            jest.useFakeTimers()
+            try {
+                setStatus('cancelled')
+                logic.actions.setComposerFormValues({ draft: 'first composer' })
+                await jest.advanceTimersByTimeAsync(300)
+                expect(tasksWarmResumeCreate).toHaveBeenCalledTimes(1)
+                if (warmReady) {
+                    finishWarm()
+                    await jest.advanceTimersByTimeAsync(0)
+                }
+                logic.actions.submitComposerForm()
+                second.actions.setMode('plan')
+                second.actions.setComposerFormValues({ draft: 'second composer' })
+                second.actions.submitComposerForm()
+                expect(tasksRunCreate).toHaveBeenCalledTimes(2)
+                finishSecondRun()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.startingRun).toBe(true)
+                finishWarm()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(tasksRunsCancelCreate).not.toHaveBeenCalled()
+            } finally {
+                finishFirstRun()
+                finishSecondRun()
+                finishWarm()
+                await jest.advanceTimersByTimeAsync(0)
+                second.unmount()
+                jest.useRealTimers()
+            }
+        }
+    )
 })
