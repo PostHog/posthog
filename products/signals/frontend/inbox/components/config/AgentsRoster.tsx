@@ -112,10 +112,7 @@ function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element |
     return <Icon className={`shrink-0 text-base ${meta.colorClass}`} />
 }
 
-/**
- * Why an off tool blocks a source. Names the switch in the tool's own settings rather than the row
- * the user is already looking at, which for Support carries the same name as its tool.
- */
+/** Names the switch in the tool's own settings, not the row, whose label can be the same word. */
 function toolOffReason(tool: SourceToolStatus): string {
     const reason = `${tool.settingName} is off in project settings, so this source has nothing to read.`
     return tool.enableBlockedReason ? `${reason} ${tool.enableBlockedReason}` : reason
@@ -438,6 +435,70 @@ function Expansion({
     )
 }
 
+/**
+ * The row's one control. An off tool blocks arming (the source would watch nothing) but never
+ * disarming, so a blocked row offers the enable action in place of the switch.
+ */
+function RowControl({
+    agent,
+    state,
+    tool,
+    offReason,
+    enablingTool,
+    onToggle,
+    onEnableTool,
+}: {
+    agent: AgentRosterDefinition
+    state: AgentSourceState
+    tool?: SourceToolStatus
+    offReason?: string
+    enablingTool: boolean
+    onToggle: () => void
+    onEnableTool: (tool: SourceToolStatus) => void
+}): JSX.Element | null {
+    const { armed, loading, requiresSetup } = state
+    if (loading) {
+        return <Spinner className="text-base" />
+    }
+    if (requiresSetup) {
+        return (
+            <LemonButton type="secondary" size="xsmall" onClick={onToggle}>
+                Connect
+            </LemonButton>
+        )
+    }
+    const armingBlocked = !!offReason && !armed
+    if (armingBlocked && tool?.enablement) {
+        return (
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                loading={enablingTool}
+                disabledReason={tool.enableBlockedReason ?? undefined}
+                tooltip={offReason}
+                // LemonButton copies a string tooltip into aria-label, which would drop the verb.
+                aria-label={`Turn on ${tool.settingName}`}
+                onClick={() => onEnableTool(tool)}
+            >
+                Turn on
+            </LemonButton>
+        )
+    }
+    // A source whose entities the user creates gets no master switch. Arming it would write to
+    // every entity at once, and turning it off and on again would not restore the earlier subset.
+    if (agent.entitiesAreUserCreated) {
+        return null
+    }
+    return (
+        <LemonSwitch
+            checked={armed}
+            onChange={onToggle}
+            disabledReason={armingBlocked ? offReason : undefined}
+            aria-label={`Arm ${agent.label}`}
+        />
+    )
+}
+
 interface AgentRowProps {
     agent: AgentRosterDefinition
     state: AgentSourceState
@@ -468,16 +529,10 @@ const AgentRow = memo(function AgentRow({
     onRetryData,
 }: AgentRowProps): JSX.Element {
     const redesign = useFeatureFlag('INBOX_REDESIGN')
-    const { armed, loading, requiresSetup, syncStatus, entities } = state
+    const { armed, syncStatus, entities } = state
     const status = resolveAgentStatus(armed, syncStatus)
-    const toolOff = tool?.enabled === false
-    // An off tool blocks arming (the source would watch nothing), never disarming.
-    const armingBlocked = toolOff && !armed
-    const offReason = tool && toolOff ? toolOffReason(tool) : undefined
+    const offReason = tool?.enabled === false ? toolOffReason(tool) : undefined
     const tag = notableTag(status, armed, tool)
-    // A source whose entities the user creates gets no master switch. Arming it would write to
-    // every entity at once, and turning it off and on again would not restore the earlier subset.
-    const hasMasterSwitch = !agent.entitiesAreUserCreated
     const enabledCount = entities.filter((entity) => entity.enabled).length
     return (
         <div>
@@ -520,32 +575,15 @@ const AgentRow = memo(function AgentRow({
                 </span>
                 {/* eslint-disable-next-line react/no-unknown-property */}
                 <div className="flex w-13 shrink-0 justify-end" onClick={(e) => e.stopPropagation()}>
-                    {loading ? (
-                        <Spinner className="text-base" />
-                    ) : requiresSetup ? (
-                        <LemonButton type="secondary" size="xsmall" onClick={() => onToggle(agent.source)}>
-                            Connect
-                        </LemonButton>
-                    ) : armingBlocked && tool?.enablement ? (
-                        // The remedy sits on the row itself, so the user never has to expand to find it.
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            loading={enablingTool}
-                            disabledReason={tool.enableBlockedReason ?? undefined}
-                            tooltip={offReason}
-                            onClick={() => onEnableTool(tool)}
-                        >
-                            Turn on
-                        </LemonButton>
-                    ) : hasMasterSwitch ? (
-                        <LemonSwitch
-                            checked={armed}
-                            onChange={() => onToggle(agent.source)}
-                            disabledReason={armingBlocked ? offReason : undefined}
-                            aria-label={`Arm ${agent.label}`}
-                        />
-                    ) : null}
+                    <RowControl
+                        agent={agent}
+                        state={state}
+                        tool={tool}
+                        offReason={offReason}
+                        enablingTool={enablingTool}
+                        onToggle={() => onToggle(agent.source)}
+                        onEnableTool={onEnableTool}
+                    />
                 </div>
                 {/* A real button inside the clickable row, so keyboard users can reach the
                     expansion (and the controls inside it, like steering). */}
@@ -632,7 +670,7 @@ export function AgentsRoster(): JSX.Element {
         isHealthChecksToggling,
         isCiSignalsToggling,
         toolStatusBySource,
-        enablingTool,
+        enablingTools,
         sourceConfigsLoadFailed,
         sourceConfigsLoading,
     } = useValues(signalSourcesLogic)
@@ -896,6 +934,7 @@ export function AgentsRoster(): JSX.Element {
                     <div className={agentListClassName(redesign)}>
                         {group.agents.map((agent) => {
                             const state = stateFor(agent.source)
+                            const tool = toolStatusBySource[agent.source]
                             // Steering needs a persisted row to write to, so optimistic `new_`
                             // placeholder rows wait until the reload lands. Disabled sources keep
                             // the control: enabling starts a sync immediately, so rules must be
@@ -911,11 +950,9 @@ export function AgentsRoster(): JSX.Element {
                                     key={agent.source}
                                     agent={agent}
                                     state={state}
-                                    tool={toolStatusBySource[agent.source]}
+                                    tool={tool}
                                     expanded={expandedSource === agent.source}
-                                    enablingTool={
-                                        !!enablingTool && enablingTool === toolStatusBySource[agent.source]?.enablement
-                                    }
+                                    enablingTool={!!tool?.enablement && enablingTools.has(tool.enablement)}
                                     onExpand={() =>
                                         setExpandedSource((current) => (current === agent.source ? null : agent.source))
                                     }

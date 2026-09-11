@@ -69,7 +69,8 @@ describe('AgentsRoster', () => {
     it('enables the backing setting from the collapsed row', async () => {
         await mountRoster(true)
 
-        await userEvent.click(within(supportRow()).getByText('Turn on'))
+        // Queried by accessible name: LemonButton copies a string tooltip into aria-label.
+        await userEvent.click(within(supportRow()).getByRole('button', { name: 'Turn on Support' }))
 
         await waitFor(() => expect(enablementCalls).toEqual([{ products: ['conversations'] }]))
     })
@@ -78,7 +79,10 @@ describe('AgentsRoster', () => {
         await mountRoster(false)
 
         expect(screen.getByText('Admin needed')).toBeInTheDocument()
-        expect(within(supportRow()).getByText('Turn on').closest('button')).toHaveAttribute('aria-disabled', 'true')
+        expect(within(supportRow()).getByRole('button', { name: 'Turn on Support' })).toHaveAttribute(
+            'aria-disabled',
+            'true'
+        )
         await userEvent.click(screen.getByLabelText('Expand Support'))
         expect(screen.getByText(SUPPORT_ROW_OFF)).toHaveTextContent('Only project admins can turn it on.')
     })
