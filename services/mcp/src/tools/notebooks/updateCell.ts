@@ -64,7 +64,10 @@ export interface UpdateProseCellResult {
 /** Reject markdown that opens a component tag, so a cell can only be added by the tool that owns runs and identity. */
 function assertNoComponentTag(markdown: string): void {
     let insideFence = false
-    for (const line of markdown.split('\n')) {
+    // The backend collapses `\r\n` and a lone `\r` to a newline before it looks for tags, so a
+    // payload split only on `\n` hides a tag from this guard that the backend later reads as a
+    // live cell.
+    for (const line of markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')) {
         if (line.trim().startsWith('```')) {
             insideFence = !insideFence
             continue
@@ -86,21 +89,43 @@ function assertNoComponentTag(markdown: string): void {
 }
 
 /**
- * The offsets come from the state read, so they are right until the document moves under a
- * retry. The source text is the fallback anchor for that case, and an ambiguous or absent
- * match is reported rather than guessed, because a wrong span silently overwrites a neighbour.
+ * A bare substring search is not enough. The same text can sit inside a component tag, where
+ * replacing it rewrites that cell's code, and it can sit inside a longer paragraph. A match
+ * therefore has to start and end at a line boundary and fall outside every tag block.
+ */
+function wholeBlockMatches(current: string, source: string): number[] {
+    const tags = parseCellTags(current)
+    const matches: number[] = []
+    for (let index = current.indexOf(source); index !== -1; index = current.indexOf(source, index + 1)) {
+        const end = index + source.length
+        const startsLine = index === 0 || current[index - 1] === '\n'
+        const endsLine = end === current.length || current[end] === '\n'
+        if (startsLine && endsLine && !tags.some((tag) => index < tag.end && tag.start < end)) {
+            matches.push(index)
+        }
+    }
+    return matches
+}
+
+/**
+ * The recorded offsets belong to the state read, and the document can move between that read and
+ * this write. They are therefore a hint, not an answer: the span is confirmed against `current`
+ * every time, and an absent or ambiguous block is reported rather than guessed, because either
+ * one silently rewrites something the caller never saw.
  */
 function resolveProseSpan(current: string, block: Schemas.NotebookCellState): { start: number; end: number } {
-    if (current.slice(block.start, block.end) === block.code) {
-        return { start: block.start, end: block.end }
-    }
-    const first = current.indexOf(block.code)
-    if (first === -1 || current.indexOf(block.code, first + block.code.length) !== -1) {
+    const matches = wholeBlockMatches(current, block.code)
+    if (matches.length === 0) {
         throw new Error(
             `Cell ${block.node_id} moved or changed since it was read. Re-read the notebook with notebooks-get and retry with the id it returns.`
         )
     }
-    return { start: first, end: first + block.code.length }
+    if (matches.length > 1) {
+        throw new Error(
+            `Cell ${block.node_id} now reads the same as ${matches.length - 1} other block(s) in this notebook, so an id cannot name one of them. Re-read the notebook with notebooks-get.`
+        )
+    }
+    return { start: matches[0]!, end: matches[0]! + block.code.length }
 }
 
 async function updateProseCell(

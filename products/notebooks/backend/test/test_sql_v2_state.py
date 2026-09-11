@@ -159,6 +159,19 @@ class TestMarkdownBlockSpans(SimpleTestCase):
             block.source for block in blocks
         ]
 
+    @parameterized.expand(
+        [
+            ("lone_cr", "Intro.\r"),
+            ("crlf", "Intro.\r\n\r\n"),
+        ]
+    )
+    def test_a_tag_after_a_carriage_return_is_a_cell_in_both_walkers(self, _name: str, prefix: str) -> None:
+        # `extract_cells` collapses carriage returns before it splits. A walker that split on
+        # newlines alone would call this prose and drop the cell from the state response.
+        markdown = f'{prefix}<SQLV2 nodeId="s1" code="select 1" returnVariable="df" />'
+        blocks = iter_markdown_blocks(markdown)
+        assert [block.node_id for block in blocks if block.kind == "component"] == ["s1"]
+
     def test_identical_prose_blocks_get_distinct_ids(self) -> None:
         blocks = list(iter_markdown_blocks("Same text.\n\nSame text."))
         assert len({block.node_id for block in blocks}) == 2

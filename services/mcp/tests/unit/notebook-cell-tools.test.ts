@@ -626,6 +626,8 @@ describe('notebook cell tools', () => {
             // these as tags while a trim-based guard reads them as prose.
             ['control-prefixed', '\x1c<SQLV2 nodeId="x" code="select 1" />'],
             ['control-separated', '<SQLV2\x1cnodeId="x" code="select 1" />'],
+            ['lone carriage return', 'Intro.\r<SQLV2 nodeId="x" code="select 1" />'],
+            ['crlf', 'Intro.\r\n<SQLV2 nodeId="x" code="select 1" />'],
         ])('refuses markdown carrying a %s component tag', async (_name, injected) => {
             const state = makeState(DOC)
             state.stateCells = [FIRST]
@@ -685,6 +687,38 @@ describe('notebook cell tools', () => {
             const saved = state.saveBodies[0].content.content[0].attrs.markdown
             expect(saved).toContain('Rewritten paragraph.')
             expect(saved).toContain('Second paragraph.')
+        })
+
+        it('refuses when the only remaining match sits inside a component tag', async () => {
+            // The reported exploit: the prose is gone by write time and the same text survives
+            // inside a cell's code, so a bare substring search would rewrite that SQL.
+            const state = makeState('# Title\n\n<SQLV2 nodeId="s1" code="select \'Revenue\'" />')
+            state.stateCells = [{ ...FIRST, code: 'Revenue', start: 9, end: 16 }]
+            const context = createMockContext(state)
+
+            await expect(
+                updateCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    node_id: FIRST.node_id,
+                    markdown: 'Profit',
+                })
+            ).rejects.toThrow(/moved or changed/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
+        it('refuses when the block text is only part of a longer paragraph', async () => {
+            const state = makeState('# Title\n\nRevenue rose sharply.')
+            state.stateCells = [{ ...FIRST, code: 'Revenue', start: 9, end: 16 }]
+            const context = createMockContext(state)
+
+            await expect(
+                updateCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    node_id: FIRST.node_id,
+                    markdown: 'Profit',
+                })
+            ).rejects.toThrow(/moved or changed/)
+            expect(state.saveBodies).toHaveLength(0)
         })
 
         it('refuses a node_id that names more than one block', async () => {

@@ -375,36 +375,42 @@ def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> 
     the cap without building the extra prose, because component tags carry the cells that run
     and must stay addressable wherever they sit in the document.
     """
-    lines = markdown.split("\n")
+    document = _split_markdown_lines(markdown)
+    lines = document.lines
+    terminators = document.terminators
     occurrences: dict[str, int] = {}
     line_index = 0
     prose_built = 0
-    # Tracked as the walk advances rather than precomputed for every line. A body near the
-    # request size limit holds millions of lines, and a list that long costs hundreds of
-    # megabytes before the prose cap can apply.
-    offset = 0
+    # Two counters over one walk: code points to slice the document Python holds, UTF-16 units
+    # to report, because the caller slices in UTF-16. Each advances once per character.
+    code_points = 0
+    utf16 = 0
 
     def prose_budget_left() -> bool:
         return max_prose_blocks is None or prose_built < max_prose_blocks
 
-    def advance(from_line: int, to_line: int) -> int:
-        # Every line carries a trailing newline except the last, and the caller never reads the
-        # offset past the end, so counting one for each keeps the arithmetic uniform.
-        return sum(_utf16_length(lines[index]) + 1 for index in range(from_line, to_line))
+    def block_source(start_line: int, end_line: int) -> str:
+        width = _line_span_code_points(document, start_line, end_line)
+        return markdown[code_points : code_points + width - len(terminators[end_line - 1])]
+
+    def consume(start_line: int, end_line: int) -> None:
+        nonlocal code_points, utf16
+        width = _line_span_code_points(document, start_line, end_line)
+        utf16 += _utf16_length(markdown[code_points : code_points + width])
+        code_points += width
 
     while line_index < len(lines):
         if not lines[line_index].strip():
-            offset += _utf16_length(lines[line_index]) + 1
+            consume(line_index, line_index + 1)
             line_index += 1
             continue
 
         if lines[line_index].strip().startswith("```"):
             end_line_index = _get_markdown_code_block_end(lines, line_index)
-            span = advance(line_index, end_line_index)
             if prose_budget_left():
                 prose_built += 1
-                yield _build_markdown_prose_block(lines, offset, span, line_index, end_line_index, occurrences)
-            offset += span
+                yield _build_markdown_prose_block(block_source(line_index, end_line_index), utf16, occurrences)
+            consume(line_index, end_line_index)
             line_index = end_line_index
             continue
 
@@ -415,22 +421,20 @@ def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> 
         )
         if component is not None:
             tag_name, raw, next_line_index = component
-            span = advance(line_index, next_line_index)
             yield _build_markdown_component_block(
-                tag_name, raw, lines, offset, span, line_index, next_line_index, occurrences
+                tag_name, raw, block_source(line_index, next_line_index), utf16, occurrences
             )
-            offset += span
+            consume(line_index, next_line_index)
             line_index = next_line_index
             continue
 
         end_line_index = line_index + 1
         while end_line_index < len(lines) and _continues_markdown_prose_block(lines, end_line_index):
             end_line_index += 1
-        span = advance(line_index, end_line_index)
         if prose_budget_left():
             prose_built += 1
-            yield _build_markdown_prose_block(lines, offset, span, line_index, end_line_index, occurrences)
-        offset += span
+            yield _build_markdown_prose_block(block_source(line_index, end_line_index), utf16, occurrences)
+        consume(line_index, end_line_index)
         line_index = end_line_index
 
 
@@ -454,6 +458,33 @@ def _opens_markdown_component_block(lines: list[str], line_index: int) -> bool:
     return _read_markdown_component_block(lines, line_index) is not None
 
 
+_MARKDOWN_LINE_SPLIT_REGEX = re.compile(r"(\r\n|\r|\n)")
+
+
+@frozen
+class _MarkdownLines:
+    """A document split into lines, each paired with the terminator that closed it."""
+
+    lines: list[str]
+    terminators: list[str]
+
+
+def _split_markdown_lines(markdown: str) -> _MarkdownLines:
+    """Lines and the terminator that closed each, with an empty one for the last.
+
+    `_iter_markdown_component_blocks` collapses `\r\n` and a lone `\r` before it splits, so a
+    walk that split on `\n` alone would read different boundaries than the component walker: a
+    tag after a lone `\r` would be prose here and a live cell there. Keeping the terminators
+    rather than normalizing leaves every offset true to the stored document.
+    """
+    parts = _MARKDOWN_LINE_SPLIT_REGEX.split(markdown)
+    return _MarkdownLines(lines=parts[0::2], terminators=[*parts[1::2], ""])
+
+
+def _line_span_code_points(document: _MarkdownLines, start_line: int, end_line: int) -> int:
+    return sum(len(document.lines[index]) + len(document.terminators[index]) for index in range(start_line, end_line))
+
+
 def _utf16_length(text: str) -> int:
     """Length in UTF-16 code units, the unit the collaboration protocol and JavaScript both use.
 
@@ -463,16 +494,7 @@ def _utf16_length(text: str) -> int:
     return len(text) + sum(1 for character in text if ord(character) > 0xFFFF)
 
 
-def _build_markdown_prose_block(
-    lines: list[str],
-    start: int,
-    span: int,
-    start_line: int,
-    end_line: int,
-    occurrences: dict[str, int],
-) -> MarkdownBlock:
-    end = start + span - 1
-    source = "\n".join(lines[start_line:end_line])
+def _build_markdown_prose_block(source: str, start: int, occurrences: dict[str, int]) -> MarkdownBlock:
     occurrence = occurrences.get(source, 0)
     occurrences[source] = occurrence + 1
     return MarkdownBlock(
@@ -482,21 +504,17 @@ def _build_markdown_prose_block(
         explicit_node_id=None,
         source=source,
         start=start,
-        end=end,
+        end=start + _utf16_length(source),
     )
 
 
 def _build_markdown_component_block(
     tag_name: str,
     raw: str,
-    lines: list[str],
+    source: str,
     start: int,
-    span: int,
-    start_line: int,
-    end_line: int,
     occurrences: dict[str, int],
 ) -> MarkdownBlock:
-    end = start + span - 1
     props = _parse_markdown_component_props(raw)
     fingerprint = _get_markdown_component_fingerprint(tag_name, props)
     occurrence = occurrences.get(fingerprint, 0)
@@ -508,9 +526,9 @@ def _build_markdown_component_block(
         tag_name=tag_name,
         node_id=explicit_node_id or _create_stable_markdown_node_id(fingerprint, occurrence),
         explicit_node_id=explicit_node_id,
-        source="\n".join(lines[start_line:end_line]),
+        source=source,
         start=start,
-        end=end,
+        end=start + _utf16_length(source),
     )
 
 
