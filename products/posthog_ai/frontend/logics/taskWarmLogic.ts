@@ -23,6 +23,12 @@ export interface WarmLease {
     runId: string
 }
 
+interface WarmSubmission {
+    projectId: string
+    lease: WarmLease | null
+    runId?: string | null
+}
+
 export interface TaskWarmLogicProps {
     /** Matches `taskTrackerSceneLogicProps.panelId` so each composer instance owns its own lease. */
     panelId?: string
@@ -80,6 +86,13 @@ async function cancelWarmRun(projectId: string, lease: WarmLease): Promise<void>
         })
     } catch (error) {
         posthog.captureException(error)
+    }
+}
+
+async function releaseUnusedWarm(submission: WarmSubmission): Promise<void> {
+    // A failed or aborted submission may still deliver its message. Leave uncertain warms to the reaper.
+    if (submission.runId !== undefined && submission.lease && submission.lease.runId !== submission.runId) {
+        await cancelWarmRun(submission.projectId, submission.lease)
     }
 }
 
@@ -246,25 +259,30 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             cache.lastWarmRequestAt = Date.now()
             cache.pendingRelease = false
             cache.pendingWarmRequest = null
-            cache.consumedWhileWarming = false
+            const warmRequest: { submission: WarmSubmission | null } = { submission: null }
+            cache.warmRequest = warmRequest
             const projectId = String(values.currentProjectId)
             const disposables = cache.disposables
             try {
                 const warm = resumeRequest
                     ? await tasksWarmResumeCreate(projectId, props.taskId as string, resumeRequest)
                     : await tasksWarmCreate(projectId, request as WarmTaskRequestApi)
-                if (cache.consumedWhileWarming || disposables.isDisposed) {
-                    // A late warm can differ from the run the submit activated. Release only unused
-                    // runs; the server guard also protects runs activated by another composer.
-                    if (warm?.task_id && warm?.run_id && warm.run_id !== cache.consumedRunId) {
-                        await cancelWarmRun(projectId, { key, taskId: warm.task_id, runId: warm.run_id })
+                const lease = warm?.task_id && warm?.run_id ? { key, taskId: warm.task_id, runId: warm.run_id } : null
+                if (warmRequest.submission) {
+                    warmRequest.submission.lease = lease
+                    await releaseUnusedWarm(warmRequest.submission)
+                    return
+                }
+                if (disposables.isDisposed) {
+                    if (lease) {
+                        await cancelWarmRun(projectId, lease)
                     }
                     return
                 }
                 // An empty body is the documented "not warmed" answer — the flag is off, the pool is
                 // full, or the integration didn't resolve. Not an error, just no speedup this time.
-                if (warm?.task_id && warm?.run_id) {
-                    actions.setWarmLease({ key, taskId: warm.task_id, runId: warm.run_id })
+                if (lease) {
+                    actions.setWarmLease(lease)
                     // The cooldown throttles repeated "not warmed" answers, which leave no lease. This
                     // warm produced one, so drop the stamp: once a submit consumes the lease or a
                     // release drops it, the next draft for the same selection must warm again instead
@@ -284,6 +302,7 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             } finally {
                 cache.warming = false
                 cache.warmingKey = null
+                cache.warmRequest = null
             }
             // A newer selection arrived while the POST was open. Now that the slot is free, release the
             // sandbox booted for the stale selection and warm for the latest one instead. A pending
@@ -324,25 +343,32 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             cache.disposables.dispose('warm-release')
             cache.pendingRelease = false
             cache.pendingWarmRequest = null
+            // A submission-owned warm never installs a lease to clear this stamp. Let the next draft warm.
+            cache.lastWarmRequestKey = null
+            cache.lastWarmRequestAt = null
+            if (values.currentProjectId == null) {
+                return
+            }
+            const submission: WarmSubmission = {
+                projectId: String(values.currentProjectId),
+                lease: values.warmLease,
+            }
+            cache.submission = submission
+            if (cache.warmRequest) {
+                cache.warmRequest.submission = submission
+            }
+            // Teardown must not cancel a run while its first message is being delivered.
+            actions.setWarmLease(null)
         },
 
         consumeWarm: async ({ runId }) => {
-            actions.prepareSubmit()
-            const lease = values.warmLease
-            const projectId = values.currentProjectId
-            // A warm fenced below by consumedWhileWarming returns before it installs a lease, so it
-            // never clears the cooldown stamp itself. Clear it here so the next draft in this composer
-            // can warm rather than taking the cold path for the rest of the cooldown.
-            cache.lastWarmRequestKey = null
-            cache.lastWarmRequestAt = null
-            cache.consumedRunId = runId
-            if (cache.warming) {
-                cache.consumedWhileWarming = true
+            const submission: WarmSubmission | undefined = cache.submission
+            if (!submission) {
+                return
             }
-            actions.setWarmLease(null)
-            if (lease && lease.runId !== runId && projectId != null) {
-                await cancelWarmRun(String(projectId), lease)
-            }
+            cache.submission = undefined
+            submission.runId = runId
+            await releaseUnusedWarm(submission)
         },
     })),
 
@@ -350,9 +376,8 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
     // does) is the most common way to abandon a draft, more so than clearing the box and waiting out the
     // release timer. Cancel the held warm here too, so navigating away reclaims the sandbox immediately
     // instead of leaving it to idle until the server reaper. Cancel inline rather than dispatching
-    // releaseWarm, because a listener dispatched during teardown does not run. A consumed warm is already
-    // cleared by consumeWarm before the submit navigates, so no lease is found on that path. A warm still
-    // mid-boot (no lease yet) is released when its response arrives.
+    // releaseWarm, because a listener dispatched during teardown does not run. Submitted warms belong to
+    // their submission until its outcome is known. Unsubmitted warms still mid-boot are released on arrival.
     beforeUnmount(({ values }) => {
         const lease = values.warmLease
         if (lease && values.currentProjectId != null) {

@@ -104,6 +104,7 @@ describe('taskWarmLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(warmCalls).toBe(1)
 
+        logic.actions.prepareSubmit()
         logic.actions.consumeWarm('warm-run-1')
         await expectLogic(logic).toFinishAllListeners()
 
@@ -336,7 +337,12 @@ describe('taskWarmLogic', () => {
         expect(cancelledRuns).toEqual([])
     })
 
-    it.each(['warm-run-1', 'cold-run'])('reconciles a late warm response after submit activates %s', async (runId) => {
+    it.each([
+        ['warm-run-1', false],
+        ['warm-run-1', true],
+        ['cold-run', false],
+        ['cold-run', true],
+    ] as const)('reconciles a warm response when submit activates %s (warm first: %s)', async (runId, warmFirst) => {
         let resolveHeldWarm!: () => void
         let warmStarted!: () => void
         const started = new Promise<void>((resolve) => {
@@ -357,6 +363,13 @@ describe('taskWarmLogic', () => {
         logic.actions.prewarm(WARM_REQUEST)
         await started
         logic.actions.prepareSubmit()
+        if (warmFirst) {
+            resolveHeldWarm()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.releaseWarm()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(cancelledRuns).toEqual([])
+        }
         logic.actions.consumeWarm(runId)
 
         resolveHeldWarm()

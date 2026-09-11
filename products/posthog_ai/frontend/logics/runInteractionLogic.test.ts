@@ -921,32 +921,76 @@ describe('runInteractionLogic', () => {
         }
     )
 
-    it('warms the resumed run while composing and consumes it on submission', async () => {
-        jest.useFakeTimers()
-        setStatus('cancelled')
-        logic.actions.setComposerFormValues({ draft: 'continue from the checkpoint' })
-        jest.advanceTimersByTime(300)
-        jest.useRealTimers()
-
-        await expectLogic(logic).toFinishAllListeners()
-        expect(tasksWarmResumeCreate).toHaveBeenCalledWith('997', TASK_ID, {
-            resume_from_run_id: RUN_ID,
-            runtime_adapter: 'claude',
-            model: 'claude-sonnet-5',
-            reasoning_effort: 'high',
-            initial_permission_mode: 'auto',
-        })
-
-        await expectLogic(logic, () => {
-            logic.actions.submitComposerForm()
-        }).toFinishAllListeners()
-
-        expect(tasksRunCreate).toHaveBeenCalledWith(
-            '997',
-            TASK_ID,
-            expect.objectContaining({ resume_from_run_id: RUN_ID }),
-            expect.objectContaining({ signal: expect.any(AbortSignal) })
+    it.each([
+        ['submitted', false],
+        ['unmounted', false],
+        ['unmounted', true],
+        ['failed', false],
+        ['failed', true],
+    ] as const)('protects the submitted warm when %s (warm pending: %s)', async (outcome, warmPending) => {
+        let resolveWarm!: () => void
+        let resolveRun!: () => void
+        let rejectRun!: () => void
+        ;(tasksWarmResumeCreate as jest.Mock).mockReturnValueOnce(
+            new Promise((resolve) => {
+                resolveWarm = () => resolve({ task_id: TASK_ID, run_id: 'warm-run' })
+            })
         )
+        ;(tasksRunCreate as jest.Mock).mockReturnValueOnce(
+            new Promise((resolve, reject) => {
+                resolveRun = () => resolve({ latest_run: { id: 'warm-run' } })
+                rejectRun = () => reject(new Error('Connection lost'))
+            })
+        )
+        jest.useFakeTimers()
+        try {
+            setStatus('cancelled')
+            logic.actions.setComposerFormValues({ draft: 'continue from the checkpoint' })
+            await jest.advanceTimersByTimeAsync(300)
+            if (!warmPending) {
+                resolveWarm()
+                await jest.advanceTimersByTimeAsync(0)
+            }
+            expect(tasksWarmResumeCreate).toHaveBeenCalledWith('997', TASK_ID, {
+                resume_from_run_id: RUN_ID,
+                runtime_adapter: 'claude',
+                model: 'claude-sonnet-5',
+                reasoning_effort: 'high',
+                initial_permission_mode: 'auto',
+            })
+
+            logic.actions.submitComposerForm()
+            expect(tasksRunCreate).toHaveBeenCalledWith(
+                '997',
+                TASK_ID,
+                expect.objectContaining({ resume_from_run_id: RUN_ID }),
+                expect.objectContaining({ signal: expect.any(AbortSignal) })
+            )
+            expect(tasksRunsCancelCreate).not.toHaveBeenCalled()
+
+            if (outcome === 'failed') {
+                rejectRun()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.composerForm.draft).toBe('continue from the checkpoint')
+            }
+            if (outcome !== 'submitted') {
+                logic.unmount()
+            }
+            resolveRun()
+            resolveWarm()
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(tasksRunsCancelCreate).not.toHaveBeenCalled()
+            if (outcome === 'submitted') {
+                expect(onRunStarted).toHaveBeenCalledWith('warm-run', expect.anything())
+            } else {
+                expect(onRunStarted).not.toHaveBeenCalled()
+            }
+        } finally {
+            resolveRun()
+            resolveWarm()
+            jest.useRealTimers()
+        }
     })
 
     it('records the boundary instead of starting a run when /clear is sent to a terminal run', async () => {
