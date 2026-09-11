@@ -7,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { DashboardPlacement } from '~/types'
 
-import { InsightErrorState, InsightValidationError, isRawServerErrorTitle } from './EmptyStates'
+import { InsightErrorState, InsightTimeoutState, InsightValidationError, isRawServerErrorTitle } from './EmptyStates'
 
 // Status 513 also covers cluster pressure, whose backend copy says to wait rather than to shrink
 // the query. Verbatim from ClickHouseClusterMemoryLimitExceeded.
@@ -61,6 +61,23 @@ describe('insight error states', () => {
             error_type: 'server',
             query_kind: null,
             query_id: 'test-query-id',
+        })
+    })
+
+    it('reports "insight error message shown" when a timeout renders', () => {
+        render(
+            <InsightTimeoutState
+                query={{ kind: 'InsightVizNode', source: { kind: 'TrendsQuery' } }}
+                queryId="timed-out-query-id"
+            />
+        )
+
+        const shownCalls = captureSpy.mock.calls.filter((call) => call[0] === 'insight error message shown')
+        expect(shownCalls).toHaveLength(1)
+        expect(shownCalls[0][1]).toEqual({
+            error_type: 'timeout',
+            query_kind: 'TrendsQuery',
+            query_id: 'timed-out-query-id',
         })
     })
 
@@ -239,6 +256,12 @@ describe('insight error states', () => {
         )
 
         expect(screen.queryByText('If this persists, submit a bug report.')).toBeNull()
+        expect(screen.queryByText(/export-query-id/)).toBeNull()
+    })
+
+    it('hides query IDs in exported timeouts', () => {
+        render(<InsightTimeoutState queryId="export-query-id" placement={DashboardPlacement.Export} />)
+
         expect(screen.queryByText(/export-query-id/)).toBeNull()
     })
 

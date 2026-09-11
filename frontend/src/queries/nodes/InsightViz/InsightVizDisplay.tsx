@@ -281,7 +281,7 @@ export function InsightVizDisplay({
             )
         }
         if (timedOutQueryId) {
-            return <InsightTimeoutState queryId={timedOutQueryId} />
+            return <InsightTimeoutState query={query} queryId={timedOutQueryId} />
         }
 
         // On a dashboard, users sometimes see an empty chart even though the insight is valid—often because
