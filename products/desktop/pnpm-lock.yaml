@@ -572,8 +572,8 @@ importers:
         specifier: ^3.0.2
         version: 3.0.3(react-native-svg@15.15.5(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6))(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
       posthog-react-native:
-        specifier: ^4.68.2
-        version: 4.68.2(81a697ea0d61589c68ef8590dfa0945e)
+        specifier: ^4.70.0
+        version: 4.70.0(81a697ea0d61589c68ef8590dfa0945e)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -6267,6 +6267,9 @@ packages:
   '@posthog/core@1.52.1':
     resolution: {integrity: sha512-WT4TUgmsyBYHAmhsifg+LdaFH9wzOcp3UNWnIaeVOgodfMeG/X39V9n0lyebaxoHLR/NMCMq8gsrF69ldzuMhg==}
 
+  '@posthog/core@1.53.2':
+    resolution: {integrity: sha512-Knx8442G2LyPVIzLvhcBX/TIdeHpZhrYrtZou3Uw8FWfbr9gQtQeOZDCog3MWcDxJ+4vAnMAAOzf5cYpc7Gxyw==}
+
   '@posthog/hedgehog-mode@0.0.53':
     resolution: {integrity: sha512-Qyd9DckDg1Z/vT3mpKyuMemJHWpYD0k0Gob7hWCNMCDSYm/NcpDS1uX8PRoh3Z7HF2kBkZ7j6HCSUIG7Ha/j4Q==}
     engines: {node: '>=18'}
@@ -6308,6 +6311,9 @@ packages:
 
   '@posthog/types@1.410.0':
     resolution: {integrity: sha512-741sltt/h+l0eYH+Nkow96qKfDmRxwKacfjF93Z+kMySjzL0a87ptmpklZxGkbjBp/DJH/CSowGrolYWK/1ToA==}
+
+  '@posthog/types@1.411.1':
+    resolution: {integrity: sha512-Gd7tnSYctcSXup3naVlAgavvenByRao6rsSYdMgWgP35KE9jFn+rMHNRJeI5LNjJuLzMXHEVcgzAN7xcATefdw==}
 
   '@preact/signals-core@1.13.0':
     resolution: {integrity: sha512-slT6XeTCAbdql61GVLlGU4x7XHI7kCZV5Um5uhE4zLX4ApgiiXc0UYFvVOKq06xcovzp7p+61l68oPi563ARKg==}
@@ -13964,8 +13970,8 @@ packages:
       rxjs:
         optional: true
 
-  posthog-react-native@4.68.2:
-    resolution: {integrity: sha512-1e+6Ftwb3PaFSfq9Wo/MUYHKsFXdnL4tqoYmBX4JAqMEo++WyEApNBirhdKwIAcUysxAqM9sfWvIhXPBGnNrgQ==}
+  posthog-react-native@4.70.0:
+    resolution: {integrity: sha512-igzsdWOJvifhzdeqiLzwU+niUD7DK5wIbMTq2BjZv0TLv4iVh97YLquMFbUehEo/yLjKMDcd0jI8LxfCw16eVg==}
     hasBin: true
     peerDependencies:
       '@posthog/react-native-plugin': '>= 2.4.3'
@@ -13975,6 +13981,7 @@ packages:
       expo-device: '>= 4.0.0'
       expo-file-system: '>= 13.0.0'
       expo-localization: '>= 11.0.0'
+      expo-updates: '>= 0.25.0'
       posthog-react-native-session-replay: '>= 1.6.0'
       react-native-device-info: '>= 10.0.0'
       react-native-localize: '>= 3.0.0'
@@ -13995,6 +14002,8 @@ packages:
       expo-file-system:
         optional: true
       expo-localization:
+        optional: true
+      expo-updates:
         optional: true
       posthog-react-native-session-replay:
         optional: true
@@ -20989,6 +20998,10 @@ snapshots:
     dependencies:
       '@posthog/types': 1.410.0
 
+  '@posthog/core@1.53.2':
+    dependencies:
+      '@posthog/types': 1.411.1
+
   '@posthog/hedgehog-mode@0.0.53(prop-types@15.8.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
       gsap: 3.14.2
@@ -21057,6 +21070,8 @@ snapshots:
   '@posthog/types@1.409.2': {}
 
   '@posthog/types@1.410.0': {}
+
+  '@posthog/types@1.411.1': {}
 
   '@preact/signals-core@1.13.0': {}
 
@@ -30076,10 +30091,10 @@ snapshots:
     optionalDependencies:
       rxjs: 7.8.2
 
-  posthog-react-native@4.68.2(81a697ea0d61589c68ef8590dfa0945e):
+  posthog-react-native@4.70.0(81a697ea0d61589c68ef8590dfa0945e):
     dependencies:
-      '@posthog/core': 1.51.1
-      '@posthog/types': 1.409.2
+      '@posthog/core': 1.53.2
+      '@posthog/types': 1.411.1
     optionalDependencies:
       '@posthog/react-native-plugin': 2.6.0(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
       '@react-native-async-storage/async-storage': 2.2.0(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))
