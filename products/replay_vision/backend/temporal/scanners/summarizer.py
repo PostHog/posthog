@@ -13,6 +13,8 @@ from products.replay_vision.backend.temporal.scanners.base import (
     Segment,
     SignalFinding,
     confidence_field,
+    notability_field,
+    notability_reason_field,
 )
 from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
 
@@ -36,6 +38,8 @@ class SummarizerSummaryResponse(BaseModel, frozen=True):
         ),
     )
     summary: str = Field(description="Body text whose length follows the scanner's configured length.")
+    notability_reason: str | None = notability_reason_field()
+    notability: float | None = notability_field()
     confidence: float = confidence_field()
 
 
