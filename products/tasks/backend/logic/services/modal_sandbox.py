@@ -903,9 +903,8 @@ class ModalSandbox(AgentServerLaunchMixin):
                         cause=RuntimeError("readiness probe never passed"),
                     )
                 earlier_fallback: str | None = config.image_fallback
-                # Cleared so the chain the recreate writes for itself — a create failure
-                # inside the recovery, which names a tier the hop below skips over — reads
-                # back distinguishable from the hops already recorded.
+                # Cleared so the chain the recreate records for itself reads back
+                # distinguishable: it names a tier this hop would otherwise skip over.
                 config.image_fallback = None
                 sb, modal_output, winner = cls._create_from_image_candidates(create_kwargs, remaining, config)
                 directory_mount_applied = False
