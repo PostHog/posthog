@@ -3,6 +3,7 @@ import {
     PredicateIndexUsage,
     PredicateIndexVerdict,
     PredicateScope,
+    ScanEstimateTimeRange,
 } from '~/queries/schema/schema-general'
 
 import { LARGE_SCAN_ROWS, summarizeQueryScan, summarizeScan } from './queryScanSummary'
@@ -23,7 +24,7 @@ const estimate = (overrides: Partial<EventsScanEstimate> = {}): EventsScanEstima
     rows: 42_000_000,
     days: 30,
     events: [],
-    time_range: 'bounded',
+    time_range: ScanEstimateTimeRange.Bounded,
     ...overrides,
 })
 
@@ -33,7 +34,7 @@ describe('queryScanSummary', () => {
         ['sub-two-day range reads as hours', estimate({ days: 1.5 }), 'Reads up to 42M events (36 hours)'],
         [
             'open range says a year was assumed',
-            estimate({ time_range: 'open', days: 365 }),
+            estimate({ time_range: ScanEstimateTimeRange.Open, days: 365 }),
             'Reads up to 42M events (no date range, assuming a year)',
         ],
     ])('%s', (_name, input, expected) => {

@@ -882,6 +882,13 @@ export interface PredicateIndexUsage {
     end?: integer
 }
 
+export enum ScanEstimateTimeRange {
+    /** Both ends of the timestamp range were understood. */
+    Bounded = 'bounded',
+    /** At least one end was missing or unreadable, so a default range was assumed. */
+    Open = 'open',
+}
+
 /** How many events a query is expected to read, estimated before it runs. */
 export interface EventsScanEstimate {
     rows: integer
@@ -889,8 +896,7 @@ export interface EventsScanEstimate {
     days: number
     /** Event names the estimate was narrowed to. Empty when the query reads every event. */
     events: string[]
-    /** `bounded` when both ends of the timestamp range were understood, `open` when a default range was assumed. */
-    time_range: 'bounded' | 'open'
+    time_range: ScanEstimateTimeRange
 }
 
 export interface HogQLMetadataResponse {
