@@ -94,31 +94,16 @@ export interface QueryResultExtraction {
  * renderer (e.g. a single LLM trace) return null and fall back to the generic card.
  */
 export function extractQueryResult(message: ToolCallMessage): QueryResultExtraction | null {
-    if (message.resolvedKey === 'execute-sql') {
-        const input = message.innerInput
-        const sql = asString(input?.query)
-        if (message.status !== 'completed' || asRecord(message.rawOutput)?.isError === true || !sql?.trim()) {
-            return null
-        }
-
-        // SQL tools return text, so the Query component fetches the visualization from the input query.
-        return {
-            content: {
-                content_type: ArtifactContentType.Visualization,
-                query: {
-                    kind: NodeKind.HogQLQuery,
-                    query: sql,
-                    ...(typeof input?.connectionId === 'string' ? { connectionId: input.connectionId } : {}),
-                    ...(typeof input?.sendRawQuery === 'boolean' ? { sendRawQuery: input.sendRawQuery } : {}),
-                },
-            },
-            url: null,
-        }
+    if (message.status !== 'completed') {
+        return null
     }
 
     const output = getToolOutputRecord(message)
     const query = asRecord(output?.query)
     if (!query || typeof query.kind !== 'string') {
+        return null
+    }
+    if (isHogQLQuery(query) && !asString(query.query)?.trim()) {
         return null
     }
 

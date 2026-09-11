@@ -162,30 +162,46 @@ describe('mcp tool adapter extractors', () => {
     })
 
     describe('extractQueryResult', () => {
-        it.each([{}, { connectionId: 'example-connection', sendRawQuery: true }])(
-            'renders SQL from the input when the result is text: %j',
-            (options) => {
-                const input = { query: 'SELECT 1', ...options }
-                const result = extractQueryResult(
-                    toolMessage({ content: [{ type: 'text', text: '1' }] }, input, 'execute-sql')
+        it.each([
+            { kind: 'HogQLQuery', query: 'SELECT 1' },
+            { kind: 'HogQLQuery', query: 'SELECT 1', connectionId: 'example-connection', sendRawQuery: true },
+            {
+                kind: 'HogQLQuery',
+                query: 'SELECT {variables.org}',
+                variables: { 'example-variable': { variableId: 'example-variable', code_name: 'org' } },
+            },
+        ])('renders the executed SQL query with its resolved settings: %j', (query) => {
+            const result = extractQueryResult(
+                toolMessage(
+                    {
+                        content: [{ type: 'text', text: '1' }],
+                        _meta: { 'com.posthog.mcp/app_data': { query } },
+                    },
+                    { query: `${query.query};` },
+                    'execute-sql'
                 )
-                expect(result?.content.query).toEqual({ kind: 'HogQLQuery', ...input })
-                expect(result?.url).toBeNull()
-            }
-        )
+            )
+            expect(result?.content.query).toEqual(query)
+            expect(result?.url).toBeNull()
+        })
 
         it.each<Partial<ToolCallMessage>>([
             { status: 'pending' },
             { status: 'in_progress' },
             { status: 'failed' },
             { rawOutput: { isError: true } },
-            { innerInput: { query: '   ' } },
-            { innerInput: { query: 1 } },
-            { innerInput: undefined },
-        ])('does not render an unsuccessful or malformed SQL call: %j', (overrides) => {
+            { rawOutput: { content: [{ type: 'text', text: '1' }] } },
+            { rawOutput: { _meta: { 'com.posthog.mcp/app_data': { query: 'SELECT 1' } } } },
+            { rawOutput: { _meta: { 'com.posthog.mcp/app_data': { query: { kind: 'HogQLQuery' } } } } },
+            { rawOutput: undefined },
+        ])('falls back for incomplete SQL calls or missing query metadata: %j', (overrides) => {
             expect(
                 extractQueryResult({
-                    ...toolMessage(undefined, { query: 'SELECT 1' }, 'execute-sql'),
+                    ...toolMessage(
+                        { _meta: { 'com.posthog.mcp/app_data': { query: { kind: 'HogQLQuery', query: 'SELECT 1' } } } },
+                        { query: 'SELECT {variables.org}' },
+                        'execute-sql'
+                    ),
                     ...overrides,
                 })
             ).toBeNull()
