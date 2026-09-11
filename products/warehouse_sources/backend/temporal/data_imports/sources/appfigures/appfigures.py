@@ -1,4 +1,3 @@
-import dataclasses
 from collections import defaultdict
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -7,6 +6,8 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.settings import (
     APPFIGURES_ENDPOINTS,
@@ -48,7 +49,7 @@ class AppfiguresPageLimitError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class AppfiguresResumeConfig:
     # "paged" endpoints (reviews): the next page number to fetch (1-based).
     next_page: int | None = None
@@ -372,34 +373,51 @@ def _iter_ranks(
 
 
 def _parse_aso_countries(raw: str | None) -> tuple[str, ...]:
-    """Read the comma-separated ISO country codes from the source form."""
+    """Read the comma-separated ISO country codes from the source form.
+
+    Anything that is not a two-letter code is dropped, which keeps a typo from becoming a request
+    Appfigures rejects and bounds the fan-out to the size of the ISO country list.
+    """
     codes = [code.strip().upper() for code in (raw or "").split(",")]
-    unique = list(dict.fromkeys(code for code in codes if code))
+    unique = list(dict.fromkeys(code for code in codes if len(code) == 2 and code.isalpha()))
     return tuple(unique) or DEFAULT_ASO_COUNTRIES
 
 
-def _aso_target_key(product_id: str, country: str) -> str:
-    return f"{product_id}:{country}"
+@frozen
+class AsoTarget:
+    """One /aso request's scope, because Appfigures takes a single product and country per call."""
+
+    product_id: str
+    country: str
+
+    @property
+    def key(self) -> str:
+        """Identifies the target in saved resume state."""
+        return f"{self.product_id}:{self.country}"
 
 
 def _aso_targets(
     session: requests.Session,
     logger: FilteringBoundLogger,
     aso_countries: str | None,
-) -> list[tuple[str, str]]:
+) -> list[AsoTarget]:
     countries = _parse_aso_countries(aso_countries)
-    return [(product_id, country) for product_id in _rankable_product_ids(session, logger) for country in countries]
+    return [
+        AsoTarget(product_id=product_id, country=country)
+        for product_id in _rankable_product_ids(session, logger)
+        for country in countries
+    ]
 
 
 def _resume_aso_slice(
     manager: ResumableSourceManager[AppfiguresResumeConfig],
-    targets: list[tuple[str, str]],
+    targets: list[AsoTarget],
 ) -> tuple[int, int | None]:
     """Where a fan-out picks up: the saved target's index and, for paged endpoints, its page."""
     resume = manager.load_state() if manager.can_resume() else None
     if not resume or not resume.aso_target:
         return 0, None
-    keys = [_aso_target_key(product_id, country) for product_id, country in targets]
+    keys = [target.key for target in targets]
     if resume.aso_target not in keys:
         # The catalog or the country list changed since the state was saved, so start over.
         return 0, None
@@ -438,24 +456,22 @@ def _iter_aso(
     url = f"{APPFIGURES_BASE_URL}{config.path}"
 
     for index in range(start_index, len(targets)):
-        product_id, country = targets[index]
+        target = targets[index]
         page = resume_page if index == start_index and resume_page else 1
 
         while True:
             params: dict[str, Any] = {
                 # Appfigures supports no other pivot on this endpoint today.
                 "group_by": "keyword",
-                "products": product_id,
-                "countries": country,
+                "products": target.product_id,
+                "countries": target.country,
                 "page": page,
                 **window,
             }
             try:
                 data = _fetch(session, url, params, logger)
             except AppfiguresPageLimitError:
-                logger.info(
-                    f"Appfigures: reached page-depth cap for keywords of product={product_id} country={country}"
-                )
+                logger.info(f"Appfigures: reached page-depth cap for keywords of target={target.key}")
                 break
 
             rows = data.get(config.data_key) or [] if config.data_key else []
@@ -468,8 +484,8 @@ def _iter_aso(
                     # The response carries the keyword only, so the request's own identifiers and the
                     # day it ran are what make the row unique.
                     row.setdefault("date", today_str)
-                    row.setdefault("product_id", product_id)
-                    row.setdefault("country", country)
+                    row.setdefault("product_id", target.product_id)
+                    row.setdefault("country", target.country)
                 yield rows
 
             if not rows or this_page >= total_pages:
@@ -477,11 +493,10 @@ def _iter_aso(
 
             page += 1
             # Save AFTER yielding so a crash re-fetches the page we were on rather than skipping it.
-            manager.save_state(AppfiguresResumeConfig(aso_target=_aso_target_key(product_id, country), next_page=page))
+            manager.save_state(AppfiguresResumeConfig(aso_target=target.key, next_page=page))
 
         if index + 1 < len(targets):
-            next_product_id, next_country = targets[index + 1]
-            manager.save_state(AppfiguresResumeConfig(aso_target=_aso_target_key(next_product_id, next_country)))
+            manager.save_state(AppfiguresResumeConfig(aso_target=targets[index + 1].key))
 
 
 def _iter_aso_stats(
@@ -504,16 +519,15 @@ def _iter_aso_stats(
     url = f"{APPFIGURES_BASE_URL}{config.path}"
 
     for index in range(start_index, len(targets)):
-        product_id, country = targets[index]
-        params: dict[str, Any] = {"products": product_id, "countries": country, **window}
+        target = targets[index]
+        params: dict[str, Any] = {"products": target.product_id, "countries": target.country, **window}
         data = _fetch(session, url, params, logger)
 
         if isinstance(data, dict) and data:
-            yield [{"date": today_str, "product_id": product_id, "country": country, **data}]
+            yield [{"date": today_str, "product_id": target.product_id, "country": target.country, **data}]
 
         if index + 1 < len(targets):
-            next_product_id, next_country = targets[index + 1]
-            manager.save_state(AppfiguresResumeConfig(aso_target=_aso_target_key(next_product_id, next_country)))
+            manager.save_state(AppfiguresResumeConfig(aso_target=targets[index + 1].key))
 
 
 def get_rows(

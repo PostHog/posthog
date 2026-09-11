@@ -479,6 +479,8 @@ class TestParseAsoCountries:
             ("US, GB ,de", ("US", "GB", "DE")),
             # A code repeated in the form would otherwise fan out twice and seed duplicate rows.
             ("US,us", ("US",)),
+            # Anything that isn't a two-letter code would only ever be a request Appfigures rejects.
+            ("US, United Kingdom, 1, ??", ("US",)),
         ],
     )
     def test_parse(self, raw: str | None, expected: tuple[str, ...]):
