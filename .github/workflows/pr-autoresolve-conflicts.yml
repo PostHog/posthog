@@ -280,7 +280,7 @@ jobs:
               if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
             - name: Install Python dependencies
               if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
