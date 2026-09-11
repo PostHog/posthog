@@ -391,6 +391,14 @@ function MaterializationContent(): JSX.Element {
                 Pre-compute query results on a schedule for faster response times.
             </p>
 
+            {freshMaterialization?.hibernated && !hasUnsavedMaterializationChange && (
+                <LemonBanner type="info" className="mb-4">
+                    Materialization paused because this version has not been called with an API key in 30 days. The next
+                    API-key call requests materialization again. Calls run the full query until results are ready, which
+                    may take longer. You can also resume materialization below.
+                </LemonBanner>
+            )}
+
             {!canMaterialize && cannotMaterializeReason && (
                 <div className="flex flex-col gap-4 items-start">
                     <LemonBanner type="warning" hideIcon={false} className="w-full">
@@ -427,7 +435,13 @@ function MaterializationContent(): JSX.Element {
                         minAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonSwitch
-                            label={isMaterialized ? 'Materialization enabled' : 'Enable materialization'}
+                            label={
+                                isMaterialized
+                                    ? 'Materialization enabled'
+                                    : freshMaterialization?.hibernated
+                                      ? 'Resume materialization'
+                                      : 'Enable materialization'
+                            }
                             checked={isMaterialized}
                             onChange={handleToggleMaterialization}
                             bordered

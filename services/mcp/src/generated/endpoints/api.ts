@@ -243,6 +243,10 @@ export const EndpointsMaterializationStatusRetrieveParams = () => zod.object({
         ),
 })
 
+export const EndpointsMaterializationStatusRetrieveQueryParams = () => zod.object({
+    version: zod.number().optional().describe('Version number. Defaults to the current version.'),
+})
+
 /**
  * Ask AI to rewrite the endpoint's query into a semantically equivalent form that can be materialized. Only applicable to SQL (HogQL) endpoints that currently fail the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved. Requires the organization's AI data processing approval.
  */

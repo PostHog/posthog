@@ -86,6 +86,7 @@ import type {
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type { EndpointMaterializationApi } from 'products/endpoints/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
@@ -2709,13 +2710,8 @@ export interface EndpointVersionType extends EndpointType {
     version_created_by: UserBasicType | null
 }
 
-export interface EndpointVersionMaterializationType {
-    can_materialize: boolean
-    reason?: string
-    status?: string
-    error?: string
-    last_materialized_at?: string
-    saved_query_id?: string
+export type EndpointVersionMaterializationType = Partial<EndpointMaterializationApi> & {
+    can_materialize: EndpointMaterializationApi['can_materialize']
     sync_frequency?: DataModelingSyncInterval
 }
 
