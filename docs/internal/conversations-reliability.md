@@ -81,6 +81,33 @@ Workers call `renew_inbound_lease` between pages, once more before comment write
 A failed renewal (fencing miss or database error) is logged. The worker finishes the backfill anyway: the replacement worker skips backfill once the ticket exists, so aborting would drop the rest of the thread.
 Fencing still stops the stale worker settling the receipt.
 
+## Outbound Slack (`ConversationDelivery`)
+
+One row per comment per channel, keyed by `(team, channel, comment_id)`.
+Parts (`ConversationDeliveryPart`) are the retry units, keyed by `(delivery_id, part_key)`.
+`team` is denormalized onto each part for fail-closed scoping; it is not part of the unique key, because a mismatched `team_id` must not be able to insert a second body for the same delivery.
+A composite foreign key `(delivery_id, team_id)` requires the part's team to match the parent, so a different `part_key` cannot attach work to another team's delivery.
+`provider_account_id` on the delivery preserves the Slack workspace or other provider account after snapshot cleanup.
+
+Ticket and comment are UUID references, not foreign keys: they must not take locks on `posthog_comment` or `posthog_conversations_ticket`.
+Route and payload snapshots are bounded JSON (256 KiB each).
+Attachment bytes stay in existing uploaded-media / object-storage paths. The part stores a reference, never the bytes.
+
+Workers claim a part with a fencing token and a lease.
+Completes, fails, retries, and lease renewals require `status=processing` and the claim's fencing token, so a retry that released the row cannot be settled by a stale worker.
+A failed image must not resend an accepted body: those are different parts.
+
+Status is pending, processing, accepted (provider took the payload), delivered (recipient server accepted), or failed.
+Terminal rows require `terminal_at`; non-terminal rows require it to be null.
+Processing rows require `lease_expires_at`, otherwise the sweeper cannot reclaim them.
+Queue transitions that use `QuerySet.update()` must set `updated_at` and the appropriate terminal timestamp explicitly.
+
+Partial indexes cover pending due work, expired processing leases, snapshot cleanup, and terminal-row deletion.
+Sweepers and other work outside a request must use `objects.unscoped()` or `objects.for_team(...)`.
+Both tables are fail-closed (`TeamScopedRootMixin`).
+
+Email outbound does not use this table. See below.
+
 ## Outbound email (already in Postgres)
 
 `EmailOutboxMessage` remains the outbound email outbox.
