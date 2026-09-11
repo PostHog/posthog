@@ -1,6 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { PredicateIndexUsage, PredicateIndexVerdict, PredicateScope } from '~/queries/schema/schema-general'
+import {
+    EventsScanEstimate,
+    PredicateIndexUsage,
+    PredicateIndexVerdict,
+    PredicateScope,
+} from '~/queries/schema/schema-general'
 
 import { QueryIndexUsageBar } from './QueryIndexUsageBar'
 
@@ -88,6 +93,25 @@ export const RefreshingAfterAnEdit: Story = {
     render: () => (
         <div className="max-w-3xl">
             <QueryIndexUsageBar predicates={PREDICATES} refreshing />
+        </div>
+    ),
+}
+
+const SMALL_SCAN: EventsScanEstimate = { rows: 42_000_000, days: 30, events: ['$pageview'], time_range: 'bounded' }
+const LARGE_OPEN_SCAN: EventsScanEstimate = { rows: 2_100_000_000, days: 365, events: [], time_range: 'open' }
+
+export const ScanEstimateWithFilters: Story = {
+    render: () => (
+        <div className="max-w-3xl">
+            <QueryIndexUsageBar predicates={PREDICATES} estimate={SMALL_SCAN} />
+        </div>
+    ),
+}
+
+export const LargeScanWithoutFilters: Story = {
+    render: () => (
+        <div className="max-w-3xl">
+            <QueryIndexUsageBar predicates={[]} estimate={LARGE_OPEN_SCAN} />
         </div>
     ),
 }
