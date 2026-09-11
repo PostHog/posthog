@@ -7,6 +7,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.cost.fingerprint import fingerprint_query
 from posthog.hogql.database.database import Database
@@ -83,6 +84,18 @@ class TestFingerprintQueryShape(SimpleTestCase):
     )
     def test_structural_differences_produce_distinct_fingerprints(self, _name, sql_a, sql_b):
         assert fingerprint_query(parse_select(sql_a)) != fingerprint_query(parse_select(sql_b))
+
+    def test_plan_affecting_query_settings_change_the_fingerprint(self):
+        # Runners attach settings such as join_algorithm programmatically; they change the physical plan.
+        plain = parse_select("SELECT count() FROM events")
+        hash_join = cast(ast.SelectQuery, parse_select("SELECT count() FROM events"))
+        hash_join.settings = HogQLQuerySettings(join_algorithm="hash")
+        parallel_hash_join = cast(ast.SelectQuery, parse_select("SELECT count() FROM events"))
+        parallel_hash_join.settings = HogQLQuerySettings(join_algorithm="parallel_hash")
+
+        fingerprints = {fingerprint_query(node) for node in (plain, hash_join, parallel_hash_join)}
+
+        assert len(fingerprints) == 3
 
 
 class TestFingerprintQueryResolution(BaseTest):
