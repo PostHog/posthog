@@ -115,8 +115,9 @@ export class McpProxyService {
   /**
    * Register a target URL under a stable ID. Returns the loopback URL to pass
    * to the MCP transport plus the secret that transport must send on every
-   * request. Subsequent registrations with the same ID overwrite the target
-   * and mint a fresh secret, invalidating any old one.
+   * request. Re-registering the same upstream keeps the secret, because live
+   * transports (open sessions, MCP App connections) still hold it; a changed
+   * upstream rotates it.
    */
   register(
     id: string,
@@ -126,10 +127,17 @@ export class McpProxyService {
     if (!this.port) {
       throw new Error("MCP proxy not started");
     }
-    const token = crypto.randomUUID();
+    const credentialOwner = options.credentialOwner ?? "posthog";
+    const existing = this.targets.get(id);
+    const token =
+      existing &&
+      existing.url === targetUrl &&
+      existing.credentialOwner === credentialOwner
+        ? existing.token
+        : crypto.randomUUID();
     this.targets.set(id, {
       url: targetUrl,
-      credentialOwner: options.credentialOwner ?? "posthog",
+      credentialOwner,
       token,
     });
     return {

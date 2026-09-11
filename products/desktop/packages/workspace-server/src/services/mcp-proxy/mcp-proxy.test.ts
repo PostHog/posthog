@@ -126,12 +126,26 @@ describe("McpProxyService", () => {
       expect(authServiceMock.authenticatedFetch).not.toHaveBeenCalled();
     });
 
-    it("invalidates the old secret when a target is re-registered", async () => {
+    it("keeps the secret when the target is re-registered with the same upstream", async () => {
+      // buildMcpServers runs on every session start and re-registers the same
+      // IDs, while live transports keep sending the token they were built with.
       authServiceMock.authenticatedFetch.mockResolvedValue(okJson());
 
       await service.start();
       const first = service.register("alpha", "https://upstream.example");
       const second = service.register("alpha", "https://upstream.example");
+
+      expect(second.token).toBe(first.token);
+      const res = await authedFetch(first.url, first.token);
+      expect(res.status).toBe(200);
+    });
+
+    it("rotates the secret when the upstream changes", async () => {
+      authServiceMock.authenticatedFetch.mockResolvedValue(okJson());
+
+      await service.start();
+      const first = service.register("alpha", "https://upstream.example");
+      const second = service.register("alpha", "https://other.example");
 
       const rejected = await authedFetch(first.url, first.token);
       const accepted = await authedFetch(second.url, second.token);
