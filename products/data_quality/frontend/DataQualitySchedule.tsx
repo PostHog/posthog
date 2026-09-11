@@ -27,7 +27,7 @@ export function DataQualitySchedule(props: DataQualityScheduleLogicProps): JSX.E
                 <LemonSwitch
                     checked={schedule.enabled}
                     onChange={(enabled) => updateSchedule({ enabled })}
-                    disabled={scheduleLoading || !!scheduleError}
+                    disabled={scheduleLoading || !!scheduleError?.uncertain}
                     label="Run automatically"
                     data-attr="data-quality-schedule-enabled"
                 />
@@ -36,7 +36,7 @@ export function DataQualitySchedule(props: DataQualityScheduleLogicProps): JSX.E
                     disabledReason={
                         scheduleLoading
                             ? 'Saving schedule'
-                            : scheduleError
+                            : scheduleError?.uncertain
                               ? 'Reload the schedule to try again'
                               : undefined
                     }
@@ -62,14 +62,17 @@ export function DataQualitySchedule(props: DataQualityScheduleLogicProps): JSX.E
                     )
                 )}
             </div>
-            {scheduleError && (
-                <LemonBanner
-                    type="error"
-                    action={{ children: 'Reload', onClick: loadSchedule, loading: scheduleLoading }}
-                >
-                    Could not confirm the schedule update. Reload it before trying again.
-                </LemonBanner>
-            )}
+            {scheduleError &&
+                (scheduleError.uncertain ? (
+                    <LemonBanner
+                        type="error"
+                        action={{ children: 'Reload', onClick: loadSchedule, loading: scheduleLoading }}
+                    >
+                        Could not confirm the schedule update. Reload it before trying again.
+                    </LemonBanner>
+                ) : (
+                    <LemonBanner type="error">{scheduleError.message}</LemonBanner>
+                ))}
         </div>
     )
 }
