@@ -165,7 +165,7 @@ describe('InsightDisplayConfig', () => {
                 {
                     tabs: ['General', 'Axes', 'Lines'],
                     sections: {
-                        General: ['Color customization by', 'Y-axis unit'],
+                        General: ['Unit', 'Color customization by'],
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Style', 'Overlays'],
                     },
@@ -179,7 +179,7 @@ describe('InsightDisplayConfig', () => {
                 {
                     tabs: ['General', 'Axes', 'Lines'],
                     sections: {
-                        General: ['Y-axis unit'],
+                        General: ['Unit'],
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Overlays'],
                     },
@@ -198,7 +198,7 @@ describe('InsightDisplayConfig', () => {
                 {
                     tabs: ['General', 'Axes', 'Lines'],
                     sections: {
-                        General: ['Y-axis unit'],
+                        General: ['Unit'],
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Style', 'Overlays'],
                     },
@@ -256,7 +256,7 @@ describe('InsightDisplayConfig', () => {
                 makeTrendsQuery(ChartDisplayType.ActionsBarValue),
                 {
                     tabs: ['General', 'Axes'],
-                    sections: { General: ['X-axis unit'], Axes: ['X-axis', 'Y-axis'] },
+                    sections: { General: ['Unit'], Axes: ['X-axis', 'Y-axis'] },
                     displayItems: ['Show values on series'],
                 },
             ],

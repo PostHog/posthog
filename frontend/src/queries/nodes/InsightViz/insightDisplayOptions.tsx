@@ -4,7 +4,6 @@ import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { PIE_DISPLAY_TYPES } from 'lib/constants'
-import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -194,6 +193,9 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
     if (showDisplaySection && displayItems.length > 0) {
         displaySections.push({ key: 'display', dataAttr: 'options-display-section', items: displayItems })
     }
+    if (showUnit) {
+        displaySections.push({ key: 'unit', title: 'Unit', items: [DisplayOptions.Unit] })
+    }
     if (supportsResultCustomizationBy) {
         displaySections.push({
             key: 'color-customization',
@@ -201,13 +203,6 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
             tooltip:
                 "You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).",
             items: [DisplayOptions.ResultCustomizationBy],
-        })
-    }
-    if (showUnit) {
-        displaySections.push({
-            key: 'unit',
-            title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
-            items: [DisplayOptions.Unit],
         })
     }
     if (showDecimalPlaces) {
