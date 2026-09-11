@@ -1,5 +1,6 @@
 import json
 import uuid
+from contextlib import suppress
 from typing import Any
 
 from unittest.mock import patch
@@ -90,6 +91,25 @@ class TestErrorTrackingInteractivity(TestCase):
         assert ephemeral.call_args.kwargs["channel"] == "C0123"
         assert ephemeral.call_args.kwargs["user"] == "U777"
         assert ephemeral.call_args.kwargs["text"].startswith(expected_text)
+
+    @patch("products.slack_app.backend.tasks.SlackIntegration")
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_failed_mutation_still_tells_the_clicker(self, mock_config, mock_is_org_member, mock_post):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = self.user
+
+        with (
+            patch(
+                "products.error_tracking.backend.facade.issues.resolve_issue_from_slack", side_effect=RuntimeError("db")
+            ),
+            suppress(RuntimeError),
+        ):
+            self._post(self._payload("error_tracking_issue_resolve", self._value()))
+
+        ephemeral = mock_post.return_value.client.chat_postEphemeral
+        ephemeral.assert_called_once()
+        assert ephemeral.call_args.kwargs["text"].startswith("Something went wrong")
 
     @patch("products.slack_app.backend.tasks.SlackIntegration")
     @patch("products.slack_app.backend.api._is_org_member")

@@ -23,6 +23,9 @@ class TestSlackIssueActions(BaseTest):
         dispatch = patch("products.error_tracking.backend.temporal.alerts.dispatch.start_alert_delivery_workflow")
         dispatch.start()
         self.addCleanup(dispatch.stop)
+        flag = patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
 
     def test_resolve_from_slack_resolves_once_and_reports_repeats(self):
         assert resolve_issue_from_slack(self.issue.id, integration=self.integration, user=self.user) == "ok"
@@ -42,6 +45,15 @@ class TestSlackIssueActions(BaseTest):
         other_integration = Integration.objects.create(team=other_team, kind="slack", integration_id="T999")
 
         assert resolve_issue_from_slack(self.issue.id, integration=other_integration, user=self.user) == "not_found"
+        self.issue.refresh_from_db()
+        assert self.issue.status == ErrorTrackingIssue.Status.ACTIVE
+
+    def test_buttons_are_disarmed_when_the_flag_is_off(self):
+        # Posted messages outlive the flag; a click after it is turned off must do nothing.
+        with patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=False):
+            outcome = resolve_issue_from_slack(self.issue.id, integration=self.integration, user=self.user)
+
+        assert outcome == "unavailable"
         self.issue.refresh_from_db()
         assert self.issue.status == ErrorTrackingIssue.Status.ACTIVE
 
