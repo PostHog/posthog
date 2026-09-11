@@ -764,6 +764,10 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         )
 
     def test_scan_window_follows_the_latest_exposure_once_traffic_has_stopped(self) -> None:
+        # A session from 45 days ago keeps its recording, and the anchor may look that far back,
+        # only on a project that keeps recordings for longer than the default 30 days.
+        self.team.session_recording_retention_period = "90d"
+        self.team.save()
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC], start_date=NOW - timedelta(days=90))
         last_exposure_at = NOW - timedelta(days=45)
         # A recording outlives the scan gap only where the project keeps recordings past the
@@ -820,7 +824,10 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert data["date_to"] == NOW.isoformat().replace("+00:00", "Z")
 
     def test_a_run_with_no_in_session_exposure_reports_the_whole_run_as_scanned(self) -> None:
-        start = NOW - timedelta(days=90)
+        # Retention longer than the run, so the anchor's floor is the run's own start.
+        self.team.session_recording_retention_period = "90d"
+        self.team.save()
+        start = NOW - timedelta(days=60)
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC], start_date=start)
         # Sessions do carry the exposure event, just never for this flag, so the scan looks the
         # event up rather than falling back to the stamped property.
@@ -859,6 +866,31 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         # buy the scan again. One scan, and it read the recent stretch rather than the whole run:
         # the run's older days can hold no later exposure than the days after them.
         assert anchor_scans == [NOW - timedelta(days=MAX_BUCKET_SCAN_DAYS)]
+
+    def test_the_anchor_stops_at_the_recording_retention_of_the_project(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC], start_date=NOW - timedelta(days=365))
+        # Exposed 45 days ago on a project that keeps recordings for 30, so every session an older
+        # scan could reach has already lost its recording.
+        exposed_at = NOW - timedelta(days=45)
+        self._session(at=exposed_at, events=[("purchase", exposed_at + timedelta(minutes=5))])
+        flush_persons_and_events()
+
+        searched_from = []
+        original = session_buckets._latest_session_exposure_at
+
+        def _recording_anchor(*args: Any, **kwargs: Any) -> Any:
+            searched_from.append(kwargs["window_start"])
+            return original(*args, **kwargs)
+
+        with patch.object(session_buckets, "_latest_session_exposure_at", side_effect=_recording_anchor):
+            response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
+
+        data = response.json()
+        # Reaching back to the start of the run would read a year of the exposure event on every
+        # cold request, to find sessions the recording lookup then drops.
+        assert searched_from == [NOW - timedelta(days=30)]
+        assert data["session_ids"] == []
+        assert data["date_from"] == (NOW - timedelta(days=30)).isoformat().replace("+00:00", "Z")
 
     def test_test_account_filtering_follows_the_exposure_criteria(self) -> None:
         self.team.test_account_filters = [{"key": "$host", "value": "localhost", "operator": "is_not", "type": "event"}]

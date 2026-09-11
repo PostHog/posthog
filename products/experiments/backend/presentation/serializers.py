@@ -1872,8 +1872,10 @@ class ExperimentSessionBucketResponseSerializer(serializers.Serializer):
     )
     date_from = serializers.DateTimeField(
         help_text=(
-            f"Start of the window scanned: at most {MAX_BUCKET_SCAN_DAYS} days before date_to, and never before "
-            "the experiment started. Matches outside the window are not returned."
+            f"Start of the window scanned, never before the experiment started. At most {MAX_BUCKET_SCAN_DAYS} days "
+            "before date_to when the scan found an exposure to anchor on. When it found none, how far back the "
+            "search for one reached, which the project's recording retention bounds. Matches outside the window "
+            "are not returned."
         )
     )
     date_to = serializers.DateTimeField(

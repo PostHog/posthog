@@ -61,6 +61,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.session_recordings.data_retention import retention_period_in_days
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.utils import get_safe_cache, safe_cache_set
 
@@ -99,6 +100,11 @@ MAX_SESSION_BUCKET_LIMIT = 100
 # exposures stopped has nothing left in its recent days. The response carries the window it read,
 # because a clamped scan has to state what it left out.
 MAX_BUCKET_SCAN_DAYS = 30
+# How far back the anchor looks for the latest exposure, before the project's replay retention
+# bounds it further. The scan prunes on the exposure event name, but that event is among the
+# highest-volume a team has and a run has no length cap, so an unbounded lookup on a long-stopped
+# experiment would read years of it on every cold request.
+MAX_ANCHOR_LOOKBACK_DAYS = 90
 # Rows fetched before filtering to sessions that actually have a recording, so the cap isn't
 # spent on sessions sampled out of replay.
 RECORDING_LOOKUP_FACTOR = 3
@@ -309,20 +315,22 @@ def get_experiment_session_bucket(
         modifiers=modifiers,
     )
     scan_variant_keys = [variant] if variant is not None else sorted(variant_keys)
+    anchor_floor = _anchor_floor(team, run_start=experiment.start_date, run_end=run_end)
     anchored_end = _resolve_window_end(
         team,
         user,
         experiment,
         exposure=exposure,
         variant_keys=scan_variant_keys,
-        run_start=experiment.start_date,
+        search_start=anchor_floor,
         run_end=run_end,
         shared_hogql=shared_hogql,
     )
     if anchored_end is None:
-        # The anchor read the whole run and found no in-session exposure, so no older stretch went
-        # unread: the window to report is the run itself, and the bucket query would return [].
-        window_start = experiment.start_date
+        # The anchor searched back to the floor and found no in-session exposure, so the floor is
+        # what the response reports: nothing newer went unread, and the bucket query would
+        # return the same empty list.
+        window_start = anchor_floor
         window_end = run_end
         candidate_session_ids: list[str] = []
         scan_hit_cap = False
@@ -428,7 +436,7 @@ def _anchor_cache_key(
     experiment: Experiment,
     *,
     variant_keys: list[str],
-    run_start: datetime,
+    search_start: datetime,
     run_end: datetime,
     exposure: SessionExposure,
 ) -> str:
@@ -441,7 +449,7 @@ def _anchor_cache_key(
     spec = json.dumps(
         [
             variant_keys,
-            run_start.replace(second=0, microsecond=0).isoformat(),
+            search_start.replace(second=0, microsecond=0).isoformat(),
             run_end.replace(second=0, microsecond=0).isoformat(),
             exposure.default_exposure_event,
             exposure.variant_property,
@@ -461,6 +469,17 @@ class _WindowAnchor:
     window_end: Optional[datetime]
 
 
+def _anchor_floor(team: Team, *, run_start: datetime, run_end: datetime) -> datetime:
+    """The oldest timestamp the anchor may read, whichever of the two bounds is tighter.
+
+    Past the project's replay retention, every session the anchor could point at has already lost
+    its recording, so reading further only produces rows the recording lookup drops.
+    `MAX_ANCHOR_LOOKBACK_DAYS` then caps the long retention tiers.
+    """
+    lookback = min(retention_period_in_days(team.session_recording_retention_period), MAX_ANCHOR_LOOKBACK_DAYS)
+    return max(run_start, run_end - timedelta(days=lookback))
+
+
 def _resolve_window_end(
     team: Team,
     user: User,
@@ -468,12 +487,12 @@ def _resolve_window_end(
     *,
     exposure: SessionExposure,
     variant_keys: list[str],
-    run_start: datetime,
+    search_start: datetime,
     run_end: datetime,
     shared_hogql: SharedHogQLDatabase,
 ) -> Optional[datetime]:
     """Where the scan window ends: `MAX_SESSION_DURATION_HOURS` past the latest in-session
-    exposure, capped at the end of the run. None when the run holds no such exposure at all.
+    exposure, capped at the end of the run. None when nothing from `search_start` on carries one.
 
     The pad is what keeps the classification honest. A session's metric events can follow its
     exposure, so a window that stopped at the last exposure would read a purchase fired after it as
@@ -487,7 +506,7 @@ def _resolve_window_end(
         return run_end
 
     cache_key = _anchor_cache_key(
-        team, user, experiment, variant_keys=variant_keys, run_start=run_start, run_end=run_end, exposure=exposure
+        team, user, experiment, variant_keys=variant_keys, search_start=search_start, run_end=run_end, exposure=exposure
     )
     cached = get_safe_cache(cache_key)
     if cached is not None:
@@ -508,10 +527,10 @@ def _resolve_window_end(
     # The recent stretch first, and it settles the anchor on its own whenever it holds an exposure:
     # every exposure outside it is older than every exposure inside it, so its latest is the run's
     # latest. An experiment with current traffic therefore never reads its older days.
-    recent_start = max(run_start, run_end - timedelta(days=MAX_BUCKET_SCAN_DAYS))
+    recent_start = max(search_start, run_end - timedelta(days=MAX_BUCKET_SCAN_DAYS))
     latest = latest_from(recent_start)
-    if latest is None and recent_start > run_start:
-        latest = latest_from(run_start)
+    if latest is None and recent_start > search_start:
+        latest = latest_from(search_start)
     window_end = None if latest is None else min(run_end, latest + timedelta(hours=MAX_SESSION_DURATION_HOURS))
     safe_cache_set(cache_key, _WindowAnchor(window_end=window_end), timeout=SESSION_BUCKET_CACHE_TTL)
     return window_end
