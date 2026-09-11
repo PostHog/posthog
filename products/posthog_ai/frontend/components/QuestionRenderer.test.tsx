@@ -83,6 +83,30 @@ describe('QuestionRenderer', () => {
         expect(screen.queryByText('Weekly')).not.toBeInTheDocument()
     })
 
+    it.each([
+        { count: 1, title: 'Question answered' },
+        { count: 2, title: 'Questions answered' },
+    ])(
+        'titles a completed call with $count question(s) "$title" despite the singular agent title',
+        ({ count, title }) => {
+            const questions = Array.from({ length: count }, (_, index) => ({
+                question: `Question ${index + 1}?`,
+                header: `Q${index + 1}`,
+                multiSelect: false,
+                options: [{ label: 'Yes' }],
+            }))
+            renderCard(
+                makeMessage({
+                    title: 'Question answered',
+                    rawInput: { questions },
+                    rawOutput: { answers: { 'Question 1?': 'Yes' } },
+                })
+            )
+
+            expect(screen.getByText(title)).toBeInTheDocument()
+        }
+    )
+
     it('falls back to a joined answer string when there is no per-question map', () => {
         renderCard(makeMessage({ rawOutput: { text: 'User picked Revenue' } }))
 
