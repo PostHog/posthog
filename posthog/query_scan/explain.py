@@ -1,8 +1,9 @@
 """Read the JSON that ``EXPLAIN indexes = 1, json = 1`` returns for a query.
 
-The plan says which table each node reads, which columns ClickHouse used to skip data, how many
-granules each index step kept, and the timestamp range it could bound. The analysis reads its
-findings and the granule shares off this, never off our own tree.
+ClickHouse stores a table in granules, blocks of rows it reads or skips whole, so the granules a
+read kept measure how much of the table it touched. The plan says which table each node reads,
+which columns ClickHouse used to skip granules, how many each index step kept, and the timestamp
+range it could bound. The analysis reads its findings and its shares off this.
 """
 
 import re

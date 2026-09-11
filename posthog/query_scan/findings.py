@@ -1,8 +1,7 @@
 """Turn an analysis outcome into the warning a person reads.
 
-The copy is the wording decided for the spec. A no-event-filter or no-start-date finding reads
-differently for raw SQL than for an insight built from pickers, so the query kind chooses which
-wording to use.
+A no-event-filter or no-start-date finding reads differently for raw SQL than for an insight built
+from pickers, so the query kind chooses which wording to use.
 """
 
 from posthog.schema import QueryScanFindingKind, QueryScanFindingReason, QueryScanWarning

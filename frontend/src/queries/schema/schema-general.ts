@@ -615,29 +615,35 @@ export interface QueryScanSummary {
     project_share?: number
 }
 
-export type QueryScanFindingKind =
-    | 'no_event_filter'
-    | 'event_filter_not_used'
-    | 'no_start_date'
-    | 'persons_join'
-    | 'all_events'
-    | 'all_time'
+/**
+ * What the analysis found. `no_event_filter`: nothing narrows the query to particular events, so it
+ * reads every event in its date range. `no_start_date`: nothing bounds the start, so it reads from the
+ * project's first event. `persons_join`: the join to the persons tables reads as much as the events do.
+ */
+export type QueryScanFindingKind = 'no_event_filter' | 'no_start_date' | 'persons_join'
 
-export type QueryScanFindingReason = 'in_or' | 'wrapped' | 'negated' | 'dynamic' | 'not_pruned' | 'column' | 'filters'
+/**
+ * Why a filter the query has did not narrow the read. On `no_event_filter`: `in_or`, the event filter
+ * is inside an OR; `wrapped`, `event` is inside a function call; `negated`, the filter excludes events
+ * (`!=`, `NOT IN`) and excluding narrows nothing; `dynamic`, `event` is compared to another column;
+ * `not_pruned`, ClickHouse reported the filter unused. On `no_start_date`: `filters`, the date range
+ * comes from the insight's date picker through `{filters}` and was left open.
+ */
+export type QueryScanFindingReason = 'in_or' | 'wrapped' | 'negated' | 'dynamic' | 'not_pruned' | 'filters'
 
 export interface QueryScanWarning {
     /** Tells warning kinds apart in the shared `warnings` list */
     type: 'query_scan'
     kind: QueryScanFindingKind
-    /** Why the filter could not be used; only for event_filter_not_used and no_start_date */
+    /** Why the filter the query has did not narrow the read. Only on no_event_filter and no_start_date. */
     reason?: QueryScanFindingReason
     /** Shown to the person. Sentence case, says what happened and what to do. */
     message: string
-    /** The instruction handed to "Fix with AI" and to agents */
+    /** The instruction "Fix with AI" and the assistant get for this finding. */
     fix: string
     /** The offending condition printed back as HogQL, when there is one */
     clause?: string
-    /** What ClickHouse reported did not use the filter, when EXPLAIN was available */
+    /** The fact the finding rests on, in one sentence: what the plan reported, or the setting that caused it. */
     evidence?: string
     rows_read: integer
     duration_ms: integer

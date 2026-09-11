@@ -3874,11 +3874,8 @@ class LimitContext(Enum):
 
 class QueryScanFindingKind(StrEnum):
     NO_EVENT_FILTER = "no_event_filter"
-    EVENT_FILTER_NOT_USED = "event_filter_not_used"
     NO_START_DATE = "no_start_date"
     PERSONS_JOIN = "persons_join"
-    ALL_EVENTS = "all_events"
-    ALL_TIME = "all_time"
 
 
 class QueryScanFindingReason(StrEnum):
@@ -3887,7 +3884,6 @@ class QueryScanFindingReason(StrEnum):
     NEGATED = "negated"
     DYNAMIC = "dynamic"
     NOT_PRUNED = "not_pruned"
-    COLUMN = "column"
     FILTERS = "filters"
 
 

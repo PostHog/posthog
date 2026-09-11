@@ -6677,9 +6677,14 @@ class QueryScanWarning(BaseModel):
     duration_ms: int
     evidence: str | None = Field(
         default=None,
-        description=("What ClickHouse reported did not use the filter, when EXPLAIN was available"),
+        description=(
+            "The fact the finding rests on, in one sentence: what the plan reported, or the setting that caused it."
+        ),
     )
-    fix: str = Field(..., description='The instruction handed to "Fix with AI" and to agents')
+    fix: str = Field(
+        ...,
+        description=('The instruction "Fix with AI" and the assistant get for this finding.'),
+    )
     kind: QueryScanFindingKind
     message: str = Field(
         ...,
@@ -6687,7 +6692,9 @@ class QueryScanWarning(BaseModel):
     )
     reason: QueryScanFindingReason | None = Field(
         default=None,
-        description=("Why the filter could not be used; only for event_filter_not_used and no_start_date"),
+        description=(
+            "Why the filter the query has did not narrow the read. Only on no_event_filter and no_start_date."
+        ),
     )
     rows_read: int
     type: Literal["query_scan"] = Field(

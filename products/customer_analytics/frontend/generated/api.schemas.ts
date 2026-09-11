@@ -1608,11 +1608,8 @@ export type QueryScanFindingKindApi = (typeof QueryScanFindingKindApi)[keyof typ
 
 export const QueryScanFindingKindApi = {
     NoEventFilter: 'no_event_filter',
-    EventFilterNotUsed: 'event_filter_not_used',
     NoStartDate: 'no_start_date',
     PersonsJoin: 'persons_join',
-    AllEvents: 'all_events',
-    AllTime: 'all_time',
 } as const
 
 export type QueryScanFindingReasonApi = (typeof QueryScanFindingReasonApi)[keyof typeof QueryScanFindingReasonApi]
@@ -1623,7 +1620,6 @@ export const QueryScanFindingReasonApi = {
     Negated: 'negated',
     Dynamic: 'dynamic',
     NotPruned: 'not_pruned',
-    Column: 'column',
     Filters: 'filters',
 } as const
 
@@ -1631,14 +1627,14 @@ export interface QueryScanWarningApi {
     /** The offending condition printed back as HogQL, when there is one */
     clause?: string | null
     duration_ms: number
-    /** What ClickHouse reported did not use the filter, when EXPLAIN was available */
+    /** The fact the finding rests on, in one sentence: what the plan reported, or the setting that caused it. */
     evidence?: string | null
-    /** The instruction handed to "Fix with AI" and to agents */
+    /** The instruction "Fix with AI" and the assistant get for this finding. */
     fix: string
     kind: QueryScanFindingKindApi
     /** Shown to the person. Sentence case, says what happened and what to do. */
     message: string
-    /** Why the filter could not be used; only for event_filter_not_used and no_start_date */
+    /** Why the filter the query has did not narrow the read. Only on no_event_filter and no_start_date. */
     reason?: QueryScanFindingReasonApi | null
     rows_read: number
     /** Tells warning kinds apart in the shared `warnings` list */

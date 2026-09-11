@@ -1,8 +1,9 @@
-"""Turn ClickHouse's plans and the thresholds into findings and the two granule shares.
+"""Turn ClickHouse's plans and the thresholds into findings and the two shares.
 
 Everything here is pure: no ClickHouse, no Redis, no Celery. The job hands over the outer query's
-plan, one plan per stubbed ``IN`` subquery, and the two denominator granule counts from 16.6; this
-module reads the findings and the shares off them.
+plan, one plan per stubbed ``IN`` subquery, and two denominators: the granules of the project's
+events over the query's date range, and over all time. Each share is the outer read's granules
+against one denominator, so a person sees how much of their data the query read.
 """
 
 from posthog.schema import QueryScanWarning
@@ -27,7 +28,7 @@ _SQL_QUERY_KIND = "HogQLQuery"
 
 @frozen
 class PlanSet:
-    """The plans one job produced, plus the denominators for the granule shares (16.6).
+    """The plans one job produced, plus the denominators for the two shares.
 
     ``team_granules`` and ``range_granules`` are the selected granules of the two denominator
     ``EXPLAIN``s the job ran: the team's whole data, and the team's data over the query's range.
