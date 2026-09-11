@@ -84,7 +84,6 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
         editingDefinition,
         draftMarkdown,
         activeTab,
-        supportsMetricChecks,
         metricChecksEnabled,
     } = useValues(dataCatalogMetricSceneLogic)
     const {
@@ -360,7 +359,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                         { key: 'definition', label: 'Definition' },
                         metricChecksEnabled && {
                             key: 'tests',
-                            label: supportsMetricChecks ? <MetricTestsTabLabel metricId={metric.id} /> : 'Tests',
+                            label: <MetricTestsTabLabel metricId={metric.id} />,
                         },
                     ]}
                 />

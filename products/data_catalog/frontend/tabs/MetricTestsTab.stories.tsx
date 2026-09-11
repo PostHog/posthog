@@ -79,6 +79,7 @@ type Story = StoryObj<StoryProps>
 export const Empty: Story = {}
 export const Scheduled: Story = { args: { hasCheck: true } }
 export const Unsupported: Story = { args: { definitionKind: 'MarkdownDefinition' } }
+export const UnsupportedWithChecks: Story = { args: { definitionKind: 'MarkdownDefinition', hasCheck: true } }
 export const Narrow: Story = {
     args: { hasCheck: true },
     decorators: [

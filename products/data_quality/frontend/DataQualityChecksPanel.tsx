@@ -19,12 +19,14 @@ interface DataQualityChecksPanelProps extends DataQualityChecksLogicProps {
     dataLastSyncedAt?: string | null
     /** Drops the "Data quality" heading where the surface already names the panel, such as a tab. */
     hideTitle?: boolean
+    newCheckDisabledReason?: string
 }
 
 export function DataQualityChecksPanel({
     columns,
     dataLastSyncedAt,
     hideTitle,
+    newCheckDisabledReason,
     ...logicProps
 }: DataQualityChecksPanelProps): JSX.Element | null {
     const logic = dataQualityChecksLogic(logicProps)
@@ -106,7 +108,13 @@ export function DataQualityChecksPanel({
                         >
                             Run all checks
                         </LemonButton>
-                        <LemonButton type="primary" size="small" onClick={addCheck} data-attr="data-quality-new-check">
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={addCheck}
+                            disabledReason={newCheckDisabledReason}
+                            data-attr="data-quality-new-check"
+                        >
                             New check
                         </LemonButton>
                     </div>
@@ -147,7 +155,11 @@ export function DataQualityChecksPanel({
                 )}
 
                 {!checksLoading && checks.length === 0 ? (
-                    <NoChecksYet onAddCheck={addCheck} isMetric={logicProps.subjectType === 'metric'} />
+                    <NoChecksYet
+                        onAddCheck={addCheck}
+                        isMetric={logicProps.subjectType === 'metric'}
+                        disabledReason={newCheckDisabledReason}
+                    />
                 ) : (
                     <ChecksTable {...logicProps} columns={columnNames} />
                 )}
@@ -160,7 +172,15 @@ export function DataQualityChecksPanel({
     )
 }
 
-function NoChecksYet({ onAddCheck, isMetric }: { onAddCheck: () => void; isMetric: boolean }): JSX.Element {
+function NoChecksYet({
+    onAddCheck,
+    isMetric,
+    disabledReason,
+}: {
+    onAddCheck: () => void
+    isMetric: boolean
+    disabledReason?: string
+}): JSX.Element {
     return (
         <div className="border rounded p-4 flex flex-col items-start gap-2">
             <h4 className="mb-0">No checks yet</h4>
@@ -169,7 +189,13 @@ function NoChecksYet({ onAddCheck, isMetric }: { onAddCheck: () => void; isMetri
                     ? 'Write a custom SQL check that queries {metric} and returns one row per failure. Checks run daily after you add the first check.'
                     : 'Checks verify this data automatically after each sync or materialization.'}
             </p>
-            <LemonButton type="primary" size="small" onClick={onAddCheck} data-attr="data-quality-first-check">
+            <LemonButton
+                type="primary"
+                size="small"
+                onClick={onAddCheck}
+                disabledReason={disabledReason}
+                data-attr="data-quality-first-check"
+            >
                 Add your first check
             </LemonButton>
         </div>
