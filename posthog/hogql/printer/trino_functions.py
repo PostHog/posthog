@@ -37,6 +37,36 @@ TRINO_FUNCTION_RENAMES: dict[str, str] = {
     "leftPad": "lpad",
     "indexOf": "array_position",
     "TRUNC": "truncate",
+    "JSONArrayLength": "json_array_length",
+    "age": "date_diff",
+    "arrayReverse": "reverse",
+    "cosineDistance": "cosine_distance",
+    "dotProduct": "dot_product",
+    "L2Distance": "euclidean_distance",
+    "bitAnd": "bitwise_and",
+    "bitNot": "bitwise_not",
+    "bitOr": "bitwise_or",
+    "bitXor": "bitwise_xor",
+    "corr": "corr",
+    "isFinite": "is_finite",
+    "isInfinite": "is_infinite",
+    "isNaN": "is_nan",
+    "mapKeys": "map_keys",
+    "mapValues": "map_values",
+    "reverseUTF8": "reverse",
+    "split_part": "split_part",
+    "stddevPop": "stddev_pop",
+    "stddevSamp": "stddev_samp",
+    "translate": "translate",
+    "varPop": "var_pop",
+    "varSamp": "var_samp",
+    "covarPop": "covar_pop",
+    "covarSamp": "covar_samp",
+    "width_bucket": "width_bucket",
+    "hasSubstr": "contains_sequence",
+    "groupBitAnd": "bitwise_and_agg",
+    "groupBitOr": "bitwise_or_agg",
+    "groupBitXor": "bitwise_xor_agg",
 }
 
 
@@ -232,7 +262,18 @@ def _from_unix_timestamp64_milli(args: list[str]) -> str:
 
 def _right(args: list[str]) -> str:
     _require_args("right", args, 2)
-    return f"substr({args[0]}, -({args[1]}))"
+    return (
+        f"IF({args[1]} = 0, '', IF({args[1]} > 0, substr({args[0]}, -({args[1]})), "
+        f"substr({args[0]}, greatest(1, -({args[1]}) + 1))))"
+    )
+
+
+def _left(args: list[str]) -> str:
+    _require_args("left", args, 2)
+    return (
+        f"IF({args[1]} >= 0, substr({args[0]}, 1, {args[1]}), "
+        f"substr({args[0]}, 1, greatest(length({args[0]}) + {args[1]}, 0)))"
+    )
 
 
 def _position(args: list[str]) -> str:
@@ -364,6 +405,420 @@ def _current_timestamp(args: list[str]) -> str:
     return "CURRENT_TIMESTAMP"
 
 
+def _unary_expression(name: str, template: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 1)
+        return template.format(value=args[0])
+
+    return handler
+
+
+def _binary_expression(name: str, template: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 2)
+        return template.format(left=args[0], right=args[1])
+
+    return handler
+
+
+def _array(args: list[str]) -> str:
+    return f"ARRAY[{', '.join(args)}]"
+
+
+def _array_pop_front(args: list[str]) -> str:
+    _require_args("arrayPopFront", args, 1)
+    return f"slice({args[0]}, 2, greatest(cardinality({args[0]}) - 1, 0))"
+
+
+def _array_pop_back(args: list[str]) -> str:
+    _require_args("arrayPopBack", args, 1)
+    return f"slice({args[0]}, 1, greatest(cardinality({args[0]}) - 1, 0))"
+
+
+def _array_push_front(args: list[str]) -> str:
+    _require_args("arrayPushFront", args, 2)
+    return f"concat(ARRAY[{args[1]}], {args[0]})"
+
+
+def _array_push_back(args: list[str]) -> str:
+    _require_args("arrayPushBack", args, 2)
+    return f"concat({args[0]}, ARRAY[{args[1]}])"
+
+
+def _array_resize(args: list[str]) -> str:
+    if len(args) != 3:
+        raise _invalid_arguments(
+            "arrayResize",
+            "The two-argument form needs a type-dependent default value. Trino mode requires an explicit value.",
+        )
+    array, size, value = args
+    return (
+        f"IF({size} >= 0, concat(slice({array}, 1, CAST({size} AS BIGINT)), "
+        f"repeat({value}, greatest(CAST({size} AS BIGINT) - cardinality({array}), 0))), "
+        f"concat(repeat({value}, greatest(-(CAST({size} AS BIGINT)) - cardinality({array}), 0)), "
+        f"slice({array}, greatest(cardinality({array}) + CAST({size} AS BIGINT) + 1, 1), "
+        f"least(-(CAST({size} AS BIGINT)), cardinality({array})))))"
+    )
+
+
+def _array_difference(args: list[str]) -> str:
+    _require_args("arrayDifference", args, 1)
+    value = args[0]
+    return (
+        f"IF(cardinality({value}) = 0, ARRAY[], "
+        f"transform(sequence(1, cardinality({value})), __hogql_index -> "
+        f"IF(__hogql_index = 1, 0, {value}[__hogql_index] - {value}[__hogql_index - 1])))"
+    )
+
+
+def _array_product(args: list[str]) -> str:
+    _require_args("arrayProduct", args, 1)
+    return (
+        f"IF(cardinality({args[0]}) = 0, DOUBLE '0', "
+        f"reduce({args[0]}, DOUBLE '1', (__hogql_total, __hogql_value) -> "
+        f"__hogql_total * __hogql_value, __hogql_total -> __hogql_total))"
+    )
+
+
+def _array_uniq(args: list[str]) -> str:
+    if not args:
+        raise _invalid_arguments("arrayUniq", "arrayUniq expects at least one array.")
+    value = args[0] if len(args) == 1 else f"zip({', '.join(args)})"
+    return f"cardinality(array_distinct({value}))"
+
+
+def _array_with_constant(args: list[str]) -> str:
+    _require_args("arrayWithConstant", args, 2)
+    return f"repeat({args[1]}, CAST({args[0]} AS BIGINT))"
+
+
+def _base64_encode(args: list[str]) -> str:
+    _require_args("base64Encode", args, 1)
+    return f"to_base64(to_utf8({args[0]}))"
+
+
+def _base64_decode(args: list[str]) -> str:
+    _require_args("base64Decode", args, 1)
+    return f"from_utf8(from_base64({args[0]}))"
+
+
+def _try_base64_decode(args: list[str]) -> str:
+    _require_args("tryBase64Decode", args, 1)
+    return f"coalesce(TRY(from_utf8(from_base64({args[0]}))), '')"
+
+
+def _ascii(args: list[str]) -> str:
+    _require_args("ascii", args, 1)
+    return f"IF({args[0]} = '', 0, from_base(to_hex(substr(to_utf8({args[0]}), 1, 1)), 16))"
+
+
+def _concat_with_separator(args: list[str]) -> str:
+    if len(args) < 2:
+        raise _invalid_arguments("concatWithSeparator", "concatWithSeparator expects a separator and values.")
+    null_check = " OR ".join(f"{arg} IS NULL" for arg in args)
+    return f"IF({null_check}, NULL, array_join(ARRAY[{', '.join(args[1:])}], {args[0]}))"
+
+
+def _split_by_whitespace(args: list[str]) -> str:
+    _require_args("splitByWhitespace", args, 1)
+    return f"IF(trim({args[0]}) = '', ARRAY[], regexp_split(trim({args[0]}), '\\s+'))"
+
+
+def _map_contains(args: list[str]) -> str:
+    _require_args("mapContains", args, 2)
+    return f"contains(map_keys({args[0]}), {args[1]})"
+
+
+def _map_lambda(name: str, target: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 2)
+        return f"{target}({args[1]}, {args[0]})"
+
+    return handler
+
+
+def _json_agg(args: list[str]) -> str:
+    _require_args("json_agg", args, 1)
+    return f"json_format(CAST(array_agg({args[0]}) AS JSON))"
+
+
+def _string_agg(args: list[str]) -> str:
+    _require_args("string_agg", args, 2)
+    return f"array_join(array_agg({args[0]}), {args[1]})"
+
+
+def _date_arithmetic(name: str, operator: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 2)
+        return f"({args[0]} {operator} {args[1]})"
+
+    return handler
+
+
+def _make_date(args: list[str]) -> str:
+    _require_args("make_date", args, 3)
+    return f"CAST(format('%04d-%02d-%02d', {args[0]}, {args[1]}, {args[2]}) AS DATE)"
+
+
+def _timezone(args: list[str]) -> str:
+    _require_args("timezone", args, 2)
+    return f"at_timezone(with_timezone(CAST({args[1]} AS TIMESTAMP), 'UTC'), {args[0]})"
+
+
+def _json_is_valid(args: list[str]) -> str:
+    _require_args("isValidJSON", args, 1)
+    return f"(TRY(json_parse(CAST({args[0]} AS VARCHAR))) IS NOT NULL)"
+
+
+def _positive_modulo(args: list[str]) -> str:
+    _require_args("positiveModulo", args, 2)
+    return f"mod(mod({args[0]}, {args[1]}) + {args[1]}, {args[1]})"
+
+
+def _or_zero(name: str, operator: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 2)
+        return f"IF({args[1]} = 0, 0, {operator.format(left=args[0], right=args[1])})"
+
+    return handler
+
+
+def _every(args: list[str]) -> str:
+    _require_args("every", args, 1)
+    return f"bool_and(CAST({args[0]} AS BOOLEAN))"
+
+
+def _pad(name: str, target: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        if len(args) not in {2, 3}:
+            raise _invalid_arguments(name, f"{name} expects a string, length, and optional padding string.")
+        padding = args[2] if len(args) == 3 else "' '"
+        return f"{target}({args[0]}, {args[1]}, {padding})"
+
+    return handler
+
+
+def _array_avg(args: list[str]) -> str:
+    if len(args) == 1:
+        values = args[0]
+    elif len(args) == 2:
+        values = f"transform({args[1]}, {args[0]})"
+    else:
+        raise _invalid_arguments("arrayAvg", "arrayAvg expects an array or a lambda and an array.")
+    return (
+        f"IF(cardinality({values}) = 0, DOUBLE '0', "
+        f"reduce({values}, DOUBLE '0', (__hogql_total, __hogql_value) -> "
+        f"__hogql_total + __hogql_value, __hogql_total -> __hogql_total) / cardinality({values}))"
+    )
+
+
+def _array_compact(args: list[str]) -> str:
+    _require_args("arrayCompact", args, 1)
+    value = args[0]
+    empty = f"slice({value}, 1, 0)"
+    return (
+        f"reduce({value}, {empty}, (__hogql_result, __hogql_value) -> "
+        f"IF(cardinality(__hogql_result) = 0 OR element_at(__hogql_result, -1) IS DISTINCT FROM __hogql_value, "
+        f"concat(__hogql_result, ARRAY[__hogql_value]), __hogql_result), __hogql_result -> __hogql_result)"
+    )
+
+
+def _array_enumerate_dense(args: list[str]) -> str:
+    _require_args("arrayEnumerateDense", args, 1)
+    value = args[0]
+    return (
+        f"IF(cardinality({value}) = 0, ARRAY[], "
+        f"transform(sequence(1, cardinality({value})), __hogql_index -> "
+        f"array_position(transform(array_distinct(slice({value}, 1, __hogql_index)), "
+        f"__hogql_candidate -> __hogql_candidate IS NOT DISTINCT FROM {value}[__hogql_index]), TRUE)))"
+    )
+
+
+def _array_enumerate_uniq(args: list[str]) -> str:
+    if not args:
+        raise _invalid_arguments("arrayEnumerateUniq", "arrayEnumerateUniq expects at least one array.")
+    value = args[0] if len(args) == 1 else f"zip({', '.join(args)})"
+    return (
+        f"IF(cardinality({value}) = 0, ARRAY[], "
+        f"transform(sequence(1, cardinality({value})), __hogql_index -> "
+        f"cardinality(filter(slice({value}, 1, __hogql_index), __hogql_value -> "
+        f"__hogql_value IS NOT DISTINCT FROM {value}[__hogql_index]))))"
+    )
+
+
+def _array_index(name: str, target: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 2)
+        matches = f"transform({args[1]}, {args[0]})"
+        if target == "first":
+            return f"coalesce(array_position({matches}, TRUE), 0)"
+        position = f"array_position(reverse({matches}), TRUE)"
+        return f"IF({position} = 0, 0, cardinality({args[1]}) - {position} + 1)"
+
+    return handler
+
+
+def _array_rotate(name: str, direction: int) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 2)
+        value = args[0]
+        amount = args[1] if direction > 0 else f"-({args[1]})"
+        size = f"cardinality({value})"
+        offset = f"mod(mod({amount}, {size}) + {size}, {size})"
+        return (
+            f"IF({size} = 0, {value}, concat(slice({value}, {offset} + 1, {size} - {offset}), "
+            f"slice({value}, 1, {offset})))"
+        )
+
+    return handler
+
+
+def _count_matches(name: str, case_insensitive: bool = False) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 2)
+        pattern = f"concat('(?i)', {args[1]})" if case_insensitive else args[1]
+        return f"IF(length({args[1]}) = 0, 0, cardinality(regexp_extract_all({args[0]}, {pattern})))"
+
+    return handler
+
+
+def _count_substrings(name: str, case_insensitive: bool = False) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 2)
+        value = f"lower({args[0]})" if case_insensitive else args[0]
+        needle = f"lower({args[1]})" if case_insensitive else args[1]
+        return (
+            f"IF(length({needle}) = 0, 0, "
+            f"(length({value}) - length(replace({value}, {needle}, ''))) / length({needle}))"
+        )
+
+    return handler
+
+
+def _split_by_regexp(args: list[str]) -> str:
+    if len(args) not in {2, 3}:
+        raise _invalid_arguments("splitByRegexp", "splitByRegexp expects a pattern, string, and optional limit.")
+    split = (
+        f"IF({args[0]} = '', IF({args[1]} = '', ARRAY[], transform(sequence(1, length({args[1]})), "
+        f"__hogql_index -> substr({args[1]}, __hogql_index, 1))), regexp_split({args[1]}, {args[0]}))"
+    )
+    return split if len(args) == 2 else f"slice({split}, 1, {args[2]})"
+
+
+def _append_trailing_character(args: list[str]) -> str:
+    _require_args("appendTrailingCharIfAbsent", args, 2)
+    return (
+        f"IF(length({args[1]}) <> 1, fail('appendTrailingCharIfAbsent expects one character'), "
+        f"IF({args[0]} = '' OR ends_with({args[0]}, {args[1]}), {args[0]}, concat({args[0]}, {args[1]})))"
+    )
+
+
+def _map_key_like(name: str, extract: bool) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 2)
+        filtered = f"map_filter({args[0]}, (__hogql_key, __hogql_value) -> __hogql_key LIKE {args[1]})"
+        return filtered if extract else f"cardinality({filtered}) > 0"
+
+    return handler
+
+
+def _bit_test(name: str, mode: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        if len(args) < 2:
+            raise _invalid_arguments(name, f"{name} expects a value and bit positions.")
+        tests = [
+            f"bitwise_and({args[0]}, bitwise_left_shift(BIGINT '1', {position})) <> 0" for position in args[1:]
+        ]
+        operator = " AND " if mode == "all" else " OR "
+        return f"({operator.join(tests)})"
+
+    return handler
+
+
+def _bit_count(args: list[str]) -> str:
+    _require_args("bitCount", args, 1)
+    return f"bit_count({args[0]}, 64)"
+
+
+def _bit_shift(name: str, target: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 2)
+        return f"{target}({args[0]}, {args[1]})"
+
+    return handler
+
+
+def _domain_without_www(args: list[str]) -> str:
+    _require_args("domainWithoutWWW", args, 1)
+    return f"regexp_replace(coalesce(url_extract_host({args[0]}), ''), '^www\\.', '')"
+
+
+def _url_string(name: str, target: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 1)
+        return f"coalesce({target}({args[0]}), '')"
+
+    return handler
+
+
+def _port(args: list[str]) -> str:
+    if len(args) not in {1, 2}:
+        raise _invalid_arguments("port", "port expects a URL and an optional default port.")
+    default = args[1] if len(args) == 2 else "0"
+    return f"coalesce(url_extract_port({args[0]}), {default})"
+
+
+def _bit_hamming_distance(args: list[str]) -> str:
+    _require_args("bitHammingDistance", args, 2)
+    return f"bit_count(bitwise_xor({args[0]}, {args[1]}), 64)"
+
+
+def _cut_www(args: list[str]) -> str:
+    _require_args("cutWWW", args, 1)
+    return f"regexp_replace({args[0]}, '^(https?://)?www\\.', '$1')"
+
+
+def _top_level_domain(args: list[str]) -> str:
+    _require_args("topLevelDomain", args, 1)
+    host = f"coalesce(url_extract_host({args[0]}), '')"
+    return f"coalesce(element_at(split({host}, '.'), -1), '')"
+
+
+def _l1_distance(args: list[str]) -> str:
+    _require_args("L1Distance", args, 2)
+    return f"reduce(zip_with({args[0]}, {args[1]}, (x, y) -> abs(x - y)), DOUBLE '0', (s, x) -> s + x, s -> s)"
+
+
+def _linf_distance(args: list[str]) -> str:
+    _require_args("LinfDistance", args, 2)
+    return (
+        f"IF(cardinality({args[0]}) = 0, DOUBLE '0', "
+        f"array_max(zip_with({args[0]}, {args[1]}, (x, y) -> abs(x - y))))"
+    )
+
+
+def _vector_norm(name: str, kind: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 1)
+        if kind == "l1":
+            return f"reduce(transform({args[0]}, x -> abs(x)), DOUBLE '0', (s, x) -> s + x, s -> s)"
+        if kind == "l2":
+            return f"sqrt(dot_product({args[0]}, {args[0]}))"
+        return f"IF(cardinality({args[0]}) = 0, DOUBLE '0', array_max(transform({args[0]}, x -> abs(x))))"
+
+    return handler
+
+
+def _modified_julian_day(name: str, reverse: bool) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 1)
+        if reverse:
+            return f"date_add('day', CAST({args[0]} AS BIGINT), DATE '1858-11-17')"
+        return f"date_diff('day', DATE '1858-11-17', CAST({args[0]} AS DATE))"
+
+    return handler
+
+
 TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "DATE": _cast("DATE", "DATE"),
     "toDate": _cast("toDate", "DATE"),
@@ -478,6 +933,113 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toIntervalMonth": _to_interval_month,
     "e": _e,
     "current_timestamp": _current_timestamp,
+    "current_date": _today,
+    "array": _array,
+    "arrayPopFront": _array_pop_front,
+    "arrayPopBack": _array_pop_back,
+    "arrayPushFront": _array_push_front,
+    "arrayPushBack": _array_push_back,
+    "arrayResize": _array_resize,
+    "arrayDifference": _array_difference,
+    "arrayProduct": _array_product,
+    "arrayUniq": _array_uniq,
+    "arrayWithConstant": _array_with_constant,
+    "base64Encode": _base64_encode,
+    "base64Decode": _base64_decode,
+    "tryBase64Decode": _try_base64_decode,
+    "ascii": _ascii,
+    "concatWithSeparator": _concat_with_separator,
+    "left": _left,
+    "leftPadUTF8": _pad("leftPadUTF8", "lpad"),
+    "leftPad": _pad("leftPad", "lpad"),
+    "rightPad": _pad("rightPad", "rpad"),
+    "rightPadUTF8": _pad("rightPadUTF8", "rpad"),
+    "positionUTF8": _position,
+    "positionCaseInsensitiveUTF8": _position_case_insensitive,
+    "splitByWhitespace": _split_by_whitespace,
+    "splitByRegexp": _split_by_regexp,
+    "appendTrailingCharIfAbsent": _append_trailing_character,
+    "countMatches": _count_matches("countMatches"),
+    "countMatchesCaseInsensitive": _count_matches("countMatchesCaseInsensitive", True),
+    "countSubstrings": _count_substrings("countSubstrings"),
+    "countSubstringsCaseInsensitive": _count_substrings("countSubstringsCaseInsensitive", True),
+    "toValidUTF8": _identity("toValidUTF8"),
+    "mapContains": _map_contains,
+    "mapApply": _map_lambda("mapApply", "transform_entries"),
+    "mapFilter": _map_lambda("mapFilter", "map_filter"),
+    "mapContainsKeyLike": _map_key_like("mapContainsKeyLike", False),
+    "mapExtractKeyLike": _map_key_like("mapExtractKeyLike", True),
+    "json_agg": _json_agg,
+    "string_agg": _string_agg,
+    "every": _every,
+    "stddevPopIf": _aggregate_if("stddev_pop"),
+    "stddevSampIf": _aggregate_if("stddev_samp"),
+    "varPopIf": _aggregate_if("var_pop"),
+    "varSampIf": _aggregate_if("var_samp"),
+    "covarPopIf": _aggregate_if("covar_pop"),
+    "covarSampIf": _aggregate_if("covar_samp"),
+    "groupBitAndIf": _aggregate_if("bitwise_and_agg"),
+    "groupBitOrIf": _aggregate_if("bitwise_or_agg"),
+    "groupBitXorIf": _aggregate_if("bitwise_xor_agg"),
+    "date_add": _date_arithmetic("date_add", "+"),
+    "date_subtract": _date_arithmetic("date_subtract", "-"),
+    "make_date": _make_date,
+    "monthName": _unary_expression("monthName", "date_format({value}, '%M')"),
+    "timeZoneOf": _unary_expression("timeZoneOf", "timezone({value})"),
+    "toUnixTimestamp64Milli": _unary_expression(
+        "toUnixTimestamp64Milli", "CAST(to_unixtime({value}) * 1000 AS BIGINT)"
+    ),
+    "timezone": _timezone,
+    "isValidJSON": _json_is_valid,
+    "max2": _binary_expression("max2", "greatest({left}, {right})"),
+    "min2": _binary_expression("min2", "least({left}, {right})"),
+    "negate": _unary_expression("negate", "-({value})"),
+    "positiveModulo": _positive_modulo,
+    "intDivOrZero": _or_zero("intDivOrZero", "CAST({left} AS BIGINT) / CAST({right} AS BIGINT)"),
+    "moduloOrZero": _or_zero("moduloOrZero", "mod({left}, {right})"),
+    "acosh": _unary_expression("acosh", "ln({value} + sqrt({value} * {value} - 1))"),
+    "asinh": _unary_expression("asinh", "ln({value} + sqrt({value} * {value} + 1))"),
+    "atanh": _unary_expression("atanh", "0.5 * ln((1 + {value}) / (1 - {value}))"),
+    "cosh": _unary_expression("cosh", "(exp({value}) + exp(-({value}))) / 2"),
+    "exp10": _unary_expression("exp10", "power(10, {value})"),
+    "exp2": _unary_expression("exp2", "power(2, {value})"),
+    "hypot": _binary_expression("hypot", "sqrt({left} * {left} + {right} * {right})"),
+    "intExp10": _unary_expression("intExp10", "CAST(power(10, {value}) AS BIGINT)"),
+    "intExp2": _unary_expression("intExp2", "CAST(power(2, {value}) AS BIGINT)"),
+    "log1p": _unary_expression("log1p", "ln(1 + {value})"),
+    "sinh": _unary_expression("sinh", "(exp({value}) - exp(-({value}))) / 2"),
+    "tanh": _unary_expression("tanh", "(exp({value}) - exp(-({value}))) / (exp({value}) + exp(-({value})))"),
+    "_toUInt8": _cast("_toUInt8", "SMALLINT"),
+    "arrayAvg": _array_avg,
+    "arrayCompact": _array_compact,
+    "arrayEnumerateDense": _array_enumerate_dense,
+    "arrayEnumerateUniq": _array_enumerate_uniq,
+    "arrayFirstIndex": _array_index("arrayFirstIndex", "first"),
+    "arrayLastIndex": _array_index("arrayLastIndex", "last"),
+    "arrayRotateLeft": _array_rotate("arrayRotateLeft", 1),
+    "arrayRotateRight": _array_rotate("arrayRotateRight", -1),
+    "bitTest": _bit_test("bitTest", "any"),
+    "bitTestAll": _bit_test("bitTestAll", "all"),
+    "bitTestAny": _bit_test("bitTestAny", "any"),
+    "bitCount": _bit_count,
+    "bitHammingDistance": _bit_hamming_distance,
+    "bitShiftLeft": _bit_shift("bitShiftLeft", "bitwise_left_shift"),
+    "bitShiftRight": _bit_shift("bitShiftRight", "bitwise_right_shift_arithmetic"),
+    "domain": _url_string("domain", "url_extract_host"),
+    "domainWithoutWWW": _domain_without_www,
+    "protocol": _url_string("protocol", "url_extract_protocol"),
+    "queryString": _url_string("queryString", "url_extract_query"),
+    "fragment": _url_string("fragment", "url_extract_fragment"),
+    "port": _port,
+    "cutWWW": _cut_www,
+    "topLevelDomain": _top_level_domain,
+    "L1Distance": _l1_distance,
+    "LinfDistance": _linf_distance,
+    "L1Norm": _vector_norm("L1Norm", "l1"),
+    "L2Norm": _vector_norm("L2Norm", "l2"),
+    "LinfNorm": _vector_norm("LinfNorm", "linf"),
+    "toModifiedJulianDay": _modified_julian_day("toModifiedJulianDay", False),
+    "fromModifiedJulianDay": _modified_julian_day("fromModifiedJulianDay", True),
 }
 
 TRINO_FUNCTION_RENAMES_LOWER = {name.lower(): target for name, target in TRINO_FUNCTION_RENAMES.items()}
@@ -508,6 +1070,7 @@ TRINO_PASSTHROUGH_FUNCTIONS = frozenset(
         "json_value",
         "lag",
         "lead",
+        "last_value",
         "least",
         "length",
         "ln",
@@ -519,6 +1082,7 @@ TRINO_PASSTHROUGH_FUNCTIONS = frozenset(
         "max",
         "min",
         "nullif",
+        "nth_value",
         "pow",
         "power",
         "pi",
