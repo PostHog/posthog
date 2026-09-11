@@ -19,11 +19,13 @@ COUNT_TRIGGER_SCHEDULE_ID = "llma-eval-reports-count-triggered-coordinator-sched
 
 # Workflow timeouts
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
-COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=2)
+SCHEDULED_COORDINATOR_EXECUTION_TIMEOUT = timedelta(minutes=10)
+COUNT_TRIGGERED_COORDINATOR_EXECUTION_TIMEOUT = timedelta(minutes=30)
 
 # Activity timeouts
 FETCH_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 COUNT_TRIGGER_CHECK_BATCH_SIZE = 5
+COUNT_TRIGGER_POLL_INTERVAL = timedelta(minutes=5)
 # Max number of per-report countIf columns in a single ClickHouse count query. Candidates
 # are grouped one team per group at this width, so one check activity runs exactly one query,
 # and entries are chunked in `since`-sorted order so one stale report's window doesn't widen
@@ -33,6 +35,9 @@ COUNT_TRIGGER_QUERY_WIDTH = 20
 # Max batched check activities in flight at once, capping concurrent count queries at the
 # same ceiling as the legacy per-report path.
 COUNT_TRIGGER_MAX_CONCURRENT_CHECKS = 5
+# Await child starts in bounded groups so Temporal records acceptance without
+# putting the full coordinator page into one Workflow Task completion.
+REPORT_START_BATCH_SIZE = 100
 COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT = timedelta(seconds=120)
 # Per-attempt ClickHouse budget. A too-slow count query fails with a catchable
 # ClickHouseQueryTimeOut the activity can split-and-retry, unlike a Temporal activity

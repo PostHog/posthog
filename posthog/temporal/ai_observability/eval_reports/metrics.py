@@ -5,6 +5,7 @@ Metrics are emitted via Temporal's built-in metric meter (activity/workflow cont
 and scraped by the Prometheus endpoint on the worker pod.
 """
 
+import time
 import typing
 import datetime as dt
 
@@ -135,6 +136,39 @@ def record_coordinator_check_count(count: int, trigger_type: str) -> None:
         "llma_eval_reports_coordinator_checked",
         "Report rows checked by coordinator per poll cycle",
     ).add(count)
+
+
+def record_coordinator_poll(
+    *,
+    selected_count: int,
+    trigger_type: str,
+    has_more: bool,
+    oldest_due_at: dt.datetime | None = None,
+) -> None:
+    """Emit scheduler progress and saturation signals without tenant labels."""
+    if not activity.in_activity():
+        return
+
+    outcome = "saturated" if has_more else "empty" if selected_count == 0 else "partial"
+    meter = get_metric_meter({"trigger_type": trigger_type, "outcome": outcome})
+    meter.create_counter(
+        "llma_eval_reports_coordinator_polls",
+        "Evaluation report coordinator polls by batch saturation.",
+    ).add(1)
+    get_metric_meter({"trigger_type": trigger_type}).create_counter(
+        "llma_eval_reports_coordinator_selected",
+        "Evaluation reports selected for processing by coordinators.",
+    ).add(selected_count)
+    if oldest_due_at is not None:
+        get_metric_meter({"trigger_type": trigger_type}).create_histogram_float(
+            "llma_eval_reports_coordinator_oldest_due_age_seconds",
+            "Age of the oldest scheduled evaluation report selected by a coordinator.",
+            "s",
+        ).record(max(0.0, (dt.datetime.now(tz=dt.UTC) - oldest_due_at).total_seconds()))
+    get_metric_meter({"trigger_type": trigger_type}).create_gauge_float(
+        "llma_eval_reports_coordinator_last_successful_poll_timestamp_seconds",
+        "Unix timestamp of the last successful evaluation report coordinator poll.",
+    ).set(time.time())
 
 
 # ---------------------------------------------------------------------------

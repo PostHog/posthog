@@ -24,6 +24,7 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
     _count_eval_results_for_reports_with_split_retry,
     _CountEntry,
     _fetch_count_triggered_eval_report_candidate_groups,
+    _fetch_due_eval_report_ids,
     _find_nth_eval_timestamp,
     _load_detector_evaluation_ids,
     _load_evaluation_target,
@@ -607,9 +608,10 @@ class TestCountTriggeredReportChecks(BaseTest):
         )
 
         with patch("posthog.hogql.query.execute_hogql_query") as execute_hogql_query:
-            groups = _fetch_count_triggered_eval_report_candidate_groups()
+            groups, candidate_count = _fetch_count_triggered_eval_report_candidate_groups()
 
         self.assertEqual(groups, [[str(count_triggered_report.id)]])
+        self.assertEqual(candidate_count, 1)
         execute_hogql_query.assert_not_called()
 
     def test_fetch_candidates_groups_by_team_and_chunks_by_width(self):
@@ -620,9 +622,52 @@ class TestCountTriggeredReportChecks(BaseTest):
         team_b_report = self._create_report(team=other_team)
 
         with patch("posthog.temporal.ai_observability.eval_reports.activities.COUNT_TRIGGER_QUERY_WIDTH", 2):
-            groups = _fetch_count_triggered_eval_report_candidate_groups()
+            groups, candidate_count = _fetch_count_triggered_eval_report_candidate_groups()
 
         self.assertEqual(groups, [team_a_report_ids[:2], team_a_report_ids[2:], [str(team_b_report.id)]])
+        self.assertEqual(candidate_count, 4)
+
+    def test_fetch_candidates_rotates_bounded_pages_instead_of_starving_later_reports(self):
+        report_ids = {str(self._create_report().id) for _ in range(4)}
+        first_poll = dt.datetime(2026, 9, 11, 12, 0, tzinfo=dt.UTC)
+
+        first_groups, first_count = _fetch_count_triggered_eval_report_candidate_groups(
+            max_reports_per_run=2,
+            now=first_poll,
+        )
+        second_groups, second_count = _fetch_count_triggered_eval_report_candidate_groups(
+            max_reports_per_run=2,
+            now=first_poll + dt.timedelta(minutes=5),
+        )
+
+        first_ids = {report_id for group in first_groups for report_id in group}
+        second_ids = {report_id for group in second_groups for report_id in group}
+        self.assertEqual(first_count, 4)
+        self.assertEqual(second_count, 4)
+        self.assertEqual(first_ids | second_ids, report_ids)
+        self.assertFalse(first_ids & second_ids)
+
+    def test_fetch_scheduled_reports_limits_fairly_across_teams(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        reports = [
+            self._create_report(
+                team=owner_team,
+                frequency=EvaluationReport.Frequency.SCHEDULED,
+                rrule="FREQ=HOURLY",
+                starts_at=timezone.now() - dt.timedelta(hours=5),
+                trigger_threshold=None,
+            )
+            for owner_team in (self.team, self.team, self.team, other_team)
+        ]
+        due_at = timezone.now() - dt.timedelta(minutes=30)
+        EvaluationReport.objects.filter(id__in=[report.id for report in reports]).update(next_delivery_date=due_at)
+
+        report_ids, oldest_due_at, has_more = _fetch_due_eval_report_ids(timezone.now(), max_reports_per_run=2)
+
+        selected_team_ids = set(EvaluationReport.objects.filter(id__in=report_ids).values_list("team_id", flat=True))
+        self.assertEqual(selected_team_ids, {self.team.id, other_team.id})
+        self.assertEqual(oldest_due_at, due_at)
+        self.assertTrue(has_more)
 
     def test_check_report_returns_due_when_threshold_is_crossed(self):
         report = self._create_report(trigger_threshold=100)

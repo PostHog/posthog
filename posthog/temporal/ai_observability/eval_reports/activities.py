@@ -1,5 +1,6 @@
 """Activities for evaluation reports workflow."""
 
+import math
 import time
 import datetime as dt
 from collections import defaultdict
@@ -7,7 +8,8 @@ from itertools import batched
 from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
-from django.db.models import Q
+from django.db.models import F, Q, Window
+from django.db.models.functions import RowNumber
 
 import temporalio.activity
 from dateutil.rrule import rrulestr
@@ -19,6 +21,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.eval_reports.constants import (
+    COUNT_TRIGGER_POLL_INTERVAL,
     COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE,
@@ -34,6 +37,7 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
     target_event_predicate,
 )
 from posthog.temporal.ai_observability.eval_reports.types import (
+    DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN,
     CheckCountTriggeredEvalReportInput,
     CheckCountTriggeredEvalReportOutput,
     CheckCountTriggeredEvalReportsBatchInput,
@@ -67,29 +71,61 @@ async def fetch_due_eval_reports_activity(
     """Return a list of time-based evaluation report IDs that are due for delivery."""
     now_with_buffer = dt.datetime.now(tz=dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
 
-    @database_sync_to_async(thread_sensitive=False)
-    def get_report_ids() -> list[str]:
-        from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
-
-        return [
-            str(pk)
-            for pk in EvaluationReport.objects.deliverable()
-            .filter(
-                next_delivery_date__lte=now_with_buffer,
-            )
-            .exclude(frequency=EvaluationReport.Frequency.EVERY_N)
-            .values_list("id", flat=True)
-        ]
-
-    report_ids = await get_report_ids()
+    report_ids, oldest_due_at, has_more = await database_sync_to_async(
+        _fetch_due_eval_report_ids,
+        thread_sensitive=False,
+    )(now_with_buffer, inputs.max_reports_per_run)
     await logger.ainfo(
         "llma_eval_reports_coordinator_scheduled_poll",
         reports_found=len(report_ids),
+        max_reports_per_run=inputs.max_reports_per_run,
+        has_more=has_more,
+        oldest_due_at=oldest_due_at,
     )
-    from posthog.temporal.ai_observability.eval_reports.metrics import record_coordinator_reports_found
+    from posthog.temporal.ai_observability.eval_reports.metrics import (
+        record_coordinator_poll,
+        record_coordinator_reports_found,
+    )
 
     record_coordinator_reports_found(len(report_ids), "scheduled")
-    return FetchDueEvalReportsOutput(report_ids=report_ids)
+    record_coordinator_poll(
+        selected_count=len(report_ids),
+        trigger_type="scheduled",
+        has_more=has_more,
+        oldest_due_at=oldest_due_at,
+    )
+    return FetchDueEvalReportsOutput(
+        report_ids=report_ids,
+    )
+
+
+def _fetch_due_eval_report_ids(
+    now_with_buffer: dt.datetime,
+    max_reports_per_run: int,
+) -> tuple[list[str], dt.datetime | None, bool]:
+    from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
+
+    if max_reports_per_run <= 0:
+        raise ValueError("max_reports_per_run must be greater than zero")
+
+    rows = list(
+        EvaluationReport.objects.deliverable()
+        .filter(next_delivery_date__lte=now_with_buffer)
+        .exclude(frequency=EvaluationReport.Frequency.EVERY_N)
+        .annotate(
+            _team_rank=Window(
+                expression=RowNumber(),
+                partition_by=[F("team_id")],
+                order_by=[F("next_delivery_date").asc(), F("id").asc()],
+            )
+        )
+        .order_by("_team_rank", "next_delivery_date", "team_id", "id")
+        .values_list("id", "next_delivery_date")[: max_reports_per_run + 1]
+    )
+    has_more = len(rows) > max_reports_per_run
+    selected_rows = rows[:max_reports_per_run]
+    oldest_due_at = min((next_delivery_date for _, next_delivery_date in selected_rows), default=None)
+    return [str(report_id) for report_id, _ in selected_rows], oldest_due_at, has_more
 
 
 @temporalio.activity.defn
@@ -100,19 +136,36 @@ async def fetch_count_triggered_eval_report_candidates_activity(
     one team per group so each check activity runs a single shared count query."""
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_report_id_groups() -> list[list[str]]:
-        return _fetch_count_triggered_eval_report_candidate_groups()
+    def get_report_id_groups() -> tuple[list[list[str]], int]:
+        return _fetch_count_triggered_eval_report_candidate_groups(
+            max_reports_per_run=inputs.max_reports_per_run,
+        )
 
-    report_id_groups = await get_report_id_groups()
+    report_id_groups, candidate_count = await get_report_id_groups()
     report_ids = [report_id for group in report_id_groups for report_id in group]
+    has_more = candidate_count > len(report_ids)
     await logger.ainfo(
         "llma_eval_reports_coordinator_count_triggered_candidates_poll",
         total_checked=len(report_ids),
+        candidate_count=candidate_count,
+        max_reports_per_run=inputs.max_reports_per_run,
+        has_more=has_more,
     )
-    from posthog.temporal.ai_observability.eval_reports.metrics import record_coordinator_check_count
+    from posthog.temporal.ai_observability.eval_reports.metrics import (
+        record_coordinator_check_count,
+        record_coordinator_poll,
+    )
 
     record_coordinator_check_count(len(report_ids), "count_triggered")
-    return FetchDueEvalReportsOutput(report_ids=report_ids, report_id_groups=report_id_groups)
+    record_coordinator_poll(
+        selected_count=len(report_ids),
+        trigger_type="count_triggered",
+        has_more=has_more,
+    )
+    return FetchDueEvalReportsOutput(
+        report_ids=report_ids,
+        report_id_groups=report_id_groups,
+    )
 
 
 @temporalio.activity.defn
@@ -146,26 +199,55 @@ async def check_count_triggered_eval_reports_activity(
     return CheckCountTriggeredEvalReportsBatchOutput(results=results)
 
 
-def _fetch_count_triggered_eval_report_candidate_groups() -> list[list[str]]:
+def _fetch_count_triggered_eval_report_candidate_groups(
+    max_reports_per_run: int = DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN,
+    now: dt.datetime | None = None,
+) -> tuple[list[list[str]], int]:
     """Return candidate report ids grouped one team per group, each group at most
     COUNT_TRIGGER_QUERY_WIDTH wide, so one check activity runs exactly one ClickHouse
     count query under its own timeout and retry policy."""
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
-    ids_by_team: dict[int, list[str]] = defaultdict(list)
-    for pk, team_id in (
+    if max_reports_per_run <= 0:
+        raise ValueError("max_reports_per_run must be greater than zero")
+
+    candidates = (
         EvaluationReport.objects.deliverable()
         .filter(
             frequency=EvaluationReport.Frequency.EVERY_N,
             trigger_threshold__isnull=False,
         )
-        .order_by("team_id", "id")
+        .annotate(
+            _team_rank=Window(
+                expression=RowNumber(),
+                partition_by=[F("team_id")],
+                order_by=F("id").asc(),
+            )
+        )
+        .order_by("_team_rank", "team_id", "id")
         .values_list("id", "team_id")
-    ):
+    )
+    candidate_count = candidates.count()
+    if candidate_count == 0:
+        return [], 0
+
+    page_count = math.ceil(candidate_count / max_reports_per_run)
+    poll_time = now or dt.datetime.now(tz=dt.UTC)
+    poll_number = int(poll_time.timestamp() // COUNT_TRIGGER_POLL_INTERVAL.total_seconds())
+    page_index = poll_number % page_count
+    offset = page_index * max_reports_per_run
+
+    ids_by_team: dict[int, list[str]] = defaultdict(list)
+    for pk, team_id in candidates[offset : offset + max_reports_per_run]:
         ids_by_team[team_id].append(str(pk))
-    return [
-        list(chunk) for ids in ids_by_team.values() for chunk in batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)
-    ]
+    return (
+        [
+            list(chunk)
+            for ids in ids_by_team.values()
+            for chunk in batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)
+        ],
+        candidate_count,
+    )
 
 
 def _load_count_triggered_report(report_id: str) -> "EvaluationReport | None":

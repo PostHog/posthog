@@ -38,6 +38,7 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     FETCH_RETRY_POLICY,
     GENERATE_EVAL_REPORT_WORKFLOW_NAME,
     PREPARE_ACTIVITY_TIMEOUT,
+    REPORT_START_BATCH_SIZE,
     SCHEDULE_ALL_EVAL_REPORTS_WORKFLOW_NAME,
     STORE_ACTIVITY_TIMEOUT,
     STORE_RETRY_POLICY,
@@ -90,22 +91,12 @@ class ScheduleAllEvalReportsWorkflow(PostHogWorkflow):
         if not result.report_ids:
             return
 
-        # Fan-out: start child workflow per due report
-        tasks = []
-        for report_id in result.report_ids:
-            task = temporalio.workflow.execute_child_workflow(
-                GenerateAndDeliverEvalReportWorkflow.run,
-                GenerateAndDeliverEvalReportWorkflowInput(report_id=report_id),
-                id=f"eval-report-{report_id}",
-                execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
-            )
-            tasks.append(task)
-
-        # return_exceptions=True isolates individual report failures — one failing
-        # report shouldn't block the others. Log the offenders so they're visible
-        # in observability even though we don't re-raise.
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        _log_fan_out_failures("scheduled_eval_report", result.report_ids, results)
+        await _dispatch_report_workflows(
+            "scheduled_eval_report",
+            "eval-report",
+            result.report_ids,
+            patch_id="eval-report-scheduled-fire-and-forget-2026-09",
+        )
 
 
 @temporalio.workflow.defn(name=CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME)
@@ -140,18 +131,12 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
         if not report_ids:
             return
 
-        tasks = []
-        for report_id in report_ids:
-            task = temporalio.workflow.execute_child_workflow(
-                GenerateAndDeliverEvalReportWorkflow.run,
-                GenerateAndDeliverEvalReportWorkflowInput(report_id=report_id),
-                id=f"eval-report-count-{report_id}",
-                execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
-            )
-            tasks.append(task)
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        _log_fan_out_failures("count_triggered_eval_report", report_ids, results)
+        await _dispatch_report_workflows(
+            "count_triggered_eval_report",
+            "eval-report-count",
+            report_ids,
+            patch_id="eval-report-count-fire-and-forget-2026-09",
+        )
 
 
 async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -> list[str]:
@@ -271,6 +256,74 @@ def _log_fan_out_failures(kind: str, report_ids: list[str], results: list) -> No
             f"{kind}.child_workflow_errors",
             extra={"failed_count": len(failed), "failures": failed},
         )
+
+
+async def _dispatch_report_workflows(
+    kind: str,
+    workflow_id_prefix: str,
+    report_ids: list[str],
+    *,
+    patch_id: str,
+) -> None:
+    if not temporalio.workflow.patched(patch_id):
+        tasks = [
+            temporalio.workflow.execute_child_workflow(
+                GenerateAndDeliverEvalReportWorkflow.run,
+                GenerateAndDeliverEvalReportWorkflowInput(report_id=report_id),
+                id=f"{workflow_id_prefix}-{report_id}",
+                execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
+            )
+            for report_id in report_ids
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        _log_fan_out_failures(kind, report_ids, results)
+        return
+
+    results: list[bool | BaseException] = []
+    for report_id_batch in batched(report_ids, REPORT_START_BATCH_SIZE, strict=False):
+        results.extend(
+            await asyncio.gather(
+                *(_start_report_workflow(workflow_id_prefix, report_id) for report_id in report_id_batch),
+                return_exceptions=True,
+            )
+        )
+
+    already_started = 0
+    failures: list[tuple[str, str]] = []
+    for report_id, result in zip(report_ids, results):
+        if isinstance(result, BaseException):
+            failures.append((report_id, f"{type(result).__name__}: {result}"))
+        elif result is False:
+            already_started += 1
+
+    if failures:
+        temporalio.workflow.logger.warning(
+            f"{kind}.child_workflow_start_errors",
+            extra={
+                "already_started_count": already_started,
+                "failed_count": len(failures),
+                "failure_samples": failures[:20],
+            },
+        )
+    elif already_started:
+        temporalio.workflow.logger.info(
+            f"{kind}.child_workflow_already_running",
+            extra={"already_started_count": already_started},
+        )
+
+
+async def _start_report_workflow(workflow_id_prefix: str, report_id: str) -> bool:
+    try:
+        await temporalio.workflow.start_child_workflow(
+            GenerateAndDeliverEvalReportWorkflow.run,
+            GenerateAndDeliverEvalReportWorkflowInput(report_id=report_id),
+            id=f"{workflow_id_prefix}-{report_id}",
+            parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+            execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
+        )
+        return True
+    except WorkflowAlreadyStartedError:
+        return False
 
 
 async def _update_report_schedule(inputs: UpdateNextDeliveryDateInput) -> None:

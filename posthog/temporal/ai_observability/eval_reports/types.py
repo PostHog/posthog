@@ -5,15 +5,21 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
+DEFAULT_MAX_SCHEDULED_EVAL_REPORTS_PER_RUN = 300
+# Leaves room below Temporal's recommendation of at most 1,000 children per parent
+# while rotating through larger candidate inventories over subsequent polls.
+DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN = 800
 
-@dataclasses.dataclass
+
+@dataclasses.dataclass(frozen=True)
 class ScheduleAllEvalReportsWorkflowInputs:
     buffer_minutes: int = 15
+    max_reports_per_run: int = DEFAULT_MAX_SCHEDULED_EVAL_REPORTS_PER_RUN
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CheckCountTriggeredReportsWorkflowInputs:
-    pass
+    max_reports_per_run: int = DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN
 
 
 @dataclasses.dataclass

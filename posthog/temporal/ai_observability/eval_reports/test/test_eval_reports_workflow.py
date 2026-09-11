@@ -2,7 +2,9 @@ import asyncio
 from uuid import UUID
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import temporalio.workflow
 
 from posthog.temporal.ai_observability.eval_reports.activities import (
     deliver_report_activity,
@@ -11,18 +13,123 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
 from posthog.temporal.ai_observability.eval_reports.types import (
     CheckCountTriggeredEvalReportOutput,
     CheckCountTriggeredEvalReportsBatchOutput,
+    CheckCountTriggeredReportsWorkflowInputs,
+    FetchDueEvalReportsOutput,
     GenerateAndDeliverEvalReportWorkflowInput,
     PrepareReportContextOutput,
     RunEvalReportAgentInput,
     RunEvalReportAgentOutput,
+    ScheduleAllEvalReportsWorkflowInputs,
     StoreReportRunOutput,
     UpdateNextDeliveryDateInput,
 )
 from posthog.temporal.ai_observability.eval_reports.workflow import (
+    CheckCountTriggeredReportsWorkflow,
     GenerateAndDeliverEvalReportWorkflow,
+    ScheduleAllEvalReportsWorkflow,
     _check_count_triggered_eval_report_candidates,
     _check_count_triggered_eval_report_candidates_batched,
 )
+
+
+@pytest.mark.asyncio
+async def test_scheduled_coordinator_starts_children_without_waiting_for_completion() -> None:
+    report_ids = ["report-1", "report-2"]
+    execute_activity = AsyncMock(return_value=FetchDueEvalReportsOutput(report_ids=report_ids))
+    start_child = AsyncMock(return_value=MagicMock())
+    execute_child = AsyncMock()
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=execute_activity,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.start_child_workflow",
+            new=start_child,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_child_workflow",
+            new=execute_child,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
+            return_value=True,
+        ) as patched,
+    ):
+        await ScheduleAllEvalReportsWorkflow().run(ScheduleAllEvalReportsWorkflowInputs())
+
+    patched.assert_called_once_with("eval-report-scheduled-fire-and-forget-2026-09")
+    assert start_child.await_count == 2
+    execute_child.assert_not_awaited()
+    assert all(
+        call.kwargs["parent_close_policy"] is temporalio.workflow.ParentClosePolicy.ABANDON
+        for call in start_child.await_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_scheduled_coordinator_preserves_legacy_child_waits_during_replay() -> None:
+    execute_child = AsyncMock(return_value=None)
+    start_child = AsyncMock()
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=AsyncMock(return_value=FetchDueEvalReportsOutput(report_ids=["report-1"])),
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.start_child_workflow",
+            new=start_child,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_child_workflow",
+            new=execute_child,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
+            return_value=False,
+        ),
+    ):
+        await ScheduleAllEvalReportsWorkflow().run(ScheduleAllEvalReportsWorkflowInputs())
+
+    execute_child.assert_awaited_once()
+    start_child.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_count_coordinator_uses_bounded_input_and_fire_and_forget_dispatch() -> None:
+    execute_activity = AsyncMock(
+        return_value=FetchDueEvalReportsOutput(
+            report_ids=["report-1"],
+            report_id_groups=[["report-1"]],
+        )
+    )
+    start_child = AsyncMock(return_value=MagicMock())
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=execute_activity,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow._check_count_triggered_eval_report_candidates_batched",
+            new=AsyncMock(return_value=["report-1"]),
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.start_child_workflow",
+            new=start_child,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
+            return_value=True,
+        ) as patched,
+    ):
+        await CheckCountTriggeredReportsWorkflow().run(CheckCountTriggeredReportsWorkflowInputs())
+
+    assert execute_activity.await_args.args[1].max_reports_per_run == 800
+    patched.assert_called_once_with("eval-report-count-fire-and-forget-2026-09")
+    start_child.assert_awaited_once()
 
 
 @pytest.mark.asyncio
