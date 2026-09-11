@@ -102,6 +102,7 @@ class LearningProvider(models.TextChoices):
     CONVERSATIONS = "conversations", "Conversations"
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
 def learning_provider_choices() -> list[tuple[str, str]]:
     # Callable so adding a provider does not emit a no-SQL AlterField.
     return [(str(value), str(label)) for value, label in LearningProvider.choices]
