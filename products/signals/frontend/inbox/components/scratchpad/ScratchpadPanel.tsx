@@ -46,7 +46,7 @@ export function ScratchpadPanel(): JSX.Element {
         windowStats,
         visibleBookkeepingCount,
         hasActiveFilters,
-        hasMoreOlderEntries,
+        canLoadOlderEntries,
         olderEntriesLoading,
         searchText,
         scoutFilter,
@@ -145,9 +145,9 @@ export function ScratchpadPanel(): JSX.Element {
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
                         <span>
                             Showing the newest {pluralize(filteredEntries.length, 'entry', 'entries')}.
-                            {hasMoreOlderEntries ? ' Older memory is still there.' : ''}
+                            {canLoadOlderEntries ? ' Older memory is still there.' : ''}
                         </span>
-                        {hasMoreOlderEntries && (
+                        {canLoadOlderEntries && (
                             <LemonButton
                                 type="secondary"
                                 size="xsmall"
