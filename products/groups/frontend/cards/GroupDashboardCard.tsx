@@ -6,11 +6,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { groupLogic } from 'scenes/groups/groupLogic'
 import { urls } from 'scenes/urls'
 
 import { Node, NodeKind } from '~/queries/schema/schema-general'
 import { DashboardPlacement, Group, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { groupLogic } from 'products/groups/frontend/logics/groupLogic'
 
 function GroupDetailDashboard({
     groupTypeDetailDashboard,
