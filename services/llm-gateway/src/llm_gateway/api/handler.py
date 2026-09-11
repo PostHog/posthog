@@ -205,7 +205,18 @@ def _raise_if_unsupported_model(model: str) -> None:
 
 # LLM routing/auth params — never accept from user input (request redirection, key exfiltration).
 FORBIDDEN_REQUEST_PARAMS = frozenset(
-    {"api_key", "api_base", "base_url", "api_version", "organization", "model_list", "fallbacks", "custom_llm_provider"}
+    {
+        "api_key",
+        "api_base",
+        "base_url",
+        "api_version",
+        "organization",
+        "model_list",
+        "fallbacks",
+        "custom_llm_provider",
+        "headers",
+        "extra_headers",
+    }
 )
 
 

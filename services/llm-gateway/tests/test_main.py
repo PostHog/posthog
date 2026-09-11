@@ -1,5 +1,8 @@
 import os
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+import openai
 import pytest
 import structlog
 from fastapi import Depends, FastAPI
@@ -8,13 +11,15 @@ from starlette.requests import ClientDisconnect
 from structlog.testing import capture_logs
 
 from llm_gateway.config import Settings, get_settings
-from llm_gateway.main import RequestLoggingMiddleware, export_provider_credentials
+from llm_gateway.main import RequestLoggingMiddleware, export_provider_credentials, lifespan
+from llm_gateway.openai_credentials import OpenAICredentialError
 
 _EXPORTED_ENV_VARS = (
     "ANTHROPIC_API_KEY",
     "AWS_REGION",
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
+    "OPENAI_ORGANIZATION",
     "OPENAI_ORG_ID",
     "OPENROUTER_API_KEY",
     "FIREWORKS_API_KEY",
@@ -34,6 +39,13 @@ class TestExportProviderCredentials:
     @pytest.mark.parametrize(
         "setting_name,setting_value,expected_env,expected_value",
         [
+            pytest.param(
+                "openai_organization",
+                "org-test-fixture",
+                "OPENAI_ORGANIZATION",
+                "org-test-fixture",
+                id="openai_organization_to_OPENAI_ORGANIZATION",
+            ),
             pytest.param(
                 "openai_organization",
                 "org-test-fixture",
@@ -122,19 +134,19 @@ class TestExportProviderCredentials:
         # If LLM_GATEWAY_OPENAI_ORGANIZATION is not set, an org id that was
         # already present in the environment (e.g. set by the runtime) must
         # survive untouched.
-        monkeypatch.setenv("OPENAI_ORG_ID", "org-preset-by-runtime")
+        monkeypatch.setenv("OPENAI_ORGANIZATION", "org-preset-by-litellm")
+        monkeypatch.setenv("OPENAI_ORG_ID", "org-preset-by-sdk")
         settings = Settings()
 
         export_provider_credentials(settings)
 
-        assert os.environ["OPENAI_ORG_ID"] == "org-preset-by-runtime"
+        assert os.environ["OPENAI_ORGANIZATION"] == "org-preset-by-litellm"
+        assert os.environ["OPENAI_ORG_ID"] == "org-preset-by-sdk"
 
     def test_settings_picks_up_env_prefixed_organization(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        # End-to-end: LLM_GATEWAY_OPENAI_ORGANIZATION → Settings.openai_organization
-        # → OPENAI_ORG_ID, which is what litellm / the OpenAI SDK read.
         monkeypatch.setenv("LLM_GATEWAY_OPENAI_ORGANIZATION", "org-test-fixture")
         get_settings.cache_clear()
 
@@ -142,6 +154,7 @@ class TestExportProviderCredentials:
         assert settings.openai_organization == "org-test-fixture"
 
         export_provider_credentials(settings)
+        assert os.environ["OPENAI_ORGANIZATION"] == "org-test-fixture"
         assert os.environ["OPENAI_ORG_ID"] == "org-test-fixture"
 
     def test_settings_picks_up_env_prefixed_base_url(
@@ -156,6 +169,40 @@ class TestExportProviderCredentials:
 
         export_provider_credentials(settings)
         assert os.environ["OPENAI_BASE_URL"] == "https://eu.api.openai.com/v1"
+
+
+class TestLifespan:
+    async def test_rejects_openai_credentials_before_initializing_database(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_OPENAI_API_KEY", "sk-test")
+        monkeypatch.setenv("LLM_GATEWAY_OPENAI_ORGANIZATION", "org-test")
+        get_settings.cache_clear()
+
+        body = {"error": {"code": "invalid_organization"}}
+        response = httpx.Response(
+            401,
+            request=httpx.Request("GET", "https://api.openai.com/v1/models"),
+            json=body,
+        )
+        client = AsyncMock()
+        client.models.list.side_effect = openai.AuthenticationError(
+            "provider rejected the request", response=response, body=body
+        )
+        context = MagicMock()
+        context.__aenter__ = AsyncMock(return_value=client)
+        context.__aexit__ = AsyncMock(return_value=False)
+        init_db_pool = AsyncMock(side_effect=AssertionError("database initialization reached"))
+
+        with (
+            patch("llm_gateway.openai_credentials.openai.AsyncOpenAI", return_value=context),
+            patch("llm_gateway.main.init_db_pool", init_db_pool),
+            pytest.raises(OpenAICredentialError, match="invalid_organization"),
+        ):
+            async with lifespan(FastAPI()):
+                pytest.fail("application startup completed")
+
+        init_db_pool.assert_not_awaited()
 
 
 def _middleware_test_client() -> TestClient:
