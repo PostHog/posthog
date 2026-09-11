@@ -3,8 +3,10 @@ from datetime import UTC, datetime
 
 import pytest
 import time_machine
+from unittest.mock import MagicMock, call, patch
 
 from asgiref.sync import sync_to_async
+from temporalio.common import MetricCounter, MetricMeter
 from temporalio.testing import ActivityEnvironment
 
 from posthog.schema import AlertCalculationInterval
@@ -133,3 +135,66 @@ async def test_retrieve_due_alerts_keeps_active_cohort_in_fair_share(ateam: Team
     expected_ids = {str(alert.id) for alert in due_alerts[:2]}
     assert {alert.alert_id for alert in first_sweep} == expected_ids
     assert {alert.alert_id for alert in second_sweep} == expected_ids
+
+
+@pytest.mark.asyncio
+async def test_retrieve_due_alerts_records_capacity_and_selected_alert_counters() -> None:
+    meter = MagicMock(spec=MetricMeter)
+    capacity_counter = MagicMock(spec=MetricCounter)
+    selected_counter = MagicMock(spec=MetricCounter)
+    counters = {
+        "insight_alert_scheduler_capacity": capacity_counter,
+        "insight_alert_scheduler_alerts_selected": selected_counter,
+    }
+    meter.create_counter.side_effect = lambda name, description: counters[name]
+    environment = ActivityEnvironment()
+
+    async def fake_get_alerts() -> list[MagicMock]:
+        return [MagicMock()] * 9
+
+    with (
+        patch(
+            "posthog.temporal.alerts.activities.database_sync_to_async",
+            return_value=MagicMock(return_value=fake_get_alerts),
+        ),
+        patch("posthog.temporal.alerts.activities.get_metric_meter", return_value=meter),
+    ):
+        for max_alerts_per_run in (11, 10, 9):
+            await environment.run(
+                retrieve_due_alerts,
+                ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=max_alerts_per_run),
+            )
+
+    assert [metric_call.args[0] for metric_call in meter.create_counter.call_args_list] == [
+        "insight_alert_scheduler_capacity",
+        "insight_alert_scheduler_alerts_selected",
+        "insight_alert_scheduler_capacity",
+        "insight_alert_scheduler_alerts_selected",
+        "insight_alert_scheduler_capacity",
+        "insight_alert_scheduler_alerts_selected",
+    ]
+    assert capacity_counter.add.call_args_list == [call(11), call(10), call(9)]
+    assert selected_counter.add.call_args_list == [call(9), call(9), call(9)]
+    meter.with_additional_attributes.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_due_alerts_succeeds_when_metric_recording_fails() -> None:
+    expected_alerts = [MagicMock()]
+
+    async def fake_get_alerts() -> list[MagicMock]:
+        return expected_alerts
+
+    with (
+        patch(
+            "posthog.temporal.alerts.activities.database_sync_to_async",
+            return_value=MagicMock(return_value=fake_get_alerts),
+        ),
+        patch(
+            "posthog.temporal.alerts.activities.get_metric_meter",
+            side_effect=RuntimeError("metrics backend unavailable"),
+        ),
+    ):
+        alerts = await ActivityEnvironment().run(retrieve_due_alerts)
+
+    assert alerts == expected_alerts
