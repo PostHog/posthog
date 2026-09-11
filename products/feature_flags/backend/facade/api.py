@@ -361,7 +361,8 @@ def list_flag_summaries(team_id: int) -> list[FlagSummary]:
         summaries.append(
             FlagSummary(
                 id=flag.id,
-                key=flag.key,
+                # Soft-deleting a still-referenced flag renames its key; source code keeps the original.
+                key=flag.key_without_tombstone(),
                 active=flag.active,
                 deleted=flag.deleted,
                 archived=flag.archived,

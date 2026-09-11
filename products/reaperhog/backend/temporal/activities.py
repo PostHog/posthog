@@ -58,7 +58,7 @@ async def verify_activity(inputs: ReapScopeInputs) -> VerifyResult:
 @close_db_connections
 async def sync_activity(inputs: ReapScopeInputs) -> SyncResult:
     return await database_sync_to_async(sync_harvest, thread_sensitive=False)(
-        team_id=inputs.team_id, repository=inputs.repository, scope=inputs.scope
+        team_id=inputs.team_id, repository=inputs.repository
     )
 
 
