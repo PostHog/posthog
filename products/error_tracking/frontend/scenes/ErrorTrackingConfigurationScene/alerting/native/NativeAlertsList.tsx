@@ -1,40 +1,40 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { ReactNode, useEffect } from 'react'
 
-import { LemonBanner, LemonButton, LemonCard, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { TZLabel } from 'lib/components/TZLabel'
+import { IconSlack } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 
 import { AnyPropertyFilter } from '~/types'
 
 import { ErrorTrackingAlertApi, ErrorTrackingAlertDestinationApi } from '../../../../generated/api.schemas'
 import { errorTrackingEditAccessDisabledReason } from '../../../../utils'
-import { THROTTLE_OPTIONS, TRIGGER_OPTIONS, nativeAlertEditorLogic } from './nativeAlertEditorLogic'
+import { THROTTLE_OPTIONS, TRIGGER_OPTIONS, hasEveryTrigger, nativeAlertEditorLogic } from './nativeAlertEditorLogic'
 import { nativeAlertsLogic } from './nativeAlertsLogic'
 
 function throttleLabel(seconds: number): string {
     return THROTTLE_OPTIONS.find((option) => option.value === seconds)?.label ?? `Once every ${seconds}s`
 }
 
-function propertyLabel(property: AnyPropertyFilter): string {
-    const key = 'key' in property ? String(property.key) : ''
-    const operator = 'operator' in property && property.operator ? property.operator.replace(/_/g, ' ') : 'is'
-    const value = 'value' in property ? property.value : undefined
-    const rendered = Array.isArray(value)
-        ? value.join(', ')
-        : value === undefined || value === null
-          ? ''
-          : String(value)
-    return `${key} ${operator} ${rendered}`.trim()
+function triggersLabel(triggers: ErrorTrackingAlertApi['triggers']): string {
+    if (hasEveryTrigger(triggers)) {
+        return 'Anything happens to a matching issue'
+    }
+    const labels = TRIGGER_OPTIONS.filter((option) => triggers.includes(option.value)).map((option) => option.label)
+    return labels.length > 0 ? labels.join(', ') : 'Never'
 }
 
 function DeliveryHealth({ destinations }: { destinations: ErrorTrackingAlertDestinationApi[] }): JSX.Element | null {
     const failing = destinations.find((destination) => destination.consecutive_failures > 0)
     if (failing) {
         return (
-            <LemonTag type="danger" size="small">
-                Failing: {failing.last_error || 'delivery error'}
-            </LemonTag>
+            <span className="flex items-center gap-1.5 text-xs text-danger min-w-0">
+                <span className="w-2 h-2 rounded-full bg-danger shrink-0" />
+                <span className="truncate">Failing: {failing.last_error || 'delivery error'}</span>
+            </span>
         )
     }
     const lastDelivered = destinations
@@ -44,12 +44,24 @@ function DeliveryHealth({ destinations }: { destinations: ErrorTrackingAlertDest
         .at(-1)
     if (lastDelivered) {
         return (
-            <LemonTag type="success" size="small">
-                Delivered <TZLabel time={lastDelivered} />
-            </LemonTag>
+            <span className="flex items-center gap-1.5 text-xs text-secondary">
+                <span className="w-2 h-2 rounded-full bg-success shrink-0" />
+                <span>
+                    Delivered <TZLabel time={lastDelivered} />
+                </span>
+            </span>
         )
     }
     return null
+}
+
+function Fact({ label, children }: { label: string; children: ReactNode }): JSX.Element {
+    return (
+        <span className="flex items-baseline gap-1.5 min-w-0">
+            <span className="text-xs text-secondary shrink-0">{label}</span>
+            <span className="text-sm truncate">{children}</span>
+        </span>
+    )
 }
 
 function AlertCard({ alert }: { alert: ErrorTrackingAlertApi }): JSX.Element {
@@ -60,78 +72,67 @@ function AlertCard({ alert }: { alert: ErrorTrackingAlertApi }): JSX.Element {
     const properties = (alert.filters.properties ?? []) as AnyPropertyFilter[]
     // Event filters can be set through the API but not in this editor; say they exist rather than hide them.
     const eventFilterCount = alert.filters.events?.length ?? 0
+    const filterLabels = properties.map((property) => formatPropertyLabel(property, {}).trim())
+    if (eventFilterCount > 0) {
+        filterLabels.push(`${eventFilterCount} event ${eventFilterCount === 1 ? 'filter' : 'filters'} set via the API`)
+    }
 
     return (
-        <LemonCard hoverEffect={false} className={alert.enabled ? 'flex flex-col p-0' : 'flex flex-col p-0 opacity-70'}>
-            <div className="flex items-center justify-between gap-2 px-3 py-2">
+        <LemonCard
+            hoverEffect={!editDisabledReason}
+            onClick={editDisabledReason ? undefined : () => openEditor(alert)}
+            className={cn('group flex flex-col gap-2 px-3 py-2.5', !alert.enabled && 'opacity-70')}
+            data-attr="error-tracking-alert-card"
+        >
+            <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0">
-                    <LemonSwitch
-                        checked={alert.enabled}
-                        onChange={(enabled) => setAlertEnabled({ alert, enabled })}
-                        disabledReason={editDisabledReason ?? (alertsLoading ? 'Updating' : undefined)}
-                        size="small"
-                    />
+                    {/* The switch lives inside the clickable card; its click must not open the editor. */}
+                    <span onClick={(event) => event.stopPropagation()}>
+                        <LemonSwitch
+                            checked={alert.enabled}
+                            onChange={(enabled) => setAlertEnabled({ alert, enabled })}
+                            disabledReason={editDisabledReason ?? (alertsLoading ? 'Updating' : undefined)}
+                            size="small"
+                        />
+                    </span>
                     <span className="font-semibold truncate">{alert.name}</span>
                     <DeliveryHealth destinations={alert.destinations} />
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                    <LemonTag size="small">{throttleLabel(alert.throttle_seconds)}</LemonTag>
+                    <span className="text-xs text-secondary">{throttleLabel(alert.throttle_seconds)}</span>
                     <LemonButton
-                        size="small"
+                        size="xsmall"
                         type="tertiary"
-                        onClick={() => openEditor(alert)}
+                        className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        onClick={(event) => {
+                            event.stopPropagation()
+                            openEditor(alert)
+                        }}
                         disabledReason={editDisabledReason}
                     >
                         Edit
                     </LemonButton>
                 </div>
             </div>
-            <div className="border-t grid gap-3 px-3 py-2.5 @[640px]:grid-cols-3">
-                <div className="flex flex-col gap-1.5">
-                    <span className="text-xs font-semibold uppercase text-secondary">Opens a thread when</span>
-                    <div className="flex flex-wrap gap-1">
-                        {alert.triggers.map((trigger) => (
-                            <LemonTag key={trigger} type="highlight" size="small">
-                                {TRIGGER_OPTIONS.find((option) => option.value === trigger)?.label ?? trigger}
-                            </LemonTag>
-                        ))}
-                    </div>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                    <span className="text-xs font-semibold uppercase text-secondary">Only if</span>
-                    <div className="flex flex-wrap gap-1">
-                        {properties.length === 0 && eventFilterCount === 0 ? (
-                            <span className="text-secondary text-sm">Every matching issue</span>
-                        ) : (
-                            properties.map((property, index) => (
-                                <LemonTag key={index} size="small">
-                                    {propertyLabel(property)}
-                                </LemonTag>
-                            ))
-                        )}
-                        {eventFilterCount > 0 && (
-                            <LemonTag size="small" type="muted">
-                                {eventFilterCount === 1
-                                    ? '1 event filter set via the API'
-                                    : `${eventFilterCount} event filters set via the API`}
-                            </LemonTag>
-                        )}
-                    </div>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                    <span className="text-xs font-semibold uppercase text-secondary">Posts to</span>
-                    <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-x-5 gap-y-1 pl-9">
+                <Fact label="when">{triggersLabel(alert.triggers)}</Fact>
+                <Fact label="if">{filterLabels.length > 0 ? filterLabels.join(', ') : 'Every matching issue'}</Fact>
+                <Fact label="to">
+                    <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
                         {alert.destinations.map((destination) => (
-                            <LemonTag
+                            <span
                                 key={destination.id}
-                                size="small"
-                                type={destination.consecutive_failures > 0 ? 'danger' : 'default'}
+                                className={cn(
+                                    'inline-flex items-center gap-1',
+                                    destination.consecutive_failures > 0 && 'text-danger'
+                                )}
                             >
+                                <IconSlack className="w-3.5 h-3.5 shrink-0" />
                                 {destination.config.channel_name || destination.config.channel}
-                            </LemonTag>
+                            </span>
                         ))}
-                    </div>
-                </div>
+                    </span>
+                </Fact>
             </div>
         </LemonCard>
     )
