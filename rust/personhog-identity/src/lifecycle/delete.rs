@@ -39,7 +39,6 @@ use crate::lifecycle::engine::{
     advance_step_in_tx, complete_op_in_tx, EnginePools, LabeledPool, OpDriver, OpRow, SagaError,
     Tx, STEP_ABORTED, STEP_COMPLETED,
 };
-
 /// Bound on concurrent leader calls per step, matching the merge driver.
 const LEADER_CALL_CONCURRENCY: usize = 8;
 

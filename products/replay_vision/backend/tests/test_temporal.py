@@ -15,6 +15,7 @@ import httpx
 import aiohttp
 import psycopg.errors
 from asgiref.sync import sync_to_async
+from google.genai import types
 from google.genai.errors import APIError
 from parameterized import parameterized
 from posthoganalytics.exception_utils import exceptions_from_error_tuple
@@ -94,7 +95,7 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
-from products.replay_vision.backend.temporal.gemini import classify_gemini_error
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error, classify_gemini_file_error
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
     REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
     REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
@@ -3231,6 +3232,67 @@ class TestUploadFinalizeFailures:
             _write_and_upload(raw_client, b"mp4", "video/mp4", "wf-1")
         assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
         assert exc_info.value.message == "The AI provider did not finish the video upload"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestUploadedFileNotActive:
+    """A file that never reaches ACTIVE takes its kind from the provider's own file error. A kind of
+    `provider_rejected` stops Temporal retrying and tells the user to pick a different recording, so only a
+    refused input may claim it."""
+
+    @parameterized.expand(
+        [
+            ("no_error_reported", None, FailureKind.PROVIDER_TRANSIENT),
+            ("internal", 13, FailureKind.PROVIDER_TRANSIENT),
+            ("unavailable", 14, FailureKind.PROVIDER_TRANSIENT),
+            ("invalid_argument", 3, FailureKind.PROVIDER_REJECTED),
+            ("unauthenticated", 16, FailureKind.PROVIDER_REJECTED),
+        ]
+    )
+    def test_maps_file_error_codes(self, _label: str, code: int | None, expected: FailureKind) -> None:
+        error = types.FileStatus(code=code) if code is not None else None
+        assert classify_gemini_file_error(error) is expected
+
+    @staticmethod
+    def _team() -> Team:
+        org = Organization.objects.create(name="upload-org")
+        return Team.objects.create(organization=org, name="upload-team")
+
+    @parameterized.expand(
+        [
+            ("processing_failure", 13, FailureKind.PROVIDER_TRANSIENT, False),
+            ("input_rejection", 3, FailureKind.PROVIDER_REJECTED, True),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_activity_classifies_a_failed_file(
+        self, _label: str, code: int, expected: FailureKind, expected_non_retryable: bool
+    ) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        failed_file = types.File(
+            name="files/abc",
+            state=types.FileState.FAILED,
+            error=types.FileStatus(code=code, message="the provider quoted 'wf-secret-name' back at us"),
+        )
+        with patch(
+            "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.RawGenAIClient"
+        ) as mock_client:
+            mock_client.return_value.files.upload.return_value = failed_file
+            with patch(
+                "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.track_uploaded_file",
+                AsyncMock(),
+            ):
+                with pytest.raises(ScannerFailureError) as exc_info:
+                    await ActivityEnvironment().run(
+                        upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+                    )
+
+        assert exc_info.value.kind is expected
+        # A provider-side processing failure must reach Temporal as retryable.
+        assert exc_info.value.non_retryable is expected_non_retryable
+        # The provider's message can quote request content, so only the shape of the failure reaches the user.
+        assert exc_info.value.message == f"The AI provider could not process the video (error code {code})"
 
 
 class TestGeminiErrorRedaction:

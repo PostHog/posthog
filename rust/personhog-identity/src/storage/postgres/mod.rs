@@ -49,7 +49,7 @@ pub(super) async fn acquire_timed(pool: &PgPool) -> sqlx::Result<PoolConnection<
 }
 
 /// Begin a primary transaction, recording the acquire wait it contains.
-pub(super) async fn begin_timed(pool: &PgPool) -> sqlx::Result<Transaction<'_, Postgres>> {
+pub(crate) async fn begin_timed(pool: &PgPool) -> sqlx::Result<Transaction<'_, Postgres>> {
     begin_timed_on(pool, POOL_LABEL).await
 }
 

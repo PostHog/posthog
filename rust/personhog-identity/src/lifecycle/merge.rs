@@ -53,7 +53,6 @@ use crate::lifecycle::engine::{
     advance_step_in_tx, complete_op_in_tx, Engine, EnginePools, LabeledPool, OpDriver, OpRow,
     SagaError, Tx, STEP_ABORTED, STEP_COMPLETED,
 };
-
 // Derived from the shared enum so the op-type string cannot drift from
 // the leader's fence records or the lifecycle_op CHECK constraint.
 pub const OP_TYPE_MERGE: &str = LifecycleOpType::Merge.as_op_type_str();
