@@ -49,6 +49,12 @@ _BAD_REQUEST_EXPLANATION = (
     "This table might not be available in the AWS region this source is connected to."
 )
 
+# Codes AWS can answer with when a saved pagination token is no longer accepted. Only
+# ListSuppressedDestinations models InvalidNextTokenException; the other list operations report
+# a rejected NextToken as BadRequestException, the same code a region that cannot serve the
+# table returns.
+_STALE_TOKEN_ERROR_CODES = ("InvalidNextTokenException", "BadRequestException")
+
 # Codes that mean the key itself is bad, as opposed to a valid key missing an IAM permission.
 _CREDENTIAL_ERROR_CODES = (
     "UnrecognizedClientException",
@@ -279,8 +285,10 @@ def _walk_pages(
             body = send_request(session, credentials, region, endpoint_config.name, endpoint_config.path, page_params)
         except AwsSesError as error:
             # A token saved by a previous attempt can expire; restart the walk instead of
-            # failing the job. Merge on the primary key absorbs the re-read rows.
-            if resumed_token and error.code == "InvalidNextTokenException":
+            # failing the job. Merge on the primary key absorbs the re-read rows. The restart
+            # runs once per walk, so a table the region really cannot serve fails on the
+            # retry from page 1 and still reaches the non-retryable classification.
+            if resumed_token and error.code in _STALE_TOKEN_ERROR_CODES:
                 logger.debug(f"Saved page token no longer valid; restarting. endpoint={endpoint_config.name}")
                 next_token = None
                 resumed_token = False

@@ -360,6 +360,44 @@ class TestGetRows:
                 manager=FakeResumeManager(AwsSesResumeConfig(next_token="stale")),
             )
 
+    def test_a_saved_token_rejected_as_a_bad_request_restarts_the_walk(self) -> None:
+        # Only ListSuppressedDestinations models a rejected token as InvalidNextTokenException.
+        # Every other list operation answers one with BadRequestException, which is otherwise
+        # classified as permanent and would disable a healthy table.
+        batches, send, manager = self._run(
+            [
+                AwsSesError("BadRequestException", "invalid", "multi_region_endpoints", "/path"),
+                {"MultiRegionEndpoints": [{"EndpointId": "e-1"}]},
+            ],
+            manager=FakeResumeManager(AwsSesResumeConfig(next_token="stale")),
+            endpoint="multi_region_endpoints",
+        )
+
+        assert [row["endpoint_id"] for batch in batches for row in batch] == ["e-1"]
+        assert send.call_args_list[0][0][5].get("NextToken") == "stale"
+        assert "NextToken" not in send.call_args_list[1][0][5]
+        assert manager.cleared is True
+
+    def test_a_bad_request_that_outlives_the_restart_still_fails_the_job(self) -> None:
+        # The region genuinely cannot serve the table: page 1 fails the same way, and the error
+        # has to reach the non-retryable classification that disables the schema.
+        with pytest.raises(AwsSesError, match="BadRequestException"):
+            self._run(
+                [
+                    AwsSesError("BadRequestException", "invalid", "multi_region_endpoints", "/path"),
+                    AwsSesError("BadRequestException", "invalid", "multi_region_endpoints", "/path"),
+                ],
+                manager=FakeResumeManager(AwsSesResumeConfig(next_token="stale")),
+                endpoint="multi_region_endpoints",
+            )
+
+    def test_a_bad_request_with_no_saved_token_fails_without_a_retry(self) -> None:
+        with pytest.raises(AwsSesError, match="BadRequestException"):
+            self._run(
+                [AwsSesError("BadRequestException", "invalid", "multi_region_endpoints", "/path")],
+                endpoint="multi_region_endpoints",
+            )
+
     def test_an_incremental_run_asks_aws_only_for_updates_since_the_watermark(self) -> None:
         _, send, _ = self._run(
             [suppression_page([])],
