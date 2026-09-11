@@ -528,6 +528,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 reset_pipeline=reset_pipeline,
                 enabled_columns=schema.enabled_columns,
                 row_filters=row_filters,
+                primary_keys=schema.primary_key_columns,
+                verified_primary_keys=schema.verified_primary_keys,
                 schema_metadata=schema.schema_metadata,
                 s3_folder_name=schema.resolved_s3_folder_name,
                 # A schema-level override (user-managed) wins over the source pin.

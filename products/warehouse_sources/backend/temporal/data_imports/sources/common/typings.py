@@ -62,6 +62,9 @@ class SourceResponse:
     rows_to_sync: Optional[int] = None
     has_duplicate_primary_keys: Optional[bool] = None
     """Whether incremental tables have non-unique primary keys"""
+    verified_primary_keys: Optional[list[str]] = None
+    """The key this run proved unique across the whole table, persisted so later runs only have to
+    prove the rows they bring in."""
     webhook_only: bool = False
     """Webhook-fed resource whose poll path does no backfill: after a wipe the poll cannot
     rebuild the table, so a requested pipeline reset preserves the Delta table and resumes
@@ -112,6 +115,11 @@ class SourceInputs:
     last_synced_at: Optional[datetime.datetime] = None
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None
+    # The schema's stored primary key and the key a full probe last proved unique. A source that
+    # merges on an unenforced key needs both: the first is the key it will merge on, the second
+    # says whether that key still has to be proven against the whole table.
+    primary_keys: Optional[list[str]] = None
+    verified_primary_keys: Optional[list[str]] = None
     # Multi-schema import context, read by `resolve_source_location`.
     schema_metadata: Optional[dict[str, Any]] = None
     s3_folder_name: Optional[str] = None
