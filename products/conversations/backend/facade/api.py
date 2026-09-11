@@ -547,7 +547,12 @@ def list_resolved_ticket_revisions(
     return revisions
 
 
-def get_public_human_replies(team_id: int, ticket_id: UUID) -> PublicHumanReplies | None:
+def get_public_human_replies(
+    team_id: int,
+    ticket_id: UUID,
+    *,
+    resolution_comment_id: UUID | None = None,
+) -> PublicHumanReplies | None:
     team = _support_learning_team(team_id)
     if team is None:
         return None
@@ -555,16 +560,22 @@ def get_public_human_replies(team_id: int, ticket_id: UUID) -> PublicHumanReplie
         return None
 
     replies: list[str] = []
+    found_resolution = resolution_comment_id is None
     comments = (
         public_human_ticket_replies(_comment_team_ids(team), [str(ticket_id)])
         .order_by("created_at", "id")
-        .only("content")
+        .only("id", "content")
     )
     for comment in comments:
         content = comment.content or ""
-        if content.strip():
-            replies.append(content)
-    if not replies:
+        if not content.strip():
+            continue
+        replies.append(content)
+        if resolution_comment_id is not None and comment.id == resolution_comment_id:
+            # A later public human reply is a new revision under a new evidence key.
+            found_resolution = True
+            break
+    if not found_resolution or not replies:
         return None
     return PublicHumanReplies(replies=tuple(replies))
 

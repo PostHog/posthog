@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -473,10 +474,14 @@ class TestResolvedTicketEvidence(BaseTest):
 
         revisions = self._revisions()
         replies = get_public_human_replies(self.team.id, ticket.id)
+        pinned = get_public_human_replies(self.team.id, ticket.id, resolution_comment_id=first.id)
 
         assert [revision.resolution_comment_id for revision in revisions] == [later.id]
         assert replies is not None
         assert replies.replies == ("First answer", "Follow-up answer")
+        assert pinned is not None
+        assert pinned.replies == ("First answer",)
+        assert get_public_human_replies(self.team.id, ticket.id, resolution_comment_id=uuid4()) is None
 
     def test_open_ticket_is_not_collected(self) -> None:
         ticket = self._ticket(status=Status.OPEN)

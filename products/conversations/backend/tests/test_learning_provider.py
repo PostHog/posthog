@@ -84,6 +84,31 @@ class TestConversationsLearningProvider(BaseTest):
         assert bundle is not None
         assert bundle.replies == ("The limit is 1000",)
 
+    def test_load_pins_replies_to_the_collected_revision(self) -> None:
+        ticket = self._ticket()
+        first = self._support_reply(ticket, "The limit is 1000")
+
+        refs = self.provider.collect(self.team.id, since=self.since, limit=10)
+        self._support_reply(ticket, "Also the burst is 5000")
+        bundle = self.provider.load(refs[0])
+        later_refs = self.provider.collect(self.team.id, since=self.since, limit=10)
+
+        assert bundle is not None
+        assert bundle.replies == ("The limit is 1000",)
+        assert later_refs[0].resolution_comment_id != first.id
+        later_bundle = self.provider.load(later_refs[0])
+        assert later_bundle is not None
+        assert later_bundle.replies == ("The limit is 1000", "Also the burst is 5000")
+
+    def test_load_rejects_a_resolution_comment_that_is_no_longer_public(self) -> None:
+        ticket = self._ticket()
+        comment = self._support_reply(ticket, "The limit is 1000")
+
+        refs = self.provider.collect(self.team.id, since=self.since, limit=10)
+        Comment.objects.filter(pk=comment.id).update(deleted=True)
+
+        assert self.provider.load(refs[0]) is None
+
     def test_child_environment_keeps_source_team_id_on_the_child(self) -> None:
         child = Team.objects.create(
             organization=self.organization,
