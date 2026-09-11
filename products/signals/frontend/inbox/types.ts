@@ -381,6 +381,8 @@ export interface SignalUserAutonomyConfig {
     slack_notification_channel?: string | null
     slack_notification_min_priority?: SignalReportPriority | null
     github_assign_on_pull_request?: boolean
+    /** Whether PRs for reports suggesting this user open ready for review. Null follows the project default. */
+    github_open_pull_request_ready?: boolean | null
     created_at?: string
     updated_at?: string
 }
@@ -403,6 +405,8 @@ export interface SignalTeamConfig {
     issue_tracking_config?: Record<string, string>
     /** Daily cap on new reports surfacing to the inbox (project-timezone day). Null means unlimited. */
     max_reports_per_day?: number | null
+    /** Whether self-driving PRs open ready for review instead of draft. A reviewer's own setting overrides it. */
+    default_open_pull_request_ready?: boolean
     /** Read-only: reports that first became visible today (project timezone). Never send in a patch. */
     reports_generated_today?: number
     /** Read-only: whether the daily report limit is reached, pausing new report generation until local midnight. Never send in a patch. */

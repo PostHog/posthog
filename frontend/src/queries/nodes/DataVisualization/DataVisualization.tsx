@@ -191,8 +191,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         chartSettings,
         dashboardId,
         dataVisualizationProps,
-        presetChartHeight,
+        presetChartHeight: scenePresetChartHeight,
     } = useValues(dataVisualizationLogic)
+
+    const presetChartHeight = !props.embedded && scenePresetChartHeight
 
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
