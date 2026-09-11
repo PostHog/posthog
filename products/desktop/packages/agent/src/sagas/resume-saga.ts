@@ -270,12 +270,7 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
           case "tool_call":
           case "tool_call_update":
           case "tool_result": {
-            const meta = (update._meta as Record<string, unknown>)
-              ?.claudeCode as Record<string, unknown> | undefined;
-            mergeToolCall(
-              currentToolCalls,
-              meta ? readClaudeToolCall(meta) : readAcpToolCall(update),
-            );
+            mergeToolCall(currentToolCalls, readToolCall(update));
             break;
           }
         }
@@ -335,40 +330,41 @@ function isEmptyRecord(value: unknown): boolean {
   );
 }
 
-/** Tool call fields the Claude adapter writes on `_meta.claudeCode`. */
-function readClaudeToolCall(meta: Record<string, unknown>): PartialToolCall {
+/**
+ * Tool call fields, read from wherever the emitting runtime puts them. ACP
+ * carries the id and the payloads on the update itself, and every adapter
+ * emits them there; `_meta.claudeCode` only reliably carries `toolName` (and
+ * sometimes `toolResponse`), so it is a per-field fallback for older logs
+ * rather than an alternative source. Codex and pi name their calls on
+ * `_meta.posthog`, and a plain shell call carries no meta at all, leaving
+ * `title` as the only name.
+ */
+function readToolCall(update: Record<string, unknown>): PartialToolCall {
+  const meta = update._meta as Record<string, unknown> | undefined;
+  const claudeMeta = meta?.claudeCode as Record<string, unknown> | undefined;
+  const posthogMeta = meta?.posthog as Record<string, unknown> | undefined;
+
+  let result = firstDefined(update.rawOutput, claudeMeta?.toolResponse);
+  if (result === undefined) result = toolContentText(update.content);
+
   return {
-    toolCallId: typeof meta.toolCallId === "string" ? meta.toolCallId : "",
-    toolName: typeof meta.toolName === "string" ? meta.toolName : undefined,
-    input: meta.toolInput,
-    result: meta.toolResponse,
+    toolCallId: firstString(update.toolCallId, claudeMeta?.toolCallId) ?? "",
+    toolName: firstString(
+      claudeMeta?.toolName,
+      posthogMeta?.toolName,
+      update.title,
+    ),
+    input: firstDefined(update.rawInput, claudeMeta?.toolInput),
+    result,
   };
 }
 
-/**
- * Tool call fields from the standard ACP update. Only the Claude adapter
- * writes `_meta.claudeCode`: Codex and pi tag their calls with
- * `_meta.posthog`, and a plain shell call carries no meta at all. Without
- * this fallback a summary resume of those runs holds narration only.
- */
-function readAcpToolCall(update: Record<string, unknown>): PartialToolCall {
-  const posthogMeta = (update._meta as Record<string, unknown> | undefined)
-    ?.posthog as Record<string, unknown> | undefined;
-  const toolName =
-    typeof posthogMeta?.toolName === "string"
-      ? posthogMeta.toolName
-      : typeof update.title === "string"
-        ? update.title
-        : undefined;
-  return {
-    toolCallId: typeof update.toolCallId === "string" ? update.toolCallId : "",
-    toolName,
-    input: update.rawInput,
-    result:
-      update.rawOutput !== undefined
-        ? update.rawOutput
-        : toolContentText(update.content),
-  };
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string");
+}
+
+function firstDefined(...values: unknown[]): unknown {
+  return values.find((value) => value !== undefined);
 }
 
 /** The text of an ACP tool call's content blocks, for a call with no `rawOutput`. */

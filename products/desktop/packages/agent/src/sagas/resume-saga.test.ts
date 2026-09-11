@@ -351,6 +351,42 @@ describe("ResumeSaga", () => {
       });
     });
 
+    it("tracks a Claude tool call that carries only its name in meta", async () => {
+      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+        createTaskRun(),
+      );
+      (
+        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([
+        createAcpToolCall("call-1", {
+          title: "Read /test.ts",
+          claudeToolName: "Read",
+          rawInput: { file_path: "/test.ts" },
+        }),
+        createAcpToolCallUpdate("call-1", {
+          rawOutput: { content: [{ type: "text", text: "file contents" }] },
+        }),
+      ]);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+
+      expect(result.data.conversation[0].toolCalls?.[0]).toMatchObject({
+        toolCallId: "call-1",
+        toolName: "Read",
+        input: { file_path: "/test.ts" },
+        result: { content: [{ type: "text", text: "file contents" }] },
+      });
+    });
+
     it("tracks a Codex MCP tool call from its ACP fields", async () => {
       (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
         createTaskRun(),

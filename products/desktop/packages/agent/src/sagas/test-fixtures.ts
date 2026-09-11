@@ -185,7 +185,12 @@ export function createToolResult(
  */
 export function createAcpToolCall(
   toolCallId: string,
-  fields: { title: string; toolName?: string; rawInput?: unknown },
+  fields: {
+    title: string;
+    toolName?: string;
+    claudeToolName?: string;
+    rawInput?: unknown;
+  },
 ): StoredNotification {
   return createNotification("session/update", {
     update: {
@@ -193,9 +198,11 @@ export function createAcpToolCall(
       toolCallId,
       title: fields.title,
       ...(fields.rawInput !== undefined ? { rawInput: fields.rawInput } : {}),
-      ...(fields.toolName
-        ? { _meta: { posthog: { toolName: fields.toolName } } }
-        : {}),
+      ...(fields.claudeToolName
+        ? { _meta: { claudeCode: { toolName: fields.claudeToolName } } }
+        : fields.toolName
+          ? { _meta: { posthog: { toolName: fields.toolName } } }
+          : {}),
     },
   });
 }
