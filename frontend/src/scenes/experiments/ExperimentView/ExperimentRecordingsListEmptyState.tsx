@@ -63,10 +63,28 @@ function ReasonBanner({
         return <LemonBanner type="info">Launch the experiment to see recordings of participants.</LemonBanner>
     }
     if (reason === ExperimentReplayListEmptyReason.TooEarly) {
+        // Under the in-session scope a young run can show nothing while all sessions has rows, and
+        // "too early" carries no action, so this is the one place the narrower scope could leave a
+        // viewer with no way out. Under all sessions there is nothing wider to offer.
+        const inSession = context.exposureScope === 'in_session'
         return (
-            <LemonBanner type="info">
+            <LemonBanner
+                type="info"
+                action={
+                    inSession
+                        ? {
+                              children: 'All sessions',
+                              onClick: () => onAction('all_sessions'),
+                              'data-attr': 'experiment-recordings-empty-all-sessions',
+                          }
+                        : undefined
+                }
+            >
                 No recordings yet. The experiment started {startedWhen(context.daysSinceStart)}, and a recording appears
                 here once an exposed person's session has been captured.
+                {/* Its own element rather than a bare text node, so toggling the scope doesn't
+                    remove a text node React may no longer own (frontend/src/AGENTS.md rule 7). */}
+                {inSession && <span> The same people can already have recordings of their other sessions.</span>}
             </LemonBanner>
         )
     }
@@ -203,7 +221,7 @@ export function ExperimentRecordingsListEmptyState({ experiment }: { experiment:
         } else if (action === 'show_all_variants') {
             setSelectedVariantKey(null)
         } else if (action === 'all_sessions') {
-            setExposureScope('all_exposed')
+            setExposureScope('all_exposed', 'empty_state')
         } else if (action === 'clear_filters') {
             // The playlist's own reset would drop the tab's scoping too, so the tab's filters go
             // back in whole rather than the playlist defaults.

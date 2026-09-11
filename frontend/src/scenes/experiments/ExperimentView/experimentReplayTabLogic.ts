@@ -23,7 +23,9 @@ import {
     ExperimentRecordingsBucketLoadedContext,
     ExperimentRecordingsFilterContext,
     ExperimentRecordingsListRenderedContext,
+    ExperimentRecordingsScopeChangedContext,
     ExperimentRecordingsTabContext,
+    ExperimentRecordingsTabViewFacets,
     ExperimentWatchCardContext,
     ExperimentWatchHighlightContext,
     ExperimentWatchShelfContext,
@@ -137,6 +139,17 @@ export type ExperimentReplayMetricFilterMode = 'fired_all' | 'fired_any' | 'no_m
  */
 export type ExperimentReplayExposureScope = 'in_session' | 'all_exposed'
 
+/** Which surface moved the exposure scope, as reported to telemetry. */
+export type ExperimentExposureScopeChangeSource = 'control' | 'empty_state'
+
+/**
+ * What a session set's in-session evidence is, so copy about it claims no more than it delivers.
+ * 'stamped' means the flag property stood in for the exposure event, which says the flag was
+ * active in the session rather than that the person was enrolled there. 'unknown' covers a set
+ * whose evidence hasn't resolved yet, where only what both kinds share can be claimed.
+ */
+export type ExperimentInSessionEvidence = 'event' | 'stamped' | 'unknown'
+
 /** What the tab asks the bucket endpoint for, and the spec a loaded response belongs to. */
 export interface ExperimentSessionBucketRequest {
     bucket: ExperimentSessionBucketEnumApi
@@ -183,6 +196,14 @@ export interface ExperimentRecordingsListEmptyContext {
     retentionWindowDays: number
     /** Null when the list holds every variant. */
     variantKey: string | null
+    /**
+     * The scope the list actually ran under, which is not always the one the control settled on: a
+     * session bucket or a watch card supplies the session set itself and drops the narrowing. A
+     * reason that can be empty under the narrower scope while the wider one has rows needs this to
+     * know whether to offer the way back, and offering it where the narrowing never applied would
+     * move nothing.
+     */
+    exposureScope: ExperimentReplayExposureScope
 }
 
 /**
@@ -297,6 +318,7 @@ export interface experimentReplayTabLogicValues {
     behaviorComparisonAvailable: boolean
     behaviorComparisonOpen: boolean
     bucketSessionIds: string[] | undefined
+    displayedExposureScope: ExperimentReplayExposureScope
     durationFilterActive: boolean
     durationFilterCustomized: boolean
     effectiveExposureScope: ExperimentReplayExposureScope
@@ -313,6 +335,7 @@ export interface experimentReplayTabLogicValues {
     linkedScannersLoading: boolean
     listEmptyContext: ExperimentRecordingsListEmptyContext
     listEmptyReason: ExperimentReplayListEmptyReason
+    listFirstPageCount: number | null
     loadedRecordings: ExperimentReplayRecording[]
     loadedRecordingsById: Map<string, ExperimentReplayRecording>
     metricFilterMode: ExperimentReplayMetricFilterMode
@@ -320,6 +343,7 @@ export interface experimentReplayTabLogicValues {
     playlistFilters: RecordingUniversalFilters | null
     playlistHeldForChecks: boolean
     recordingsFilters: RecordingUniversalFilters
+    scopeLockEvidence: ExperimentInSessionEvidence | null
     selectedMetricUuids: string[]
     selectedVariantKey: string | null
     selectedWatchCard: ExperimentWatchCardApi | null
@@ -330,7 +354,7 @@ export interface experimentReplayTabLogicValues {
     sessionEventDeltas: ExperimentSessionEventDeltaResponseApi | null
     sessionEventDeltasError: string | null
     sessionEventDeltasLoading: boolean
-    tabViewContext: ExperimentRecordingsTabContext
+    tabViewContext: ExperimentRecordingsTabViewFacets
     variantKeys: string[]
 }
 
@@ -392,6 +416,13 @@ export interface experimentReplayTabLogicActions {
         context: ExperimentRecordingsListRenderedContext
         experimentId: ExperimentIdType
     } // eventUsageLogic
+    reportExperimentRecordingsScopeChanged: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsScopeChangedContext
+    ) => {
+        context: ExperimentRecordingsScopeChangedContext
+        experimentId: ExperimentIdType
+    } // eventUsageLogic
     reportExperimentRecordingsTabViewed: (
         experimentId: ExperimentIdType,
         context: ExperimentRecordingsTabContext
@@ -437,6 +468,9 @@ export interface experimentReplayTabLogicActions {
         payload?: any
         seenTogetherMap: Record<string, boolean>
     } // viewRecordingsLinkabilityLogic
+    exposureScopeCommitted: (scope: ExperimentReplayExposureScope) => {
+        scope: ExperimentReplayExposureScope
+    }
     listEmptyActionClicked: (action: ExperimentRecordingsEmptyAction) => {
         action: ExperimentRecordingsEmptyAction
     }
@@ -541,8 +575,12 @@ export interface experimentReplayTabLogicActions {
     selectWatchCard: (card: ExperimentWatchCardApi | null) => {
         card: ExperimentWatchCardApi | null
     }
-    setExposureScope: (scope: ExperimentReplayExposureScope) => {
+    setExposureScope: (
+        scope: ExperimentReplayExposureScope,
+        via?: ExperimentExposureScopeChangeSource
+    ) => {
         scope: ExperimentReplayExposureScope
+        via: ExperimentExposureScopeChangeSource
     }
     setMetricFilterMode: (mode: ExperimentReplayMetricFilterMode) => {
         mode: ExperimentReplayMetricFilterMode
@@ -591,6 +629,11 @@ export interface experimentReplayTabLogicMeta {
             linkabilityLoaded: boolean,
             seenTogetherMapLoading: boolean
         ) => boolean
+        displayedExposureScope: (
+            inSessionExposureLoading: boolean,
+            exposureScope: ExperimentReplayExposureScope,
+            effectiveExposureScope: ExperimentReplayExposureScope
+        ) => ExperimentReplayExposureScope
         exposureLinkable: (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, arg: any) => boolean | null
         durationFilterActive: (
             playlistFilters: RecordingUniversalFilters | null,
@@ -625,6 +668,7 @@ export interface experimentReplayTabLogicMeta {
         listEmptyContext: (
             currentTeam: TeamPublicType | TeamType | null,
             effectiveVariantKey: string | null,
+            recordingsFilters: RecordingUniversalFilters,
             arg: any
         ) => ExperimentRecordingsListEmptyContext
         filterContext: (
@@ -640,7 +684,7 @@ export interface experimentReplayTabLogicMeta {
             metricOptions: ExperimentReplayMetricOption[],
             effectiveExposureScope: ExperimentReplayExposureScope,
             inSessionExposure: ExperimentInSessionExposureApi | null
-        ) => ExperimentRecordingsTabContext
+        ) => ExperimentRecordingsTabViewFacets
         metricOptions: (
             linkabilityLoaded: boolean,
             unlinkableEventNames: Set<string>,
@@ -657,6 +701,10 @@ export interface experimentReplayTabLogicMeta {
             effectiveVariantKey: string | null,
             metricOptions: ExperimentReplayMetricOption[]
         ) => ExperimentSessionBucketRequest | null
+        scopeLockEvidence: (
+            sessionBucketRequest: ExperimentSessionBucketRequest | null,
+            sessionBucket: ExperimentSessionBucket | null
+        ) => ExperimentInSessionEvidence | null
         bucketSessionIds: (
             sessionBucketRequest: ExperimentSessionBucketRequest | null,
             sessionBucket: ExperimentSessionBucket | null,
@@ -725,12 +773,24 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 'reportExperimentWatchHighlightOpened',
                 'reportExperimentWatchEmptyActionClicked',
                 'reportExperimentRecordingsEmptyActionClicked',
+                'reportExperimentRecordingsScopeChanged',
             ],
         ],
     })),
     actions({
         setSelectedVariantKey: (variantKey: string | null) => ({ variantKey }),
-        setExposureScope: (scope: ExperimentReplayExposureScope) => ({ scope }),
+        // `via` says where the change came from, because the empty state's way back calls this
+        // action directly and reads as a control move otherwise. The two mean different things:
+        // one is an opt-out from the default, the other is a recovery from an empty list.
+        setExposureScope: (
+            scope: ExperimentReplayExposureScope,
+            via: ExperimentExposureScopeChangeSource = 'control'
+        ) => ({ scope, via }),
+        // The committed half of the pick above. The stored scope moves from here rather than from
+        // the pick itself, so a pick the listener rejects leaves nothing behind: the control renders
+        // the scope the tab is settling on, which is not always the stored one, and picking the
+        // option it already shows as selected is not a choice anyone made.
+        exposureScopeCommitted: (scope: ExperimentReplayExposureScope) => ({ scope }),
         setMetricSelected: (metricUuid: string, selected: boolean) => ({ metricUuid, selected }),
         setMetricFilterMode: (mode: ExperimentReplayMetricFilterMode) => ({ mode }),
         playlistFiltersChanged: (filters: RecordingUniversalFilters) => ({ filters }),
@@ -864,13 +924,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         inSessionExposure: [
             null as ExperimentInSessionExposureApi | null,
             {
-                // Whether the in-session scope can answer for this experiment, and whether its
-                // evidence is the stamped-property fallback. Resolved server-side through the same
-                // seam the recordings query refuses on, so the control disables exactly what a query
-                // would be refused for, and the caption can tell "the exposure was captured here"
-                // from "the flag was active here". Fail-soft to null, read as "not yet available"
-                // by the selectors below, so a failed check never sends a narrowing the backend
-                // would reject.
+                // Whether the in-session scope can answer for this experiment. Resolved server-side
+                // through the same seam the recordings query refuses on, so the control disables
+                // exactly what a query would be refused for. Fail-soft to null, read as "not yet
+                // available" by the selectors below, so a failed check never sends a narrowing the
+                // backend would reject.
                 loadInSessionExposure: async (_: unknown = null, breakpoint) => {
                     let response: ExperimentInSessionExposureApi | null
                     try {
@@ -905,14 +963,29 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 selectWatchCard: (state: string | null, { card }) => (card ? card.variant : state),
             },
         ],
-        // Persisted like the variant facet. The default shows exposed persons' whole journey
-        // from first exposure, matching the population the analysis counts; 'in_session'
-        // narrows out the long tail of their sessions that never touch the feature under test.
+        // The tab answers what an exposed person did on the pages under test at the moment they
+        // entered the experiment, and the session the exposure happened in is the one that shows
+        // that. Their later sessions are the metrics view's question, one click away on the control.
         exposureScope: [
-            'all_exposed' as ExperimentReplayExposureScope,
+            'in_session' as ExperimentReplayExposureScope,
             { persist: true },
             {
-                setExposureScope: (_, { scope }) => scope,
+                exposureScopeCommitted: (_, { scope }) => scope,
+            },
+        ],
+        // How many rows the list a viewer opened the tab to came back with, and null until it has
+        // come back at all: the checks hold the playlist on open, so a viewer can move the scope
+        // before any list exists, and no rows there is not the same as an empty list.
+        //
+        // The first page rather than the latest, because the pages after it are what scrolling
+        // adds. One of those answering with zero rows is the end of a list that has rows, and read
+        // as the list itself it would report an empty list nobody saw. `loadedRecordings` below
+        // keeps the most recent page instead, which is the right one for prefetch and card copy.
+        listFirstPageCount: [
+            null as number | null,
+            {
+                recordingsLoaded: (state: number | null, { recordings, isFirstPage }) =>
+                    isFirstPage ? recordings.length : state,
             },
         ],
         // Empty = no metric filter. Every selected metric narrows the playlist further (AND) —
@@ -1009,7 +1082,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // trigger and the caption.
                 setMetricFilterMode: () => null,
                 setSelectedVariantKey: () => null,
-                setExposureScope: () => null,
+                // The committed half of the scope pick rather than the pick: a pick the listener
+                // rejects moves nothing on screen, so it must not take the card either.
+                exposureScopeCommitted: () => null,
                 setMetricSelected: () => null,
                 // Closing the shelf takes away the only way to deselect, so the list would stay
                 // narrowed with nothing on screen saying why.
@@ -1038,8 +1113,8 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         ],
         // Why the in-session scope can't answer for this experiment, from the server-side check:
         // the single seam the recordings query refuses on, so the option is disabled for exactly
-        // the experiments a query would be refused for (activation, or a custom event with no
-        // stand-in, or a fallback scan too large for this project). Null while the check loads or
+        // the experiments a query would be refused for (activation, an exposure event no session
+        // ever carries, or one no exposure has arrived for yet). Null while the check loads or
         // fails, so the option isn't disabled on a transient error; the query still stays on all
         // sessions until the check confirms availability (see effectiveExposureScope).
         exposureInSessionUnavailableReason: [
@@ -1072,6 +1147,28 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             ): boolean =>
                 exposureScope === 'in_session' &&
                 (inSessionExposureLoading || (!linkabilityLoaded && seenTogetherMapLoading)),
+        ],
+        // What the scope control shows, which is not always what the query runs on. The query holds
+        // at the all-sessions superset until the verdict confirms, so rendering that would select
+        // "All sessions" on every tab open and snap to the stored scope a few hundred milliseconds
+        // later, next to a skeleton where the list should be. While the verdict is in flight there
+        // is no list to describe yet, so the control and its caption show the scope the tab is
+        // going to settle on. The two values may differ only for the length of that wait: once the
+        // verdict lands this is `effectiveExposureScope`, including the move to all sessions that
+        // an unavailable verdict makes, which is a correction rather than flicker.
+        //
+        // The verdict alone, not `playlistHeldForChecks`: that hold also waits on the linkability
+        // check, which has no say in which scope the query runs on. Reading it here left a refused
+        // scope rendering as the selection, greyed out and carrying its own refusal as the tooltip,
+        // next to a caption claiming evidence the server had just withheld. It stayed that way for
+        // as long as the unrelated request took.
+        displayedExposureScope: [
+            (s) => [s.inSessionExposureLoading, s.exposureScope, s.effectiveExposureScope],
+            (
+                inSessionExposureLoading: boolean,
+                exposureScope: ExperimentReplayExposureScope,
+                effectiveExposureScope: ExperimentReplayExposureScope
+            ): ExperimentReplayExposureScope => (inSessionExposureLoading ? exposureScope : effectiveExposureScope),
         ],
         // Whether the exposure event is ever seen carrying a session id, off the shared linkability
         // check. Null until the check lands, and for an action exposure config, which matches
@@ -1228,16 +1325,21 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             },
         ],
         listEmptyContext: [
-            (s) => [s.currentTeam, s.effectiveVariantKey, (_, props) => props.experiment],
+            (s) => [s.currentTeam, s.effectiveVariantKey, s.recordingsFilters, (_, props) => props.experiment],
             (
                 currentTeam: TeamPublicType | TeamType | null,
                 effectiveVariantKey: string | null,
+                recordingsFilters: RecordingUniversalFilters,
                 experiment: Experiment
             ): ExperimentRecordingsListEmptyContext => ({
                 daysSinceStart: daysSince(experiment.start_date),
                 endDate: experiment.end_date ?? null,
                 retentionWindowDays: retentionDays(currentTeam?.session_recording_retention_period),
                 variantKey: effectiveVariantKey,
+                // Off the filter the list ran with rather than the settled scope: where a bucket or
+                // a card supplies the session set the narrowing never reached the query, so it is
+                // not what emptied the list and the way back out would move nothing.
+                exposureScope: recordingsFilters.experiment_exposure?.in_session ? 'in_session' : 'all_exposed',
             }),
         ],
         // What the list was narrowed by, shared by the opened-recording and list-rendered reports so
@@ -1267,8 +1369,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 watch_card_kind: selectedWatchCard?.kind ?? null,
             }),
         ],
-        // The `experiment recordings tab viewed` payload, in a selector so the settled-checks
-        // report and the beforeUnmount flush send the same shape.
+        // The facet half of the `experiment recordings tab viewed` payload, in a selector so the
+        // settled-checks report and the beforeUnmount flush send the same shape. Each send site
+        // adds the checks timing, which is the one thing the two disagree on.
         tabViewContext: [
             (s) => [s.variantKeys, s.metricOptions, s.effectiveExposureScope, s.inSessionExposure],
             (
@@ -1276,7 +1379,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 metricOptions: ExperimentReplayMetricOption[],
                 effectiveExposureScope: ExperimentReplayExposureScope,
                 inSessionExposure: ExperimentInSessionExposureApi | null
-            ): ExperimentRecordingsTabContext => ({
+            ): ExperimentRecordingsTabViewFacets => ({
                 variant_count: variantKeys.length,
                 metric_count: metricOptions.length,
                 linkable_metric_count: metricOptions.filter((option) => !option.unlinkable).length,
@@ -1285,7 +1388,6 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 exposure_scope: effectiveExposureScope,
                 in_session_available: inSessionExposure?.available ?? null,
                 in_session_unavailable_reason: inSessionExposure?.unavailable_reason ?? null,
-                in_session_uses_stamped_fallback: inSessionExposure?.uses_stamped_fallback ?? null,
             }),
         ],
         // Every uuid-carrying metric: inline primary + secondary, then saved/shared metrics (their
@@ -1413,6 +1515,26 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 }
                 const only = metricOptions.find((option) => option.uuid === effectiveMetricUuids[0])
                 return (only?.eventNames.length ?? 0) > 1 ? request('fired_any') : null
+            },
+        ],
+        // Which evidence backs the session set the scope control is parked on, or null while the
+        // control is free to move. The buckets keep the stamped stand-in this scope refuses, so a
+        // lock reason read off the scope's own availability verdict would claim the exposure was
+        // captured in the session on exactly the experiments where it never is. 'unknown' until
+        // the bucket lands, because the evidence rides on the response.
+        scopeLockEvidence: [
+            (s) => [s.sessionBucketRequest, s.sessionBucket],
+            (
+                sessionBucketRequest: ExperimentSessionBucketRequest | null,
+                sessionBucket: ExperimentSessionBucket | null
+            ): ExperimentInSessionEvidence | null => {
+                if (sessionBucketRequest === null) {
+                    return null
+                }
+                if (sessionBucket === null) {
+                    return 'unknown'
+                }
+                return sessionBucket.response.used_exposure_fallback ? 'stamped' : 'event'
             },
         ],
         // Undefined = no bucket, so the playlist keeps its own (uncapped) population. An empty
@@ -1562,10 +1684,36 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // A failed availability check leaves the in-session option enabled but inert, because the
         // scope holds at all sessions until a verdict confirms. Retry on the pick, so recovery
         // doesn't wait for a remount.
-        setExposureScope: ({ scope }) => {
+        setExposureScope: ({ scope, via }) => {
             if (scope === 'in_session' && values.inSessionExposure === null && !values.inSessionExposureLoading) {
                 actions.loadInSessionExposure()
             }
+            // The control renders the displayed scope, not the stored one, so the option it shows as
+            // selected can be one nobody picked: while the checks hold, and wherever the verdict
+            // withholds the stored scope. A pick there changes nothing on screen, and storing it
+            // would strand the viewer on all sessions once the verdict lands available.
+            if (scope === values.displayedExposureScope) {
+                return
+            }
+            const from = values.exposureScope
+            // Picking the stored scope back only retried the check above. Nothing moved, so an
+            // opt-out rate must not count it: that rate has to count viewers, not clicks.
+            if (from !== scope) {
+                // Read before the commit below, which moves the stored scope the empty reason
+                // reads. The stored scope on both sides, not the effective one: a viewer picking a
+                // scope the verdict withholds still chose it, and that is the signal.
+                const resultCount = values.listFirstPageCount
+                actions.reportExperimentRecordingsScopeChanged(props.experiment.id, {
+                    from,
+                    to: scope,
+                    via,
+                    // Null rather than zero where no page ever loaded. An empty list is what
+                    // separates an opt-out from a recovery, and a list nobody saw is neither.
+                    list_result_count: resultCount,
+                    list_empty_reason: resultCount === 0 ? values.listEmptyReason : null,
+                })
+            }
+            actions.exposureScopeCommitted(scope)
         },
         // The shared playlist renders its own "Showing N selected recordings · Show all" control
         // whenever session_ids are set. Clearing it there is the same intent as leaving the
@@ -1716,7 +1864,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 return
             }
             cache.reportedTabView = true
-            actions.reportExperimentRecordingsTabViewed(props.experiment.id, values.tabViewContext)
+            actions.reportExperimentRecordingsTabViewed(props.experiment.id, {
+                ...values.tabViewContext,
+                checks_settled_ms: Math.round(performance.now() - cache.mountedAt),
+                playlist_held: cache.playlistHeldAtMount,
+            })
         },
         scannerCrossSellClicked: () => {
             void addProductIntentForCrossSell({
@@ -1752,12 +1904,19 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             }
         },
     })),
-    afterMount(({ values, actions }) => {
+    afterMount(({ values, actions, cache }) => {
         actions.setDefaultTab(SessionRecordingSidebarTab.OVERVIEW)
+        // The clock the tab-viewed report measures `checks_settled_ms` against, taken before the
+        // check below is dispatched so the whole wait is inside it.
+        cache.mountedAt = performance.now()
         // Resolve whether the in-session scope can answer before the viewer picks it, so the option
-        // is disabled (not left to fail as a query error) when it can't, and the caption knows
-        // whether evidence is the stamped-property fallback. A Postgres-only read on the backend.
+        // is disabled (not left to fail as a query error) when it can't. A Postgres-only read on
+        // the backend.
         actions.loadInSessionExposure()
+        // Read once the check is in flight, which is when the hold can be true. The hold only ever
+        // ends during a visit, so this is whether the checks cost the viewer a list they could
+        // otherwise already read.
+        cache.playlistHeldAtMount = values.playlistHeldForChecks
         // Only the vision entry point renders the watching-scanners card, so don't spend the lookup
         // for everyone else who opens this tab without the flag.
         if (values.featureFlags[FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]) {
@@ -1788,7 +1947,13 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // The dedup cache keeps an already-sent report from repeating.
         if (!cache.reportedTabView) {
             cache.reportedTabView = true
-            actions.reportExperimentRecordingsTabViewed(props.experiment.id, values.tabViewContext)
+            actions.reportExperimentRecordingsTabViewed(props.experiment.id, {
+                ...values.tabViewContext,
+                // Null rather than the elapsed time: the checks never settled, so there is no
+                // settling to measure and a number here would read as one.
+                checks_settled_ms: null,
+                playlist_held: cache.playlistHeldAtMount,
+            })
         }
         // The sidebar singleton normally unmounts alongside this logic and resets itself; this
         // covers the case where another player keeps it mounted, so the experiment default

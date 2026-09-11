@@ -17,7 +17,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.hogql_queries.paginators import HogQLCursorPaginator
-from posthog.models import EventProperty, User
+from posthog.models import EventDefinition, EventProperty, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -439,7 +439,13 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             ["session-after-custom"],
         )
 
-    def test_in_session_narrows_to_sessions_containing_the_exposure_event(self) -> None:
+    # The recorder's first frame commonly lands after the flag call, so the narrowing matches on
+    # session id equality and compares no timestamps. A bound added here would silently drop a large
+    # share of the sessions the scope exists to show.
+    @parameterized.expand([("first_frame_at_the_exposure", 0), ("first_frame_after_the_exposure", 30)])
+    def test_in_session_narrows_to_sessions_containing_the_exposure_event(
+        self, _name: str, first_frame_delay_seconds: int
+    ) -> None:
         experiment = self._create_experiment()
         # Marks the exposure event as session-linkable, so the narrowing reads the event itself
         # rather than the stamped-property fallback.
@@ -454,8 +460,9 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
         )
         flush_persons_and_events()
 
+        first_frame = exposure_time + timedelta(seconds=first_frame_delay_seconds)
         self._produce_recording(
-            "exposed-user", "session-with-exposure", exposure_time, exposure_time + timedelta(minutes=10)
+            "exposed-user", "session-with-exposure", first_frame, first_frame + timedelta(minutes=10)
         )
         self._produce_recording(
             "exposed-user",
@@ -506,36 +513,50 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             ["session-test-evidence"],
         )
 
-    def test_in_session_reads_the_stamped_flag_property_when_the_exposure_event_was_never_session_linked(self) -> None:
+    def test_in_session_answers_empty_for_a_server_side_flag_another_flag_session_links(self) -> None:
+        # Session linkability is taxonomy per (event, property), so one flag read in the browser puts
+        # a `$session_id` row on the default exposure event every flag in the project shares. A
+        # server-side experiment there is accepted rather than refused, and answers with an empty
+        # list because no recording holds its exposure. The narrowing must not widen back out to
+        # cover that: the tab names the empty list `in_session_has_none` and offers all sessions.
         experiment = self._create_experiment()
-        create_person(team=self.team, distinct_ids=["backend-exposed-user"])
+        EventProperty.objects.create(team=self.team, event="$feature_flag_called", property="$session_id")
+        create_person(team=self.team, distinct_ids=["exposed-user"])
         exposure_time = BASE_TIME + timedelta(hours=2)
-        # Server-fired exposure: no $session_id on the event, and no EventProperty row marks the
-        # exposure event as ever carrying one, so the stamped flag property stands in as evidence.
-        self._create_exposure_event("backend-exposed-user", exposure_time, "test")
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="backend-exposed-user",
-            timestamp=exposure_time + timedelta(minutes=5),
-            properties={"$session_id": "session-with-stamp", "$feature/recordings-linkage-flag": "test"},
-        )
+        # This experiment's own exposures carry no session id, because its flag is read server-side.
+        self._create_exposure_event("exposed-user", exposure_time, "test")
         flush_persons_and_events()
 
         self._produce_recording(
-            "backend-exposed-user", "session-with-stamp", exposure_time, exposure_time + timedelta(minutes=10)
-        )
-        self._produce_recording(
-            "backend-exposed-user",
-            "session-without-stamp",
-            exposure_time + timedelta(hours=1),
-            exposure_time + timedelta(hours=1, minutes=10),
+            "exposed-user",
+            "session-after-exposure",
+            exposure_time + timedelta(minutes=5),
+            exposure_time + timedelta(minutes=15),
         )
 
         self._assert_query_matches_session_ids(
-            {"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
-            ["session-with-stamp"],
+            {"experiment_exposure": {"experiment_id": experiment.id}},
+            ["session-after-exposure"],
         )
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
+            [],
+        )
+
+    def test_in_session_with_a_server_side_default_exposure_event_refuses(self) -> None:
+        # The default event is observed but never with a session id, so the only evidence left is
+        # the stamped flag property. That says the flag was active in the session, not that the
+        # person was enrolled there, so the query is refused rather than answering over a wider set
+        # of sessions than "exposed in session" names. No evidence scan runs at all.
+        experiment = self._create_experiment()
+        EventDefinition.objects.create(team=self.team, name="$feature_flag_called", last_seen_at=BASE_TIME)
+
+        with self.assertRaises(ValidationError):
+            filter_recordings_by(
+                team=self.team,
+                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
+                user=self.user,
+            )
 
     def test_in_session_with_a_never_session_linked_custom_exposure_refuses(self) -> None:
         experiment = self._create_experiment(
@@ -547,6 +568,10 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
                 }
             }
         )
+        # Observed, but never with a session id: without a `last_seen_at` the event reads as one
+        # nothing is known about yet, which refuses for a different reason than the one this test
+        # names.
+        EventDefinition.objects.create(team=self.team, name="backend_exposure", last_seen_at=BASE_TIME)
 
         with self.assertRaises(ValidationError):
             filter_recordings_by(
@@ -569,27 +594,6 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
                 }
             }
         )
-
-        with self.assertRaises(ValidationError):
-            filter_recordings_by(
-                team=self.team,
-                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
-                user=self.user,
-            )
-
-    def test_in_session_stamped_fallback_is_refused_on_precomputing_teams(self) -> None:
-        # The stamped-property fallback scan has no event name to prune on, so it reads every event
-        # in the window. On teams where precomputation marks full-window live scans as a real cost,
-        # that scan times out rather than answering, so in_session over the fallback is refused the
-        # same way the population scan refuses, instead of being left to time out. The non-
-        # precomputing case is covered by test_in_session_reads_the_stamped_flag_property_*.
-        self._enable_precomputation()
-        experiment = self._create_experiment()
-        # No EventProperty row marks the default event as session-linked, so evidence falls back to
-        # the stamped flag property.
-        create_person(team=self.team, distinct_ids=["backend-exposed-user"])
-        self._create_exposure_event("backend-exposed-user", BASE_TIME + timedelta(hours=2), "test")
-        flush_persons_and_events()
 
         with self.assertRaises(ValidationError):
             filter_recordings_by(

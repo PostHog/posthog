@@ -5,9 +5,11 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 
-from posthog.models import EventProperty
+from posthog.models import EventDefinition, EventProperty
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -19,6 +21,8 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.replay_linkage import (
     IN_SESSION_EXPOSURE_ACTIVATION_REASON,
+    IN_SESSION_EXPOSURE_NO_EVENT_IN_SESSION_REASON,
+    IN_SESSION_EXPOSURE_NOT_OBSERVED_YET_REASON,
     IN_SESSION_EXPOSURE_UNMATCHABLE_REASON,
     exposed_distinct_ids_select,
     exposed_persons_select,
@@ -140,28 +144,93 @@ class TestResolveInSessionExposureSemantics(BaseTest):
             exposure_criteria=exposure_criteria or {},
         )
 
-    def test_available_without_fallback_when_the_exposure_event_is_session_linked(self) -> None:
-        experiment = self._experiment()
-        EventProperty.objects.get_or_create(
-            team=self.team, project_id=self.team.project_id, event=DEFAULT_EXPOSURE_EVENT, property="$session_id"
+    def _observe_event(self, event: str, *, session_linked: bool) -> None:
+        # Ingestion claims `last_seen_at` the first time it sees the event, so that is what marks the
+        # event observed at all. No `EventProperty` row goes with it: a capture carrying only the
+        # `$feature/<key>` variant property leaves none, and such an event still has to read as
+        # observed rather than as one nothing is known about yet.
+        EventDefinition.objects.get_or_create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name=event,
+            defaults={"last_seen_at": datetime(2026, 1, 2, tzinfo=UTC)},
         )
+        if session_linked:
+            EventProperty.objects.get_or_create(
+                team=self.team, project_id=self.team.project_id, event=event, property="$session_id"
+            )
+
+    def test_available_when_the_exposure_event_is_session_linked(self) -> None:
+        experiment = self._experiment()
+        self._observe_event(DEFAULT_EXPOSURE_EVENT, session_linked=True)
 
         semantics = resolve_in_session_exposure_semantics(self.team, experiment)
 
         assert semantics.unavailable_reason is None
         assert semantics.session_exposure is not None
-        assert semantics.uses_stamped_fallback is False
+        assert semantics.session_exposure.is_seekable_evidence is True
 
-    def test_available_but_flags_the_stamped_fallback_for_a_server_side_default_event(self) -> None:
-        # No EventProperty row marks the default event as ever session-linked, so evidence is the
-        # stamped flag property. The scope still answers, but the copy must say the flag was active,
-        # not that the exposure was captured, so the caveat has to reach the tab.
+    def test_unavailable_for_a_server_side_default_event(self) -> None:
+        # The default event is observed but never with a session id, so the only evidence left is the
+        # stamped flag property. That says the flag was active in the session, not that the person was
+        # enrolled there, so this surface refuses it rather than listing sessions it can't seek in.
         experiment = self._experiment()
+        self._observe_event(DEFAULT_EXPOSURE_EVENT, session_linked=False)
 
         semantics = resolve_in_session_exposure_semantics(self.team, experiment)
 
-        assert semantics.unavailable_reason is None
-        assert semantics.uses_stamped_fallback is True
+        assert semantics.unavailable_reason == IN_SESSION_EXPOSURE_NO_EVENT_IN_SESSION_REASON
+        assert semantics.session_exposure is None
+
+    @parameterized.expand([("session_linked", True, False), ("server_side_default_event", False, True)])
+    def test_used_fallback_still_reports_the_stand_in_the_session_buckets_read(
+        self, _name: str, session_linked: bool, expected_used_fallback: bool
+    ) -> None:
+        # The recordings list refuses the stand-in at the verdict, not at the seam. Dropping it from
+        # the seam instead would silently change which sessions the buckets aggregate over.
+        experiment = self._experiment()
+        self._observe_event(DEFAULT_EXPOSURE_EVENT, session_linked=session_linked)
+
+        exposure = resolve_session_exposure(self.team, experiment, event_names=frozenset())
+
+        assert exposure.used_fallback is expected_used_fallback
+        assert exposure.is_seekable_evidence is not expected_used_fallback
+
+    @parameterized.expand(
+        [
+            ("default_exposure_event", None),
+            (
+                "custom_exposure_event",
+                {
+                    "exposure_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "backend_exposure",
+                        "properties": [],
+                    }
+                },
+            ),
+        ]
+    )
+    def test_unavailable_as_not_observed_yet_for_an_exposure_event_with_no_taxonomy_rows(
+        self, _name: str, exposure_criteria: dict | None
+    ) -> None:
+        # No taxonomy rows at all, so nothing is known about the event yet. The custom case also
+        # pins the branch ordering: without it a day-0 experiment reads as permanently server-side.
+        experiment = self._experiment(exposure_criteria)
+
+        semantics = resolve_in_session_exposure_semantics(self.team, experiment)
+
+        assert semantics.unavailable_reason == IN_SESSION_EXPOSURE_NOT_OBSERVED_YET_REASON
+        assert semantics.session_exposure is None
+        assert semantics.available is False
+
+    def test_the_session_linked_path_reads_taxonomy_once(self) -> None:
+        # The unseen-event read must stay on the rare branch, so the common path keeps its one query.
+        experiment = self._experiment()
+        self._observe_event(DEFAULT_EXPOSURE_EVENT, session_linked=True)
+
+        with self.assertNumQueries(1):
+            resolve_in_session_exposure_semantics(self.team, experiment)
 
     def test_condition_matches_the_rollout_default_event_at_the_cutoff(self) -> None:
         # The in-session narrowing reads the exposure event off this seam. If the seam kept the
@@ -180,7 +249,7 @@ class TestResolveInSessionExposureSemantics(BaseTest):
             semantics = resolve_in_session_exposure_semantics(self.team, experiment)
 
         assert semantics.session_exposure is not None
-        assert semantics.uses_stamped_fallback is False
+        assert semantics.session_exposure.is_seekable_evidence is True
         assert EXPERIMENT_EXPOSURE_EVENT in _string_constants(semantics.session_exposure.condition(["control"]))
 
     def test_unavailable_for_activation_criteria(self) -> None:
@@ -200,6 +269,9 @@ class TestResolveInSessionExposureSemantics(BaseTest):
         assert semantics.session_exposure is None
 
     def test_unavailable_for_a_never_session_linked_custom_event(self) -> None:
+        # The observed custom event carries no `EventProperty` row at all, the shape a capture with
+        # only the required `$feature/<key>` property leaves. It must still refuse as unmatchable
+        # rather than as not observed yet, or the tab tells a live experiment to check back forever.
         experiment = self._experiment(
             exposure_criteria={
                 "exposure_config": {
@@ -209,6 +281,7 @@ class TestResolveInSessionExposureSemantics(BaseTest):
                 }
             }
         )
+        self._observe_event("backend_exposure", session_linked=False)
 
         semantics = resolve_in_session_exposure_semantics(self.team, experiment)
 

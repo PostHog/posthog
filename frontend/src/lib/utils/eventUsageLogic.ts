@@ -129,7 +129,7 @@ export enum GraphSeriesAddedSource {
  * live here and not only on the opened-recording context, because a session whose list came back
  * empty opens nothing, and empty lists are the outcome the in-session scope most affects.
  */
-export interface ExperimentRecordingsTabContext {
+export interface ExperimentRecordingsTabViewFacets {
     variant_count: number
     metric_count: number
     linkable_metric_count: number
@@ -138,7 +138,50 @@ export interface ExperimentRecordingsTabContext {
     /** Null when the availability check failed, so a transient error never reads as unavailable. */
     in_session_available: boolean | null
     in_session_unavailable_reason: string | null
-    in_session_uses_stamped_fallback: boolean | null
+}
+
+/**
+ * The facets above plus how long the tab held the playlist behind its checks. The timings are not
+ * in the facets, because the two send sites differ on them: the settled report knows the elapsed
+ * time, and the unmount flush is precisely the case where the checks never settled.
+ */
+export interface ExperimentRecordingsTabContext extends ExperimentRecordingsTabViewFacets {
+    /**
+     * Milliseconds from tab mount to both checks settling, which is when this report sends. The
+     * playlist waits behind those checks, so this is the delay in front of the first list row.
+     * Null on the unmount flush, where the viewer left before they settled.
+     */
+    checks_settled_ms: number | null
+    /**
+     * Whether the playlist was held behind the checks when the tab mounted, so the wait above cost
+     * the viewer a list they could otherwise already read.
+     */
+    playlist_held: boolean
+}
+
+/**
+ * A viewer moving the exposure scope, from the control or from the empty state's way back. This is
+ * the only direct signal on whether the tab's default scope is the right one: a switch to
+ * `all_exposed` made from the control is an opt-out. The list's state at the moment of the switch
+ * separates leaving a list that had rows from leaving an empty one.
+ */
+export interface ExperimentRecordingsScopeChangedContext {
+    /** The stored scope before the change, not the effective one. Kept as a string like the rest. */
+    from: string
+    /** The stored scope after it. Choosing a scope the availability verdict withholds is a choice. */
+    to: string
+    /** Where the change came from: `control` or `empty_state`. */
+    via: string
+    /**
+     * How many recordings the list a viewer opened the tab to came back with, counting its first
+     * page only: the pages after it are what scrolling adds, and one of those coming back empty is
+     * the end of a list that has rows. Zero means the viewer was looking at an empty list, which is
+     * what separates an opt-out from a recovery. Null when no list ever came back, which the checks
+     * holding the playlist make reachable on every tab open.
+     */
+    list_result_count: number | null
+    /** The reason the tab named for an empty list, null when the list had rows or never loaded. */
+    list_empty_reason: string | null
 }
 
 /** The facets the recordings list was narrowed by when a recording was opened from it. */
@@ -1415,6 +1458,13 @@ export interface eventUsageLogicActions {
         context: ExperimentRecordingsListRenderedContext
     ) => {
         context: ExperimentRecordingsListRenderedContext
+        experimentId: ExperimentIdType
+    }
+    reportExperimentRecordingsScopeChanged: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsScopeChangedContext
+    ) => {
+        context: ExperimentRecordingsScopeChangedContext
         experimentId: ExperimentIdType
     }
     reportExperimentRecordingsTabViewed: (
@@ -2892,6 +2942,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId: ExperimentIdType,
             context: ExperimentRecordingsEmptyActionContext
         ) => ({ experimentId, context }),
+        reportExperimentRecordingsScopeChanged: (
+            experimentId: ExperimentIdType,
+            context: ExperimentRecordingsScopeChangedContext
+        ) => ({ experimentId, context }),
         reportExperimentRecordingOpened: (
             experimentId: ExperimentIdType,
             context: ExperimentRecordingsFilterContext
@@ -4146,6 +4200,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentRecordingsEmptyActionClicked: ({ experimentId, context }) => {
             posthog.capture('experiment recordings empty state action clicked', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentRecordingsScopeChanged: ({ experimentId, context }) => {
+            posthog.capture('experiment recordings exposure scope changed', {
                 experiment_id: experimentId,
                 ...context,
             })

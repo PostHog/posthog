@@ -17,6 +17,10 @@ import EXPERIMENT_WITH_FUNNEL_METRIC from '~/mocks/fixtures/api/experiments/expe
 // endpoint, so the scene cannot be put in that state here. The unit test asserts that copy instead.
 const EXPERIMENT_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/`
 const SESSION_BUCKETS_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/session_buckets/`
+const IN_SESSION_EXPOSURE_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/in_session_exposure/`
+// The tab defaults to the in-session scope, and only narrows once this check confirms the
+// experiment can answer for it. A story that wants the narrowed list has to answer it.
+const IN_SESSION_AVAILABLE = { available: true, unavailable_reason: null }
 
 // `mockDate` below is 2025-06-01, and the mock team keeps recordings for 30 days. Each story sets
 // the run window against those two so the tab resolves the reason the story is named for.
@@ -67,6 +71,22 @@ export const ExperimentRecordingsEmptyTooEarly: Story = {
     decorators: [mswDecorator({ get: { [EXPERIMENT_PATH]: experimentRun('2025-05-30T09:00:00Z', null) } })],
 }
 
+/**
+ * The same young run under the in-session scope, where the list can be empty while all sessions has
+ * rows. "Too early" carries no action on its own, so this is the one banner the narrower default
+ * has to give a way back.
+ */
+export const ExperimentRecordingsEmptyTooEarlyInSession: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                [EXPERIMENT_PATH]: experimentRun('2025-05-30T09:00:00Z', null),
+                [IN_SESSION_EXPOSURE_PATH]: IN_SESSION_AVAILABLE,
+            },
+        }),
+    ],
+}
+
 export const ExperimentRecordingsEmptyEndedPastRetention: Story = {
     decorators: [
         mswDecorator({
@@ -99,25 +119,9 @@ export const ExperimentRecordingsEmptyVariantHasNone: Story = {
     },
 }
 
-/**
- * Narrowed to the sessions the exposure happened in. The scope is offered only once the server
- * confirms this experiment can be asked for it, so the story answers that check first.
- */
+/** Narrowed to the sessions the exposure happened in, which is where the tab opens. */
 export const ExperimentRecordingsEmptyInSessionHasNone: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/in_session_exposure/`]: {
-                    available: true,
-                    unavailable_reason: null,
-                    uses_stamped_fallback: false,
-                },
-            },
-        }),
-    ],
-    play: async ({ canvasElement }) => {
-        await clickWhenRendered(canvasElement, 'experiment-recordings-exposure-scope-in-session')
-    },
+    decorators: [mswDecorator({ get: { [IN_SESSION_EXPOSURE_PATH]: IN_SESSION_AVAILABLE } })],
 }
 
 /** The two metric-filter reasons need the filter switched on, which only the menu can do. */

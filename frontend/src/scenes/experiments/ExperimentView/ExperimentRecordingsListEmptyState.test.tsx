@@ -112,9 +112,40 @@ const REASON_CASES: ReasonCase[] = [
         actions: [],
     },
     {
+        // Under the in-session default this is the one reason that can be empty while all sessions
+        // has rows, so it is the only actionless reason that has to offer the way back.
         reason: ExperimentReplayListEmptyReason.TooEarly,
         experimentId: 203,
         experiment: { start_date: daysAgo(1), end_date: null },
+        copy: 'The same people can already have recordings of their other sessions',
+        actions: ['experiment-recordings-empty-all-sessions'],
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        experimentId: 214,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: (logic) => logic.actions.setExposureScope('all_exposed'),
+        copy: 'The experiment started 1 day ago',
+        actions: [],
+    },
+    {
+        // A young run reaches this reason before the metric-filter one, so it can render while a
+        // bucket supplies the session set. The bucket drops the narrowing from the query, so the
+        // way back out would move nothing: it must not be offered, and the copy must not claim the
+        // list is narrowed to the exposure session.
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        experimentId: 216,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: (logic) => {
+            ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({
+                session_ids: ['bucket-session'],
+                truncated: false,
+                considered_metrics: [],
+                excluded_metrics: [],
+                filter_test_accounts: true,
+            })
+            logic.actions.setMetricFilterMode('no_metric_activity')
+        },
         copy: 'The experiment started 1 day ago',
         actions: [],
     },
@@ -177,6 +208,9 @@ const REASON_CASES: ReasonCase[] = [
         reason: ExperimentReplayListEmptyReason.UnknownInWindow,
         experimentId: 207,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
+        // Under the in-session default an unexplained empty list is attributed to the narrowing
+        // instead, so this residue only shows on the wider scope.
+        setup: (logic) => logic.actions.setExposureScope('all_exposed'),
         copy: 'A session can be missing for a few reasons',
         actions: ['experiment-recordings-empty-retention-docs', 'experiment-recordings-empty-ad-blocker-docs'],
     },
@@ -192,7 +226,6 @@ const REASON_CASES: ReasonCase[] = [
         reason: ExperimentReplayListEmptyReason.InSessionHasNone,
         experimentId: 211,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
-        setup: (logic) => logic.actions.setExposureScope('in_session'),
         copy: 'No recordings of the sessions the exposure happened in',
         actions: ['experiment-recordings-empty-all-sessions'],
     },
@@ -219,7 +252,6 @@ describe('ExperimentRecordingsListEmptyState', () => {
         ;(experimentsInSessionExposureRetrieve as jest.Mock).mockResolvedValue({
             available: true,
             unavailable_reason: null,
-            uses_stamped_fallback: false,
         })
         ;(experimentsSessionBucketsCreate as jest.Mock).mockReset()
         jest.spyOn(api.propertyDefinitions, 'seenTogether').mockResolvedValue({})
@@ -323,6 +355,9 @@ describe('ExperimentRecordingsListEmptyState', () => {
             } as Experiment
             const logic = experimentReplayTabLogic({ experiment })
             logic.mount()
+            // The unattributed residue is the reason this setting could account for, and under the
+            // in-session default an otherwise unexplained empty list names the narrowing instead.
+            logic.actions.setExposureScope('all_exposed')
             await expectLogic(logic).toFinishAllListeners()
 
             renderEmptyState(experiment)

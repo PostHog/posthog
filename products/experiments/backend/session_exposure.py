@@ -2,12 +2,18 @@
 
 The session buckets and the recordings list's in-session narrowing both answer questions about
 "the sessions this experiment exposed someone in", and both have to mean the same thing by it:
-which event carries the exposure, which property carries the variant, and what to do when that
-event was only ever captured where there is no session to record. Resolved once here, because two
-surfaces disagreeing on the population would show up as one of them silently answering over a
-wider set of sessions than it names. The watch shelf reads the person-scoped exposed population
-through ``replay_linkage`` instead, so it is not a reader of this seam beyond
-:func:`never_session_linked_events`.
+which event carries the exposure, and which property carries the variant. Resolved once here,
+because two surfaces disagreeing on the population would show up as one of them silently
+answering over a wider set of sessions than it names.
+
+The two surfaces agree on what exposure means and differ in what they require of the evidence,
+which follows from what each promises the viewer. The buckets aggregate over a population, where
+"the flag was active in this session" is a legitimate member, so the stamped ``$feature/<key>``
+stand-in applies to them. The recordings list offers a jump to the moment of enrollment, which
+only the exposure event itself can locate, so it requires :attr:`SessionExposure.is_seekable_evidence`.
+
+The watch shelf reads the person-scoped exposed population through ``replay_linkage`` instead, so
+it is not a reader of this seam beyond :func:`never_session_linked_events`.
 """
 
 from dataclasses import dataclass
@@ -18,7 +24,7 @@ from django.db.models.functions import Coalesce
 
 from posthog.hogql import ast
 
-from posthog.models import EventProperty
+from posthog.models import EventDefinition, EventProperty
 from posthog.models.team.team import Team
 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -86,6 +92,13 @@ class SessionExposure:
         """
         return self.exposure_event in self.never_linked and not self.used_fallback
 
+    @property
+    def is_seekable_evidence(self) -> bool:
+        """True when the evidence is the exposure event itself, so a recording carrying it contains
+        the moment of enrollment. The stamped property only says the flag was active somewhere in the
+        session, which a surface that offers a jump to the exposure cannot honor."""
+        return not self.used_fallback
+
     def variant_value(self) -> ast.Expr:
         return ast.Call(name="toString", args=[ast.Field(chain=["properties", self.variant_property])])
 
@@ -105,10 +118,11 @@ class SessionExposure:
         if self.used_fallback:
             # The default exposure event has only ever been captured server-side, so it can't match
             # a session. posthog-js stamps `$feature/<flag_key>` on every client event captured
-            # after flags load, so the stamped property stands in — the same fallback the tab's list
-            # uses. It means "the flag was active in this session", not "this is where they were
-            # enrolled", and the variant is the flag's value per event rather than the exposure
-            # response, so a re-bucketed returning person can land in either variant.
+            # after flags load, so the stamped property stands in. It means "the flag was active in
+            # this session", not "this is where they were enrolled", and the variant is the flag's
+            # value per event rather than the exposure response, so a re-bucketed returning person
+            # can land in either variant. Only the buckets read it: the tab's list refuses the
+            # stand-in, because a list labelled "exposed in session" would silently widen.
             return variant_condition
         conditions = [
             *build_exposure_event_conditions(
@@ -154,4 +168,37 @@ def resolve_session_exposure(team: Team, experiment: Experiment, *, event_names:
         variant_property=f"$feature/{flag_key}" if used_fallback else variant_property,
         never_linked=never_linked,
         used_fallback=used_fallback,
+    )
+
+
+def exposure_event_unseen(exposure: SessionExposure) -> bool:
+    """True when ingestion has never seen the exposure event, so nothing is known about it yet.
+
+    Distinct from `never_linked`, which means the event is known and has never carried a session id.
+    Ingestion claims an event definition's `last_seen_at` the first time it sees the event, and a
+    definition declared before any capture carries a null one, so that column is what separates an
+    event that has arrived from one only named. A project running its first experiment after the
+    $experiment_exposure rollout has no definition for that event until ingestion catches up, and
+    reads as permanently server-side without this.
+
+    Not `EventProperty`: it indexes which properties appear on which event rather than recording the
+    event, and ingestion drops `$feature/<key>` rows on purpose, so a custom exposure event captured
+    with only the variant property it requires leaves no row at all.
+
+    Its own query, and its own function rather than a field on the resolution above, so only the
+    in-session availability verdict pays for it. A session-linked event is known by definition, so
+    the read is skipped unless the event already landed in `never_linked`.
+    """
+    if exposure.exposure_event is None or exposure.exposure_event not in exposure.never_linked:
+        return False
+    return not (
+        EventDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        )
+        .filter(
+            effective_project_id=exposure.team.project_id,
+            name=exposure.exposure_event,
+            last_seen_at__isnull=False,
+        )
+        .exists()
     )

@@ -1760,13 +1760,6 @@ class ExperimentInSessionExposureSerializer(serializers.Serializer):
             "disabled option. Null when available."
         ),
     )
-    uses_stamped_fallback = serializers.BooleanField(
-        help_text=(
-            "True when in-session evidence is the stamped `$feature/<flag_key>` property, which means the "
-            "flag was active in the session, rather than the exposure event itself being captured there. "
-            "Copy must not claim the exposure was captured in the session when this is set."
-        )
-    )
 
 
 class ExperimentSessionBucketRequestSerializer(serializers.Serializer):

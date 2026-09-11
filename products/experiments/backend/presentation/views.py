@@ -1522,9 +1522,9 @@ class EnterpriseExperimentsViewSet(
         """How the recordings tab's in-session exposure scope reads on this experiment.
 
         Resolved through the same seam as the recordings query's `in_session` refusal, so the
-        scope control disables exactly what a query would be refused for, and the copy can say
-        when sessions are matched on the stamped flag property rather than on the exposure event.
-        Postgres reads only, so it can serve the tab's mount path.
+        scope control disables exactly what a query would be refused for, and the reason it shows
+        is the one the query would have answered with. Postgres reads only, so it can serve the
+        tab's mount path.
         """
         experiment: Experiment = self.get_object()
         semantics = resolve_in_session_exposure_semantics(self.team, experiment)
