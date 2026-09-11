@@ -552,22 +552,6 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 disable_error_message=inputs.latest_error or AUTO_DISABLED_JOB_ERROR,
                 disable_exclude_workflow_id=activity.info().workflow_id,
             )
-        elif not platform_failure:
-            # A retryable failure that outlasted the whole retry budget lands here with
-            # `latest_error` still set to the raw driver text. The generic transient copy is
-            # consulted first; the source's own exhaustion messages cover the classes it does not
-            # name. Retryability is untouched: the schema is not disabled and the next scheduled
-            # run still tries.
-            transient_message = _transient_error_message(internal_error_normalized) or next(
-                (
-                    message
-                    for error, message in source_cls.get_retry_exhausted_errors().items()
-                    if error_message_matches(internal_error_normalized, [error])
-                ),
-                None,
-            )
-            if transient_message is not None:
-                inputs.latest_error = transient_message
 
             # Recorded after the disable so the merge lands on the row the disable just wrote.
             # `latest_error` carries the same failure as prose, but it is cleared by the next
@@ -585,6 +569,22 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                     schema_id=inputs.schema_id,
                     reason=blocked_reason.value,
                 )
+        elif not platform_failure:
+            # A retryable failure that outlasted the whole retry budget lands here with
+            # `latest_error` still set to the raw driver text. The generic transient copy is
+            # consulted first; the source's own exhaustion messages cover the classes it does not
+            # name. Retryability is untouched: the schema is not disabled and the next scheduled
+            # run still tries.
+            transient_message = _transient_error_message(internal_error_normalized) or next(
+                (
+                    message
+                    for error, message in source_cls.get_retry_exhausted_errors().items()
+                    if error_message_matches(internal_error_normalized, [error])
+                ),
+                None,
+            )
+            if transient_message is not None:
+                inputs.latest_error = transient_message
 
     await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,
