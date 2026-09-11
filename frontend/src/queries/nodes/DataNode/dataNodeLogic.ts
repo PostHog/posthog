@@ -100,7 +100,6 @@ import type {
     LogAttributesQueryResponse,
     LogValuesQueryResponse,
     LogsQueryResponse,
-    MetricsHistogramQueryResponse,
     MetricsQueryResponse,
     TraceSpansAggregationQueryResponse,
     TraceSpansAttributeBreakdownQueryResponse,
@@ -479,7 +478,6 @@ export interface dataNodeLogicActions {
             | HogQueryResponse
             | LogAttributesQueryResponse
             | LogValuesQueryResponse
-            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -497,7 +495,6 @@ export interface dataNodeLogicActions {
             | HogQueryResponse
             | LogAttributesQueryResponse
             | LogValuesQueryResponse
-            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -524,7 +521,6 @@ export interface dataNodeLogicActions {
             | HogQueryResponse
             | LogAttributesQueryResponse
             | LogValuesQueryResponse
-            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -542,7 +538,6 @@ export interface dataNodeLogicActions {
             | HogQueryResponse
             | LogAttributesQueryResponse
             | LogValuesQueryResponse
-            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -634,7 +629,6 @@ export interface dataNodeLogicActions {
             | LogAttributesQueryResponse
             | LogsQueryResponse
             | LogValuesQueryResponse
-            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -670,7 +664,6 @@ export interface dataNodeLogicActions {
             | LogAttributesQueryResponse
             | LogsQueryResponse
             | LogValuesQueryResponse
-            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -724,7 +717,6 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
-                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
@@ -744,7 +736,6 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
-                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
@@ -768,7 +759,6 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
-                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
@@ -786,7 +776,6 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
-                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
@@ -806,7 +795,6 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
-                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
@@ -825,7 +813,6 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
-                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
@@ -847,7 +834,6 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
-                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
@@ -865,7 +851,6 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
-                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
