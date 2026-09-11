@@ -1161,6 +1161,8 @@ export interface SignalTeamConfig {
   reports_generated_today?: number;
   /** Whether the cap is reached, pausing new reports until local midnight. `false` when there is no cap. Read-only. */
   daily_report_limit_reached?: boolean;
+  /** Whether self-driving PRs open ready for review instead of draft. A reviewer's own setting overrides it. */
+  default_open_pull_request_ready?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1174,6 +1176,8 @@ export interface SignalUserAutonomyConfig {
   slack_notification_channel?: string | null;
   /** Minimum priority that triggers a notification (P0 highest). `null` = every priority. */
   slack_notification_min_priority?: SignalReportPriority | null;
+  /** Whether PRs for reports suggesting this user open ready for review. `null` follows the project default. */
+  github_open_pull_request_ready?: boolean | null;
   created_at?: string;
   updated_at?: string;
 }

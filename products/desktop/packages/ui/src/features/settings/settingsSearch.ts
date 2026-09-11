@@ -206,7 +206,15 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   {
     category: "agents",
     label: "Agents",
-    keywords: ["responders", "scouts", "signal sources", "setup agent"],
+    keywords: [
+      "responders",
+      "scouts",
+      "signal sources",
+      "setup agent",
+      "pull requests",
+      "draft",
+      "ready for review",
+    ],
   },
   {
     category: "task-agent-defaults",
