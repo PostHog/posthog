@@ -499,6 +499,27 @@ def carry_over_previous(rows: list[Row], previous: Optional[Report], keep_measur
             row["suggestion"] = old_row.get("suggestion")
 
 
+def merge_over_previous(rows: list[Row], previous: Optional[Report]) -> list[Row]:
+    """The rows to persist, with counts this run has not produced yet taken from the previous report.
+
+    A measuring run fills counts team by team, so writing the in-memory rows straight
+    out would replace every count the previous report held with a null until this run
+    reaches that team. Days of measurement then ride on the run finishing. Rows are
+    copied rather than updated so the run still measures what it set out to measure.
+    """
+    previous_by_key = {row_key(row): row for row in iter_report_rows(previous)}
+    merged: list[Row] = []
+    for row in rows:
+        earlier = previous_by_key.get(row_key(row))
+        if has_counts(row) or earlier is None or not has_counts(earlier):
+            merged.append(row)
+            continue
+        merged.append(
+            {**row, "counts": earlier["counts"], "bucket": earlier["bucket"], "suggestion": earlier.get("suggestion")}
+        )
+    return merged
+
+
 def diff_reports(previous: Optional[Report], rows: list[Row]) -> dict[str, list[str]]:
     """Actionable-row movement between runs: fixed, lost, still open, newly actionable."""
     previous_actionable = {

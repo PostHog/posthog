@@ -42,6 +42,7 @@ from products.actions.backend.selector_audit.audit import (
     discover_rows,
     load_report,
     measure_team_rows,
+    merge_over_previous,
     prefill_counts_from_previous,
     save_report,
     selector_compiles,
@@ -316,6 +317,27 @@ class TestReportRoundtrip(SimpleTestCase):
                 data_row = list(csv.reader(file))[1]
         assert data_row[2] == '\'=HYPERLINK("https://example.com")'
         assert data_row[4] == "'-moz-only > span"
+
+    def test_a_half_measured_run_persists_the_counts_it_has_not_replaced_yet(self) -> None:
+        counts = {"old_original": 10, "new_original": 1, "old_rewritten": 10, "new_rewritten": 10}
+        previous = build_report(
+            [
+                make_row(action_id=1, bucket=BUCKET_SAFE_REWRITE, counts=dict(counts)),
+                make_row(action_id=2, bucket=BUCKET_SAFE_REWRITE, counts=dict(counts)),
+            ],
+            {},
+            {"days": 7},
+            "old",
+        )
+        remeasured = make_row(action_id=1, bucket=BUCKET_UNCHANGED, counts=dict(counts, new_original=10))
+        not_reached_yet = make_row(action_id=2)
+
+        persisted = merge_over_previous([remeasured, not_reached_yet], previous)
+
+        assert [row["bucket"] for row in persisted] == [BUCKET_UNCHANGED, BUCKET_SAFE_REWRITE]
+        assert persisted[1]["counts"] == counts
+        assert not_reached_yet["bucket"] == BUCKET_NOT_MEASURED
+        assert not_reached_yet["counts"] == dict.fromkeys(COUNT_KEYS)
 
     def test_carry_over_keeps_apply_history_and_discovery_measurements(self) -> None:
         counts = {"old_original": 10, "new_original": 1, "old_rewritten": 10, "new_rewritten": 10}

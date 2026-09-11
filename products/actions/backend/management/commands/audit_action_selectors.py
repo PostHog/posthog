@@ -21,6 +21,7 @@ from products.actions.backend.selector_audit.audit import (
     load_report,
     measure_team_rows,
     measured_row_count,
+    merge_over_previous,
     prefill_counts_from_previous,
     save_report,
 )
@@ -123,24 +124,16 @@ class Command(BaseCommand):
             if options["resume"]:
                 resumed = prefill_counts_from_previous(rows, previous)
                 log(f"resume: reusing counts for {resumed} of {len(rows)} selector steps from {output_target}")
-            else:
-                # Every checkpoint rewrites the report from the rows in memory, so
-                # measuring without --resume replaces recorded counts with nulls.
-                already_measured = measured_row_count(previous)
-                if already_measured:
-                    log(
-                        self.style.WARNING(
-                            f"{output_target} already holds counts for {already_measured} selector steps, and this "
-                            "run discards them because --resume was not passed"
-                        )
-                    )
+            elif measured_row_count(previous):
+                log(f"re-measuring every selector step; {output_target} keeps its counts until each one is replaced")
 
             def checkpoint() -> None:
                 # Persist progress after every batch, so a killed run loses at
                 # most one batch and can restart with --resume.
                 for checkpoint_row in rows:
                     decide_bucket(checkpoint_row, options["tolerance"], options["rewrite_gain_tolerance"])
-                save_report(output_target, build_report(rows, team_totals, run_params, live_compiler))
+                persisted = merge_over_previous(rows, previous)
+                save_report(output_target, build_report(persisted, team_totals, run_params, live_compiler))
 
             for team_id in team_ids:
                 team_rows = [row for row in rows if row["team_id"] == team_id]
@@ -189,13 +182,14 @@ class Command(BaseCommand):
                     f"({summary['skipped']} skipped); pass --live-run to write"
                 )
 
-        diff = diff_reports(previous, rows)
-        report = build_report(rows, team_totals, run_params, live_compiler)
+        persisted = merge_over_previous(rows, previous)
+        diff = diff_reports(previous, persisted)
+        report = build_report(persisted, team_totals, run_params, live_compiler)
         csv_path = save_report(output_target, report)
 
-        buckets_histogram = Counter(row["bucket"] for row in rows)
+        buckets_histogram = Counter(row["bucket"] for row in persisted)
         log("bucket summary: " + ", ".join(f"{bucket}={count}" for bucket, count in sorted(buckets_histogram.items())))
-        actionable = [row for row in rows if row["bucket"] in ACTIONABLE_BUCKETS]
+        actionable = [row for row in persisted if row["bucket"] in ACTIONABLE_BUCKETS]
         for row in actionable:
             log(
                 f"  [{row['bucket']}] team {row['team_id']} action {row['action_id']} "
