@@ -284,7 +284,6 @@ class _AlertConcurrencySnapshot:
     last_notified_at: datetime | None
     snooze_until: datetime | None
     next_check_at: datetime | None
-    schedule_restriction: dict[str, Any] | None
 
 
 def _snapshot_alert_for_evaluation(alert: LogsAlertConfiguration) -> _AlertConcurrencySnapshot:
@@ -303,7 +302,6 @@ def _snapshot_alert_for_evaluation(alert: LogsAlertConfiguration) -> _AlertConcu
         last_notified_at=alert.last_notified_at,
         snooze_until=alert.snooze_until,
         next_check_at=alert.next_check_at,
-        schedule_restriction=alert.schedule_restriction,
     )
 
 
