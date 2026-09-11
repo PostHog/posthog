@@ -58,6 +58,9 @@ classify_case merged merged \
 # shellcheck disable=SC2016 # the backticks are literal Markdown in Trunk's wording, not expansion
 classify_case idle idle \
     'Merging to `master` in this repository is managed by Trunk.'
+# shellcheck disable=SC2016 # the backticks are literal Markdown in Trunk's wording, not expansion
+classify_case submit-rejected submit_rejected \
+    'An error occurred while submitting your PR to the queue: `This PR is already merged`'
 classify_case unknown unknown \
     'Trunk has invented a wording nobody has seen before.'
 
@@ -187,6 +190,29 @@ printf '%s\n' \
 check "the newest reporting comment wins" \
     "Running tests on this pull request. See https://app.trunk.io/acme/merge-queue/x" \
     "$(prefer_queue_comment "$workdir/bodies-both-report")"
+
+# A refused submission is the only report that a `/trunk merge` did nothing, and it carries no
+# dashboard link, so the preference above always discards it. These cases fail if it stops being
+# read separately, which sends a sweep back to claiming requeues Trunk never accepted, or if it
+# starts displacing the queue state that a PR which merged first is still reported by.
+printf '%s\n' \
+    "2026-01-01T00:00:00Z${TAB}Merged successfully. See https://app.trunk.io/acme/merge-queue/x" \
+    "2026-01-02T00:00:00Z${TAB}An error occurred while submitting your PR to the queue: already merged" \
+    >"$workdir/bodies-submit-rejected"
+check "a refusal newer than the sticky is reported" \
+    "yes" \
+    "$(rejection_pending "$workdir/bodies-submit-rejected" && echo yes || echo no)"
+check "the refusal does not displace the queue state" \
+    "merged" \
+    "$(classify "$(prefer_queue_comment "$workdir/bodies-submit-rejected")")"
+
+printf '%s\n' \
+    "2026-01-02T00:00:00Z${TAB}Merged successfully. See https://app.trunk.io/acme/merge-queue/x" \
+    "2026-01-01T00:00:00Z${TAB}An error occurred while submitting your PR to the queue: already merged" \
+    >"$workdir/bodies-rejection-superseded"
+check "a refusal Trunk has since answered is not reported" \
+    "no" \
+    "$(rejection_pending "$workdir/bodies-rejection-superseded" && echo yes || echo no)"
 
 printf '%s\n' \
     "2026-01-01T00:00:00Z${TAB}An older reply." \
