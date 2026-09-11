@@ -24,6 +24,21 @@ const PAGE_INPUT = {
 };
 
 describe("context wiki client", () => {
+  it("applies the stored suggestion without a replacement body", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ head_sha: "new-head" })),
+      );
+    await expect(
+      makeClient(fetch).applyContextWikiProposal("proposal-1"),
+    ).resolves.toEqual({ head_sha: "new-head" });
+    expect(String(fetch.mock.calls[0][0])).toContain(
+      "/context_layer/proposals/proposal-1/apply/",
+    );
+    expect(fetch.mock.calls[0][1].body).toBeUndefined();
+    expect(fetch.mock.calls[0][1].method).toBe("POST");
+  });
   it("resolves a channel wiki page without deriving its path from the channel name", async () => {
     const fetch = vi.fn().mockResolvedValue(
       new Response(
