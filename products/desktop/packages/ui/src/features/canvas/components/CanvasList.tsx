@@ -127,6 +127,10 @@ export function CanvasList({
       <AutocompleteItem
         value={canvas.id}
         index={virtualized ? row.optionIndex : undefined}
+        // Only the mounted rows reach the accessibility tree, so screen readers
+        // need the position within the whole list stated outright.
+        aria-posinset={virtualized ? row.optionIndex + 1 : undefined}
+        aria-setsize={virtualized ? optionValues.length : undefined}
         nativeButton
         className={cn(
           "h-auto w-full items-start py-1.5 text-left ring-offset-0 data-highlighted:border-transparent data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-start [&>span]:gap-2",

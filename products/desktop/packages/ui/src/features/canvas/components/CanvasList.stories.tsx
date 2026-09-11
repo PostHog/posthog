@@ -71,6 +71,9 @@ export const KeyboardNavigation: Story = {
     const input = canvas.getByRole("combobox");
     await canvas.findByRole("option", { name: /Canvas 0001/ });
     await expect(canvas.getAllByRole("option").length).toBeLessThan(40);
+    await expect(
+      canvas.getByRole("option", { name: /Canvas 0001/ }),
+    ).toHaveAttribute("aria-setsize", "1000");
     await userEvent.click(input);
     await userEvent.keyboard("{End}");
     const last = await canvas.findByRole("option", { name: /Canvas 1000/ });
