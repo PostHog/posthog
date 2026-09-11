@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -84,6 +85,8 @@ describe('MetricsViewer', () => {
         const serviceOption = await screen.findByRole('button', { name: /service_name\s*20/ })
         const envOption = screen.getByRole('button', { name: /env\s*2/ })
         expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        await userEvent.hover(screen.getByText('20'))
+        expect(await screen.findByText('number of series')).toBeInTheDocument()
         fireEvent.change(screen.getByPlaceholderText('Group by attribute…'), { target: { value: 'e' } })
         expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
         fireEvent.click(envOption)

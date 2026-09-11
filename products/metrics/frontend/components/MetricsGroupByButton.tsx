@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonInputSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonInputSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { metricsViewerLogic } from './metricsViewerLogic'
 
@@ -48,7 +48,9 @@ export function MetricsGroupByButton({
                             labelComponent: (
                                 <span className="flex items-center justify-between gap-2">
                                     <span className="truncate">{option.label}</span>
-                                    <span className="text-muted tabular-nums shrink-0">{option.seriesCount}</span>
+                                    <Tooltip title="number of series">
+                                        <span className="text-muted tabular-nums shrink-0">{option.seriesCount}</span>
+                                    </Tooltip>
                                 </span>
                             ),
                         }))}
