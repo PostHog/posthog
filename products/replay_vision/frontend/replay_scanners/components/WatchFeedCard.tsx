@@ -81,6 +81,14 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                 <div className="hidden @xl:flex w-48 shrink-0 flex-col gap-1">
                     <div className="h-24 rounded bg-surface-secondary border flex items-center justify-center relative">
                         <IconPlay className="text-2xl text-muted" />
+                        {!observation.viewed && (
+                            <Tooltip title="You haven't opened this observation yet">
+                                <span
+                                    className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-accent border border-bg-light"
+                                    aria-label="Unviewed"
+                                />
+                            </Tooltip>
+                        )}
                         {clip && (
                             <span className="absolute bottom-1 right-1 text-xs tabular-nums bg-bg-light border rounded px-1">
                                 {colonDelimitedDuration(Math.floor(clip.startMs / 1000), null)} to{' '}
@@ -97,9 +105,14 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                 </div>
                 <div className="flex-1 min-w-0 flex flex-col gap-2">
                     <div className="flex flex-wrap items-center gap-2">
+                        {/* The thumbnail (and its unviewed dot) hides on narrow cards, so the dot
+                            falls back to the header row there. */}
                         {!observation.viewed && (
                             <Tooltip title="You haven't opened this observation yet">
-                                <span className="w-2 h-2 rounded-full bg-accent shrink-0" aria-label="Unviewed" />
+                                <span
+                                    className="@xl:hidden w-2 h-2 rounded-full bg-accent shrink-0"
+                                    aria-label="Unviewed"
+                                />
                             </Tooltip>
                         )}
                         {scannerType && <ScannerTypeBadge scannerType={scannerType} />}
