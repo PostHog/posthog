@@ -1,11 +1,9 @@
 import re
 from uuid import uuid4
 
-import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
-from django.conf import settings
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -317,7 +315,7 @@ class TestSelectorRegexMonotonicity(SimpleTestCase):
         self.assertGreater(newly_matching_pairs, 0)
 
 
-@pytest.mark.skipif(not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="Requires native events schema")
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 class TestNativeEventInserts(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(["bulk", "single", "journey"])
     def test_properties_follow_ingestion_cleanup(self, insertion: str) -> None:

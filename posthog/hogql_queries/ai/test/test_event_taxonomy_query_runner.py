@@ -1,6 +1,5 @@
 from datetime import timedelta
 
-import pytest
 import time_machine
 from posthog.test.base import (
     APIBaseTest,
@@ -11,7 +10,6 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
@@ -29,9 +27,7 @@ from products.event_definitions.backend.models.property_definition import Proper
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
-    @pytest.mark.skipif(
-        not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="Requires test-new-events-schema CI label (#63448)"
-    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_targeted_properties_read_individual_json_subcolumns(self):
         runner = EventTaxonomyQueryRunner(
             team=self.team,

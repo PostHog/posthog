@@ -18,7 +18,6 @@ import pytest_asyncio
 from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models.event.util import bulk_create_events
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
@@ -30,6 +29,7 @@ from posthog.temporal.common.clickhouse import (
 )
 from posthog.temporal.tests.utils.events import (
     generate_test_events,
+    insert_event_values_in_clickhouse,
     insert_sessions_in_clickhouse,
 )
 
@@ -71,6 +71,7 @@ def mock_clickhouse_client():
         yield mock_client
 
 
+@pytest.mark.parametrize("use_native_schema", [False, True])
 @pytest.mark.parametrize("interval", ["day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize(
     "model",
@@ -91,6 +92,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     model: BatchExportModel,
     is_backfill: bool,
     backfill_within_last_6_days: bool,
+    use_native_schema: bool,
 ):
     """Test that the insert_into_internal_stage_activity executes the expected ClickHouse query when the model is an events model.
 
@@ -138,8 +140,9 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         destination_default_fields=None,
     )
 
-    await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
-    mock_clickhouse_client.expect_select_from_table(expected_table)
+    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema):
+        await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+    mock_clickhouse_client.expect_select_from_table("events_json" if use_native_schema else expected_table)
     mock_clickhouse_client.expect_properties_in_log_comment(
         {
             "team_id": insert_inputs.team_id,
@@ -1352,11 +1355,8 @@ class TestHogQLModel:
             event_name="test-{i}",
             properties={"$browser": "Chrome", "$session_id": session_id},
         )
-        await database_sync_to_async(bulk_create_events)(
-            [
-                {**event, "event_uuid": event["uuid"], "person_properties": event["person_properties"] or {}}
-                for event in events + events_from_other_team
-            ]
+        await insert_event_values_in_clickhouse(
+            client=clickhouse_client, events=events + events_from_other_team, table="sharded_events"
         )
         await insert_sessions_in_clickhouse(client=clickhouse_client, table="sharded_events")
 
