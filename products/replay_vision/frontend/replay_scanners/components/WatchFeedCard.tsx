@@ -11,7 +11,7 @@ import { colonDelimitedDuration } from 'lib/utils/durations'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
-import { ObservationResultSummary, readResult } from '../../components/ObservationCard'
+import { CitedText, ObservationResultSummary, readResult } from '../../components/ObservationCard'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import type { ReplayObservationApi, WatchFeedItemApi, WatchFeedReasonApi } from '../../generated/api.schemas'
 import { citedTimestampRange } from '../../utils/citations'
@@ -69,6 +69,13 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
     const scannerType = observation.scanner_snapshot?.scanner_type as ScannerType | undefined
     const scannerName = (observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)'
     const person = observation.recording_subject_email || observation.distinct_id
+    // Summarizers already tell the story through title + summary; the other types show only an
+    // outcome chip, so bring their reasoning along for context, clamped to keep the card scannable.
+    const result = readResult(observation)
+    const reasoning =
+        scannerType !== 'summarizer' && typeof result?.reasoning === 'string'
+            ? { text: result.reasoning, segments: result.reasoning_segments }
+            : null
     // t=0 when nothing is cited, so the observation page still opens with the player expanded.
     const observationUrl = `${urls.replayVisionObservation(observation.id)}?t=${clip ? Math.floor(clip.startMs / 1000) : 0}`
     const capture = (target: 'clip_modal' | 'observation'): void => {
@@ -152,7 +159,14 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                     className="text-sm text-default after:absolute after:inset-0 after:content-['']"
                     data-attr="vision-watch-feed-card-body"
                 >
-                    <ObservationResultSummary observation={observation} />
+                    <div className="flex flex-col gap-1">
+                        <ObservationResultSummary observation={observation} />
+                        {reasoning && (
+                            <p className="text-muted m-0 line-clamp-2">
+                                <CitedText text={reasoning.text} segments={reasoning.segments} />
+                            </p>
+                        )}
+                    </div>
                 </Link>
                 <LemonDivider className="my-0" />
                 <div className="text-xs text-secondary">
