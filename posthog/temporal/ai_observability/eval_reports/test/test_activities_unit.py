@@ -3,10 +3,7 @@ import datetime as dt
 import pytest
 from unittest.mock import MagicMock, Mock, patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone
-
-from parameterized import parameterized
 
 from posthog.temporal.ai_observability.eval_reports.activities import (
     _count_eval_results_for_report,
@@ -17,69 +14,47 @@ from posthog.temporal.ai_observability.eval_reports.targets import target_event_
 from posthog.temporal.ai_observability.eval_reports.types import UpdateNextDeliveryDateInput
 
 
-class TestUpdateNextDeliveryDate(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (
-                "unavailable_legacy",
-                "metrics_unavailable",
-                True,
-                None,
-                False,
-                ["next_delivery_date", "last_attempted_at"],
-            ),
-            (
-                "completed_legacy",
-                "completed",
-                True,
-                None,
-                True,
-                ["next_delivery_date", "last_attempted_at", "last_delivered_at"],
-            ),
-            (
-                "completed_cursor_only",
-                "completed",
-                False,
-                True,
-                True,
-                ["last_delivered_at"],
-            ),
-        ]
-    )
-    @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects.get")
-    def test_updates_automatic_report_timing(
-        self,
-        _name: str,
-        generation_status: str,
-        record_attempt: bool,
-        advance_data_cursor: bool | None,
-        expects_delivered_advance: bool,
-        expected_update_fields: list[str],
-        get_report: MagicMock,
-    ) -> None:
-        last_delivered = timezone.now() - dt.timedelta(hours=2)
-        last_attempted = timezone.now() - dt.timedelta(hours=1)
-        period_end = timezone.now()
-        report = MagicMock(last_delivered_at=last_delivered, last_attempted_at=last_attempted)
-        get_report.return_value = report
+@pytest.mark.parametrize(
+    ("generation_status,record_attempt,advance_data_cursor,expects_delivered_advance,expected_update_fields"),
+    [
+        ("metrics_unavailable", True, None, False, ["next_delivery_date", "last_attempted_at"]),
+        ("completed", True, None, True, ["next_delivery_date", "last_attempted_at", "last_delivered_at"]),
+        ("completed", False, True, True, ["last_delivered_at"]),
+    ],
+    ids=["unavailable_legacy", "completed_legacy", "completed_cursor_only"],
+)
+@patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects.get")
+def test_updates_automatic_report_timing(
+    get_report: MagicMock,
+    generation_status: str,
+    record_attempt: bool,
+    advance_data_cursor: bool | None,
+    expects_delivered_advance: bool,
+    expected_update_fields: list[str],
+) -> None:
+    last_delivered = timezone.now() - dt.timedelta(hours=2)
+    last_attempted = timezone.now() - dt.timedelta(hours=1)
+    period_end = timezone.now()
+    report = MagicMock(last_delivered_at=last_delivered, last_attempted_at=last_attempted)
+    get_report.return_value = report
 
-        _update_next_delivery_date(
-            UpdateNextDeliveryDateInput(
-                report_id="report-id",
-                period_end=period_end.isoformat(),
-                generation_status=generation_status,
-                record_attempt=record_attempt,
-                advance_data_cursor=advance_data_cursor,
-            )
+    _update_next_delivery_date(
+        UpdateNextDeliveryDateInput(
+            report_id="report-id",
+            period_end=period_end.isoformat(),
+            generation_status=generation_status,
+            record_attempt=record_attempt,
+            advance_data_cursor=advance_data_cursor,
         )
+    )
 
-        self.assertEqual(report.last_attempted_at, period_end if record_attempt else last_attempted)
-        self.assertEqual(report.last_delivered_at, period_end if expects_delivered_advance else last_delivered)
-        if record_attempt:
-            report.set_next_delivery_date.assert_called_once_with()
-        else:
-            report.set_next_delivery_date.assert_not_called()
-        report.save.assert_called_once_with(update_fields=expected_update_fields)
+    assert report.last_attempted_at == (period_end if record_attempt else last_attempted)
+    assert report.last_delivered_at == (period_end if expects_delivered_advance else last_delivered)
+    if record_attempt:
+        report.set_next_delivery_date.assert_called_once_with()
+    else:
+        report.set_next_delivery_date.assert_not_called()
+    report.save.assert_called_once_with(update_fields=expected_update_fields)
 
 
 @pytest.mark.parametrize(
