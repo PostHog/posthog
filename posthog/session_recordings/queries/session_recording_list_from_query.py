@@ -239,8 +239,11 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # An explicitly empty id set matches nothing, but ClickHouse only finds that out after it
         # has built every subquery and GLOBAL JOIN side the filters ask for, and on precomputing
         # teams the exposure resolution below would first run its synchronous inserts. Neither can
-        # change an empty result, so answer here and run nothing.
+        # change an empty result, so answer here and run nothing. The access check still runs: a
+        # viewer the experiment denies gets the same refusal whatever the id set, so the empty
+        # answer never tells them the filter was accepted.
         if isinstance(self._query.session_ids, list) and not self._query.session_ids:
+            self._check_experiment_exposure_access()
             return SessionRecordingQueryResult(results=[], has_more_recording=False)
 
         # Resolved before query construction: the resolution validates the experiment and can
@@ -349,6 +352,23 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         ]
         return parsed_query
 
+    def _check_experiment_exposure_access(self) -> None:
+        """Refuse the experiment-exposure filter for viewers the experiment denies, and for
+        userless callers. Reached by the run() short-circuit too, which answers without ever
+        resolving the linkage."""
+        if self._query.experiment_exposure is None:
+            return
+        # Deferred: the experiments facade package imports posthog.api on init, which
+        # circles back into this module through the replay-deletion temporal activities.
+        from products.experiments.backend.facade.replay import validate_experiment_exposure_access  # noqa: PLC0415
+
+        try:
+            validate_experiment_exposure_access(self._team, self._user, self._query.experiment_exposure.experiment_id)
+        except UserAccessControlError as error:
+            # Only the /query pipeline renders UserAccessControlError; on the recordings API
+            # it would surface as a 500, so translate to what DRF renders as a 403.
+            raise PermissionDenied(str(error))
+
     def _resolve_experiment_exposure(self) -> None:
         """Resolve the experiment-exposure linkage once per query instance.
 
@@ -358,19 +378,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         """
         if self._query.experiment_exposure is None or self._experiment_exposure_linkage is not None:
             return
-        # Deferred: the experiments facade package imports posthog.api on init, which
-        # circles back into this module through the replay-deletion temporal activities.
-        from products.experiments.backend.facade.replay import (  # noqa: PLC0415
-            resolve_exposure_linkage,
-            validate_experiment_exposure_access,
-        )
+        self._check_experiment_exposure_access()
+        # Deferred, for the same reason as in _check_experiment_exposure_access.
+        from products.experiments.backend.facade.replay import resolve_exposure_linkage  # noqa: PLC0415
 
-        try:
-            validate_experiment_exposure_access(self._team, self._user, self._query.experiment_exposure.experiment_id)
-        except UserAccessControlError as error:
-            # Only the /query pipeline renders UserAccessControlError; on the recordings API
-            # it would surface as a 500, so translate to what DRF renders as a 403.
-            raise PermissionDenied(str(error))
         self._experiment_exposure_linkage = resolve_exposure_linkage(
             self._team,
             experiment_id=self._query.experiment_exposure.experiment_id,

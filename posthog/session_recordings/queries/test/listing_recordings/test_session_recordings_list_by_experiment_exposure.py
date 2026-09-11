@@ -1025,11 +1025,20 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
         )
         return experiment, self._create_user("denied-viewer@posthog.com")
 
-    def test_denies_viewers_the_experiment_denies(self) -> None:
+    @parameterized.expand(
+        [
+            ("unpinned", None),
+            ("empty_pinned_set", []),
+        ]
+    )
+    def test_denies_viewers_the_experiment_denies(self, _name: str, session_ids: list[str] | None) -> None:
         # The filter reveals which recordings belong to an experiment's exposed persons, so a
-        # viewer barred from the experiment must not be able to list them.
+        # viewer barred from the experiment must not be able to list them. An empty pinned set
+        # answers before the linkage resolves, and must refuse the same viewer on that path too.
         experiment, denied_viewer = self._create_denied_experiment_and_viewer()
-        query = RecordingsQuery.model_validate({"experiment_exposure": {"experiment_id": experiment.id}})
+        query = RecordingsQuery.model_validate(
+            {"session_ids": session_ids, "experiment_exposure": {"experiment_id": experiment.id}}
+        )
 
         with self.assertRaises(PermissionDenied):
             SessionRecordingListFromQuery(
@@ -1042,12 +1051,21 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
         ).run()
         assert result.results == []
 
-    def test_refuses_userless_callers(self) -> None:
+    @parameterized.expand(
+        [
+            ("unpinned", None),
+            ("empty_pinned_set", []),
+        ]
+    )
+    def test_refuses_userless_callers(self, _name: str, session_ids: list[str] | None) -> None:
         # Userless background jobs (the playlist counting task, scanner sweeps) cache or surface
         # their output to viewers this check never evaluated, so the filter fails closed without
-        # a viewer, regardless of the experiment's access controls.
+        # a viewer, regardless of the experiment's access controls, and on the empty-set
+        # short-circuit as much as on a full run.
         experiment = self._create_experiment()
-        query = RecordingsQuery.model_validate({"experiment_exposure": {"experiment_id": experiment.id}})
+        query = RecordingsQuery.model_validate(
+            {"session_ids": session_ids, "experiment_exposure": {"experiment_id": experiment.id}}
+        )
 
         with self.assertRaises(PermissionDenied):
             SessionRecordingListFromQuery(team=self.team, query=query, hogql_query_modifiers=None, user=None).run()
