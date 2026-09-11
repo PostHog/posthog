@@ -4,8 +4,6 @@ import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { PIE_DISPLAY_TYPES } from 'lib/constants'
-import { LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -16,12 +14,33 @@ import { ChartDisplayType } from '~/types'
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
-import { DisplayOptions, SectionHeader } from './DisplayOptions'
+import { DisplayOption, DisplayOptions } from './DisplayOptions'
 import { BAR_DISPLAYS, displayMatches, isDefaultTrendsLineDisplay, LINE_DISPLAYS } from './displayTypes'
 
-// The "Options" menu in the insight editor's display config bar. `count` is the number of non-default
-// active options, badged on the Options button.
-export function useInsightDisplayOptions(): { items: LemonMenuItems; count: number } {
+export interface DisplayOptionSection {
+    key: string
+    title?: string
+    tooltip?: string
+    dataAttr?: string
+    items: DisplayOption[]
+}
+
+export type DisplayOptionTabKey = 'general' | 'axes' | 'lines'
+
+export interface DisplayOptionTab {
+    key: DisplayOptionTabKey
+    label: string
+    sections: DisplayOptionSection[]
+    count: number
+}
+
+function countTruthy(...flags: (boolean | null | undefined)[]): number {
+    return flags.filter(Boolean).length
+}
+
+// The "Options" panel in the insight editor's display config bar. `count` is the total number of
+// non-default active options across all tabs, badged on the Options button.
+export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: number } {
     const { insightProps } = useValues(insightLogic)
     const {
         querySource,
@@ -41,6 +60,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         supportsResultCustomizationBy,
         yAxisScaleType,
         showMultipleYAxes,
+        showAlertThresholdLines,
         showAnnotations,
         isNonTimeSeriesDisplay,
         interval,
@@ -60,6 +80,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     // between them (smoothing, multiple axes, alert/annotation overlays, statistical analysis).
     const isSlopeGraph = display === ChartDisplayType.SlopeGraph
     const isMetric = display === ChartDisplayType.Metric
+    const isBoxPlot = display === ChartDisplayType.BoxPlot
     const hideContinuousChartOptions = isNonTimeSeriesDisplay || isMetric || isSlopeGraph
     const showSmoothing =
         isTrends &&
@@ -67,9 +88,10 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph) &&
         !!interval &&
         (smoothingOptions[interval]?.length ?? 0) > 0
-    const showMultipleYAxesConfig = (isTrends || isStickiness) && !hideContinuousChartOptions
+    const showMultipleYAxesConfig = (isTrends || isStickiness) && !hideContinuousChartOptions && !isBoxPlot
     const showAlertThresholdLinesConfig = isTrends && !hideContinuousChartOptions
     const showAnnotationsConfig = (isTrends && !hideContinuousChartOptions) || isTrendsFunnel
+    const showTrendLinesConfig = (isTrends || isRetention || isTrendsFunnel) && !hideContinuousChartOptions
     // Stickiness defaults to its line chart when display is unset, same as trends does — but
     // isDefaultTrendsLineDisplay only matches TrendsQuery, so we handle the stickiness case here.
     const isLineDisplay =
@@ -79,7 +101,6 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const isBarDisplay = displayMatches(display, BAR_DISPLAYS)
     const showAxisLabelsConfig = isTrends && (isLineDisplay || isBarDisplay)
     const showFunnelLegendConfig = isTrendsFunnel && hasBreakdownFilter(breakdownFilter)
-    const isBoxPlot = display === ChartDisplayType.BoxPlot
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
     const isPie = !!display && PIE_DISPLAY_TYPES.includes(display)
     // Percent stacking swaps the raw values out for percentages, so there is no unit left to pick.
@@ -102,11 +123,14 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     // funnel trends default to their line graph when display is unset.
     const isLineChartInsight = isLineDisplay || ((isRetention || isTrendsFunnel) && !display)
     const showLineStyleConfig = (isTrends || isStickiness || isRetention || isTrendsFunnel) && isLineChartInsight
+    const showStatisticalOverlays = showYAxisScale && !isBoxPlot
+    const showUnit = showsRawValues && isTrends && !isCalendarHeatmap
+    const showDecimalPlaces = mightContainFractionalNumbers && isTrends && !isCalendarHeatmap
 
     // The box plot and slope graph only show a couple of options each; everything else falls
     // through to the full shared list.
-    const getDisplayItems = (): LemonMenuItem[] => {
-        const displayItems: LemonMenuItem[] = []
+    const getDisplayItems = (): DisplayOption[] => {
+        const displayItems: DisplayOption[] = []
 
         if (isBoxPlot) {
             if (hasLegend) {
@@ -149,20 +173,14 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         if (isPie) {
             displayItems.push(DisplayOptions.SliceNames, DisplayOptions.PieTotal)
         }
-        if (showAlertThresholdLinesConfig) {
-            displayItems.push(DisplayOptions.AlertThresholdLines, DisplayOptions.AlertAnomalyPoints)
-        }
-        if (showMultipleYAxesConfig) {
-            displayItems.push(DisplayOptions.MultipleYAxes)
-        }
-        if ((isTrends || isRetention || isTrendsFunnel) && !hideContinuousChartOptions) {
-            displayItems.push(DisplayOptions.TrendLines)
-        }
         if (isTrendsFunnel && !hideContinuousChartOptions) {
             displayItems.push(DisplayOptions.HideIncompleteFunnelPeriods)
         }
         if (showAnnotationsConfig) {
             displayItems.push(DisplayOptions.Annotations)
+        }
+        if (showAlertThresholdLinesConfig) {
+            displayItems.push(DisplayOptions.AlertAnomalyPoints)
         }
         if (useQuillLegendOptions) {
             displayItems.push(DisplayOptions.LegendOptions)
@@ -170,108 +188,154 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         return displayItems
     }
 
-    const items: LemonMenuItems = []
+    const displaySections: DisplayOptionSection[] = []
     const displayItems = getDisplayItems()
-
-    if (showSmoothing) {
-        items.push({ title: 'Smoothing', items: [DisplayOptions.Smoothing] })
-    }
-
     if (showDisplaySection && displayItems.length > 0) {
-        items.push({
-            title: <SectionHeader dataAttr="options-display-section">Display</SectionHeader>,
-            items: displayItems,
-        })
+        displaySections.push({ key: 'display', dataAttr: 'options-display-section', items: displayItems })
     }
-
+    if (showUnit) {
+        displaySections.push({ key: 'unit', title: 'Unit', items: [DisplayOptions.Unit] })
+    }
     if (supportsResultCustomizationBy) {
-        items.push({
-            title: (
-                <SectionHeader tooltip="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
-                    Color customization by
-                </SectionHeader>
-            ),
+        displaySections.push({
+            key: 'color-customization',
+            title: 'Color customization by',
+            tooltip:
+                "You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).",
             items: [DisplayOptions.ResultCustomizationBy],
         })
     }
-
-    if (showsRawValues && isTrends && !isCalendarHeatmap) {
-        items.push({
-            title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
-            items: [DisplayOptions.Unit],
+    if (showDecimalPlaces) {
+        displaySections.push({
+            key: 'decimal-places',
+            title: 'Decimal places',
+            items: [DisplayOptions.DecimalPrecision],
         })
     }
-
-    if (showYAxisScale) {
-        items.push({ title: 'Y-axis scale', items: [DisplayOptions.Scale] })
-    }
-
-    // Kept under the scale section, so the log scale that disables the range sits one row above.
-    if (showYAxisRangeConfig) {
-        items.push({ title: 'Y-axis range', items: [DisplayOptions.YAxisRange] })
-    }
-
-    if (showLineStyleConfig) {
-        items.push({ title: 'Line style', items: [DisplayOptions.LineStyle] })
-    }
-
-    if (showYAxisScale && !isBoxPlot) {
-        const statisticalItems: LemonMenuItem[] = [DisplayOptions.ConfidenceInterval]
-        if (showConfidenceIntervals) {
-            statisticalItems.push(DisplayOptions.ConfidenceLevel)
-        }
-        statisticalItems.push(DisplayOptions.MovingAverage)
-        if (showMovingAverage) {
-            statisticalItems.push(DisplayOptions.MovingAverageIntervals)
-        }
-        items.push({ title: 'Statistical analysis', items: statisticalItems })
-    }
-
-    if (showAxisLabelsConfig) {
-        items.push({ title: 'Axis labels', items: [DisplayOptions.AxisLabels] })
-    }
-
-    if (mightContainFractionalNumbers && isTrends && !isCalendarHeatmap) {
-        items.push({ title: 'Decimal places', items: [DisplayOptions.DecimalPrecision] })
-    }
-
     if (isRetention) {
-        items.push({ title: 'On dashboards', items: [DisplayOptions.RetentionDashboardDisplay] })
-        items.push({
-            title: (
-                <SectionHeader tooltip="Controls the starting index used to label cohort columns. Display only, does not affect the calculations.">
-                    Cohort labels start at
-                </SectionHeader>
-            ),
+        displaySections.push({
+            key: 'retention-dashboards',
+            title: 'On dashboards',
+            items: [DisplayOptions.RetentionDashboardDisplay],
+        })
+        displaySections.push({
+            key: 'retention-cohort-labels',
+            title: 'Cohort labels start at',
+            tooltip:
+                'Controls the starting index used to label cohort columns. Display only, does not affect the calculations.',
             items: [DisplayOptions.RetentionCohortLabelStart],
         })
     }
 
-    const count: number =
-        (showSmoothing && (trendsFilter?.smoothingIntervals ?? 1) !== 1 ? 1 : 0) +
-        (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
-        (isLifecycle && showPercentagesOnSeries ? 1 : 0) +
-        (showPercentStackView ? 1 : 0) +
-        (isPie && trendsFilter?.showLabelsOnSeries ? 1 : 0) +
-        (showsRawValues &&
-        isTrends &&
-        trendsFilter?.aggregationAxisFormat &&
-        trendsFilter.aggregationAxisFormat !== 'numeric'
-            ? 1
-            : 0) +
-        ((hasLegend || showFunnelLegendConfig) && showLegend ? 1 : 0) +
-        (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
-        (showYAxisRangeConfig && trendsFilter?.yAxisStartAtZero === false ? 1 : 0) +
-        (showYAxisRangeConfig && typeof trendsFilter?.yAxisMin === 'number' ? 1 : 0) +
-        (showYAxisRangeConfig && typeof trendsFilter?.yAxisMax === 'number' ? 1 : 0) +
-        (showLineStyleConfig && (insightFilter as TrendsFilter | undefined)?.chartStyle?.curve === 'linear' ? 1 : 0) +
-        (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
-        (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +
-        (showMultipleYAxes ? 1 : 0) +
-        (showAnnotationsConfig && showAnnotations === false ? 1 : 0) +
-        (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
-        (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0) +
-        (isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total' ? 1 : 0)
+    // Scale sits directly above the range, so the log scale that disables the range is in view.
+    const axesSections: DisplayOptionSection[] = []
+    if (showAxisLabelsConfig) {
+        axesSections.push({ key: 'x-axis', title: 'X-axis', items: [DisplayOptions.XAxisLabel] })
+    }
+    const yAxisItems: DisplayOption[] = []
+    if (showAxisLabelsConfig) {
+        yAxisItems.push(DisplayOptions.YAxisLabel)
+    }
+    if (showMultipleYAxesConfig) {
+        yAxisItems.push(DisplayOptions.MultipleYAxes)
+    }
+    if (showYAxisScale) {
+        yAxisItems.push(DisplayOptions.Scale)
+    }
+    if (showYAxisRangeConfig) {
+        yAxisItems.push(DisplayOptions.YAxisRange)
+    }
+    if (yAxisItems.length > 0) {
+        axesSections.push({ key: 'y-axis', title: 'Y-axis', items: yAxisItems })
+    }
 
-    return { items, count }
+    const styleItems: DisplayOption[] = []
+    if (showLineStyleConfig) {
+        styleItems.push(DisplayOptions.LineStyle)
+    }
+    if (showSmoothing) {
+        styleItems.push(DisplayOptions.Smoothing)
+    }
+    const overlayItems: DisplayOption[] = []
+    if (showTrendLinesConfig && !isBoxPlot) {
+        overlayItems.push(DisplayOptions.TrendLines)
+    }
+    if (showStatisticalOverlays) {
+        overlayItems.push(DisplayOptions.MovingAverage)
+        if (showMovingAverage) {
+            overlayItems.push(DisplayOptions.MovingAverageIntervals)
+        }
+        overlayItems.push(DisplayOptions.ConfidenceInterval)
+        if (showConfidenceIntervals) {
+            overlayItems.push(DisplayOptions.ConfidenceLevel)
+        }
+    }
+    if (showAlertThresholdLinesConfig && !isBoxPlot) {
+        overlayItems.push(DisplayOptions.AlertThresholdLines)
+    }
+    const linesSections: DisplayOptionSection[] = []
+    if (styleItems.length > 0) {
+        linesSections.push({ key: 'style', title: 'Style', items: styleItems })
+    }
+    if (overlayItems.length > 0) {
+        linesSections.push({
+            key: 'overlays',
+            title: 'Overlays',
+            dataAttr: 'options-overlays-section',
+            items: overlayItems,
+        })
+    }
+
+    const unitIsSet =
+        showUnit && !!trendsFilter?.aggregationAxisFormat && trendsFilter.aggregationAxisFormat !== 'numeric'
+    const displayCount = countTruthy(
+        supportsValueOnSeries && showValuesOnSeries,
+        isLifecycle && showPercentagesOnSeries,
+        showPercentStackView,
+        isPie && trendsFilter?.showLabelsOnSeries,
+        unitIsSet,
+        (hasLegend || showFunnelLegendConfig) && showLegend,
+        showAnnotationsConfig && showAnnotations === false,
+        isMetric && trendsFilter?.metricShowChange === false,
+        isMetric && trendsFilter?.metricColorByDirection,
+        isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total'
+    )
+    const axesCount = countTruthy(
+        showMultipleYAxesConfig && showMultipleYAxes,
+        showYAxisScale && !!yAxisScaleType && yAxisScaleType !== 'linear',
+        showYAxisRangeConfig && trendsFilter?.yAxisStartAtZero === false,
+        showYAxisRangeConfig && trendsFilter?.yAxisStartAtZero === false && typeof trendsFilter?.yAxisMin === 'number',
+        showYAxisRangeConfig && typeof trendsFilter?.yAxisMax === 'number',
+        showAxisLabelsConfig && !!normalizeAxisLabel(trendsFilter?.xAxisLabel),
+        showAxisLabelsConfig && !!normalizeAxisLabel(trendsFilter?.yAxisLabel)
+    )
+    const linesCount = countTruthy(
+        showSmoothing && (trendsFilter?.smoothingIntervals ?? 1) !== 1,
+        showLineStyleConfig && (insightFilter as TrendsFilter | undefined)?.chartStyle?.curve === 'linear',
+        showTrendLinesConfig && !isBoxPlot && (insightFilter as TrendsFilter | undefined)?.showTrendLines,
+        showStatisticalOverlays && showMovingAverage,
+        showStatisticalOverlays && showConfidenceIntervals,
+        showAlertThresholdLinesConfig && !isBoxPlot && showAlertThresholdLines
+    )
+
+    const allTabs: DisplayOptionTab[] = [
+        { key: 'general', label: 'General', sections: displaySections, count: displayCount },
+        { key: 'axes', label: 'Axes', sections: axesSections, count: axesCount },
+        { key: 'lines', label: 'Lines', sections: linesSections, count: linesCount },
+    ]
+    // Only trends has enough options to need tabs; the other insight types keep one flat list.
+    const tabs = (
+        isTrends
+            ? allTabs
+            : [
+                  {
+                      key: 'general' as const,
+                      label: 'General',
+                      sections: allTabs.flatMap((tab) => tab.sections),
+                      count: allTabs.reduce((sum, tab) => sum + tab.count, 0),
+                  },
+              ]
+    ).filter((tab) => tab.sections.length > 0)
+
+    return { tabs, count: tabs.reduce((sum, tab) => sum + tab.count, 0) }
 }

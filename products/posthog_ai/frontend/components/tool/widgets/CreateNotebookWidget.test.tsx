@@ -1,7 +1,3 @@
-// Side-effect: registers the surface's product data-tool renderers (incl. the notebook keys) into the
-// shared registry. The bare registry no longer knows product keys, so the resolution assertions below need it.
-import './registerDataToolRenderers'
-
 import { lookupToolRenderer, toolRegistry } from 'products/posthog_ai/frontend/api/tools'
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
