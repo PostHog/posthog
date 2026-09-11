@@ -166,6 +166,11 @@ def test_absolutize_relative_imports(source: str, package: str, expected: str) -
             "@shared_task(expires=timedelta(hours=1))\ndef expiring():\n    pass\n",
             '@shared_task(expires=timedelta(hours=1), name="products.logs.backend.tasks.expiring")',
         ),
+        # a multi-line decorator ends its args with a trailing comma; joining must not produce ",,"
+        (
+            "@shared_task(\n    ignore_result=True,\n    time_limit=330,\n)\ndef slow_task():\n    pass\n",
+            '@shared_task(ignore_result=True,\n    time_limit=330, name="products.logs.backend.tasks.slow_task")',
+        ),
     ],
 )
 def test_pin_task_names(source: str, expected_fragment: str) -> None:

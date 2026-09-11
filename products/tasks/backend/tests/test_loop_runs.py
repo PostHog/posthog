@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import UUID
 
 from unittest.mock import patch
 
@@ -766,7 +767,7 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         )
         self.channel.save()
         canvas_testing.create_canvas(
-            canvas_id=self.CANVAS_ID,
+            canvas_id=UUID(self.CANVAS_ID),
             team_id=self.team.id,
             channel_id=self.channel.id,
             name="Growth Team",
