@@ -32,8 +32,15 @@ jest.mock('~/queries/query', () => ({
 }))
 
 jest.mock('lib/components/AutoSizer', () => ({
-    AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
-        renderProp({ height: 400, width: 400 }),
+    AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) => {
+        const { useState, useRef, useLayoutEffect } = jest.requireActual<typeof import('react')>('react')
+        const [visible, setVisible] = useState(false)
+        const ref = useRef<HTMLDivElement>(null)
+        useLayoutEffect(() => {
+            setVisible(!!ref.current && !ref.current.closest('.hidden'))
+        })
+        return <div ref={ref}>{renderProp({ height: visible ? 400 : 0, width: visible ? 400 : 0 })}</div>
+    },
 }))
 
 describe('TaxonomicFilter', () => {
@@ -105,7 +112,7 @@ describe('TaxonomicFilter', () => {
         }
     }
 
-    it('keeps dashboard search to one rendered list and a bounded number of store updates', async () => {
+    it('keeps dashboard search to one visible list and a bounded number of store updates', async () => {
         const propertySearches: string[] = []
         useMocks({
             get: {
@@ -139,7 +146,7 @@ describe('TaxonomicFilter', () => {
             ],
         })
         await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
-        expect(container.querySelectorAll('.taxonomic-infinite-list')).toHaveLength(1)
+        expect(container.querySelectorAll(':not(.hidden) > .taxonomic-infinite-list')).toHaveLength(1)
         let dispatches = 0
         const unsubscribe = getContext().store.subscribe(() => dispatches++)
         const searchField = screen.getByTestId('taxonomic-filter-searchfield')
@@ -168,12 +175,12 @@ describe('TaxonomicFilter', () => {
             jest.useRealTimers()
         }
         await screen.findAllByText('prop1')
-        expect(container.querySelectorAll('.taxonomic-infinite-list')).toHaveLength(1)
+        expect(container.querySelectorAll(':not(.hidden) > .taxonomic-infinite-list')).toHaveLength(1)
 
         await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
         await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-item-person_properties'))
         await screen.findByTestId('prop-filter-person_properties-0')
-        expect(container.querySelectorAll('.taxonomic-infinite-list')).toHaveLength(1)
+        expect(container.querySelectorAll(':not(.hidden) > .taxonomic-infinite-list')).toHaveLength(1)
         await userEvent.click(screen.getByTestId('prop-filter-person_properties-0'))
         expect(onChangeMock).toHaveBeenCalledWith(
             expect.objectContaining({ type: TaxonomicFilterGroupType.PersonProperties }),
@@ -1592,7 +1599,7 @@ describe('TaxonomicFilter', () => {
                 hideSearchInput: true,
             })
 
-            await screen.findByText('All')
+            await screen.findAllByText('All')
             expect(screen.queryByTestId('prop-filter-events-0')).not.toBeInTheDocument()
 
             expect(screen.queryByText('Categories')).not.toBeInTheDocument()
@@ -1663,7 +1670,7 @@ describe('TaxonomicFilter', () => {
             await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-actions'))
 
             await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
+                expect(screen.getByTestId('prop-filter-actions-0').closest('.hidden')).toBeNull()
             })
         })
 
