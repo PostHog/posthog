@@ -7,9 +7,10 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 import jwt
+from requests import JSONDecodeError
 from rest_framework import status
 
-from posthog.models import OrganizationMembership, PersonalAPIKey
+from posthog.models import OrganizationMembership, PersonalAPIKey, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import BillingReadBurstRateThrottle
@@ -278,6 +279,14 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         response = self.client.get(self._url("usage/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+        # A proxy in front of billing answers HTML, not JSON. The refusal still maps to itself
+        # rather than becoming a 500 on the way through.
+        not_json = MagicMock(status_code=403)
+        not_json.json.side_effect = JSONDecodeError("Expecting value", "<html>", 0)
+        mock_get.return_value = not_json
+        response = self.client.get(self._url("usage/"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     @patch("ee.billing.billing_manager.http_session.get")
     def test_key_without_billing_scope_is_refused_before_billing_is_called(self, mock_get):
         raw = generate_random_token_personal()
@@ -478,6 +487,24 @@ class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin
             response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+        # A credential scoped to two projects, held by someone who can see one of them: the filter
+        # is the overlap. Neither the credential nor the visibility widens the other.
+        other = Team.objects.create(organization=self.organization, name="Other")
+        grants = EffectiveBillingGrants(
+            sub=f"user:{self.user.uuid}",
+            scope=["billing:read"],
+            roles=["member"],
+            entitlements=entitlements_for(BillingEntitlement.USAGE_READ),
+            projects=sorted([self.team.id, other.id]),
+        )
+        with (
+            patch("ee.api.organization_billing.effective_billing_grants", return_value=grants),
+            patch("ee.api.organization_billing.visible_team_ids", return_value=[other.id]),
+        ):
+            response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(mock_get.call_args.kwargs["params"]["team_ids"], json.dumps([other.id]))
+
     @patch("ee.billing.billing_manager.http_session.get")
     def test_a_credential_scoped_to_no_project_is_refused_rather_than_widened(self, mock_get):
         # PostHog never mints an empty project list today, so this guards the shape rather than a
@@ -492,6 +519,23 @@ class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin
         with patch("ee.api.organization_billing.effective_billing_grants", return_value=grants):
             response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get.assert_not_called()
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_a_project_scoped_credential_is_refused_the_organization_summaries(self, mock_get):
+        # These reads are organization figures, so there is nothing to clip them to. The refusal
+        # happens here, which is also what keeps it from costing a call to billing.
+        grants = EffectiveBillingGrants(
+            sub=f"user:{self.user.uuid}",
+            scope=["billing:read"],
+            roles=["owner"],
+            entitlements=entitlements_for(BillingEntitlement.FULL_ACCESS),
+            projects=[self.team.id],
+        )
+        with patch("ee.api.organization_billing.effective_billing_grants", return_value=grants):
+            for path in ("usage/", "spend/", "forecast/", "limits/", "invoices/"):
+                response = self.client.get(self._url(path))
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, path)
         mock_get.assert_not_called()
 
     @patch("ee.billing.billing_manager.http_session.get")
@@ -648,6 +692,12 @@ class TestOrganizationBillingInvoicesAndLimits(OrganizationBillingTestMixin, API
         self.assertEqual(response.json()["detail"], "No document for invoice in_1.")
         upstream.iter_content.assert_not_called()
         upstream.close.assert_called_once()
+
+        # Billing can also answer without a url at all, which says the same thing.
+        mock_billing_get.return_value = _response({"status": "ok", "customer_id": 42})
+        response = self.client.get(self._url("invoices/in_1/content/"))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json()["detail"], "No document for invoice in_1.")
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_limits_pass_through(self, mock_get):
