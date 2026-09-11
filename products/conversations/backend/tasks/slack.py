@@ -41,6 +41,7 @@ from products.conversations.backend.services.inbound_events import (
     drain_inbound_retention,
     due_inbound_event_ids,
     fail_inbound_event,
+    inbound_claim_scope,
     inbound_event_payload_event,
     record_inbound_queue_metrics,
     schedule_inbound_retry,
@@ -174,7 +175,8 @@ def _process_event_from_receipt(inbound_event_id: str) -> None:
         complete_inbound_event(claim)
         return
     try:
-        _handle_supporthog_event(event, team, claim.event.provider_account_id)
+        with inbound_claim_scope(claim):
+            _handle_supporthog_event(event, team, claim.event.provider_account_id)
         complete_inbound_event(claim)
     except Exception as exc:
         logger.exception(
@@ -444,13 +446,14 @@ def _process_interactivity_from_receipt(inbound_event_id: str) -> None:
         _retry_inbound_claim(claim, error_code="no_team", error="slack workspace is not connected")
         return
     try:
-        resolved = _handle_supporthog_interactivity(
-            payload,
-            claim.event.provider_account_id,
-            is_retry=claim.event.attempts > 1,
-            allow_retry=claim.allow_retry,
-            receipt_team_id=claim.event.team_id,
-        )
+        with inbound_claim_scope(claim):
+            resolved = _handle_supporthog_interactivity(
+                payload,
+                claim.event.provider_account_id,
+                is_retry=claim.event.attempts > 1,
+                allow_retry=claim.allow_retry,
+                receipt_team_id=claim.event.team_id,
+            )
         if resolved:
             complete_inbound_event(claim)
         else:
