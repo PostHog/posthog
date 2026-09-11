@@ -84,7 +84,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
     rm -rf /var/lib/apt/lists/*
 
 # Install additional language package managers
-RUN npm install -g yarn pnpm typescript ts-node nodemon
+ARG PNPM_VERSION=10.34.5
+RUN npm install -g yarn "pnpm@${PNPM_VERSION}" typescript ts-node nodemon
 
 # Install ruff and ty
 # uv comes from its pinned, registry-verified official image (same pattern as the
