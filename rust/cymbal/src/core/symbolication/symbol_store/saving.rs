@@ -260,10 +260,12 @@ impl<F> Saving<F> {
             content_hash: None,
             last_used: Some(Utc::now()),
         };
-        // Only prime the negative cache if the failure was actually persisted. When
-        // `save_failure` is a no-op — a row with real symbol data already exists for this ref
-        // (e.g. an upload raced ahead of us) — caching the failure would shadow that data until
-        // TTL, so we must not.
+        // Only prime the negative cache if this call wrote the failure. `save_failure` reports
+        // `false` for both of its no-op paths — a row with real symbol data already exists for
+        // this ref (e.g. an upload raced ahead of us), or the same failure is already stored —
+        // and neither may be cached, because that decision comes from a read that does not lock
+        // the row. A stored failure still reaches the cache through `fetch`, which primes it
+        // from the row it reads.
         if record.save_failure(&self.pool).await? {
             self.negative_cache
                 .insert(Self::negative_cache_key(team_id, &set_ref), failure_reason)
@@ -711,11 +713,11 @@ impl SymbolSetRecord {
         Ok(false)
     }
 
-    // Returns whether this failure is stored for the ref, either because we wrote it or because
-    // the same failure is already there. It returns `false` when a row already exists with a
-    // `storage_ptr` — i.e. real symbol data is present — because the `WHERE storage_ptr IS NULL`
-    // guard refuses to clobber it. Callers must not treat that as a stored failure (e.g. must
-    // not cache it), since the DB source of truth still holds usable data for that ref.
+    // Returns whether this call wrote the failure to the row. Both no-op paths report `false`:
+    // a row that already has a `storage_ptr` — real symbol data is present, and the
+    // `WHERE storage_ptr IS NULL` guard refuses to clobber it — and a row that already holds
+    // this same failure with a fresh `last_used`. Callers must not treat `false` as a stored
+    // failure (e.g. must not cache it), because the read that decides it does not lock the row.
     pub async fn save_failure(&mut self, pool: &PgPool) -> Result<bool, UnhandledError> {
         let truncated_ref = truncate_ref(&self.set_ref);
 
@@ -756,7 +758,10 @@ impl SymbolSetRecord {
                     PostgresMutation::Upsert,
                     0,
                 );
-                return Ok(true);
+                // `false`, not `true`: the read above does not lock the row, so another writer
+                // may be storing real data for this ref right now. Reporting a stored failure
+                // would let the caller cache it over that data until the cache TTL expires.
+                return Ok(false);
             }
         }
 
@@ -1240,9 +1245,10 @@ mod test {
             content_hash: None,
             last_used: Some(Utc::now()),
         };
-        // The same failure is already stored and `last_used` is fresh, so the caller is told the
-        // failure is stored without the row being written again.
-        assert!(repeat.save_failure(&db).await.unwrap());
+        // The same failure is already stored and `last_used` is fresh, so the row is not written
+        // again, and the caller is told nothing was written — it must not cache a failure decided
+        // from a read that did not lock the row.
+        assert!(!repeat.save_failure(&db).await.unwrap());
         let after_repeat = SymbolSetRecord::load(&db, 0, &set_ref)
             .await
             .unwrap()
