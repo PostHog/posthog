@@ -1,10 +1,11 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { Form } from 'kea-forms'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonFormDialog } from 'lib/lemon-ui/LemonDialog/LemonDialog'
 import { lemonDialogLogic } from 'lib/lemon-ui/LemonDialog/lemonDialogLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -45,12 +46,14 @@ describe('skillSceneComponents', () => {
     })
 
     afterEach(() => {
+        cleanup()
         openFormSpy.mockRestore()
     })
 
     describe('publish to community dialog', () => {
-        it('keeps the submit button disabled until the consent box is checked', () => {
-            openPublishToCommunityDialog({ skillName: 'my-skill', githubLogin: null, onPublish: jest.fn() })
+        it('blocks the rendered dialog until the preview loads and the consent box is checked', async () => {
+            const onPublish = jest.fn()
+            openPublishToCommunityDialog({ skillName: 'my-skill', githubLogin: null, onPublish })
 
             expect(dialogConfig?.initialValues.consent).toBe(false)
             expect(dialogConfig?.title).toBe('Publish to the PostHog community?')
@@ -62,6 +65,30 @@ describe('skillSceneComponents', () => {
             )
             expect(dialogConfig?.errors?.consent(true, {})).toBeUndefined()
             expect(dialogConfig?.primaryButtonProps?.children).toBe('Publish to community')
+
+            render(
+                <Provider>
+                    <LemonFormDialog {...dialogConfig!} dialogKey="publish-consent-test" inline />
+                </Provider>
+            )
+
+            const publishButton = screen.getByRole('button', { name: 'Publish to community' })
+            expect(publishButton).toHaveAttribute('aria-disabled', 'true')
+            await waitFor(() => expect(screen.getByText('v3')).toBeInTheDocument())
+            expect(publishButton).toHaveAttribute('aria-disabled', 'true')
+
+            const consentCheckbox = screen.getByRole('checkbox')
+            expect(consentCheckbox).toBeEnabled()
+            fireEvent.click(consentCheckbox)
+            await waitFor(() =>
+                expect(screen.getByRole('button', { name: 'Publish to community' })).toHaveAttribute(
+                    'aria-disabled',
+                    'false'
+                )
+            )
+            fireEvent.click(screen.getByRole('button', { name: 'Publish to community' }))
+
+            expect(onPublish).toHaveBeenCalledWith('my-skill', expect.objectContaining({ expected_version: 3 }))
         })
 
         it('names the destination and version, with the file list behind Review files', async () => {
@@ -75,13 +102,35 @@ describe('skillSceneComponents', () => {
                 </Provider>
             )
 
-            expect(screen.getByText('PostHog/community-skills')).toBeInTheDocument()
+            expect(screen.getByText('Public on GitHub')).toBeInTheDocument()
             await waitFor(() => expect(screen.getByText('v3')).toBeInTheDocument())
             expect(screen.queryByText('SKILL.md')).not.toBeInTheDocument()
             fireEvent.click(screen.getByText('Review files'))
             expect(screen.getByText('SKILL.md')).toBeInTheDocument()
             expect(screen.getByText('scripts/run.sh')).toBeInTheDocument()
             expect(screen.getByText('references/guide.md')).toBeInTheDocument()
+        })
+
+        it('blocks publishing and offers a retry when the preview fails', async () => {
+            mockRetrieve.mockRejectedValueOnce(new Error('Preview failed'))
+            openPublishToCommunityDialog({ skillName: 'my-skill', githubLogin: null, onPublish: jest.fn() })
+
+            render(
+                <Provider>
+                    <LemonFormDialog {...dialogConfig!} dialogKey="publish-retry-test" inline />
+                </Provider>
+            )
+
+            const publishButton = screen.getByRole('button', { name: 'Publish to community' })
+            await waitFor(() =>
+                expect(screen.getByText('Could not load the version and file list.')).toBeInTheDocument()
+            )
+            expect(publishButton).toHaveAttribute('aria-disabled', 'true')
+
+            mockRetrieve.mockResolvedValueOnce(MOCK_PREVIEW)
+            fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+            await waitFor(() => expect(screen.getByText('v3')).toBeInTheDocument())
         })
     })
 

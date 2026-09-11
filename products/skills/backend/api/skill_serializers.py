@@ -945,6 +945,10 @@ class LLMSkillMarketplaceCommandSerializer(serializers.Serializer):
 
 
 class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Skill version that the publisher reviewed. The request returns 409 if the latest version changed.",
+    )
     display_name = serializers.RegexField(
         DISPLAY_NAME_PATTERN,
         required=False,

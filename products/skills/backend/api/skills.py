@@ -1487,6 +1487,12 @@ class LLMSkillViewSet(
         payload = LLMSkillPublishToCommunitySerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
+        if skill.version != payload.validated_data["expected_version"]:
+            return Response(
+                {"detail": "This skill changed after you reviewed it. Reopen the dialog and review the latest version."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
         files = [{"path": f.path, "content": f.content, "content_type": f.content_type} for f in skill.files.all()]
         supplied_tags = payload.validated_data.get("tags")
         # An explicit empty list means "publish with no tags", so fall back to the skill's own tags

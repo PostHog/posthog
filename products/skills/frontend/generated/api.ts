@@ -493,7 +493,7 @@ export const getLlmSkillsNamePublishCommunityCreateUrl = (projectId: string, ski
 export const llmSkillsNamePublishCommunityCreate = async (
     projectId: string,
     skillName: string,
-    lLMSkillPublishToCommunityApi?: LLMSkillPublishToCommunityApi,
+    lLMSkillPublishToCommunityApi: LLMSkillPublishToCommunityApi,
     options?: RequestInit
 ): Promise<CommunitySkillPublishResultApi> => {
     return apiMutator<CommunitySkillPublishResultApi>(getLlmSkillsNamePublishCommunityCreateUrl(projectId, skillName), {

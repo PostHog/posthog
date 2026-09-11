@@ -675,6 +675,11 @@ export interface LLMSkillFileApi {
 }
 
 export interface LLMSkillPublishToCommunityApi {
+    /**
+     * Skill version that the publisher reviewed. The request returns 409 if the latest version changed.
+     * @minimum 1
+     */
+    expected_version: number
     /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
     display_name?: string
     /**
