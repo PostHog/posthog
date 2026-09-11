@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.test import SimpleTestCase
+
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
@@ -30,8 +32,10 @@ from products.review_hog.backend.temporal.resolution import (
     _append_task_run,
     _deliver_side_effects,
     _fail_resolution,
+    _normalize_reply_divider,
     _prepare_run,
     _PreparedRun,
+    _verification_section,
     resolve_threads_activity,
 )
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -69,6 +73,7 @@ def _verdict(
     reply_posted: bool = False,
     resolved: bool = False,
     commit_sha: str | None = "abc123",
+    verification: str | None = None,
 ) -> ThreadVerdictArtefact:
     return ThreadVerdictArtefact(
         thread_id=thread_id,
@@ -79,6 +84,7 @@ def _verdict(
         reasoning="checked the code",
         reply="what happened and why",
         commit_sha=commit_sha,
+        verification=verification,
         latest_comment_id=100,
         reply_posted=reply_posted,
         resolved=resolved,
@@ -95,6 +101,23 @@ def _mock_installation() -> Mock:
     github.github_installation_id = "inst-1"
     github.integration.id = 42
     return github
+
+
+class TestReplyBodyRendering(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("blank_line_inserted", "Fixed. Done.\n---\n- a", "Fixed. Done.\n\n---\n- a"),
+            ("already_separated", "Fixed. Done.\n\n---\n\n- a", "Fixed. Done.\n\n---\n\n- a"),
+            ("no_divider", "Fixed. Done.", "Fixed. Done."),
+            ("dashes_inside_a_line_are_left_alone", "Fixed.\n\n---\n\n- x ---y", "Fixed.\n\n---\n\n- x ---y"),
+        ]
+    )
+    def test_divider_gets_the_blank_line_github_needs(self, _name: str, reply: str, expected: str) -> None:
+        assert _normalize_reply_divider(reply) == expected
+
+    @parameterized.expand([("none", None), ("blank", "   \n")])
+    def test_empty_verification_adds_no_block(self, _name: str, verification: str | None) -> None:
+        assert _verification_section(verification) == ""
 
 
 class TestResolutionPersistenceAndDelivery(BaseTest):
@@ -173,7 +196,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
 
     def test_fixed_reply_links_the_commit_and_records_it_once(self) -> None:
         report = self._report()
-        verdict = _verdict(outcome="fixed", commit_sha="abc123")
+        verdict = _verdict(outcome="fixed", commit_sha="abc123", verification="pytest: 6 passed, ruff clean")
         with (
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True),
@@ -186,7 +209,10 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             )
             # A redelivery of the already-verified verdict must not duplicate the commit artefact.
             _deliver_side_effects(self._input(), str(report.id), delivered, branch="feature", integration_row_id=1)
-        assert "https://github.com/posthog/posthog/commit/abc123" in reply.call_args_list[0].kwargs["body"]
+        body = reply.call_args_list[0].kwargs["body"]
+        assert "https://github.com/posthog/posthog/commit/abc123" in body
+        assert body.index("Fix commit:") < body.index("<summary><strong>How this was verified</strong></summary>")
+        assert "pytest: 6 passed, ruff clean" in body
         commits = ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id, type="commit")
         assert commits.count() == 1
         assert json.loads(commits.get().content)["commit_sha"] == "abc123"
