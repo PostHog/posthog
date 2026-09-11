@@ -46,12 +46,6 @@ const CHANNEL_TABS: readonly {
   { value: "canvas", label: "Canvases" },
 ];
 
-/** What a tab is called in analytics, so a rename here doesn't rewrite history. */
-const CHANNEL_TAB_EVENT_NAME: Record<ChannelTab, string> = {
-  task: "sessions",
-  canvas: "canvases",
-};
-
 function ChannelTabs({
   tab,
   onTabChange,
@@ -138,11 +132,13 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const tab = chosenTab.channelId === channelId ? chosenTab.tab : "task";
   const setTab = (next: ChannelTab) => {
     setChosenTab({ channelId, tab: next });
+    // Only a real change, the way the list's own grouping control reports.
+    if (next === tab) return;
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
       action_type: "space_tab_change",
       surface: "sidebar",
       channel_id: channelId,
-      tab: CHANNEL_TAB_EVENT_NAME[next],
+      tab: next,
     });
   };
 
@@ -191,9 +187,8 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
       depth={0}
       label={channelPageLabel(page)}
       isActive={pathname === to}
-      // The page key, not its label: renaming the row shouldn't split the
-      // series. `home` is the space's feed, and reads as "Feed" in the list.
-      onClick={navigateTo(page === "home" ? "feed" : page, onClick)}
+      // The page key, not its label: renaming a row shouldn't split the series.
+      onClick={navigateTo(page, onClick)}
     />
   );
 

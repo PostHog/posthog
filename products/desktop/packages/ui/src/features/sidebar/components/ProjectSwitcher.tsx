@@ -223,7 +223,8 @@ export function ProjectSwitcher({
     goToSettings("shortcuts");
   };
 
-  const handleOpenExternal = (url: string) => {
+  const handleOpenExternal = (action: ProjectMenuAction, url: string) => {
+    trackMenu(action);
     openExternalUrl(url);
     setPopoverOpen(false);
   };
@@ -390,20 +391,18 @@ export function ProjectSwitcher({
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent side="right" sideOffset={4}>
                 <DropdownMenuItem
-                  onClick={() => {
-                    trackMenu("website");
-                    handleOpenExternal(EXTERNAL_LINKS.website);
-                  }}
+                  onClick={() =>
+                    handleOpenExternal("website", EXTERNAL_LINKS.website)
+                  }
                 >
                   <ArrowSquareOut size={14} className="text-gray-11" />
                   Website
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onClick={() => {
-                    trackMenu("privacy_policy");
-                    handleOpenExternal(EXTERNAL_LINKS.privacy);
-                  }}
+                  onClick={() =>
+                    handleOpenExternal("privacy_policy", EXTERNAL_LINKS.privacy)
+                  }
                 >
                   <ShieldCheck size={14} className="text-gray-11" />
                   Privacy Policy
