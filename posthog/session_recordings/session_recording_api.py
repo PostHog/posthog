@@ -929,8 +929,10 @@ class SessionRecordingViewSet(
         blocked = [throttle for throttle in self.get_throttles() if not throttle.allow_request(request, self)]
         if not blocked:
             return
-        # The longest wait is the ceiling that gates the next successful call, and the wait DRF
-        # already reports. Naming a shorter one would send the caller back for another 429.
+        # The longest wait among the blocked throttles is the wait DRF already reports, so the message
+        # and Retry-After agree. Naming a shorter one would send the caller back for another 429.
+        # As in DRF, a throttle that allows this request and fills its own bucket is not counted, so a
+        # caller that crosses that boundary gets one more 429 before the reported wait settles.
         throttle = max(blocked, key=lambda t: t.wait() or 0)
         raise Throttled(wait=throttle.wait(), detail=replay_throttle_detail(throttle))
 
