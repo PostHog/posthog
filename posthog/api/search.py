@@ -209,6 +209,9 @@ def search_entities(
     counts: dict[str, int | None] = dict.fromkeys(entity_map) if include_counts else {}
     # The merged page takes at most `cap` rows from any one entity, so the cap costs no results.
     cap = offset + limit
+    # A merge needs every entity's rows from the start, because any of them can fill the window. One
+    # entity has nothing to merge with, so there the database can skip the rows below the window.
+    fetch_offset = offset if len(entities) == 1 else 0
     rows: list[dict[str, Any]] = []
     saturated: list[tuple[str, str, QuerySet[Any]]] = []
     deadline = monotonic() + SEARCH_BUDGET_MS / 1000
@@ -228,15 +231,15 @@ def search_entities(
             )
             klass_qs = klass_qs.order_by(order_by)
             alias = _read_alias(entity_meta["klass"])
-            fetch_page: Callable[[], list[dict[str, Any]]] = partial(list, klass_qs[:cap])
+            fetch_page: Callable[[], list[dict[str, Any]]] = partial(list, klass_qs[fetch_offset:cap])
             entity_rows = _run_bounded(entity_name, alias, deadline, fetch_page)
             if entity_rows is None:
                 continue
             rows.extend(entity_rows)
             if include_counts:
-                # A short page is already the whole result set, so fetching it has done the count.
-                if len(entity_rows) < cap:
-                    counts[entity_name] = len(entity_rows)
+                # A page short of what was asked for ends the entity, so fetching it has counted it.
+                if len(entity_rows) < cap - fetch_offset:
+                    counts[entity_name] = fetch_offset + len(entity_rows)
                 else:
                     saturated.append((entity_name, alias, klass_qs))
 
@@ -261,7 +264,7 @@ def search_entities(
         else None
     )
 
-    results = cast(list[dict[str, Any]], rows[offset : offset + limit])
+    results = cast(list[dict[str, Any]], rows[offset - fetch_offset : cap - fetch_offset])
     if annotate_access_levels is not None:
         _annotate_user_access_levels(results, entity_map, annotate_access_levels)
     for result in results:

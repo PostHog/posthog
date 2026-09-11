@@ -428,15 +428,16 @@ class TestSearch(APIBaseTest):
             limit=3,
             offset=0,
         )
-        results_page2, _, total_count2 = search_entities(
-            entities={"insight"},
-            query="pagination offset",
-            project_id=self.team.project_id,
-            view=mock_view,
-            entity_map=ENTITY_MAP,
-            limit=3,
-            offset=3,
-        )
+        with CaptureQueriesContext(connection) as ctx:
+            results_page2, _, total_count2 = search_entities(
+                entities={"insight"},
+                query="pagination offset",
+                project_id=self.team.project_id,
+                view=mock_view,
+                entity_map=ENTITY_MAP,
+                limit=3,
+                offset=3,
+            )
 
         self.assertEqual(total_count1, 10)
         self.assertEqual(total_count2, 10)
@@ -446,6 +447,12 @@ class TestSearch(APIBaseTest):
         page1_ids = {r["result_id"] for r in results_page1}
         page2_ids = {r["result_id"] for r in results_page2}
         self.assertEqual(len(page1_ids & page2_ids), 0)
+
+        # One entity does not merge, so the database skips the earlier page instead of shipping it
+        page_query = next(
+            sql for q in ctx.captured_queries if (sql := q["sql"]).startswith("SELECT") and "COUNT(" not in sql
+        )
+        assert "LIMIT 3 OFFSET 3" in page_query
 
 
 @pytest.mark.django_db
