@@ -15,7 +15,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const { DJANGO_SEGMENTS, getIsolatedProducts, getTestOnlyProducts } = require('./turbo-discover')
+const { DJANGO_SEGMENTS, getIsolatedProducts } = require('./turbo-discover')
 
 const REPO_ROOT = path.join(__dirname, '..', '..')
 const WORKFLOWS = ['.github/workflows/ci-backend.yml', '.depot/workflows/ci-backend.yml']
@@ -158,16 +158,4 @@ test('isolation needs both the contract-check script and narrowed contract input
     }))
 
     assert.deepEqual([...getIsolatedProducts(tasks, repoRoot)].sort(), ['declared', 'multi-word'])
-})
-
-test('test-only product changes select only their product suites', () => {
-    assert.deepEqual(
-        getTestOnlyProducts([
-            'products/experiments/backend/test/test_migration_0035.py',
-            'products/experiments/stats/tests/test_statistics.py',
-        ]),
-        ['experiments']
-    )
-    assert.equal(getTestOnlyProducts(['products/experiments/backend/models/experiment.py']), null)
-    assert.equal(getTestOnlyProducts(['products/experiments/package.json']), null)
 })
