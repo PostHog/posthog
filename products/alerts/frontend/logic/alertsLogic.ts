@@ -68,7 +68,9 @@ export interface alertsLogicActions {
         alertDestinationCounts: Record<string, number>
         payload?: AlertType[]
     }
-    loadAlerts: () => any
+    loadAlerts: () => {
+        value: true
+    }
     loadAlertsFailure: (
         error: string,
         errorObject?: any
@@ -81,13 +83,17 @@ export interface alertsLogicActions {
             count: number
             results: AlertType[]
         },
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         alertsResponse: {
             count: number
             results: AlertType[]
         }
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     removeAlertFromList: (alertId: string) => {
         alertId: string
@@ -136,6 +142,8 @@ export type alertsLogicType = MakeLogicType<alertsLogicValues, alertsLogicAction
 export const alertsLogic = kea<alertsLogicType>([
     path(['lib', 'components', 'Alerts', 'alertsLogic']),
     actions({
+        // Declared so the loader's `breakpoint` parameter does not turn this into a payload action.
+        loadAlerts: true,
         setPage: (page: number) => ({ page }),
         setFilters: (filters: Partial<AlertsFilters>) => ({ filters }),
         setAlertToggling: (alertId: string, isToggling: boolean) => ({ alertId, isToggling }),
