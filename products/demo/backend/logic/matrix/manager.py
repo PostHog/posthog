@@ -9,6 +9,7 @@ from django.core import exceptions
 from django.db import transaction
 
 from posthog.clickhouse.client import sync_execute
+from posthog.kafka_client.routing import flush_all_producers
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.utils import UUIDT, generate_random_token_project
 
@@ -24,6 +25,13 @@ from products.demo.backend.logic.matrix.taxonomy_inference import infer_taxonomy
 from .matrix import Matrix
 from .models import EVENT_IDENTIFY, SimEvent, SimPerson
 
+# librdkafka keeps produced messages in a queue that holds 100,000 messages by
+# default, and confluent-kafka raises BufferError instead of blocking once that
+# queue is full. A simulation produces many more events than that, so the queue
+# must be drained while the events are saved.
+EVENTS_PER_KAFKA_FLUSH = 5_000
+KAFKA_FLUSH_TIMEOUT_SECONDS = 5 * 60
+
 
 class MatrixManager:
     # ID of the team under which demo data will be pre-saved
@@ -35,6 +43,7 @@ class MatrixManager:
 
     _persons_created: int
     _person_distinct_ids_created: int
+    _events_since_flush: int
 
     def __init__(self, matrix: Matrix, *, use_pre_save: bool = False, print_steps: bool = False):
         self.matrix = matrix
@@ -42,6 +51,7 @@ class MatrixManager:
         self.print_steps = print_steps
         self._persons_created = 0
         self._person_distinct_ids_created = 0
+        self._events_since_flush = 0
 
     def ensure_account_and_save(
         self,
@@ -198,6 +208,7 @@ class MatrixManager:
         bulk_create_group_type_mappings(data_team.id, data_team.project_id, group_type_mapping_dicts)
         for sim_person in sim_persons:
             self._save_sim_person(data_team, sim_person)
+        self._flush_kafka()
         # We need to wait a bit for data just queued into Kafka to show up in CH
         self._sleep_until_person_data_in_clickhouse(data_team.pk)
 
@@ -285,33 +296,50 @@ class MatrixManager:
                 )
             self._save_past_sim_events(team, subject.past_events)
 
-    @staticmethod
-    def _save_past_sim_events(team: Team, events: list[SimEvent]):
+    def _save_past_sim_events(self, team: Team, events: list[SimEvent]):
         """Past events are saved into ClickHouse right away (via Kafka of course)."""
         from posthog.models.event.util import create_event
 
         for event in events:
             event_uuid = UUIDT(unix_time_ms=int(event.timestamp.timestamp() * 1000))
-            create_event(
-                event_uuid=event_uuid,
-                event=event.event,
-                team=team,
-                distinct_id=event.distinct_id,
-                timestamp=event.timestamp,
-                properties=event.properties,
-                person_id=event.person_id,
-                person_properties=event.person_properties,
-                person_created_at=event.person_created_at,
-                group0_properties=event.group0_properties,
-                group1_properties=event.group1_properties,
-                group2_properties=event.group2_properties,
-                group3_properties=event.group3_properties,
-                group4_properties=event.group4_properties,
-                group0_created_at=event.group0_created_at,
-                group1_created_at=event.group1_created_at,
-                group2_created_at=event.group2_created_at,
-                group3_created_at=event.group3_created_at,
-                group4_created_at=event.group4_created_at,
+            create_event_kwargs: dict[str, Any] = {
+                "event_uuid": event_uuid,
+                "event": event.event,
+                "team": team,
+                "distinct_id": event.distinct_id,
+                "timestamp": event.timestamp,
+                "properties": event.properties,
+                "person_id": event.person_id,
+                "person_properties": event.person_properties,
+                "person_created_at": event.person_created_at,
+                "group0_properties": event.group0_properties,
+                "group1_properties": event.group1_properties,
+                "group2_properties": event.group2_properties,
+                "group3_properties": event.group3_properties,
+                "group4_properties": event.group4_properties,
+                "group0_created_at": event.group0_created_at,
+                "group1_created_at": event.group1_created_at,
+                "group2_created_at": event.group2_created_at,
+                "group3_created_at": event.group3_created_at,
+                "group4_created_at": event.group4_created_at,
+            }
+            try:
+                create_event(**create_event_kwargs)
+            except BufferError:
+                # A slow broker can fill the queue before the next periodic flush.
+                self._flush_kafka()
+                create_event(**create_event_kwargs)
+            self._events_since_flush += 1
+            if self._events_since_flush >= EVENTS_PER_KAFKA_FLUSH:
+                self._flush_kafka()
+
+    def _flush_kafka(self):
+        self._events_since_flush = 0
+        undelivered = flush_all_producers(KAFKA_FLUSH_TIMEOUT_SECONDS)
+        if undelivered:
+            raise RuntimeError(
+                f"Kafka flush left {undelivered} message(s) undelivered after {KAFKA_FLUSH_TIMEOUT_SECONDS}s. "
+                "The demo data is incomplete."
             )
 
     @staticmethod
