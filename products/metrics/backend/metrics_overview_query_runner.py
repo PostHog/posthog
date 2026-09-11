@@ -83,9 +83,8 @@ class MetricsOverviewQueryRunner:
     def _run_freshness(self) -> str | None:
         with tracer.start_as_current_span("metrics.overview.freshness") as span:
             span.set_attribute("team_id", self.team.pk)
-            # Unwindowed on purpose: the status strip reports the last datapoint's
-            # age even after ingestion stops. Reads only `last_seen`, so the whole
-            # scan is one narrow column.
+            # This query reports the last data point, even after ingestion stops.
+            # It reads only `last_seen`.
             query = parse_select("SELECT max(toNullable(last_seen)) AS last_seen_at FROM posthog.metric_series")
             assert isinstance(query, ast.SelectQuery)
 
@@ -104,8 +103,7 @@ class MetricsOverviewQueryRunner:
     def _run_counts(self) -> tuple[int, int]:
         with tracer.start_as_current_span("metrics.overview.counts") as span:
             span.set_attribute("team_id", self.team.pk)
-            # Window in WHERE, not inside the aggregates, so `idx_last_seen_minmax`
-            # prunes the old parts instead of the read touching every series row.
+            # Put the time window in WHERE so `idx_last_seen_minmax` skips old parts.
             query = parse_select(
                 """
                     SELECT

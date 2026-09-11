@@ -665,9 +665,8 @@ class MetricQueryRunner:
                 expr=parse_expr("s.series_fingerprint = ser.series_fingerprint"), constraint_type="ON"
             ),
         )
-        # The label values are resolved inside the joined subquery (aliased
-        # `group_i`), so the outer query only reads them back off `ser` and
-        # groups on them — the two full label maps never cross the join.
+        # The joined query resolves labels as `group_i`.
+        # The outer query reads `ser.group_i`, not the label maps.
         for index in range(len(self.group_by)):
             alias = f"group_{index}"
             query.select.insert(1 + index, ast.Alias(alias=alias, expr=ast.Field(chain=["ser", alias])))
