@@ -53,6 +53,10 @@ export const dashboardRecordSchema = z.object({
   currentVersionId: z.string().nullish(),
   // The live (last successful, still-eligible) build.
   publishedBuildId: z.string().nullish(),
+  // The backend's per-team answer: its builds emit fragments and the host may
+  // roll a same-layout build's fragments into the mounted frame. Absent reads
+  // as off.
+  progressiveFragmentsEnabled: z.boolean().optional(),
 });
 export type DashboardRecord = z.infer<typeof dashboardRecordSchema>;
 

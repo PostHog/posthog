@@ -151,6 +151,58 @@ describe("canvasToHostMessageSchema", () => {
     expect(limitCanvasCommentHighlights(highlights)).toHaveLength(expected);
   });
 
+  it.each([
+    ["a marker path", "src/fragments/revenue.tsx", true],
+    ["an empty path", "", false],
+    ["an oversized path", "x".repeat(513), false],
+  ])("validates fragment-rendered with %s", (_name, path, accepted) => {
+    expect(
+      canvasToHostMessageSchema.safeParse({
+        channel: "posthog-canvas",
+        type: "fragment-rendered",
+        path,
+      }).success,
+    ).toBe(accepted);
+  });
+
+  it.each([
+    [
+      "an absolute base and artifact-relative files",
+      {
+        base: "https://usercontent.example/canvas-artifacts/token/",
+        fragments: {
+          "src/fragments/revenue.tsx": {
+            file: "fragments/revenue.abc123.js",
+            contentHash: "abc123",
+          },
+        },
+        platformCss: "https://usercontent.example/canvas-artifacts/token/p.css",
+      },
+      true,
+    ],
+    [
+      "a relative base",
+      { base: "canvas-artifacts/token/", fragments: {} },
+      false,
+    ],
+    [
+      "a fragment entry without a content hash",
+      {
+        base: "https://usercontent.example/canvas-artifacts/token/",
+        fragments: { "src/fragments/revenue.tsx": { file: "f.js" } },
+      },
+      false,
+    ],
+  ])("validates set-fragments with %s", (_name, payload, accepted) => {
+    expect(
+      hostToCanvasMessageSchema.safeParse({
+        channel: "posthog-canvas",
+        type: "set-fragments",
+        ...payload,
+      }).success,
+    ).toBe(accepted);
+  });
+
   it("accepts a host request to clear native text selection", () => {
     expect(
       hostToCanvasMessageSchema.parse({

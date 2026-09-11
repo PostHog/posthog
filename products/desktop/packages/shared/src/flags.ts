@@ -73,6 +73,13 @@ export const SIGNALS_PR_REFUNDS_FLAG = featureFlagKeys.SIGNALS_PR_REFUNDS_FLAG;
  * report detail route, plus report entries in the feed. Requires project-bluebird.
  */
 export const CHANNEL_REPORTS_FLAG = featureFlagKeys.CHANNEL_REPORTS_FLAG;
+/**
+ * Progressive canvas fragments: a built canvas whose layout did not change
+ * keeps its mounted frame and hot-swaps the newer build's fragment chunks in.
+ * Same key as the backend flag that makes the builder emit fragments.
+ */
+export const CANVAS_PROGRESSIVE_FRAGMENTS_FLAG =
+  featureFlagKeys.CANVAS_PROGRESSIVE_FRAGMENTS_FLAG;
 
 /**
  * The global reports inbox: one sectioned, keyboard-triageable page for every

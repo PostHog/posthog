@@ -1,5 +1,6 @@
 import {
   CANVAS_PLATFORM_MANIFEST,
+  CANVAS_SDK_FRAGMENT_SPECIFIER,
   CANVAS_SDK_MODULE_SOURCE,
   CANVAS_SDK_SPECIFIER,
 } from "@posthog/shared";
@@ -79,13 +80,17 @@ describe("freeform whitelist ↔ platform dependency registry", () => {
   // Admission and resolution used to be one list. Now the preview admits what
   // the manifest admits but still resolves through FREEFORM_WHITELIST, so a
   // specifier added server-side passes the import check and then dies in the
-  // iframe on "Failed to resolve module specifier". The SDK is the one
-  // exception: the document mints it as a blob at load time.
+  // iframe on "Failed to resolve module specifier". The SDK modules are the
+  // exception: the document mints them as blobs at load time.
   it("resolves every admitted import specifier in the preview import map", () => {
     const { imports } = buildImportMap();
+    const blobMinted: string[] = [
+      CANVAS_SDK_SPECIFIER,
+      CANVAS_SDK_FRAGMENT_SPECIFIER,
+    ];
 
     for (const specifier of CANVAS_PLATFORM_MANIFEST.allowedImportSpecifiers) {
-      if (specifier === CANVAS_SDK_SPECIFIER) continue;
+      if (blobMinted.includes(specifier)) continue;
       expect(imports[specifier], specifier).toBeTruthy();
     }
   });

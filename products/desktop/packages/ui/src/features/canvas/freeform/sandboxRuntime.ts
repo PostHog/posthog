@@ -7,6 +7,8 @@ import {
 } from "@posthog/core/canvas/freeformWhitelist";
 import { resolveTextCommentAnchor } from "@posthog/core/comments/anchors";
 import {
+  CANVAS_SDK_FRAGMENT_PREVIEW_SOURCE,
+  CANVAS_SDK_FRAGMENT_SPECIFIER,
   CANVAS_SDK_MODULE_SOURCE,
   CANVAS_SDK_SPECIFIER,
 } from "@posthog/shared";
@@ -696,6 +698,10 @@ export function buildSandboxDocument(
   var canvasImportMap = ${importMap};
   canvasImportMap.imports[${JSON.stringify(CANVAS_SDK_SPECIFIER)}] =
     URL.createObjectURL(new Blob([${JSON.stringify(CANVAS_SDK_MODULE_SOURCE)}], { type: "text/javascript" }));
+  // The preview has no build, so no fragment chunks exist: the fragment marker
+  // module is a stub that renders each marker's fallback.
+  canvasImportMap.imports[${JSON.stringify(CANVAS_SDK_FRAGMENT_SPECIFIER)}] =
+    URL.createObjectURL(new Blob([${JSON.stringify(CANVAS_SDK_FRAGMENT_PREVIEW_SOURCE)}], { type: "text/javascript" }));
   var canvasImportMapTag = document.createElement("script");
   canvasImportMapTag.type = "importmap";
   canvasImportMapTag.textContent = JSON.stringify(canvasImportMap);

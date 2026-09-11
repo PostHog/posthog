@@ -5,8 +5,9 @@ import {
   type CanvasTextSelection,
   type CanvasTheme,
   canvasToHostMessageSchema,
+  type HostToCanvasMessage,
 } from "@posthog/core/canvas/freeformSchemas";
-import type { CanvasCapabilities } from "@posthog/shared";
+import type { CanvasCapabilities, CanvasFragmentMap } from "@posthog/shared";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
@@ -16,6 +17,18 @@ import { translateCanvasTextSelection } from "./canvasSelection";
 
 const log = logger.scope("built-canvas");
 const EMPTY_COMMENT_HIGHLIGHTS: CanvasCommentHighlight[] = [];
+
+function setFragmentsMessage(
+  fragments: BuiltCanvasFragments,
+): HostToCanvasMessage {
+  return {
+    channel: "posthog-canvas",
+    type: "set-fragments",
+    base: fragments.base,
+    fragments: fragments.fragments,
+    platformCss: fragments.platformCss,
+  };
+}
 
 function buildArtifactHostDocument(
   artifactUrl: string,
@@ -90,6 +103,15 @@ document.body.append(artifactFrame);
 </html>`;
 }
 
+/** A newer build's fragment chunks to swap into the mounted artifact. */
+export interface BuiltCanvasFragments {
+  /** Absolute artifact directory URL of the build the fragments come from. */
+  base: string;
+  fragments: CanvasFragmentMap;
+  /** Absolute URL of that build's platform stylesheet, when it has one. */
+  platformCss?: string;
+}
+
 export interface BuiltCanvasProps {
   artifactUrl: string;
   /** The published manifest's frozen capabilities. Missing manifests deny all
@@ -104,11 +126,17 @@ export interface BuiltCanvasProps {
    * actually loaded (an expired URL never gets this far). */
   onReady?: () => void;
   onRendered?: () => void;
+  /** A fragment chunk rendered in place of its marker's fallback. */
+  onFragmentRendered?: (path: string) => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
   onCommentActivate?: (id: string) => void;
   commentHighlights?: CanvasCommentHighlight[];
   clearTextSelectionKey?: number;
+  /** Fragments from a newer build with the same layout, sent over the port on
+   * change and once after the runtime posts "ready". The frame is not
+   * remounted, so the layout keeps its state. */
+  fragments?: BuiltCanvasFragments;
 }
 
 export function BuiltCanvas({
@@ -119,11 +147,13 @@ export function BuiltCanvas({
   onError,
   onReady,
   onRendered,
+  onFragmentRendered,
   onNavigate,
   onTextSelection,
   onCommentActivate,
   commentHighlights = EMPTY_COMMENT_HIGHLIGHTS,
   clearTextSelectionKey = 0,
+  fragments,
 }: BuiltCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // Mirrors the host's light/dark theme, like FreeformCanvas — sent over the
@@ -146,11 +176,13 @@ export function BuiltCanvas({
     onError,
     onReady,
     onRendered,
+    onFragmentRendered,
     onNavigate,
     theme,
     onTextSelection,
     onCommentActivate,
     commentHighlights,
+    fragments,
   });
   latest.current = {
     capabilities,
@@ -158,11 +190,13 @@ export function BuiltCanvas({
     onError,
     onReady,
     onRendered,
+    onFragmentRendered,
     onNavigate,
     theme,
     onTextSelection,
     onCommentActivate,
     commentHighlights,
+    fragments,
   };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new host document needs a fresh bridge even though the effect reads it only through the iframe.
@@ -188,9 +222,15 @@ export function BuiltCanvas({
             type: "set-comment-highlights",
             highlights: latest.current.commentHighlights,
           });
+          if (latest.current.fragments) {
+            artifactPortRef.current?.postMessage(
+              setFragmentsMessage(latest.current.fragments),
+            );
+          }
           latest.current.onReady?.();
         },
         onRendered: () => latest.current.onRendered?.(),
+        onFragmentRendered: (path) => latest.current.onFragmentRendered?.(path),
         onNavigate: (intent) => latest.current.onNavigate?.(intent),
         onTextSelection: (selection) => {
           if (!selection) {
@@ -278,6 +318,14 @@ export function BuiltCanvas({
       highlights: commentHighlights,
     });
   }, [commentHighlights]);
+
+  // A newer same-layout build: hand its chunks to the running document. Before
+  // the runtime is ready the port may be null or unstarted; onReady above
+  // re-sends the latest value, so nothing is lost.
+  useEffect(() => {
+    if (!fragments) return;
+    artifactPortRef.current?.postMessage(setFragmentsMessage(fragments));
+  }, [fragments]);
 
   useEffect(() => {
     if (clearTextSelectionKey === 0) return;

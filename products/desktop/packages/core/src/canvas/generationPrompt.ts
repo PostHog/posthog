@@ -73,6 +73,9 @@ export function buildCanvasGenerationPrompt(input: {
   channelName: string;
   templateId?: string;
   instruction: string;
+  // A hint only. The switch the skill obeys is `progressive_fragments_enabled`
+  // on the canvas API response, which the backend evaluates per team.
+  progressiveFragments?: boolean;
 }): string {
   // Only the legacy template ids name a layout the canvas skills define a shape
   // for. Every canvas created today is freeform, so passing that through would
@@ -81,6 +84,9 @@ export function buildCanvasGenerationPrompt(input: {
     input.templateId && input.templateId !== FREEFORM_TEMPLATE_ID
       ? `\n- requested pattern: "${escapeXmlAttr(input.templateId)}"`
       : "";
+  const fragments = input.progressiveFragments
+    ? `\n\nProgressive fragments: expected. Confirm with \`progressive_fragments_enabled\` on the canvas response, then follow the skill's "Progressive fragments" section: publish the layout with its markers first, then publish the fragments.`
+    : "";
 
   return `${input.instruction}
 
@@ -90,6 +96,6 @@ Invoke the \`building-canvases\` skill and follow it completely.
 Target:
 - canvas id: "${escapeXmlAttr(input.dashboardId)}"
 - canvas name: "${escapeXmlAttr(input.name)}"
-- channel: "${escapeXmlAttr(input.channelName)}"${template}
+- channel: "${escapeXmlAttr(input.channelName)}"${template}${fragments}
 </${CANVAS_INSTRUCTIONS_TAG}>`;
 }

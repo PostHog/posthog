@@ -60,14 +60,21 @@ function fakeApi(
 describe("DashboardsService.list", () => {
   it("maps API canvases to camelCase records", async () => {
     const { api, calls } = fakeApi({
-      "canvases/?channel=chan-1": [apiCanvas()],
+      "canvases/?channel=chan-1": [
+        apiCanvas(),
+        apiCanvas({ id: "c2", progressive_fragments_enabled: true }),
+      ],
     });
     const service = new DashboardsService(api);
 
     const rows = await service.list("chan-1");
 
     expect(calls[0].path).toBe("canvases/?channel=chan-1");
-    expect(rows).toHaveLength(1);
+    // A backend without the field reads as off.
+    expect(rows.map((row) => row.progressiveFragmentsEnabled)).toEqual([
+      false,
+      true,
+    ]);
     expect(rows[0]).toMatchObject({
       id: "c1",
       channelId: "chan-1",

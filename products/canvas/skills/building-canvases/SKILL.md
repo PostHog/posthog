@@ -142,6 +142,65 @@ canvas tools return (`canvas-create`, `canvas-list`, and the publish/source resp
 That field is the only valid link to a canvas — never construct one yourself; guessed URLs
 (project pages, web routes) do not resolve.
 
+## Progressive fragments
+
+Progressive fragments let a canvas appear one panel at a time.
+The layout goes live first with placeholders, and each panel replaces its placeholder as soon as its own build is ready.
+
+The switch is the `progressive_fragments_enabled` field on the canvas.
+`canvas-create` returns it on the new canvas, and `canvas-source-retrieve` returns it under `canvas` for an existing one.
+Read it before you write the first file.
+
+The files are the same in both cases: a layout with `<CanvasFragment>` markers, shared modules under `src/shared/`, and one component file per panel under `src/fragments/`.
+The field decides only how the canvas is built and published.
+
+- `true`: publish progressively. Publish the layout first, then the fragments in batches, and follow the build order below.
+- `false`: publish once, with every file in the same publish. The builder bundles each fragment into the layout, and each marker renders its component directly. Do not split the work into several publishes.
+
+Do not decide this from the size or the shape of the request.
+A task line such as `Progressive fragments: expected.` is a hint from the host; the API field wins when they disagree.
+
+### Authoring model
+
+- **Layout**: the normal entry (`index.html` and `src/canvas.tsx`). Any layout, no grid.
+- **Shared modules**: every file under `src/shared/**`. The layout owns one instance of each; fragments import them and get the same instance. Put stores, contexts, and utilities that more than one panel reads here.
+- **Fragments**: every file `src/fragments/<name>.tsx` (also `.jsx`, `.ts`, `.js`; nested directories are fine). Each fragment is one independent chunk and must `export default` a React component. A fragment may import bare dependencies, `../shared/*`, and private files that live outside `src/shared/` and `src/fragments/`.
+- **Marker**: in the layout, `import { CanvasFragment } from "@posthog/canvas-sdk/fragment"` and place `<CanvasFragment path="fragments/revenue-chart" fallback={<Skeleton />} props={{ range }} />` where the panel goes. `path` is the file path relative to `src/` without the extension. `fallback` renders until the fragment is loaded. `props` are passed to the fragment component.
+
+Rules:
+
+- A fragment must not import another fragment. Validation reports `fragment_imports_fragment`.
+- Shared state lives in `src/shared`. A fragment that needs a value from another panel reads it from a shared store, never from the other fragment.
+- A marker whose fragment file does not exist yet is not an error. It renders its `fallback` and counts as pending. Validation lists these in the `fragment_marker_without_file` warning.
+- Give the `fallback` the final panel's size (a skeleton with the same height) so the layout does not jump when the fragment lands.
+- A fragment that throws while it renders shows its `fallback`; the other panels keep running. The host reports the error as `Fragment fragments/<name>: <message>`. Fix that one file and publish it.
+- For typed props, `export type Props = { ... }` from the fragment and `import type { Props } from "./fragments/<name>"` in the layout. A type-only import is erased at build time, so it does not bundle the fragment into the layout.
+
+### Build order
+
+1. Publish the layout first: the entry, the `src/shared/**` modules, and every marker with its fallback. Do not include any fragment file yet.
+2. Wait for that build to reach `ready`. Read the build's `manifest` from `canvas-builds-retrieve`. `manifest.fragments` is present (an empty object counts) when the feature is active. If it is absent, the flag changed since you read the canvas; stop and finish the canvas with one publish that includes every fragment file (see "Feature flag" below).
+3. Add fragments in small batches (two or three files) and publish after each batch with `canvas-edit-create`. Wait for each build to reach `ready` before the next publish; the queue drops older queued builds when a newer publish arrives, so back-to-back publishes waste work.
+4. After each build, read `manifest.pendingFragments`. It lists the markers that still have no fragment. Continue until it is empty.
+5. Finish when `manifest.pendingFragments` is empty and the last build is `ready`.
+
+A fragment publish that keeps the layout files unchanged swaps into the open canvas without a reload.
+A publish that changes the layout, a shared module, or `dependencies` reloads the whole canvas; that is expected, so keep layout edits to the first publish where you can.
+
+### Change one panel
+
+To change one panel of an existing canvas, edit only its fragment file with `canvas-edit-create` and publish.
+The build emits every fragment again, but the open canvas re-imports only the chunk whose content changed; the other panels keep their mounted components and their local state.
+A fragment is a plain React component, so to reuse a panel in another canvas, read the source of the first canvas with `canvas-source-retrieve` and write the fragment file, plus the `src/shared/` files it imports, into the second canvas.
+
+### Feature flag
+
+Fragments load progressively only when the team has the `canvas-progressive-fragments` flag.
+The backend evaluates the flag and reports the result as `progressive_fragments_enabled` on the canvas, so the API field is your source of truth.
+Without the flag, the builder bundles every file under `src/fragments/**` into the layout, each marker renders its component directly, and `manifest.fragments` is absent.
+As a safety check, read `manifest.fragments` after the first build.
+If it is absent, finish with one publish that includes every fragment file.
+
 ## Runtime memory and actions
 
 - **`ph.state`** — durable key-value memory: `ph.state.get(key, { scope })`,

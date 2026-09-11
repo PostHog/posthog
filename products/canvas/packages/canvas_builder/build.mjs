@@ -20,6 +20,89 @@ const csp = contract.csp
 // dependency; the preview sandbox serves the same source from a blob.
 const canvasSdkSpecifier = '@posthog/canvas-sdk'
 const canvasSdkModule = readFileSync(new URL('./canvas-sdk.mjs', import.meta.url), 'utf8')
+// Progressive fragments: the layout owns one instance of every shared module
+// and publishes it on globalThis; each fragment chunk reads those instances
+// through a shim instead of bundling its own copy. The marker component is a
+// builder-provided module compiled in the author namespace so `react` resolves
+// against the declared dependency. A build without progressive fragments
+// bundles every fragment file into the layout and each marker renders its
+// component directly, so one source works with either build mode. Only the
+// preview document, which has no builder, renders every marker's fallback.
+const fragmentSdkSpecifier = '@posthog/canvas-sdk/fragment'
+const inlineFragmentsSpecifier = 'canvas-fragments-inline'
+// A panel that throws shows its fallback and reports the error; the rest of
+// the canvas keeps running. `resetKey` is the loaded component, so the error
+// clears only when a newer build's component is in hand, not when its chunk is
+// still loading and the old one would throw again. reportError reaches the
+// runtime's window error listener, which posts it to the host.
+const fragmentBoundarySource = `class FragmentBoundary extends React.Component {
+    state = { error: null }
+    static getDerivedStateFromError(error) {
+        return { error }
+    }
+    componentDidCatch(error) {
+        reportError(error instanceof Error ? new Error('Fragment ' + this.props.path + ': ' + error.message, { cause: error }) : error)
+    }
+    componentDidUpdate(previous) {
+        if (this.state.error && previous.resetKey !== this.props.resetKey) this.setState({ error: null })
+    }
+    render() {
+        return this.state.error ? this.props.fallback : this.props.children
+    }
+}
+`
+const inlineFragmentSdkModule = `import React from 'react'
+import components from '${inlineFragmentsSpecifier}'
+${fragmentBoundarySource}
+export function CanvasFragment({ path, fallback = null, props }) {
+    const Component = components[path]
+    if (!Component) return fallback
+    return (
+        <FragmentBoundary path={path} fallback={fallback}>
+            <Component {...(props ?? {})} />
+        </FragmentBoundary>
+    )
+}
+`
+const fragmentSdkModule = `import React, { useEffect, useState } from 'react'
+const registry = globalThis.__posthogCanvasFragments ?? { base: '', fragments: {}, subscribe: () => () => {}, report() {}, error() {} }
+${fragmentBoundarySource}
+export function CanvasFragment({ path, fallback = null, props }) {
+    const [entry, setEntry] = useState(() => registry.fragments[path])
+    useEffect(() => registry.subscribe(() => setEntry(registry.fragments[path])), [path])
+    const [Loaded, setLoaded] = useState(null)
+    useEffect(() => {
+        if (!entry) {
+            setLoaded(null)
+            return
+        }
+        let live = true
+        import(new URL(entry.file, registry.base).href)
+            .then((m) => {
+                if (live) {
+                    setLoaded(() => m.default)
+                    registry.report(path)
+                }
+            })
+            .catch((error) => registry.error(path, error))
+        return () => {
+            live = false
+        }
+    // Keyed on the content hash, not the URL: every build serves the chunk from
+    // its own base, so an unchanged fragment must keep its mounted component.
+    }, [path, entry?.contentHash])
+    if (!Loaded) return fallback
+    return (
+        <FragmentBoundary path={path} fallback={fallback} resetKey={Loaded}>
+            <Loaded {...(props ?? {})} />
+        </FragmentBoundary>
+    )
+}
+`
+const sharedDirectory = 'src/shared/'
+const fragmentsDirectory = 'src/fragments/'
+const codeExtensions = ['.ts', '.tsx', '.js', '.jsx']
+const fragmentMarker = /<CanvasFragment\b[^>]*\bpath\s*=\s*["']([^"']+)["']/g
 const builderDirectory = path.dirname(fileURLToPath(import.meta.url))
 const builderRequire = createRequire(import.meta.url)
 const htmlTag = /<(script|link)\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi
@@ -230,6 +313,12 @@ const selectionRuntime = `(()=>{const channel="posthog-canvas";let port,timer=0,
 const highlightRuntime = `(()=>{const channel="posthog-canvas",style=document.createElement("style");style.textContent="::highlight(posthog-canvas-comment){background:rgba(250,204,21,.32);color:inherit}::highlight(posthog-canvas-comment-active){background:rgba(250,204,21,.48);color:inherit}";document.head.appendChild(style);let items=[],ranges=[],port,timer=0;const indexText=()=>{const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT),entries=[];let text="";for(let node=walker.nextNode();node;node=walker.nextNode()){const start=text.length;text+=node.data;entries.push({node,start,end:text.length})}return{text,entries}},rangeAt=(index,start,end)=>{const find=offset=>{let low=0,high=index.entries.length-1,match=null;while(low<=high){const middle=low+high>>1,entry=index.entries[middle];if(offset<entry.start)high=middle-1;else if(offset>entry.end)low=middle+1;else{match=entry;high=middle-1}}return match},startEntry=find(start),endEntry=find(end);if(!startEntry||!endEntry)return null;const range=document.createRange();range.setStart(startEntry.node,start-startEntry.start);range.setEnd(endEntry.node,end-endEntry.start);return range},resolve=(text,anchor)=>{if(text.slice(anchor.start,anchor.end)===anchor.quote)return{start:anchor.start,end:anchor.end};const matches=[];for(let start=text.indexOf(anchor.quote);start>=0;start=text.indexOf(anchor.quote,start+Math.max(anchor.quote.length,1))){const end=start+anchor.quote.length,prefix=text.slice(Math.max(0,start-anchor.prefix.length),start),suffix=text.slice(end,end+anchor.suffix.length);matches.push({start,end,score:(anchor.prefix&&prefix===anchor.prefix?2:0)+(anchor.suffix&&suffix===anchor.suffix?2:0)})}if(matches.length===1)return matches[0];matches.sort((a,b)=>b.score-a.score);return matches[0]?.score&&matches[0].score!==matches[1]?.score?matches[0]:null},render=next=>{items=next||[];ranges=[];if(!window.Highlight||!window.CSS||!CSS.highlights)return;const normal=new Highlight,active=new Highlight,index=indexText();for(const item of items){const hit=resolve(index.text,item.anchor),range=hit&&rangeAt(index,hit.start,hit.end);if(range){ranges.push({id:item.id,range});(item.active?active:normal).add(range)}}CSS.highlights.set("posthog-canvas-comment",normal);CSS.highlights.set("posthog-canvas-comment-active",active)};addEventListener("message",event=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.addEventListener("message",event=>{if(event.data?.channel===channel&&event.data?.type==="set-comment-highlights")render(event.data.highlights)});port.start()});document.addEventListener("click",event=>{const selection=getSelection();if(selection&&!selection.isCollapsed)return;for(const item of ranges)for(const rect of item.range.getClientRects())if(event.clientX>=rect.left&&event.clientX<=rect.right&&event.clientY>=rect.top&&event.clientY<=rect.bottom){event.preventDefault();event.stopPropagation();port?.postMessage({channel,type:"comment-activate",id:item.id});return}},true);const observeBody=()=>new MutationObserver(()=>{if(!items.length||timer)return;timer=setTimeout(()=>{timer=0;render(items)},500)}).observe(document.body,{childList:true,characterData:true,subtree:true});document.body?observeBody():addEventListener("DOMContentLoaded",observeBody)})();`
 const keyboardRuntime = `(()=>{const channel="posthog-canvas";let port;addEventListener("message",event=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.start()});addEventListener("keydown",event=>{if(!port||!event.isTrusted||!event.metaKey&&!event.ctrlKey)return;port.postMessage({channel,type:"keydown",key:event.key,code:event.code,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey})})})();`
 // Selection and highlight runtimes extend the shared canvas bridge.
+// The fragment registry is baked per build: the host swaps in a newer build's
+// fragments over the port when the layout hash still matches, so the mounted
+// document keeps its state while fragment chunks (and the platform stylesheet
+// that scanned them) roll forward.
+const fragmentsRuntime = (fragments) =>
+    `(()=>{const channel="posthog-canvas",queued=[];let port;const post=message=>{const payload={channel,...message};if(port)port.postMessage(payload);else if(queued.length<256)queued.push(payload)};const registry={base:document.baseURI,fragments:${JSON.stringify(fragments)},listeners:new Set,subscribe(listener){registry.listeners.add(listener);return()=>registry.listeners.delete(listener)},report(path){post({type:"fragment-rendered",path})},error(path,error){post({type:"error",message:"Fragment "+path+": "+(error instanceof Error?error.message:String(error)),stack:error instanceof Error?error.stack:undefined})}};globalThis.__posthogCanvasFragments=registry;const swapStylesheet=href=>{const current=document.querySelector('link[rel="stylesheet"][href*="canvas-platform-"]');if(current&&current.href===href)return;const link=document.createElement("link");link.rel="stylesheet";link.href=href;if(current){link.addEventListener("load",()=>current.remove());current.after(link)}else document.head.appendChild(link)};const apply=({base,fragments,platformCss})=>{const next={};for(const [path,entry] of Object.entries(fragments??{})){if(entry&&typeof entry.file==="string")next[path]={file:new URL(entry.file,base).href,contentHash:entry.contentHash}}registry.fragments=next;if(typeof platformCss==="string")swapStylesheet(new URL(platformCss,base).href);for(const listener of registry.listeners)listener()};addEventListener("message",event=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.addEventListener("message",event=>{if(event.data?.channel===channel&&event.data?.type==="set-fragments")apply(event.data)});port.start();while(queued.length)port.postMessage(queued.shift())})})();`
 const platformStylesheet = `
 @import "tailwindcss";
 @import "@posthog/quill/tokens.css";
@@ -393,9 +482,17 @@ function validate(project) {
     return diagnostics
 }
 
-async function bundleEntry(project, entry) {
+// `shared` is the set of module keys a fragment chunk must read from the layout
+// instead of bundling (null for the layout build itself). The shim is CommonJS
+// on purpose: esbuild binds CommonJS exports at runtime, so no export list is
+// needed and CommonJS platform packages (react, react-dom) work like the ESM
+// ones. The layout marks each published namespace `__esModule` so a fragment's
+// default import reads the module's default export, not the namespace.
+function virtualFsPlugin(project, shared) {
     const files = project.files
-    const plugin = {
+    const reactDeclared = Object.hasOwn(project.dependencies, 'react')
+    const inlineFragments = project.progressiveFragments !== true
+    return {
         name: 'canvas-virtual-fs',
         setup(pluginBuild) {
             pluginBuild.onResolve({ filter: /.*/ }, async (args) => {
@@ -408,14 +505,39 @@ async function bundleEntry(project, entry) {
                 if (!['canvas', 'canvas-worker'].includes(args.namespace)) {
                     return undefined
                 }
+                if (shared?.has(args.path)) {
+                    return { path: args.path, namespace: 'canvas-shared' }
+                }
                 if (args.path === canvasSdkSpecifier) {
                     return { path: canvasSdkSpecifier, namespace: 'canvas-sdk' }
+                }
+                if (args.path === fragmentSdkSpecifier) {
+                    return reactDeclared
+                        ? { path: fragmentSdkSpecifier, namespace: 'canvas' }
+                        : { errors: [{ text: `import_not_declared: "${args.path}"` }] }
+                }
+                if (args.path === inlineFragmentsSpecifier && args.importer === fragmentSdkSpecifier) {
+                    return { path: inlineFragmentsSpecifier, namespace: 'canvas' }
                 }
                 if (args.path.startsWith('.') || args.path.startsWith('/')) {
                     const workerImport = args.path.endsWith('?worker')
                     const requestedPath = workerImport ? args.path.slice(0, -7) : args.path
                     const specifier = requestedPath.startsWith('/') ? `./${normalize(requestedPath)}` : requestedPath
                     const resolved = resolveFile(files, args.importer, specifier)
+                    if (resolved && shared) {
+                        if (shared.has(`./${resolved}`)) {
+                            return { path: `./${resolved}`, namespace: 'canvas-shared' }
+                        }
+                        if (resolved.startsWith(fragmentsDirectory) && args.importer.startsWith(fragmentsDirectory)) {
+                            return {
+                                errors: [
+                                    {
+                                        text: `fragment_imports_fragment: "${args.path}" is a fragment; import shared code from src/shared/ instead`,
+                                    },
+                                ],
+                            }
+                        }
+                    }
                     if (resolved) {
                         return { path: resolved, namespace: workerImport ? 'canvas-worker' : 'canvas' }
                     }
@@ -441,11 +563,20 @@ async function bundleEntry(project, entry) {
                 contents: canvasSdkModule,
                 loader: 'js',
             }))
-            pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas' }, (args) => ({
-                contents: files[args.path],
-                loader: loader(args.path),
-                resolveDir: '/',
+            pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas-shared' }, (args) => ({
+                contents: `const m=globalThis.__posthogCanvasModules?.[${JSON.stringify(args.path)}];if(!m)throw new Error(${JSON.stringify(`Canvas shared module ${args.path} is not loaded`)});module.exports=m`,
+                loader: 'js',
             }))
+            pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas' }, (args) => {
+                if (args.path === fragmentSdkSpecifier) {
+                    const contents = inlineFragments ? inlineFragmentSdkModule : fragmentSdkModule
+                    return { contents, loader: 'tsx', resolveDir: '/' }
+                }
+                if (args.path === inlineFragmentsSpecifier) {
+                    return { contents: inlineFragmentsModule(project), loader: 'js', resolveDir: '/' }
+                }
+                return { contents: files[args.path], loader: loader(args.path), resolveDir: '/' }
+            })
             pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas-asset' }, (args) => {
                 const asset = project.assets?.[args.path]
                 return asset
@@ -472,30 +603,206 @@ async function bundleEntry(project, entry) {
             })
         },
     }
-    return build({
-        entryPoints: [entry],
-        bundle: true,
-        write: false,
-        format: 'esm',
-        platform: 'browser',
-        target: 'es2022',
-        jsx: 'automatic',
-        minify: true,
-        sourcemap: false,
-        logLevel: 'silent',
-        outdir: 'out',
-        plugins: [plugin],
-    })
+}
+
+const bundleOptions = {
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    jsx: 'automatic',
+    minify: true,
+    sourcemap: false,
+    logLevel: 'silent',
+    outdir: 'out',
+}
+
+async function bundleEntry(project, entry) {
+    return build({ ...bundleOptions, entryPoints: [entry], plugins: [virtualFsPlugin(project, null)] })
 }
 
 function artifact(pathname, content) {
     return { path: pathname, content, contentHash: sha256(content), sizeBytes: Buffer.byteLength(content, 'utf8') }
 }
 
+function isCodeFile(file) {
+    return codeExtensions.includes(path.posix.extname(file))
+}
+
+// Manifest key of a fragment file: its path under src/ without the extension.
+function fragmentKey(file) {
+    return file.slice('src/'.length).replace(/\.[^./]+$/, '')
+}
+
+function relativeImport(fromDirectory, file) {
+    const relative = path.posix.relative(fromDirectory, file)
+    return relative.startsWith('.') ? relative : `./${relative}`
+}
+
+// Module keys a fragment reads from the layout: every declared platform
+// dependency (and its runtime entries), the SDK modules, and every shared file.
+function sharedModuleKeys(project, sharedFiles) {
+    const keys = [canvasSdkSpecifier]
+    for (const name of Object.keys(project.dependencies)) {
+        keys.push(name)
+        for (const runtimeImport of Object.keys(runtimeImports)) {
+            if (packageName(runtimeImport) === name) {
+                keys.push(runtimeImport)
+            }
+        }
+    }
+    if (Object.hasOwn(project.dependencies, 'react')) {
+        keys.push(fragmentSdkSpecifier)
+    }
+    for (const file of sharedFiles) {
+        keys.push(`./${file}`)
+    }
+    return keys
+}
+
+// The layout entry is wrapped so the shared module instances it bundles are
+// published before any fragment chunk loads. Imports keep the original entry's
+// evaluation order relative to the shared modules; the body runs after both.
+function layoutWrapperModule(wrapperPath, entry, keys) {
+    const directory = path.posix.dirname(wrapperPath)
+    const specifier = (key) => (key.startsWith('./') ? relativeImport(directory, key.slice(2)) : key)
+    const imports = keys.map((key, index) => `import * as m${index} from ${JSON.stringify(specifier(key))}`)
+    const entries = keys.map((key, index) => `${JSON.stringify(key)}:share(m${index})`)
+    return [
+        ...imports,
+        `import ${JSON.stringify(relativeImport(directory, entry))}`,
+        'const share = (m) => { const o = {}; for (const k of Object.keys(m)) Object.defineProperty(o, k, { get: () => m[k], enumerable: true }); Object.defineProperty(o, "__esModule", { value: true }); return o }',
+        `globalThis.__posthogCanvasModules = {${entries.join(',')}}`,
+    ].join('\n')
+}
+
+async function bundleFragments(project, fragmentFiles, shared) {
+    const result = await build({
+        ...bundleOptions,
+        entryPoints: fragmentFiles.map((file) => ({ in: file, out: fragmentKey(file) })),
+        metafile: true,
+        plugins: [virtualFsPlugin(project, shared)],
+    })
+    const outputs = new Map(
+        (result.outputFiles ?? []).map((output) => [path.relative(process.cwd(), output.path), output.text])
+    )
+    const fragments = {}
+    const files = []
+    for (const [outputPath, meta] of Object.entries(result.metafile.outputs)) {
+        if (!meta.entryPoint || !outputPath.endsWith('.js')) {
+            continue
+        }
+        const key = fragmentKey(meta.entryPoint.replace(/^canvas:/, ''))
+        const content = outputs.get(outputPath) ?? ''
+        const emitted = `${key}-${sha256(content).slice(0, 10)}.js`
+        const file = artifact(emitted, content)
+        files.push(file)
+        fragments[key] = { file: emitted, contentHash: file.contentHash }
+    }
+    return { fragments, files }
+}
+
+function scanFragmentMarkers(files) {
+    const markers = new Set()
+    for (const content of Object.values(files)) {
+        if (typeof content !== 'string') {
+            continue
+        }
+        for (const match of content.matchAll(fragmentMarker)) {
+            markers.add(match[1])
+        }
+    }
+    return [...markers].sort()
+}
+
+function failed(...diagnostics) {
+    return { contractVersion: 1, status: 'failed', diagnostics }
+}
+
+function fragmentFilesOf(project) {
+    return Object.keys(project.files)
+        .filter((file) => file.startsWith(fragmentsDirectory) && isCodeFile(file))
+        .sort()
+}
+
+// The module a non-progressive build hands to the marker component: every
+// fragment file imported statically, keyed by marker path. The importer has no
+// directory, so the relative specifiers resolve from the project root.
+function inlineFragmentsModule(project) {
+    const files = fragmentFilesOf(project)
+    const imports = files.map((file, index) => `import f${index} from ${JSON.stringify(`./${file}`)}`)
+    const entries = files.map((file, index) => `${JSON.stringify(fragmentKey(file))}: f${index}`)
+    return `${imports.join('\n')}\nexport default { ${entries.join(', ')} }\n`
+}
+
+// Splits the project into layout, shared, and fragment inputs, and injects the
+// layout wrapper. Returns diagnostics when the fragment set is unusable.
+function prepareFragments(project, html) {
+    const sharedFiles = Object.keys(project.files)
+        .filter((file) => file.startsWith(sharedDirectory) && isCodeFile(file))
+        .sort()
+    const fragmentFiles = fragmentFilesOf(project)
+    if (fragmentFiles.length > contract.limits.maxFragments) {
+        return {
+            diagnostics: [
+                diagnostic('too_many_fragments', `a canvas may contain at most ${contract.limits.maxFragments} fragments`),
+            ],
+        }
+    }
+    const keys = new Set(fragmentFiles.map(fragmentKey))
+    if (keys.size !== fragmentFiles.length) {
+        return {
+            diagnostics: [
+                diagnostic('duplicate_fragment', 'two fragment files share a name and differ only by extension'),
+            ],
+        }
+    }
+    const layoutReference = entryReferences(html).find(({ kind }) => kind === 'js')
+    if (!layoutReference) {
+        return { diagnostics: [diagnostic('no_entry_module', 'Canvas HTML references no module script', project.entryHtml)] }
+    }
+    const entry = normalize(layoutReference.reference)
+    if (!(entry in project.files)) {
+        return { diagnostics: [diagnostic('entry_not_found', `Canvas entry ${entry} does not exist`, project.entryHtml)] }
+    }
+    const wrapperPath = path.posix.join(path.posix.dirname(entry), 'canvas-layout-entry.tsx')
+    if (wrapperPath in project.files) {
+        return { diagnostics: [diagnostic('reserved_path', `${wrapperPath} is reserved for the canvas builder`, wrapperPath)] }
+    }
+    const shared = sharedModuleKeys(project, sharedFiles)
+    project.files[wrapperPath] = layoutWrapperModule(wrapperPath, entry, shared)
+    return {
+        html: rewriteEntryReferences(html, layoutReference.reference, `/${wrapperPath}`, 'js'),
+        wrapperPath,
+        fragmentFiles,
+        shared: new Set(shared),
+    }
+}
+
+const builderErrorCodes = new Set(['import_not_declared', 'fragment_imports_fragment'])
+
+function bundleFailure(error) {
+    const errors = error?.errors ?? []
+    return failed(
+        ...(errors.length
+            ? errors.slice(0, 500).map((entry) => {
+                  const code = entry.text.match(/^([a-z_]+): /)?.[1]
+                  return diagnostic(
+                      builderErrorCodes.has(code) ? code : 'bundle_error',
+                      entry.text,
+                      entry.location?.file?.replace(/^canvas:/, ''),
+                      entry.location?.line
+                  )
+              })
+            : [diagnostic('bundle_error', error instanceof Error ? error.message : String(error))])
+    )
+}
+
 async function buildCanvas(project) {
     const diagnostics = validate(project)
     if (diagnostics.length) {
-        return { contractVersion: 1, status: 'failed', diagnostics }
+        return failed(...diagnostics)
     }
     project = { ...project, files: { ...project.files }, dependencies: { ...project.dependencies } }
     let html = project.files[project.entryHtml]
@@ -515,33 +822,31 @@ async function buildCanvas(project) {
             project.dependencies[runtime] ??= admitted[runtime][0]
         }
     }
-    const refs = entryReferences(html)
+    let refs = entryReferences(html)
     if (!refs.length) {
-        return {
-            contractVersion: 1,
-            status: 'failed',
-            diagnostics: [
-                diagnostic(
-                    'no_entry_module',
-                    'Canvas HTML references no module scripts or stylesheets',
-                    project.entryHtml
-                ),
-            ],
+        return failed(
+            diagnostic('no_entry_module', 'Canvas HTML references no module scripts or stylesheets', project.entryHtml)
+        )
+    }
+    let progressive = null
+    if (project.progressiveFragments === true) {
+        progressive = prepareFragments(project, html)
+        if (progressive.diagnostics) {
+            return failed(...progressive.diagnostics)
         }
+        html = progressive.html
+        project.files[project.entryHtml] = html
+        refs = entryReferences(html)
     }
     const files = []
     let platformCss = ''
+    let fragmentsBuild = null
+    let layoutHash
     try {
         for (const { reference, kind } of refs) {
             const entry = normalize(reference)
             if (!(entry in project.files)) {
-                return {
-                    contractVersion: 1,
-                    status: 'failed',
-                    diagnostics: [
-                        diagnostic('entry_not_found', `Canvas entry ${entry} does not exist`, project.entryHtml),
-                    ],
-                }
+                return failed(diagnostic('entry_not_found', `Canvas entry ${entry} does not exist`, project.entryHtml))
             }
             const result = await bundleEntry(project, entry)
             let javascript = ''
@@ -551,7 +856,11 @@ async function buildCanvas(project) {
             }
             const content = kind === 'css' ? css : javascript
             const emitted = `assets/${path.posix.basename(entry).replace(/\.[^.]+$/, '')}-${sha256(content).slice(0, 10)}.${kind}`
-            files.push(artifact(emitted, content))
+            const layout = artifact(emitted, content)
+            files.push(layout)
+            if (entry === progressive?.wrapperPath) {
+                layoutHash = layout.contentHash
+            }
             html = rewriteEntryReferences(html, reference, `./${emitted}`, kind)
             if (kind === 'js' && css) {
                 const cssPath = `assets/${path.posix.basename(entry).replace(/\.[^.]+$/, '')}-${sha256(css).slice(0, 10)}.css`
@@ -562,36 +871,36 @@ async function buildCanvas(project) {
                     : `${stylesheet}${html}`
             }
         }
+        if (progressive) {
+            fragmentsBuild = await bundleFragments(project, progressive.fragmentFiles, progressive.shared)
+            files.push(...fragmentsBuild.files)
+        }
         platformCss = await buildPlatformStyles(project)
     } catch (error) {
-        const errors = error?.errors ?? []
-        return {
-            contractVersion: 1,
-            status: 'failed',
-            diagnostics: errors.length
-                ? errors
-                      .slice(0, 500)
-                      .map((entry) =>
-                          diagnostic(
-                              entry.text.startsWith('import_not_declared:') ? 'import_not_declared' : 'bundle_error',
-                              entry.text,
-                              entry.location?.file?.replace(/^canvas:/, ''),
-                              entry.location?.line
-                          )
-                      )
-                : [diagnostic('bundle_error', error instanceof Error ? error.message : String(error))],
-        }
+        return bundleFailure(error)
     }
     const cssPath = `assets/canvas-platform-${sha256(platformCss).slice(0, 10)}.css`
     files.push(artifact(cssPath, platformCss))
     const allowedNotebookFrames = project.capabilities?.posthog?.notebookFrames
     const notebookBridge = Array.isArray(allowedNotebookFrames) ? `\n${notebookRuntime(allowedNotebookFrames)}` : ''
+    const fragmentsBridge = fragmentsBuild ? `\n${fragmentsRuntime(fragmentsBuild.fragments)}` : ''
     files.push(
         artifact(
             runtimePath,
-            `${runtime}${notebookBridge}\n${selectionRuntime}\n${highlightRuntime}\n${keyboardRuntime}`
+            `${runtime}${notebookBridge}\n${selectionRuntime}\n${highlightRuntime}\n${keyboardRuntime}${fragmentsBridge}`
         )
     )
+    let fragmentsManifest = {}
+    if (fragmentsBuild) {
+        const markers = scanFragmentMarkers(project.files)
+        fragmentsManifest = {
+            fragments: fragmentsBuild.fragments,
+            markers,
+            pendingFragments: markers.filter((marker) => !Object.hasOwn(fragmentsBuild.fragments, marker)),
+            layoutHash,
+            platformCss: cssPath,
+        }
+    }
     const networkOrigins = project.capabilities?.network?.origins ?? []
     const externalSources = networkOrigins.join(' ')
     const projectCsp = externalSources
@@ -623,6 +932,7 @@ async function buildCanvas(project) {
         // holds a placed widget to the contract its build shipped with.
         ...(project.component ? { component: project.component } : {}),
         ...legacy,
+        ...fragmentsManifest,
     }
     return { contractVersion: 1, status: 'ready', diagnostics: [], manifest, files }
 }

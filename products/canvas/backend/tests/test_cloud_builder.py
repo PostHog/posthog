@@ -770,6 +770,146 @@ bridge.port1.close();
         javascript = next(file["content"] for file in result["files"] if file["path"].endswith(".js"))
         self.assertNotIn('from"dayjs"', javascript)
 
+    def _fragments_project(self, *, marker_paths: list[str] | None = None) -> dict[str, Any]:
+        markers = "".join(
+            f'<CanvasFragment path="{marker}" fallback={{<span>loading</span>}} props={{{{ range: 7 }}}} />'
+            for marker in marker_paths or ["fragments/revenue-chart", "fragments/nested/table"]
+        )
+        payload = synthetic_source_project(
+            'import React from "react"; import { CanvasFragment } from "@posthog/canvas-sdk/fragment"; '
+            'import { store } from "./shared/store"; '
+            f"export default function Canvas() {{ return <div>{{store.name}}{markers}</div> }}"
+        )
+        payload["files"]["src/shared/store.ts"] = 'export const store = { name: "shared" }'
+        payload["files"]["src/fragments/revenue-chart.tsx"] = (
+            'import React, { useState } from "react"; import { store } from "../shared/store"; '
+            'import { label } from "../lib/label"; '
+            "export default function Chart({ range }) { const [days] = useState(range); "
+            "return <div>{label(days)} {store.name}</div> }"
+        )
+        payload["files"]["src/fragments/nested/table.tsx"] = (
+            'import React from "react"; export default function Table() { return <table /> }'
+        )
+        payload["files"]["src/lib/label.ts"] = "export const label = (days: number) => `${days} days`"
+        payload["dependencies"] = {"react": "19.0.0", "react-dom": "19.0.0"}
+        payload["progressiveFragments"] = True
+        return payload
+
+    def test_progressive_fragments_build_shares_layout_modules_with_fragment_chunks(self) -> None:
+        payload = self._fragments_project(marker_paths=["fragments/revenue-chart", "fragments/missing"])
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        validate_builder_output(result)
+        self.assertEqual([item["code"] for item in validate_source_project(payload)], ["fragment_marker_without_file"])
+        manifest = result["manifest"]
+        chunks = {file["path"]: file["content"] for file in result["files"] if file["path"].startswith("fragments/")}
+        self.assertEqual(
+            {key: entry["file"] for key, entry in manifest["fragments"].items()},
+            {
+                "fragments/revenue-chart": next(path for path in chunks if path.startswith("fragments/revenue-chart-")),
+                "fragments/nested/table": next(path for path in chunks if path.startswith("fragments/nested/table-")),
+            },
+        )
+        self.assertEqual(manifest["markers"], ["fragments/missing", "fragments/revenue-chart"])
+        self.assertEqual(manifest["pendingFragments"], ["fragments/missing"])
+        layout = next(file for file in result["files"] if file["path"].startswith("assets/canvas-layout-entry-"))
+        self.assertEqual(manifest["layoutHash"], layout["contentHash"])
+        self.assertIn(manifest["platformCss"], {asset["path"] for asset in manifest["assets"]})
+        self.assertTrue(manifest["platformCss"].startswith("assets/canvas-platform-"))
+        # The layout bundles react once and publishes it; a fragment must read
+        # that instance through the shim rather than carry a second copy.
+        self.assertIn("react.production", layout["content"])
+        published = layout["content"].split("__posthogCanvasModules")[-1]
+        self.assertIn('"react/jsx-runtime":', published)
+        self.assertIn('"./src/shared/store.ts":', published)
+        chart = chunks[manifest["fragments"]["fragments/revenue-chart"]["file"]]
+        self.assertIn("__posthogCanvasModules", chart)
+        self.assertIn('["./src/shared/store.ts"]', chart)
+        self.assertNotIn("react.production", chart)
+        self.assertNotIn("shared", chart.split("__posthogCanvasModules")[0])
+        self.assertIn("days", chart)
+
+    def test_progressive_fragments_absent_bundles_fragments_into_the_layout(self) -> None:
+        payload = self._fragments_project()
+        del payload["progressiveFragments"]
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        validate_builder_output(result)
+        self.assertNotIn("fragments", result["manifest"])
+        self.assertNotIn("layoutHash", result["manifest"])
+        self.assertFalse([file for file in result["files"] if file["path"].startswith("fragments/")])
+        self.assertNotIn(
+            "__posthogCanvasFragments",
+            next(f["content"] for f in result["files"] if f["path"] == "assets/canvas-runtime.js"),
+        )
+        layout = next(f["content"] for f in result["files"] if f["path"].startswith("assets/canvas-"))
+        self.assertIn('"fragments/revenue-chart"', layout)
+        self.assertIn('"fragments/nested/table"', layout)
+        self.assertIn(" days", layout)
+        self.assertIn("getDerivedStateFromError", layout)
+        self.assertNotIn("__posthogCanvasModules", layout)
+
+    def test_progressive_fragment_importing_another_fragment_fails(self) -> None:
+        payload = self._fragments_project()
+        payload["files"]["src/fragments/nested/table.tsx"] = (
+            'import Chart from "../revenue-chart"; export default function Table() { return <Chart range={1} /> }'
+        )
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["diagnostics"][0]["code"], "fragment_imports_fragment")
+        self.assertEqual(result["diagnostics"][0]["path"], "src/fragments/nested/table.tsx")
+        self.assertEqual(
+            [item["code"] for item in validate_source_project(payload) if item["severity"] == "error"],
+            ["fragment_imports_fragment"],
+        )
+
+    @parameterized.expand(
+        [
+            ("fragments_not_a_dict", {"fragments": []}, "fragments manifest is invalid"),
+            ("fragment_key_outside_directory", {"fragments": {"assets/x": {}}}, "fragments manifest is invalid"),
+            (
+                "fragment_file_not_emitted",
+                {"fragments": {"fragments/x": {"file": "fragments/y.js", "contentHash": "0" * 64}}},
+                "missing file",
+            ),
+            (
+                "fragment_hash_mismatch",
+                {"fragments": {"fragments/x": {"file": "fragments/x.js", "contentHash": "0" * 64}}},
+                "hash does not match",
+            ),
+            ("markers_not_strings", {"markers": [1]}, "markers is invalid"),
+            ("layout_hash_not_sha256", {"layoutHash": "abc"}, "layoutHash is invalid"),
+            ("platform_css_not_emitted", {"platformCss": "assets/nope.css"}, "platformCss references a missing file"),
+        ]
+    )
+    def test_rejects_malformed_fragment_manifest_keys(self, _name: str, extra: dict[str, Any], message: str) -> None:
+        content = "x"
+        digest = hashlib.sha256(content.encode()).hexdigest()
+        files = [
+            {"path": "index.html", "content": content, "contentHash": digest, "sizeBytes": 1},
+            {"path": "fragments/x.js", "content": content, "contentHash": digest, "sizeBytes": 1},
+        ]
+        result = {
+            "contractVersion": 1,
+            "status": "ready",
+            "diagnostics": [],
+            "files": files,
+            "manifest": {
+                "entryHtml": "index.html",
+                "assets": [{"path": f["path"], "contentHash": digest, "sizeBytes": 1} for f in files],
+                **extra,
+            },
+        }
+
+        with self.assertRaisesMessage(ValueError, message):
+            validate_builder_output(result)
+
     def test_source_contract_rejects_active_or_malformed_assets(self) -> None:
         for content, content_type in (("%%%", "image/png"), ("PGgxLz4=", "text/html")):
             payload = self._project("")

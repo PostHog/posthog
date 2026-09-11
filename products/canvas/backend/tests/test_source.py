@@ -299,6 +299,50 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         self.assertTrue(has_errors(diagnostics), diagnostics)
         self.assertIn("connector_results_in_shared_state", [d["code"] for d in diagnostics])
 
+    @parameterized.expand(
+        [
+            ("sibling_fragment", 'import Chart from "./chart";\n', ["fragment_imports_fragment"]),
+            (
+                "nested_fragment_by_extension",
+                'import Chart from "../fragments/nested/grid.tsx";\n',
+                ["fragment_imports_fragment"],
+            ),
+            (
+                "shared_and_private_files",
+                'import { store } from "../shared/store";\nimport { fmt } from "../lib/fmt";\n',
+                [],
+            ),
+        ]
+    )
+    def test_fragment_imports_stay_within_shared_and_private_code(self, _name, import_line, expected_codes):
+        candidate = project(
+            files={
+                CANVAS_COMPONENT_PATH: CODE,
+                "src/fragments/table.tsx": import_line + CODE,
+                "src/fragments/chart.tsx": CODE,
+                "src/fragments/nested/grid.tsx": CODE,
+                "src/shared/store.ts": "export const store = {};",
+                "src/lib/fmt.ts": "export const fmt = (n) => n;",
+            }
+        )
+        diagnostics = validate_source_project(candidate)
+        self.assertEqual([d["code"] for d in diagnostics], expected_codes)
+
+    def test_fragment_marker_without_file_warns_but_stays_publishable(self):
+        marker = '<CanvasFragment path="fragments/revenue" fallback={null} />'
+        candidate = project(
+            files={
+                CANVAS_COMPONENT_PATH: 'import { CanvasFragment } from "@posthog/canvas-sdk/fragment";\n'
+                + CODE.replace("<div>hi</div>", f"<div>{marker}<CanvasFragment path='fragments/table' /></div>"),
+                "src/fragments/table.tsx": CODE,
+            }
+        )
+        diagnostics = validate_source_project(candidate)
+        self.assertFalse(has_errors(diagnostics))
+        self.assertEqual([d["code"] for d in diagnostics], ["fragment_marker_without_file"])
+        self.assertIn("fragments/revenue", diagnostics[0]["message"])
+        self.assertNotIn("fragments/table", diagnostics[0]["message"])
+
     def test_direct_network_calls_warn_but_stay_publishable(self):
         candidate = project(files={CANVAS_COMPONENT_PATH: CODE + "fetch(dynamicUrl);"})
         diagnostics = validate_source_project(candidate)

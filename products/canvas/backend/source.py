@@ -12,6 +12,7 @@ can be exercised without a database and shared with the build worker.
 
 import re
 import json
+import posixpath
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -185,6 +186,13 @@ _PH_CONNECTORS_CALL_RE = re.compile(
 )
 
 _PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@-]+$")
+
+# Progressive fragments: every code file under src/fragments/ builds as its own
+# chunk, so a fragment importing another fragment would bundle a second copy.
+# The marker regex mirrors the builder's static scan.
+_FRAGMENTS_DIRECTORY = "src/fragments/"
+_FRAGMENT_MARKER_RE = re.compile(r"<CanvasFragment\b[^>]*\bpath\s*=\s*[\"']([^\"']+)[\"']")
+_MODULE_EXTENSIONS = ("", *_CODE_EXTENSIONS)
 
 
 def diagnostic(
@@ -762,6 +770,55 @@ def validate_component_meta(project: dict[str, Any], kind: str) -> list[dict[str
     return diagnostics
 
 
+def _resolve_relative_import(importer: str, specifier: str, files: dict[str, Any]) -> str | None:
+    base = posixpath.normpath(posixpath.join(posixpath.dirname(importer), specifier))
+    for extension in _MODULE_EXTENSIONS:
+        if base + extension in files:
+            return base + extension
+    return None
+
+
+def _validate_fragment_imports(path: str, code: str, files: dict[str, Any]) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
+    for match in _STATIC_IMPORT_RE.finditer(code):
+        specifier = match.group(1) or match.group(2)
+        if not specifier or not specifier.startswith(("./", "../")):
+            continue
+        resolved = _resolve_relative_import(path, specifier, files)
+        if resolved is not None and resolved.startswith(_FRAGMENTS_DIRECTORY):
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "fragment_imports_fragment",
+                    f'"{specifier}" is a fragment — move code both fragments need to src/shared/ and import it from there',
+                    path=path,
+                    line=_line_of(code, match.start()),
+                )
+            )
+    return diagnostics
+
+
+def _validate_fragment_markers(files: dict[str, Any]) -> list[dict[str, Any]]:
+    fragments = {
+        posixpath.splitext(path[len("src/") :])[0]
+        for path in files
+        if path.startswith(_FRAGMENTS_DIRECTORY) and path.endswith(_CODE_EXTENSIONS)
+    }
+    pending: set[str] = set()
+    for path, content in files.items():
+        if isinstance(content, str) and path.endswith(_CODE_EXTENSIONS):
+            pending.update(marker for marker in _FRAGMENT_MARKER_RE.findall(content) if marker not in fragments)
+    if not pending:
+        return []
+    return [
+        diagnostic(
+            "warning",
+            "fragment_marker_without_file",
+            "these fragments render their fallback until the file exists under src/: " + ", ".join(sorted(pending)),
+        )
+    ]
+
+
 def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") -> list[dict[str, Any]]:
     """Validate a candidate source project against the platform contract.
 
@@ -905,5 +962,8 @@ def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") 
             diagnostics.extend(_validate_code_file(path, content))
             diagnostics.extend(_validate_capabilities(path, content, capabilities))
             diagnostics.extend(_validate_connector_calls(path, content, capabilities))
+            if path.startswith(_FRAGMENTS_DIRECTORY):
+                diagnostics.extend(_validate_fragment_imports(path, content, files))
+    diagnostics.extend(_validate_fragment_markers(files))
 
     return diagnostics

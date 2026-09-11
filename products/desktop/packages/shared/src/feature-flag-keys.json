@@ -4,6 +4,7 @@
   "BACKGROUND_AGENT_LOGS_FLAG": "posthog-code-background-agent-logs",
   "BEDROCK_LLM_GATEWAY_FLAG": "bedrock-llm-gateway",
   "BILLING_FLAG": "posthog-code-billing",
+  "CANVAS_PROGRESSIVE_FRAGMENTS_FLAG": "canvas-progressive-fragments",
   "CHANNEL_REPORTS_FLAG": "posthog-desktop-channel-reports",
   "CHANNELS_LAYOUT_FLAG": "code-spaces-layout",
   "CLAUDE_OWN_SUBSCRIPTION_FLAG": "posthog-code-claude-own-subscription",

@@ -24,7 +24,14 @@ tools:
             recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish queues
             a build; poll this until the build you queued is terminal — `ready` (the live pointer advances) or `failed`
             (fix the error diagnostics and publish again; the last good build stays live). Do not finish a canvas task
-            while its build is still queued or building.
+            while its build is still queued or building. Each build carries its `manifest`. When the team has
+            progressive fragments, the manifest also has `manifest.markers` (every `<CanvasFragment path>` in the
+            layout), `manifest.fragments` (the built fragment chunks, keyed by path), `manifest.pendingFragments`
+            (markers with no fragment file yet; publish fragments until it is empty), and `manifest.layoutHash` (when
+            two builds have the same hash, the host swaps the new fragments into the open canvas without a reload). If
+            `manifest.fragments` is absent after a publish with markers, the team's flag changed since you read the
+            canvas; finish with a single publish. The building-canvases skill, section "Progressive fragments",
+            describes the authoring model and the build order.
         param_overrides:
             id:
                 description: ID of the canvas whose builds to read.
@@ -60,7 +67,9 @@ tools:
             Create a new, empty canvas in a channel. Returns the canvas's id and (null) `current_version_id`; give it
             source by publishing a project with canvas-publish-create. Only create a canvas when no existing one is the
             intended target — list them with canvas-list first. The response's `url` is the canvas's only valid link —
-            share it verbatim when pointing the user at the canvas; never construct a canvas URL yourself.
+            share it verbatim when pointing the user at the canvas; never construct a canvas URL yourself. The
+            response's `progressive_fragments_enabled` decides whether to publish the layout first and the fragments
+            after (true) or everything at once (false); see the building-canvases skill. Do not decide from the request.
         param_overrides:
             channel_id:
                 description:
@@ -344,7 +353,9 @@ tools:
             the returned files, then publish the complete project with canvas-publish-create, passing the
             `current_version_id` you read as `expected_current_version_id` so concurrent edits are not overwritten.
             Canvases that predate multi-file projects are presented as a synthetic project whose `src/canvas.tsx` holds
-            the React component.
+            the React component. `canvas.progressive_fragments_enabled` decides whether to publish the layout first and
+            the fragments after (true) or everything at once (false); see the building-canvases skill. Do not decide
+            from the request.
         param_overrides:
             id:
                 description: ID of the canvas whose source to read.

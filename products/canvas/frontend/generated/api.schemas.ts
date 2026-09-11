@@ -173,6 +173,8 @@ export interface CanvasApi {
     readonly updated_at: string
     /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
     readonly url: string
+    /** Whether builds of this canvas emit progressive fragments. The files are the same either way: a layout with <CanvasFragment> markers and one component file per panel under src/fragments/. True: publish the layout first, then the fragments in batches. False: publish everything once; the builder bundles each fragment into the layout. This value is the switch; do not decide from the request. */
+    readonly progressive_fragments_enabled: boolean
 }
 
 export interface PaginatedCanvasListApi {
@@ -858,6 +860,8 @@ export interface CanvasSummaryApi {
     created_at: string
     /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
     readonly url: string
+    /** Whether builds of this canvas emit progressive fragments. The files are the same either way: a layout with <CanvasFragment> markers and one component file per panel under src/fragments/. True: publish the layout first, then the fragments in batches. False: publish everything once; the builder bundles each fragment into the layout. This value is the switch; do not decide from the request. */
+    readonly progressive_fragments_enabled: boolean
 }
 
 /**
