@@ -10,10 +10,7 @@ import {
 /** Minutes between runs for a suggestion that names no schedule of its own. */
 export const DEFAULT_SUGGESTION_INTERVAL_MINUTES = 1440;
 
-/**
- * How often the suggested agent would run, in the roster's own words. A schedule that picks hours
- * of the day takes the project timezone, the timezone the run resolves in.
- */
+/** How often the suggested agent would run, in the roster's own words and project timezone. */
 export function suggestionCadenceLabel(
   config: ScoutSuggestionProposedConfig,
   timezoneAbbreviation?: string | null,

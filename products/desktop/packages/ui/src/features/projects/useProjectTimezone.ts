@@ -1,10 +1,7 @@
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useAuthStateValue } from "../auth/store";
 
-/**
- * The project's IANA timezone, or null while it is unknown. Scout cron schedules resolve in it,
- * so any surface that prints a clock time needs it to say which timezone that time is in.
- */
+/** The project's IANA timezone, or null while it is unknown. Scout cron schedules resolve in it. */
 export function useProjectTimezone(): string | null {
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const { data } = useAuthenticatedQuery<string | null>(
@@ -17,9 +14,8 @@ export function useProjectTimezone(): string | null {
     {
       enabled: !!projectId,
       staleTime: Number.POSITIVE_INFINITY,
-      // A project changes timezone about never, so it is held for the session. "always" beats
-      // the infinite stale time, which a plain focus refetch obeys — without it a user who
-      // follows the label to settings and changes the timezone comes back to the old one.
+      // "always" is what beats the infinite stale time; a plain focus refetch obeys it, and
+      // would leave a user who just changed the setting looking at the old timezone.
       refetchOnWindowFocus: "always",
     },
   );

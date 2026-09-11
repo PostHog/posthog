@@ -14,9 +14,8 @@ import { formatTimezoneAbbreviation } from "@posthog/ui/primitives/timezone";
 import { projectTimezoneSettingsUrl } from "@posthog/ui/utils/posthogLinks";
 
 /**
- * How often the scout runs. A schedule that picks hours of the day carries the project timezone
- * next to it, because the coordinator resolves the schedule in that timezone. Without it, a
- * reader in another timezone reads the time as their own and thinks the scout runs late.
+ * How often the scout runs, with the project timezone beside a schedule that picks hours of the
+ * day: without it a reader in another timezone takes the time for their own.
  */
 export function ScoutCadenceLabel({ config }: { config: ScoutConfig }) {
   const timezone = useProjectTimezone();
@@ -24,8 +23,7 @@ export function ScoutCadenceLabel({ config }: { config: ScoutConfig }) {
   const label = formatScoutScheduleShort(config);
   if (!settingsUrl || !scoutScheduleNamesClockTime(config)) return <>{label}</>;
 
-  // The timezone is still loading, or its request failed. Say the time belongs to the project
-  // either way, so nobody takes an unqualified time for their own.
+  // Still loading, or the request failed: a clock time is qualified either way.
   const suffix = timezone
     ? formatTimezoneAbbreviation(timezone)
     : "project timezone";
@@ -43,8 +41,7 @@ export function ScoutCadenceLabel({ config }: { config: ScoutConfig }) {
               <button
                 type="button"
                 className="appearance-none border-0 bg-transparent p-0 text-gray-10 underline decoration-dotted underline-offset-2"
-                // The row and the card around this label carry their own click targets, so the
-                // settings hop stops here rather than opening the scout as well.
+                // The row and card around this label carry their own click targets.
                 onClick={(event) => {
                   event.stopPropagation();
                   window.open(settingsUrl, "_blank", "noreferrer");

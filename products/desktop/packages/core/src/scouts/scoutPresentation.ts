@@ -1002,9 +1002,7 @@ export function formatScoutScheduleShort(config: ScoutScheduleFields): string {
 
 /**
  * Whether the schedule picks hours of the day, and so needs the project timezone said next to it.
- * A stepped hour field counts: it anchors on midnight in the project timezone, so it lands on
- * other hours elsewhere. Only a cron that runs in every hour, and a rolling cadence, read the
- * same in any timezone.
+ * A stepped hour field counts, because it anchors on midnight in the project timezone.
  */
 export function scoutScheduleNamesClockTime(
   config: ScoutScheduleFields,
