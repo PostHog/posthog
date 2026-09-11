@@ -7,3 +7,4 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 @config.config
 class AppfiguresSourceConfig(config.Config):
     personal_access_token: str
+    aso_countries: str | None = None
