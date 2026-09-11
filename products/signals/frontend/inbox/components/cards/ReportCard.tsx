@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconHide, IconUndo } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -132,7 +132,7 @@ export function ReportCard({
     /** Onboarding sample: render as a static card with no detail link and no focusable actions, so its
      * placeholder report id can never be opened (it 404s). */
     preview?: boolean
-    /** Offer multi-select on this row: the gutter checkbox, press and hold, and modifier clicks. */
+    /** Offer multi-select on this row: press and hold and modifier clicks. */
     selectable?: boolean
 }): JSX.Element {
     // Keyed on status, not the section: the legacy Archive tab lists dismissed and resolved rows
@@ -159,14 +159,10 @@ export function ReportCard({
         redesign ? 'reports' : INBOX_SECTION_LEGACY_TAB[sectionKey]
     )
 
-    const {
-        isSelected,
-        selectionMode,
-        isHolding,
-        selectionDisabled,
-        toggle: toggleSelection,
-        cardHandlers,
-    } = useReportCardSelection(report.id, selectable && !preview && !isResolved)
+    const { isSelected, isHolding, cardHandlers } = useReportCardSelection(
+        report.id,
+        selectable && !preview && !isResolved
+    )
 
     const { isDismissing, onDismissClick } = useReportDismiss({
         reportId: report.id,
@@ -298,22 +294,6 @@ export function ReportCard({
             )}
         >
             <div className="relative flex min-w-0 flex-1">
-                {selectable && !preview && !isResolved && (
-                    <div
-                        className={clsx(
-                            'mr-3 flex shrink-0 items-start pt-0.5 transition-opacity',
-                            selectionMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
-                        )}
-                    >
-                        <LemonCheckbox
-                            checked={isSelected}
-                            disabledReason={selectionDisabled ? 'Wait for the bulk action to finish' : undefined}
-                            onChange={() => toggleSelection('checkbox')}
-                            label={<span className="sr-only">Select report: {cardTitle}</span>}
-                            data-attr="inbox-report-select"
-                        />
-                    </div>
-                )}
                 {hasPr && prNumber != null ? (
                     <div className="absolute right-0 top-0 z-10">
                         <PrBadge
