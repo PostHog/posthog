@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+import { useState } from 'react'
 
 import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
@@ -7,6 +8,7 @@ import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
+import { normalizeCSSValue } from 'scenes/surveys/utils'
 import { ColorInput } from 'scenes/surveys/wizard/ColorInput'
 
 import { SurveyAppearance, SurveyPosition, SurveyType, SurveyWidgetType } from '~/types'
@@ -59,6 +61,8 @@ interface SurveyAppearanceInputProps {
     placeholder?: string
     disabledReason?: string | null
     inputType?: 'text' | 'color'
+    /** Cleans a pasted declaration up when the edit ends. Only for fields that hold a CSS value. */
+    isCSSValue?: boolean
 }
 
 function SurveyAppearanceInput({
@@ -70,30 +74,57 @@ function SurveyAppearanceInput({
     placeholder,
     disabledReason,
     inputType = 'text',
+    isCSSValue = false,
 }: SurveyAppearanceInputProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const disabled = !surveysStylingAvailable || !!disabledReason
+    // A half-typed CSS value is invalid on almost every keystroke, so wait for blur to report it.
+    const [isEditing, setIsEditing] = useState(false)
 
+    function onValueChange(newValue: string): void {
+        setIsEditing(true)
+        onChange(newValue)
+    }
+
+    function onEditingDone(): void {
+        setIsEditing(false)
+        if (!isCSSValue) {
+            return
+        }
+        const normalizedValue = normalizeCSSValue(value)
+        if (normalizedValue !== undefined && normalizedValue !== value) {
+            onChange(normalizedValue)
+        }
+    }
+
+    // Enter submits the survey form and keeps the focus, so it must also end the edit.
+    // Do not blur the field instead: that moves the focus and cancels the submission.
     return (
         <LemonField.Pure label={label} className="flex-1 gap-1" info={info}>
             {inputType === 'color' ? (
                 <ColorInput
                     value={value}
-                    onChange={onChange}
+                    onChange={onValueChange}
+                    onFocus={() => setIsEditing(true)}
+                    onBlur={onEditingDone}
+                    onPressEnter={onEditingDone}
                     disabled={disabled}
                     disabledReason={disabledReason || undefined}
                 />
             ) : (
                 <LemonInput
                     value={value}
-                    onChange={onChange}
+                    onChange={onValueChange}
+                    onFocus={() => setIsEditing(true)}
+                    onBlur={onEditingDone}
+                    onPressEnter={onEditingDone}
                     disabled={disabled}
                     className={IGNORE_ERROR_BORDER_CLASS}
                     placeholder={placeholder}
                     disabledReason={disabledReason || undefined}
                 />
             )}
-            {error && <LemonField.Error error={error} />}
+            {error && !isEditing && <LemonField.Error error={error} />}
         </LemonField.Pure>
     )
 }
@@ -120,6 +151,7 @@ export function SurveyContainerAppearance({
                     disabledReason={disabledReason}
                     label="Survey width"
                     info="Min-width is always set to 300px"
+                    isCSSValue
                 />
                 <SurveyAppearanceInput
                     value={appearance.boxPadding}
@@ -127,6 +159,7 @@ export function SurveyContainerAppearance({
                     error={validationErrors?.boxPadding}
                     disabledReason={disabledReason}
                     label="Box padding"
+                    isCSSValue
                 />
                 <SurveyAppearanceInput
                     value={appearance.borderRadius}
@@ -134,6 +167,7 @@ export function SurveyContainerAppearance({
                     error={validationErrors?.borderRadius}
                     disabledReason={disabledReason}
                     label="Border radius"
+                    isCSSValue
                 />
                 <SurveyAppearanceInput
                     value={appearance.boxShadow}
@@ -141,6 +175,7 @@ export function SurveyContainerAppearance({
                     error={validationErrors?.boxShadow}
                     disabledReason={disabledReason}
                     label="Box shadow"
+                    isCSSValue
                 />
                 <LemonField.Pure
                     label="Font family"
@@ -166,6 +201,7 @@ export function SurveyContainerAppearance({
                     disabledReason={disabledReason}
                     label="z-index"
                     info="If the survey popup is hidden, set this value higher than the overlapping element's zIndex."
+                    isCSSValue
                 />
             </div>
 
@@ -242,6 +278,7 @@ export function SurveyColorsAppearance({
                 disabledReason={disabledReason}
                 label="Survey background"
                 inputType="color"
+                isCSSValue
             />
             <SurveyAppearanceInput
                 value={appearance.textColor}
@@ -251,6 +288,7 @@ export function SurveyColorsAppearance({
                 label="Question text"
                 placeholder="Leave empty for auto-contrast"
                 inputType="color"
+                isCSSValue
             />
             <SurveyAppearanceInput
                 value={appearance.borderColor}
@@ -259,6 +297,7 @@ export function SurveyColorsAppearance({
                 disabledReason={disabledReason}
                 label="Border"
                 inputType="color"
+                isCSSValue
             />
             <SurveyAppearanceInput
                 value={appearance.inputBackground}
@@ -269,6 +308,7 @@ export function SurveyColorsAppearance({
                 disabledReason={disabledReason}
                 label="Input background"
                 inputType="color"
+                isCSSValue
             />
             <SurveyAppearanceInput
                 value={appearance.inputTextColor}
@@ -278,6 +318,7 @@ export function SurveyColorsAppearance({
                 label="Input text"
                 placeholder="Leave empty for auto-contrast"
                 inputType="color"
+                isCSSValue
             />
             {customizeRatingButtons && (
                 <SurveyAppearanceInput
@@ -287,6 +328,7 @@ export function SurveyColorsAppearance({
                     disabledReason={disabledReason}
                     label="Selected rating"
                     inputType="color"
+                    isCSSValue
                 />
             )}
             <SurveyAppearanceInput
@@ -296,6 +338,7 @@ export function SurveyColorsAppearance({
                 disabledReason={disabledReason}
                 label="Button background"
                 inputType="color"
+                isCSSValue
             />
             <SurveyAppearanceInput
                 value={appearance.submitButtonTextColor}
@@ -305,6 +348,7 @@ export function SurveyColorsAppearance({
                 label="Button text"
                 placeholder="Leave empty for auto-contrast"
                 inputType="color"
+                isCSSValue
             />
             {customizePlaceholderText && (
                 <SurveyAppearanceInput
