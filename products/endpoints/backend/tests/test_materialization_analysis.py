@@ -20,6 +20,7 @@ from products.endpoints.backend.materialization_transforms import (
     MaterializationNotSupportedError,
     MaterializationTransformer,
     PropagatingSource,
+    VariablePlaceholderFinder,
     _build_cte_read_graph,
     _classify_downstream_cte,
     _downstream_ctes,
@@ -828,6 +829,13 @@ class TestTransformerAgreesWithPreflight(SimpleTestCase):
 
         transformed = MaterializationTransformer(var_infos).visit(parse_select(query_str))
         assert isinstance(transformed, ast.SelectQuery)
+
+        # transform_query_for_materialization prints with no variable values, so a placeholder the
+        # transform leaves behind has nothing left to resolve it.
+        finder = VariablePlaceholderFinder()
+        finder.visit(transformed)
+        assert finder.variable_placeholders == []
+
         return transformed
 
     def test_or_without_a_variable_is_left_alone(self):
@@ -883,3 +891,43 @@ class TestTransformerAgreesWithPreflight(SimpleTestCase):
         assert isinstance(subquery, ast.SelectQuery)
         assert subquery.where is not None
         assert len(subquery.select) == 1
+
+    @parameterized.expand(
+        [
+            (
+                "outer_where_and_subquery",
+                "SELECT count() FROM events WHERE timestamp >= {variables.start_date} "
+                "AND distinct_id IN (SELECT distinct_id FROM events WHERE timestamp >= {variables.start_date})",
+            ),
+            (
+                "subquery_only",
+                "SELECT count() FROM events "
+                "WHERE distinct_id IN (SELECT distinct_id FROM events WHERE timestamp >= {variables.start_date})",
+            ),
+            (
+                "subquery_in_from",
+                "SELECT count() FROM (SELECT event FROM events WHERE timestamp >= {variables.start_date}) "
+                "WHERE event = '$pageview'",
+            ),
+            (
+                "cte_body_and_its_subquery",
+                "WITH recent AS (SELECT distinct_id FROM events WHERE timestamp >= {variables.start_date} "
+                "AND distinct_id IN (SELECT distinct_id FROM events WHERE timestamp >= {variables.start_date})) "
+                "SELECT count() FROM recent",
+            ),
+        ]
+    )
+    def test_variable_in_a_subquery_is_rejected_by_preflight(self, _name: str, query_str: str):
+        # The transform only rewrites a context root, so it would leave the nested placeholder in
+        # place and printing the materialized query would fail on it.
+        hogql_query = {
+            "kind": "HogQLQuery",
+            "query": query_str,
+            "variables": {"var-1": {"code_name": "start_date", "value": "2024-01-01"}},
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(hogql_query)
+
+        assert can_materialize is False
+        assert reason == "Variable used inside a subquery is not yet supported for materialization"
+        assert var_infos == []

@@ -298,6 +298,12 @@ def analyze_variables_for_materialization(
     if not finder.variable_placeholders:
         return False, "No variables found", []
 
+    # Ordered before the per-variable analysis, which reads the WHERE clause of a context root
+    # only and so reports a variable nested in a subquery as unused.
+    rejection = _nested_variable_rejection(ast_node)
+    if rejection is not None:
+        return False, rejection, []
+
     result_vars, reason = _collect_materializable_variables(
         ast_node, finder.variable_placeholders, hogql_query.get("variables", {})
     )
@@ -441,6 +447,15 @@ def _context_rejection(cte_names: set[Optional[str]]) -> Optional[str]:
     if None in cte_names:
         return "Variable used in both CTE and top-level query is not yet supported"
     return "Variable used in multiple CTEs is not yet supported"
+
+
+def _nested_variable_rejection(ast_node: ast.SelectQuery | ast.SelectSetQuery) -> Optional[str]:
+    """Reject a variable inside a subquery, which the transform leaves in place as a placeholder."""
+    finder = _NestedVariableFinder()
+    finder.visit(ast_node)
+    if finder.found:
+        return "Variable used inside a subquery is not yet supported for materialization"
+    return None
 
 
 def _reaggregation_rejection(
@@ -1063,6 +1078,42 @@ def _contains_variable_placeholder(node: ast.Expr) -> bool:
 def _contains_placeholder(node: ast.Expr) -> bool:
     found = find_placeholders(node)
     return bool(found.has_filters or found.placeholder_fields or found.placeholder_expressions)
+
+
+class _NestedVariableFinder(TraversingVisitor):
+    """Find a variable placeholder in a query that is not a materialization context root.
+
+    This mirrors the context-root rule in ``MaterializationTransformer.visit_select_query``: the
+    top-level query and a CTE body carry their context's variables, and a query nested in one does
+    not. The two walks must agree, because the transform leaves a variable it skips as a
+    placeholder, and printing the materialized query then fails on it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+        self._nesting_depth = 0
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if self._nesting_depth > 0:
+            if _contains_variable_placeholder(node):
+                self.found = True
+            return
+
+        if node.ctes:
+            for cte in node.ctes.values():
+                self.visit(cte.expr)
+
+        # Visit the rest of the query one level deeper, with the CTEs detached so the loop above
+        # stays their only visit. Reaching them again here would count them as nested.
+        original_ctes = node.ctes
+        node.ctes = None
+        self._nesting_depth += 1
+        try:
+            super().visit_select_query(node)
+        finally:
+            self._nesting_depth -= 1
+            node.ctes = original_ctes
 
 
 def find_variable_in_where(
