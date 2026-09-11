@@ -133,6 +133,12 @@ class SubscriptionTriggerType:
 DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN = 300
 MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN = 1_000
 SUBSCRIPTION_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(hours=2)
+# Bound the export phase early enough that the workflow can still attempt the
+# downstream delivery and then finalize the record, schedule, and durable claim.
+SUBSCRIPTION_WORKFLOW_POST_EXPORT_BUDGET = dt.timedelta(hours=1)
+SUBSCRIPTION_ASSET_EXPORT_SCHEDULE_TO_CLOSE_TIMEOUT = (
+    SUBSCRIPTION_WORKFLOW_EXECUTION_TIMEOUT - SUBSCRIPTION_WORKFLOW_POST_EXPORT_BUDGET
+)
 SUBSCRIPTION_CLAIM_LEASE_SAFETY_MARGIN = dt.timedelta(minutes=15)
 
 
@@ -311,6 +317,10 @@ class RecipientResult:
 @dataclasses.dataclass
 class DeliverSubscriptionResult:
     recipient_results: list[RecipientResult] = dataclasses.field(default_factory=list)
+    # True when delivery was deliberately suppressed because the subscription
+    # became inactive after the workflow's initial validation. Optional/defaulted
+    # for replay compatibility with activity results written before this field.
+    skipped: bool = False
 
 
 @dataclasses.dataclass

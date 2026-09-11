@@ -371,6 +371,27 @@ class TestSubscription(BaseTest):
         subscription = unsubscribe_using_token(token)
         assert subscription.deleted
 
+    def test_unsubscribe_does_not_restore_a_concurrently_advanced_delivery_date(self):
+        subscription = self._create_insight_subscription(
+            target_value="test1@posthog.com,test2@posthog.com"
+        )
+        subscription.save()
+        assert subscription.next_delivery_date is not None
+        advanced_next_delivery_date = subscription.next_delivery_date + timedelta(days=7)
+        token = get_unsubscribe_token(subscription, "test2@posthog.com")
+        original_save = Subscription.save
+
+        def advance_before_unsubscribe_save(instance, *args, **kwargs):
+            Subscription.objects.filter(pk=instance.pk).update(next_delivery_date=advanced_next_delivery_date)
+            return original_save(instance, *args, **kwargs)
+
+        with patch.object(Subscription, "save", autospec=True, side_effect=advance_before_unsubscribe_save):
+            unsubscribe_using_token(token)
+
+        subscription.refresh_from_db()
+        assert subscription.target_value == "test1@posthog.com"
+        assert subscription.next_delivery_date == advanced_next_delivery_date
+
     def test_complex_rrule_configuration(self):
         # Equivalent to last monday and wednesday of every other month
         subscription = self._create_insight_subscription(

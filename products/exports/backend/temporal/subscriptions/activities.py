@@ -1119,7 +1119,7 @@ async def _deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSub
     # campaign keys mean MessagingRecord wouldn't dedup the duplicate email.
     if not subscription.enabled or subscription.deleted:
         LOGGER.info("deliver_subscription.skipped_inactive", subscription_id=inputs.subscription_id)
-        return DeliverSubscriptionResult(recipient_results=[])
+        return DeliverSubscriptionResult(recipient_results=[], skipped=True)
 
     previous_target_value = inputs.previous_target_value
     if previous_target_value is None:
