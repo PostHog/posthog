@@ -81,6 +81,15 @@ describe('ImplementButton', () => {
         expect(copyToClipboard).not.toHaveBeenCalled()
     })
 
+    it('focuses a plain text area that excludes 1Password autofill', async () => {
+        await openMenu()
+
+        const instructions = screen.getByRole('textbox')
+        expect(instructions.tagName).toBe('TEXTAREA')
+        expect(instructions).toHaveAttribute('data-1p-ignore', 'true')
+        expect(instructions).toHaveFocus()
+    })
+
     it.each([
         [
             'the PostHog button',
