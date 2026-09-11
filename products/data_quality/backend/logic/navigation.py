@@ -38,6 +38,7 @@ class SubjectLocation:
 
 def subject_locations(team_id: int, checks: Iterable[DataQualityCheck]) -> dict[SubjectKey, SubjectLocation]:
     """A read per subject kind on the page, whatever the number of checks."""
+    checks = list(checks)
     view_ids = {str(check.saved_query_id) for check in checks if check.saved_query_id}
     table_ids = {check.table_id for check in checks if check.table_id}
     metric_ids = {check.metric_id for check in checks if check.metric_id}

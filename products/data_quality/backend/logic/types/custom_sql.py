@@ -9,7 +9,7 @@ from ...facade.enums import CheckType, SubjectType
 from ..contracts import CheckPlan, SubjectRef
 from ..errors import CheckConfigError
 from ..metric_query import bind_metric_query
-from ..query_scope import referenced_table_names
+from ..query_scope import referenced_table_names as query_table_names
 from ..spec import CheckConfig, CheckTypeSpec
 
 
@@ -37,7 +37,7 @@ def parse_custom_sql_query(query: str) -> ast.SelectQuery | ast.SelectSetQuery:
 
 
 def build_failing_rows(subject: SubjectRef | None, config: "CustomSqlConfig") -> ast.SelectQuery | ast.SelectSetQuery:
-    if subject is None or subject.subject_type is not SubjectType.METRIC:
+    if subject is None or subject.subject_type != SubjectType.METRIC:
         return parse_failing_rows_query(config.query)
     if subject.metric_definition is None:
         raise CheckConfigError("Metric checks require a live HogQL definition.")
@@ -74,14 +74,14 @@ class CustomSqlSpec(CheckTypeSpec):
 
     def referenced_table_names(self, config: CheckConfig, subject: SubjectRef | None = None) -> list[str]:
         assert isinstance(config, CustomSqlConfig)
-        return referenced_table_names(build_failing_rows(subject, config))
+        return query_table_names(build_failing_rows(subject, config))
 
     def build(
         self, subject: SubjectRef, column_name: str, config: CheckConfig, related: SubjectRef | None = None
     ) -> CheckPlan:
         assert isinstance(config, CustomSqlConfig)
         failing_rows = build_failing_rows(subject, config)
-        referenced_table_names(failing_rows)
+        query_table_names(failing_rows)
         return CheckPlan(failing_rows=failing_rows)
 
 

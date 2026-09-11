@@ -523,7 +523,10 @@ def memoized_definition_verdict(
     verdicts: dict[str, bool],
     subject: SubjectRef | None = None,
 ) -> bool:
-    key = json.dumps([check_type, config, subject], sort_keys=True, default=str)
+    # The subject enters the key as its identity: serializing the whole ref would drag a metric's
+    # parsed HogQL definition into the hash of every row that shares it.
+    identity = [subject.subject_type, subject.subject_uuid] if subject is not None else None
+    key = json.dumps([check_type, config, identity], sort_keys=True, default=str)
     if key not in verdicts:
         verdicts[key] = definition_reads_unreadable_subject(team_id, check_type, config, context, subject=subject)
     return verdicts[key]

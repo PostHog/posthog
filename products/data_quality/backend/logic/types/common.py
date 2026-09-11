@@ -5,6 +5,7 @@ the printer's backtick escaping is the only thing standing between a hostile col
 generated SQL.
 """
 
+from math import isfinite
 from typing import Self
 
 from pydantic import Field, field_validator, model_validator
@@ -34,7 +35,8 @@ class BoundsConfig(CheckConfig):
 
 
 def within_bounds(observed: float | None, minimum: float | None, maximum: float | None) -> bool:
-    if observed is None:
+    # NaN compares False against every bound, so an unguarded comparison reads it as passing.
+    if observed is None or not isfinite(observed):
         return False
     if minimum is not None and observed < minimum:
         return False

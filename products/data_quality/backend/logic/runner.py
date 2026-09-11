@@ -97,7 +97,7 @@ def run_check(
         notify_check_started_failing(
             check,
             outcome.failed_row_count,
-            executed_references=()
+            executed_references=None
             if outcome.referenced_subjects is _ReferenceState.NOT_SUPPLIED
             else outcome.referenced_subjects,
         )
