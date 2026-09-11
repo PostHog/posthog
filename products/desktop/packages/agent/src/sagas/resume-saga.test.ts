@@ -387,7 +387,7 @@ describe("ResumeSaga", () => {
       });
     });
 
-    it("tracks a Codex MCP tool call from its ACP fields", async () => {
+    it("tracks a Codex MCP tool call from its ACP fields, minus host-only result meta", async () => {
       (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
         createTaskRun(),
       );
@@ -400,7 +400,12 @@ describe("ResumeSaga", () => {
           rawInput: { command: "call skill-get" },
         }),
         createAcpToolCallUpdate("call-1", {
-          rawOutput: { body: "skill body" },
+          rawOutput: {
+            content: [{ type: "text", text: "skill body" }],
+            _meta: {
+              "com.posthog.mcp/app_data": { rows: "UI_ONLY".repeat(500) },
+            },
+          },
         }),
       ]);
 
@@ -415,11 +420,14 @@ describe("ResumeSaga", () => {
       expect(result.success).toBe(true);
       if (!result.success) return;
 
-      expect(result.data.conversation[0].toolCalls?.[0]).toMatchObject({
+      const toolCall = result.data.conversation[0].toolCalls?.[0];
+      expect(toolCall).toMatchObject({
         toolCallId: "call-1",
         toolName: "mcp__posthog__exec",
         input: { command: "call skill-get" },
-        result: { body: "skill body" },
+      });
+      expect(toolCall?.result).toEqual({
+        content: [{ type: "text", text: "skill body" }],
       });
     });
 

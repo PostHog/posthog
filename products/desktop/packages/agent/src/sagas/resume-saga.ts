@@ -8,6 +8,7 @@ import {
 import type { PostHogAPIClient } from "../posthog-api";
 import type { StoredNotification } from "../types";
 import type { Logger } from "../utils/logger";
+import { stripMcpResultMeta } from "../utils/mcp-result";
 
 export interface ConversationTurn {
   role: "user" | "assistant";
@@ -355,7 +356,7 @@ function readToolCall(update: Record<string, unknown>): PartialToolCall {
       update.title,
     ),
     input: firstDefined(update.rawInput, claudeMeta?.toolInput),
-    result,
+    result: stripMcpResultMeta(result),
   };
 }
 
