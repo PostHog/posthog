@@ -1075,6 +1075,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="7", minute="30"),
         send_visual_review_debt_digests.s(),
         name="send visual review debt digests",
+        expires_seconds=60 * 60,
     )
 
     sender.add_periodic_task(

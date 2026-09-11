@@ -422,7 +422,8 @@ def lead_text(digest: TeamDigest, repo: Repo) -> str:
             "Ownership could not be worked out for some of them today, because "
             f"{escape_slack_mrkdwn('; '.join(details))}. The digest tries again tomorrow."
         )
-    return " ".join(sentences)
+    # The lead is one Slack section like every thread line, so it takes the same cap.
+    return clip_text(" ".join(sentences), MAX_SECTION_CHARS)
 
 
 def _triage_line(item: DebtItem) -> str:
