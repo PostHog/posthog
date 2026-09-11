@@ -14,5 +14,12 @@
         "MD045": false,
         "MD029": false,
     },
-    "ignores": ["products/desktop/**", "**/fixtures/**"],
+    "ignores": [
+        ".agents/skills/flox-debug/**",
+        ".agents/skills/flox/**",
+        ".claude/skills/flox-debug/**",
+        ".claude/skills/flox/**",
+        "products/desktop/**",
+        "**/fixtures/**",
+    ],
 }

@@ -8,3 +8,7 @@ common/hogvm/typescript/src/stl/bytecode.ts
 # pass would re-indent every schema body under the builder arrow (see
 # services/mcp/scripts/generate-orval-schemas.mjs).
 services/mcp/src/generated/
+
+# Flox agent skills preserve the upstream formatting recorded in each UPSTREAM.md.
+.agents/skills/flox-debug/
+.agents/skills/flox/
