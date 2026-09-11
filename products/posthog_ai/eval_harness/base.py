@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import orjson
 
+from posthog.ph_client import get_client
+
 from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN
 
 from .acp_log import ParsedLog, parse_log
@@ -269,14 +271,20 @@ class _BaseEvalRun:
         # Emit evaluation events and trace roots to PostHog (after scoring)
         if self.posthog_client and result.results:
             try:
-                emit_evaluation_events(
-                    self.posthog_client,
-                    self.experiment_id,
-                    self.experiment_name,
-                    result.results,
-                    namespace=self.trace_namespace,
-                    scorer_traces=self.scorer_traces,
-                )
+                # Eval results need capture under TEST without enabling the shared trace client.
+                evaluation_client = get_client("US", disabled=bool(os.environ.get("OPT_OUT_CAPTURE", False)))
+                if evaluation_client is not None:
+                    try:
+                        emit_evaluation_events(
+                            evaluation_client,
+                            self.experiment_id,
+                            self.experiment_name,
+                            result.results,
+                            namespace=self.trace_namespace,
+                            scorer_traces=self.scorer_traces,
+                        )
+                    finally:
+                        evaluation_client.shutdown()
                 # Emit $ai_trace root events now that scores are available
                 for eval_result in result.results:
                     case_name = eval_result.input.get("name", "") if isinstance(eval_result.input, dict) else ""

@@ -1,14 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
+from unittest.mock import patch
+
+from django.conf import settings
+
+from posthoganalytics import Posthog
+
+from posthog.ph_client import get_client
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.engines.registry import resolve_engine
 from products.posthog_ai.eval_harness.engines.types import (
+    CaseResult,
     EnvVarSpec,
     EvalSummary,
     ExperimentResult,
@@ -24,6 +33,7 @@ class _StubReporter:
         self.done: list[tuple[str, str]] = []
         self.started: list[tuple[str, int]] = []
         self.summaries: list[tuple[str, Any, int]] = []
+        self.posthog_urls: list[tuple[str, str]] = []
 
     async def case_done(self, experiment_name: str, case_name: str, duration_seconds: float, status: str) -> None:
         self.done.append((case_name, status))
@@ -33,6 +43,9 @@ class _StubReporter:
 
     async def record_summary(self, experiment_name: str, summary: Any, error_count: int) -> None:
         self.summaries.append((experiment_name, summary, error_count))
+
+    async def record_posthog_evaluations_url(self, experiment_name: str, experiment_id: str) -> None:
+        self.posthog_urls.append((experiment_name, experiment_id))
 
 
 class _StubEngine:
@@ -156,20 +169,54 @@ def test_case_filter_narrows_eval_cases(tmp_path: Path, monkeypatch: pytest.Monk
     assert [case.input["name"] for case in run._build_eval_cases()] == ["c2"]
 
 
-def test_run_routes_through_the_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("opt_out_capture", ["", "1", "0"])
+def test_run_routes_through_the_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, opt_out_capture: str) -> None:
     async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
         raise AssertionError("the engine is stubbed, so the task must not run")
 
     canned = ExperimentResult(
         summary=EvalSummary(engine_name="stub", experiment_name="one-shot-test", scores={}),
-        results=[],
+        results=[
+            CaseResult(
+                input={"name": "c1", "prompt": "the prompt"},
+                output={"last_message": "done"},
+                scores={"correctness": 1.0},
+            )
+        ],
     )
+    monkeypatch.setenv("OPT_OUT_CAPTURE", opt_out_capture)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     engine = _StubEngine(canned)
     ctx = _build_ctx()
+    ctx.posthog_client = get_client("US", sync_mode=True, enable_local_evaluation=False)
     run = _build_run(tmp_path, monkeypatch, ctx, task)
     run.engine = engine
+    run.no_send_logs = False
+    run.is_public = True
+    run.agent_trace_id_lookup["c1"] = "trace-1"
+    run.case_trace_meta["c1"] = {"prompt": "the prompt", "duration": 1.0, "first_timestamp": ""}
 
-    returned = asyncio.run(run.run())
+    with (
+        patch("posthoganalytics.Posthog", partial(Posthog, sync_mode=True, enable_local_evaluation=False)),
+        patch("posthoganalytics.client.batch_post") as batch_post,
+    ):
+        returned = asyncio.run(run.run())
+        assert settings.TEST
+        assert ctx.posthog_client is not None
+        assert ctx.posthog_client.disabled
+        ctx.posthog_client.capture(event="ordinary_test_event", distinct_id="test")
+        ctx.posthog_client.shutdown()
+
+    if opt_out_capture:
+        batch_post.assert_not_called()
+    else:
+        batch_post.assert_called_once()
+        event = batch_post.call_args.kwargs["batch"][0]
+        assert event["event"] == "$ai_evaluation"
+        assert event["properties"]["$ai_metric_name"] == "correctness"
+        assert event["properties"]["$ai_score"] == 1.0
+        assert event["properties"]["$ai_experiment_id"] == run.experiment_id
 
     assert returned is canned
     assert len(engine.calls) == 1
@@ -177,6 +224,7 @@ def test_run_routes_through_the_engine(tmp_path: Path, monkeypatch: pytest.Monke
     assert call.project_name == "one-shot-test"
     assert [case.input["name"] for case in call.cases] == ["c1", "c2"]
     assert call.metadata == {"agent_model": "claude-test"}
+    assert not call.no_send_logs
     reporter = ctx.reporter
     assert reporter.started == [("one-shot-test", 2)]  # type: ignore[attr-defined]
     assert reporter.summaries == [("one-shot-test", canned.summary, 0)]  # type: ignore[attr-defined]

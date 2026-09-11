@@ -274,4 +274,7 @@ Suite listing (`--list`) and argument errors do not create transcripts.
 
 Raw per-case agent logs land on local disk (`<case>.jsonl`, `<case>.artifacts.json`, `<case>.summary.txt`), which is usually the fastest way to see what the agent actually did.
 
-`SandboxedPrivateEval` runs with `no_send_logs`, so its summary has no Braintrust URL; the local logs are the record.
+`SandboxedPrivateEval` disables Braintrust uploads with `no_send_logs`, so its summary has no Braintrust URL.
+It still reports `$ai_evaluation` results to PostHog, including available input, output, and expected values.
+Use `OPT_OUT_CAPTURE=1` with a private eval to keep prompts and results out of both reporting services; local logs are still written.
+See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-reporting.md) for capture settings and scope.
