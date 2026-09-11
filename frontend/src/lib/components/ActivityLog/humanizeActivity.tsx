@@ -1,3 +1,4 @@
+import { UserNameWithEmail } from 'lib/components/ActivityLog/UserNameWithEmail'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { fullName } from 'lib/utils/strings'
@@ -63,16 +64,25 @@ export type ActivityLogItem = {
 export type Description = string | JSX.Element | null
 // the extended description gives extra context, like the insight details card to describe a change to an insight
 export type ExtendedDescription = JSX.Element | undefined
+// content too large to sit inline with the sentence, shown as its own tab once the row is expanded
+export type ExpandedView = { label: string; content: JSX.Element }
 export type ChangeMapping = {
     description: Description[] | null
     extendedDescription?: ExtendedDescription
+    expandedView?: ExpandedView
     suffix?: string | JSX.Element | null // to override the default suffix
 }
-export type HumanizedChange = { description: Description | null; extendedDescription?: ExtendedDescription }
+export type HumanizedChange = {
+    description: Description | null
+    extendedDescription?: ExtendedDescription
+    expandedView?: ExpandedView
+}
 
 export type HumanizedActivityLogItem = {
     id?: string
     email?: string | null
+    /** The email to offer on hover, or null when the row already prints it as the actor's name. */
+    emailToReveal?: string | null
     name?: string
     isSystem?: boolean
     wasImpersonated?: boolean
@@ -80,6 +90,7 @@ export type HumanizedActivityLogItem = {
     client?: string | null
     description: Description
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
+    expandedView?: ExpandedView // e.g. a flag's release conditions after the change
     created_at: dayjs.Dayjs
     unread?: boolean
     // used when showing e.g. diff of changes
@@ -113,13 +124,14 @@ export function humanize(
         if (!describer) {
             continue
         }
-        const { description, extendedDescription } = describer(logItem, asNotification)
+        const { description, extendedDescription, expandedView } = describer(logItem, asNotification)
 
         if (description !== null) {
             const impersonatedUserName = logItem.user ? fullName(logItem.user) : undefined
             logLines.push({
                 id: logItem.id,
-                email: logItem.was_impersonated ? undefined : logItem.user?.email,
+                email: actorEmailForLogItem(logItem),
+                emailToReveal: actorEmailToRevealForLogItem(logItem),
                 name: logItem.was_impersonated
                     ? `PostHog Support${impersonatedUserName ? ` (as ${impersonatedUserName})` : ''}`
                     : impersonatedUserName,
@@ -128,6 +140,7 @@ export function humanize(
                 client: logItem.client,
                 description,
                 extendedDescription,
+                expandedView,
                 created_at: dayjs(logItem.created_at),
                 unread: logItem.unread,
                 unprocessed: logItem,
@@ -157,6 +170,29 @@ function nameOrEmailForUser(
         return fallback
     }
     return fullName(user) || user.email || fallback
+}
+
+// An impersonated row names PostHog Support as the actor, so the address on it belongs to the
+// member who was impersonated and attributing it to Support would misread the audit trail. Every
+// surface that shows the email must use this, or a row can disclose it in one place and hide it
+// in another.
+export function actorEmailForLogItem(logItem: ActivityLogItem): string | null {
+    if (logItem.is_system || logItem.was_impersonated) {
+        return null
+    }
+    return logItem.user?.email ?? null
+}
+
+// Kept apart from actorEmailForLogItem because that one also feeds the Gravatar lookup, and a
+// member whose name is their email still has a Gravatar to show.
+export function actorEmailToRevealForLogItem(logItem: ActivityLogItem): string | null {
+    const email = actorEmailForLogItem(logItem)
+    return email && email !== userNameForLogItem(logItem) ? email : null
+}
+
+/** The person who did the thing, with their email on hover. */
+export function ActivityLogUserName({ logItem }: { logItem: ActivityLogItem }): JSX.Element {
+    return <UserNameWithEmail name={userNameForLogItem(logItem)} email={actorEmailForLogItem(logItem)} />
 }
 
 const NO_PLURAL_SCOPES: ActivityScope[] = [ActivityScope.DATA_MANAGEMENT]
@@ -211,7 +247,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted <b>{resource}</b>
+                    <ActivityLogUserName logItem={logItem} /> deleted <b>{resource}</b>
                 </>
             ),
         }
@@ -221,7 +257,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created <b>{resource}</b>
+                    <ActivityLogUserName logItem={logItem} /> created <b>{resource}</b>
                 </>
             ),
         }
@@ -231,7 +267,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> restored <b>{resource}</b>
+                    <ActivityLogUserName logItem={logItem} /> restored <b>{resource}</b>
                 </>
             ),
         }
@@ -241,7 +277,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated <b>{resource}</b>
+                    <ActivityLogUserName logItem={logItem} /> updated <b>{resource}</b>
                 </>
             ),
         }
@@ -251,8 +287,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> copied <b>{resource}</b> to
-                    another project
+                    <ActivityLogUserName logItem={logItem} /> copied <b>{resource}</b> to another project
                 </>
             ),
         }
@@ -264,14 +299,13 @@ export function defaultDescriber(
         if (logItem.scope === 'Comment') {
             description = (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> replied to a{' '}
-                    {humanizeScope(logItem.scope, true)}
+                    <ActivityLogUserName logItem={logItem} /> replied to a {humanizeScope(logItem.scope, true)}
                 </>
             )
         } else {
             description = (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> commented
+                    <ActivityLogUserName logItem={logItem} /> commented
                     {asNotification ? <> on a {humanizeScope(logItem.scope, true)}</> : null}
                 </>
             )

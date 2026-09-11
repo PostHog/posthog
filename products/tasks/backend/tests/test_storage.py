@@ -9,10 +9,46 @@ from django.test import SimpleTestCase
 import redis
 from parameterized import parameterized
 
+from products.tasks.backend.facade.contracts import TaskRunLogAppendUnserialized
 from products.tasks.backend.storage import append_jsonl_object
 
 
 class TestAppendJsonlObject(SimpleTestCase):
+    @patch("products.tasks.backend.storage.get_client")
+    @patch("products.tasks.backend.storage.object_storage.write")
+    @patch("products.tasks.backend.storage.object_storage.read")
+    def test_refuses_append_when_lock_contended(
+        self,
+        mock_read: MagicMock,
+        mock_write: MagicMock,
+        mock_get_client: MagicMock,
+    ) -> None:
+        mock_get_client.return_value.lock.return_value.acquire.return_value = False
+
+        with self.assertRaises(TaskRunLogAppendUnserialized):
+            append_jsonl_object("sessions/example.jsonl", [{"type": "session"}])
+
+        mock_read.assert_not_called()
+        mock_write.assert_not_called()
+
+    @patch("products.tasks.backend.storage.get_client")
+    @patch("products.tasks.backend.storage.object_storage.write")
+    @patch("products.tasks.backend.storage.object_storage.read")
+    def test_waits_for_the_lock_again_when_asked(
+        self,
+        mock_read: MagicMock,
+        mock_write: MagicMock,
+        mock_get_client: MagicMock,
+    ) -> None:
+        mock_read.return_value = ""
+        lock = mock_get_client.return_value.lock.return_value
+        lock.acquire.side_effect = [False, True]
+
+        append_jsonl_object("sessions/example.jsonl", [{"type": "session"}], lock_attempts=2)
+
+        self.assertEqual(lock.acquire.call_count, 2)
+        mock_write.assert_called_once_with("sessions/example.jsonl", '{"type": "session"}')
+
     @parameterized.expand(
         [
             ("", True, '{"type": "session"}'),
@@ -81,25 +117,21 @@ class TestAppendJsonlObject(SimpleTestCase):
 
         self.assertEqual(sorted(stored.split("\n")), sorted(json.dumps({"n": n}) for n in range(8)))
 
+    @parameterized.expand([("acquire",), ("release",)])
     @patch("products.tasks.backend.storage.get_client")
     @patch("products.tasks.backend.storage.object_storage.write")
     @patch("products.tasks.backend.storage.object_storage.read")
-    def test_fails_open_when_lock_release_raises_connection_error(
+    def test_fails_open_when_redis_is_unavailable(
         self,
+        failing_call: str,
         mock_read: MagicMock,
         mock_write: MagicMock,
         mock_get_client: MagicMock,
     ) -> None:
         mock_read.return_value = ""
-
-        class _ReleaseFails:
-            def acquire(self) -> bool:
-                return True
-
-            def release(self) -> None:
-                raise redis.exceptions.ConnectionError("redis down")
-
-        mock_get_client.return_value.lock.return_value = _ReleaseFails()
+        lock = mock_get_client.return_value.lock.return_value
+        lock.acquire.return_value = True
+        getattr(lock, failing_call).side_effect = redis.exceptions.ConnectionError("redis down")
 
         is_new = append_jsonl_object("sessions/example.jsonl", [{"type": "session"}])
 

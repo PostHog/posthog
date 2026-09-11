@@ -10,6 +10,12 @@ The expansion count must not delay the scoped results or keep the aggregate reve
 
 The legacy implementation separates these requests in `infiniteListLogic.ts`; the rebuilt implementation uses independent resources in `hooks/useGroupList.ts`. Keep this behavior consistent across both implementations.
 
+## Typing and rendering
+
+The legacy picker debounces API searches for 500 ms after the last keystroke, including while the initial response is loading.
+The initial empty-query load bypasses this wait.
+Local filtering and rendering still update on each keystroke.
+
 ## Event list pagination
 
 The event definitions API counts matching rows separately and applies `LIMIT` and `OFFSET` in PostgreSQL. The count describes all matches, including matches outside the requested page. Explicit ordering uses the project-unique event name as a final tie-breaker so equal timestamps do not cause skipped or repeated results between pages.

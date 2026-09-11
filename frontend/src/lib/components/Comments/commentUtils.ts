@@ -1,7 +1,11 @@
+import { generateText } from '@tiptap/core'
+
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { dayjs } from 'lib/dayjs'
+import { DEFAULT_EXTENSIONS, serializationOptions } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, CommentType } from '~/types'
+import { ActivityScope } from '~/types'
 
 export interface RecordingLinkInfo {
     recordingId: string
@@ -9,7 +13,13 @@ export interface RecordingLinkInfo {
     url: string
 }
 
-export function getRecordingLinkInfo(comment: CommentType): RecordingLinkInfo | null {
+export type RecordingCommentTarget = {
+    scope: ActivityScope | string
+    item_id?: string | null
+    item_context?: { time_in_recording?: string | null } | null
+}
+
+export function getRecordingLinkInfo(comment: RecordingCommentTarget): RecordingLinkInfo | null {
     const isRecordingComment = comment.scope === ActivityScope.REPLAY || comment.scope === ActivityScope.RECORDING
     if (!isRecordingComment || !comment.item_id) {
         return null
@@ -22,6 +32,30 @@ export function getRecordingLinkInfo(comment: CommentType): RecordingLinkInfo | 
         unixTimestampMillis,
         url,
     }
+}
+
+export function getCommentText(comment: { content?: string | null; rich_content?: JSONContent | null }): string {
+    // This is only temporary until all comments are backfilled to rich content
+    const content = comment.rich_content
+        ? comment.rich_content
+        : {
+              type: 'doc',
+              content: [
+                  {
+                      type: 'paragraph',
+                      content: comment.content
+                          ? [
+                                {
+                                    type: 'text',
+                                    text: comment.content,
+                                },
+                            ]
+                          : [],
+                  },
+              ],
+          }
+
+    return generateText(content, DEFAULT_EXTENSIONS, serializationOptions)
 }
 
 export function isViewingRecording(recordingId: string): boolean {

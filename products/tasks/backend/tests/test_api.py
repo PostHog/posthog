@@ -239,12 +239,13 @@ class BaseTaskAPITest(TestCase):
         title: str = "Test Task",
         created_by: User | None = None,
         runtime: Task.Runtime = Task.Runtime.ACP,
+        description: str = "Test Description",
     ) -> Task:
         return Task.objects.create(
             team=self.team,
             created_by=created_by or self.user,
             title=title,
-            description="Test Description",
+            description=description,
             origin_product=Task.OriginProduct.USER_CREATED,
             runtime=runtime,
         )
@@ -1235,8 +1236,20 @@ class TestTaskAPI(BaseTaskAPITest):
         row = response.json()["results"][0]
         if expect_description:
             self.assertEqual(row["description"], "Test Description")
+            self.assertNotIn("description_preview", row)
         else:
             self.assertNotIn("description", row)
+            self.assertEqual(row["description_preview"], "Test Description")
+
+    def test_basic_description_preview_is_truncated(self):
+        self.create_task("Long", description="x" * 1500)
+
+        response = self.client.get("/api/projects/@current/tasks/?basic=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        row = response.json()["results"][0]
+        self.assertNotIn("description", row)
+        self.assertEqual(row["description_preview"], "x" * 1000)
 
     def test_list_tasks_includes_latest_run(self):
         task1 = self.create_task("Task 1")
@@ -3697,9 +3710,15 @@ class TestTaskAPI(BaseTaskAPITest):
             ("glm_5_2_max", "claude", "@cf/zai-org/glm-5.2", "max", "anthropic"),
         ]
     )
+    # GLM 5.2 is gated, and this case is about the metadata a run persists rather than about
+    # entitlement, so the flag is granted here and gating is covered in `test_feature_flags`.
+    @patch(
+        "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
+        side_effect=lambda flag, *args, **kwargs: flag == "posthog-code-glm-model",
+    )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_persists_runtime_metadata(
-        self, _case_name, runtime_adapter, model, reasoning_effort, provider, mock_workflow
+        self, _case_name, runtime_adapter, model, reasoning_effort, provider, mock_workflow, _mock_flag
     ):
         task = self.create_task()
 
@@ -5639,11 +5658,13 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_external_followups_generation": 7,
                 "sandbox_gone": False,
                 "ai_stage": "research",
+                "ai_agent_name": "signals-scout-errors",
                 "self_driving_head_branch": "posthog-self-driving/real-3f9a2c",
                 "runtime_adapter": "claude",
                 "provider": "anthropic",
                 "model": "claude-sonnet-5",
                 "reasoning_effort": "low",
+                "service_tier": "default",
                 "rtk_effective": True,
                 "benjamin_effective": True,
                 "usage_metrics_recorded": True,
@@ -5706,12 +5727,16 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "sandbox_gone": True,
                     # implementation provenance is what the self-driving review carve-outs trust
                     "ai_stage": "implementation",
+                    # a forged agent name bills this run's spend to another agent
+                    "ai_agent_name": "signals-scout-general",
                     # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
                     "self_driving_head_branch": "posthog-self-driving/attacker-000000",
                     "runtime_adapter": "codex",
                     "provider": "openai",
                     "model": "claude-opus-4-8",
                     "reasoning_effort": "high",
+                    # the premium queue costs more; a writable tier is a spend escalation
+                    "service_tier": "priority",
                     "rtk_effective": False,
                     "benjamin_effective": False,
                     "usage_metrics_recorded": False,
@@ -5753,6 +5778,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["same_run_resume_idle"] is False
         assert run.state["handoff_resumed"] is True
         assert run.state["handoff_resume_idle"] is False
+        assert run.state["ai_agent_name"] == "signals-scout-errors"
         assert run.state["workflow_id"] == "wf-real"
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
@@ -5766,6 +5792,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["provider"] == "anthropic"
         assert run.state["model"] == "claude-sonnet-5"
         assert run.state["reasoning_effort"] == "low"
+        assert run.state["service_tier"] == "default"
         assert run.state["rtk_effective"] is True
         assert run.state["benjamin_effective"] is True
         assert run.state["usage_metrics_recorded"] is True
@@ -5806,6 +5833,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "provider",
                     "model",
                     "reasoning_effort",
+                    "service_tier",
                     "rtk_effective",
                     "benjamin_effective",
                     "usage_metrics_recorded",
@@ -6130,6 +6158,29 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertIn("log_url", data)
         self.assertIsNotNone(data["log_url"])
         self.assertTrue(data["log_url"].startswith("http"))
+
+    def test_retrieve_run_serves_the_sandbox_its_attribution_stamps(self):
+        # The in-sandbox agent server reads run state back off this endpoint, so a stamp the
+        # public filter drops never reaches the gateway. Sandbox credentials share that state.
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={
+                "ai_stage": "scout:custom",
+                "ai_agent_name": "signals-scout-errors",
+                "sandbox_connect_token": "connect-token",
+            },
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        state = response.json()["state"]
+        self.assertEqual(state["ai_stage"], "scout:custom")
+        self.assertEqual(state["ai_agent_name"], "signals-scout-errors")
+        self.assertNotIn("sandbox_connect_token", state)
 
     def test_list_runs_only_returns_task_runs(self):
         task1 = self.create_task("Task 1")
@@ -6678,6 +6729,28 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         mock_heartbeat.assert_called_once_with(agent_active=True)
+
+    @parameterized.expand(
+        [
+            ("append_log", TaskRun.Status.IN_PROGRESS, {"entries": [{"type": "info", "message": "hello"}]}),
+            ("clear_conversation", TaskRun.Status.COMPLETED, None),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.heartbeat_workflow")
+    @patch("products.tasks.backend.storage.get_client")
+    def test_log_write_refused_while_lock_contended(self, action, run_status, body, mock_get_client, mock_heartbeat):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=run_status)
+        mock_get_client.return_value.lock.return_value.acquire.return_value = False
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{action}/", body, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response["Retry-After"], "2")
+        self.assertEqual(response.json(), {"error": "Log append busy"})
+        mock_heartbeat.assert_not_called()
 
     @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.tag")
@@ -9409,7 +9482,9 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         self.assertEqual(data_events[-1]["data"]["notification"]["params"]["message"], "late hello")
         self.assertEqual(events[-1]["event"], "stream-end")
 
-    def _make_thin_tail_run_with_backlog(self) -> tuple[Task, TaskRun]:
+    def _make_thin_tail_run_with_backlog(
+        self, tail_event_ids: list[str] | None = None, tail_method: str = "_posthog/live"
+    ) -> tuple[Task, TaskRun]:
         task = self.create_task()
         run = TaskRun.objects.create(
             task=task,
@@ -9434,14 +9509,27 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         ]
         object_storage.write(run.log_url, "\n".join(json.dumps(entry) for entry in backlog).encode("utf-8"))
 
-        async def _write() -> None:
-            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
-            for event in [
+        if tail_event_ids is None:
+            tail = [
                 {"type": "notification", "event_id": "boot1-1", "notification": {"method": "chunk"}},
                 {"type": "notification", "event_id": "boot1-3", "notification": {"method": "_posthog/console"}},
                 {"type": "notification", "event_id": "boot1-4", "notification": {"method": "_posthog/live"}},
                 {"type": "notification", "notification": {"method": "_posthog/unstamped"}},
-            ]:
+            ]
+        else:
+            notification: dict = (
+                {"method": "session/update", "params": {"update": {"sessionUpdate": tail_method}}}
+                if tail_method.startswith("agent_")
+                else {"method": tail_method}
+            )
+            tail = [
+                {"type": "notification", "event_id": event_id, "notification": notification}
+                for event_id in tail_event_ids
+            ]
+
+        async def _write() -> None:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
+            for event in tail:
                 await redis_stream.write_event(event)
             await redis_stream.mark_complete()
 
@@ -9503,6 +9591,26 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
             ["boot1-4", None],
         )
         self.assertEqual(events[-1]["event"], "stream-end")
+
+    @parameterized.expand(
+        [
+            ("overlap", ["boot1-3", "boot1-6"], "_posthog/live", False),
+            ("in_flight_chunks", ["boot1-6", "boot1-7"], "agent_message_chunk", False),
+            ("trimmed_unlogged", ["boot1-6", "boot1-7"], "_posthog/live", True),
+        ]
+    )
+    def test_stream_thin_tail_backlog_gap_counted_only_when_log_lags_trim(
+        self, _name: str, tail_event_ids: list[str], method: str, expect_gap: bool
+    ):
+        task, run = self._make_thin_tail_run_with_backlog(tail_event_ids=tail_event_ids, tail_method=method)
+
+        with patch.object(views_api, "observe_stream_backlog_gap") as observe_gap:
+            response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
+            events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(events[-1]["event"], "stream-end")
+        self.assertEqual(observe_gap.call_count, 1 if expect_gap else 0)
 
     def test_stream_thin_tail_out_of_range_log_cursor_replays_in_full(self):
         task, run = self._make_thin_tail_run_with_backlog()

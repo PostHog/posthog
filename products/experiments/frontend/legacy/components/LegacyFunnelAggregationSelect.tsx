@@ -4,9 +4,10 @@ import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 
 import { groupsModel } from '~/models/groupsModel'
+
+import { GroupIntroductionFooter } from 'products/groups/frontend/components/GroupsIntroduction'
 
 /**
  * @deprecated

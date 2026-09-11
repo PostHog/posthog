@@ -325,15 +325,17 @@ export class ExecLearnCatalog {
     }
 
     private async zeroHitRecovery(query: string): Promise<string> {
+        const projectSearched = this.skillSources?.project !== undefined
         const header =
             `No skills matched "${query}".\n` +
-            'None of the query words appear in any skill. Try fewer or broader keywords (single words match best).'
+            (projectSearched
+                ? 'None of the query words appear in any skill.'
+                : 'None of the query words appear in any PostHog skill; project skills were not searched.') +
+            ' Try fewer or broader keywords (single words match best).'
 
         const posthogNames = this.skillSources?.posthog?.listNames() ?? []
         let projectListing: ProjectSkillList | undefined
-        if (!this.skillSources?.project) {
-            projectListing = { count: 0, names: [], truncated: false }
-        } else {
+        if (this.skillSources?.project) {
             try {
                 projectListing = await this.skillSources.project.listNames()
             } catch {
@@ -341,12 +343,13 @@ export class ExecLearnCatalog {
             }
         }
 
-        if (projectListing && posthogNames.length + projectListing.count <= ZERO_HIT_INLINE_LIMIT) {
+        const projectCount = projectSearched ? projectListing?.count : 0
+        if (projectCount !== undefined && posthogNames.length + projectCount <= ZERO_HIT_INLINE_LIMIT) {
             const lines = [header, '', 'Available skills:']
             if (posthogNames.length > 0) {
                 lines.push(`posthog: ${posthogNames.join(', ')}`)
             }
-            if (projectListing.names.length > 0) {
+            if (projectListing && projectListing.names.length > 0) {
                 lines.push(`project: ${projectListing.names.join(', ')}`)
             }
             return lines.join('\n')
@@ -356,7 +359,9 @@ export class ExecLearnCatalog {
         // claiming "0 project skills" would send the agent down the no-skill path.
         const counts = projectListing
             ? `${posthogNames.length} posthog and ${projectListing.count} project skills exist`
-            : `${posthogNames.length} posthog skills exist; the project skill listing is temporarily unavailable`
+            : projectSearched
+              ? `${posthogNames.length} posthog skills exist; the project skill listing is temporarily unavailable`
+              : `${posthogNames.length} posthog skills exist; project skills were not searched`
         return (
             `${header}\n\n` +
             `${counts} — ` +

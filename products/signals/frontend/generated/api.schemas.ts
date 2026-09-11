@@ -104,6 +104,130 @@ export interface ReportChartApi {
     size?: SizeEnumApi | null
 }
 
+/**
+ * * `affected_users` - affected_users
+ * * `affected_sessions` - affected_sessions
+ * * `occurrences` - occurrences
+ * * `conversion_rate` - conversion_rate
+ * * `error_rate` - error_rate
+ * * `duration` - duration
+ * * `revenue` - revenue
+ * * `custom` - custom
+ */
+export type ReportMetricKindEnumApi = (typeof ReportMetricKindEnumApi)[keyof typeof ReportMetricKindEnumApi]
+
+export const ReportMetricKindEnumApi = {
+    AffectedUsers: 'affected_users',
+    AffectedSessions: 'affected_sessions',
+    Occurrences: 'occurrences',
+    ConversionRate: 'conversion_rate',
+    ErrorRate: 'error_rate',
+    Duration: 'duration',
+    Revenue: 'revenue',
+    Custom: 'custom',
+} as const
+
+/**
+ * * `primary` - primary
+ * * `supporting` - supporting
+ */
+export type RoleEnumApi = (typeof RoleEnumApi)[keyof typeof RoleEnumApi]
+
+export const RoleEnumApi = {
+    Primary: 'primary',
+    Supporting: 'supporting',
+} as const
+
+/**
+ * * `number` - number
+ * * `count` - count
+ * * `percentage` - percentage
+ * * `percentage_scaled` - percentage_scaled
+ * * `duration` - duration
+ * * `currency` - currency
+ */
+export type ValueFormatEnumApi = (typeof ValueFormatEnumApi)[keyof typeof ValueFormatEnumApi]
+
+export const ValueFormatEnumApi = {
+    Number: 'number',
+    Count: 'count',
+    Percentage: 'percentage',
+    PercentageScaled: 'percentage_scaled',
+    Duration: 'duration',
+    Currency: 'currency',
+} as const
+
+/**
+ * Snapshot-only metric shape for report lists.
+ *
+ * Omitting query definitions keeps the paginated inbox payload bounded.
+ */
+export interface ReportMetricListApi {
+    /**
+     * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
+     * @maxLength 100
+     */
+    metric_id: string
+    /**
+     * Short human-readable label for the measurement.
+     * @maxLength 200
+     */
+    title: string
+    /** What the value measures, independent of how it is formatted or drawn.
+     *
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom */
+    kind: ReportMetricKindEnumApi
+    /** `primary` for the report's key observation, otherwise `supporting`.
+     *
+     * * `primary` - primary
+     * * `supporting` - supporting */
+    role?: RoleEnumApi
+    /**
+     * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+     * @nullable
+     */
+    value?: number | null
+    /**
+     * When the visible snapshot value was measured; null when value is null.
+     * @nullable
+     */
+    value_at?: string | null
+    /**
+     * Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.
+     * @maxItems 14
+     * @nullable
+     */
+    series?: number[] | null
+    /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
+     *
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency */
+    value_format?: ValueFormatEnumApi
+    /**
+     * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
+     * @maxLength 40
+     * @nullable
+     */
+    unit?: string | null
+    /**
+     * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
+     * @maxLength 500
+     * @nullable
+     */
+    caption?: string | null
+}
+
 export type SignalReportAssignmentPrStateEnumApi =
     (typeof SignalReportAssignmentPrStateEnumApi)[keyof typeof SignalReportAssignmentPrStateEnumApi]
 
@@ -239,7 +363,7 @@ export const SignalReportBillingExemptReasonEnumApi = {
     PosthogSystem: 'posthog_system',
 } as const
 
-export interface SignalReportApi {
+export interface SignalReportListApi {
     readonly id: string
     /** @nullable */
     readonly title: string | null
@@ -254,6 +378,8 @@ export interface SignalReportApi {
     readonly artefact_count: number
     /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
     readonly charts: readonly ReportChartApi[]
+    /** Snapshot-only impact measurements for inbox rows. Live query definitions and authored comparisons are available from the report detail endpoint. */
+    readonly metrics: readonly ReportMetricListApi[]
     /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
     readonly suggested_prompts: readonly string[]
     /**
@@ -281,6 +407,11 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly dismissal_note: string | null
+    /**
+     * `organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.
+     * @nullable
+     */
+    readonly repo_slug: string | null
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -298,6 +429,21 @@ export interface SignalReportApi {
     readonly implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
     /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
     readonly implementation_pr_merged: boolean
+    /**
+     * Link to the issue self-driving opened in the team's tracker for this report's pull request. Null when the team tracks no issues, or the issue could not be opened.
+     * @nullable
+     */
+    readonly tracker_issue_url: string | null
+    /**
+     * How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null when there is no tracker issue.
+     * @nullable
+     */
+    readonly tracker_issue_reference: string | null
+    /**
+     * Why the tracker issue could not be opened, for a team that wants one. Null when the issue exists or the team tracks no issues.
+     * @nullable
+     */
+    readonly tracker_issue_error: string | null
     /** Derived remediation state: unclaimed, working, in_review, or done. */
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
@@ -319,13 +465,186 @@ export interface SignalReportApi {
     readonly channel_id: string | null
 }
 
-export interface PaginatedSignalReportListApi {
+export interface PaginatedSignalReportListListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: SignalReportApi[]
+    results: SignalReportListApi[]
+}
+
+/**
+ * One impact measurement shown on a report.
+ */
+export interface ReportMetricApi {
+    /**
+     * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
+     * @maxLength 100
+     */
+    metric_id: string
+    /**
+     * Short human-readable label for the measurement.
+     * @maxLength 200
+     */
+    title: string
+    /** What the value measures, independent of how it is formatted or drawn.
+     *
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom */
+    kind: ReportMetricKindEnumApi
+    /** `primary` for the report's key observation, otherwise `supporting`.
+     *
+     * * `primary` - primary
+     * * `supporting` - supporting */
+    role?: RoleEnumApi
+    /**
+     * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+     * @nullable
+     */
+    value?: number | null
+    /**
+     * When the visible snapshot value was measured; null when value is null.
+     * @nullable
+     */
+    value_at?: string | null
+    /**
+     * Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.
+     * @maxItems 14
+     * @nullable
+     */
+    series?: number[] | null
+    /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
+     *
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency */
+    value_format?: ValueFormatEnumApi
+    /**
+     * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
+     * @maxLength 40
+     * @nullable
+     */
+    unit?: string | null
+    /** Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition. */
+    query?: unknown
+    /**
+     * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
+     * @maxLength 500
+     * @nullable
+     */
+    caption?: string | null
+}
+
+export interface SignalReportApi {
+    readonly id: string
+    /** @nullable */
+    readonly title: string | null
+    /** @nullable */
+    readonly summary: string | null
+    readonly status: SignalReportStatusEnumApi
+    readonly total_weight: number
+    readonly signal_count: number
+    readonly signals_at_run: number
+    readonly created_at: string
+    readonly updated_at: string
+    readonly artefact_count: number
+    /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
+    readonly charts: readonly ReportChartApi[]
+    /** Typed impact measurements in display order. At most one is primary. Live metric values and history come from their query; value/value_at are the latest saved fallback snapshots. */
+    readonly metrics: readonly ReportMetricApi[]
+    /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
+    readonly suggested_prompts: readonly string[]
+    /**
+     * P0–P4 from the latest priority judgment artefact (when present).
+     * @nullable
+     */
+    readonly priority: string | null
+    /**
+     * Actionability choice from the latest actionability judgment artefact (when present).
+     * @nullable
+     */
+    readonly actionability: string | null
+    /**
+     * Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact.
+     * @nullable
+     */
+    readonly already_addressed: boolean | null
+    /**
+     * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
+     * @nullable
+     */
+    readonly dismissal_reason: string | null
+    /**
+     * Free-form note captured alongside the dismissal reason (when present).
+     * @nullable
+     */
+    readonly dismissal_note: string | null
+    /**
+     * `organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.
+     * @nullable
+     */
+    readonly repo_slug: string | null
+    readonly is_suggested_reviewer: boolean
+    /** Distinct source products contributing signals to this report (from ClickHouse). */
+    readonly source_products: readonly string[]
+    /**
+     * skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.
+     * @nullable
+     */
+    readonly scout_name: string | null
+    /**
+     * Pull request attached to this report's claim, if available.
+     * @nullable
+     */
+    readonly implementation_pr_url: string | null
+    /** Latest known pull request state: unknown, draft, open, closed, or merged. */
+    readonly implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
+    /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
+    readonly implementation_pr_merged: boolean
+    /**
+     * Link to the issue self-driving opened in the team's tracker for this report's pull request. Null when the team tracks no issues, or the issue could not be opened.
+     * @nullable
+     */
+    readonly tracker_issue_url: string | null
+    /**
+     * How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null when there is no tracker issue.
+     * @nullable
+     */
+    readonly tracker_issue_reference: string | null
+    /**
+     * Why the tracker issue could not be opened, for a team that wants one. Null when the issue exists or the team tracks no issues.
+     * @nullable
+     */
+    readonly tracker_issue_error: string | null
+    /** Derived remediation state: unclaimed, working, in_review, or done. */
+    readonly work_state: SignalReportWorkStateEnumApi
+    /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
+    readonly assignee: SignalReportAssigneeApi | null
+    /** The report's PR refund, when one exists. One refund per report, ever. */
+    readonly refund: SignalReportRefundApi | null
+    /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
+    readonly refund_ineligibility_reason: RefundIneligibilityReasonEnumApi | null
+    /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
+     *
+     * * `posthog_health_check` - PostHog health check
+     * * `posthog_onboarding` - PostHog onboarding
+     * * `posthog_system` - PostHog system */
+    readonly billing_exempt_reason: SignalReportBillingExemptReasonEnumApi | null
+    /**
+     * The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value.
+     * @nullable
+     */
+    readonly channel_id: string | null
 }
 
 /**
@@ -1884,7 +2203,7 @@ export interface SignalReportBulkStateResultApi {
 export interface SignalReportBulkStateResponseApi {
     /** One result per requested id, in request order (after de-duplication). */
     results: SignalReportBulkStateResultApi[]
-    /** Number of reports whose state was changed. */
+    /** Number of reports the call accepted. A report that already had the requested state counts here too, because a repeat dismiss or resolve still records its feedback. */
     transitioned_count: number
     /** Number of reports whose transition was not allowed. */
     skipped_count: number
@@ -1930,6 +2249,27 @@ export interface PullRequestCiStatusApi {
 export interface PullRequestCiStatusesResponseApi {
     /** One entry per requested report whose CI state resolved. Reports without an open implementation pull request, and reports GitHub could not answer for, are left out. */
     readonly statuses: readonly PullRequestCiStatusApi[]
+}
+
+export interface SignalReportMetricRefreshRequestApi {
+    /**
+     * Reports on screen, in display order. Each report's row metric is refreshed before any report's supporting metrics. At most 20 ids per call.
+     * @minItems 1
+     * @maxItems 20
+     */
+    report_ids: string[]
+}
+
+export interface SignalReportMetricSnapshotsApi {
+    /** Report id. */
+    readonly id: string
+    /** The report's metrics with their current snapshots, in display order. */
+    readonly metrics: readonly ReportMetricListApi[]
+}
+
+export interface SignalReportMetricRefreshResponseApi {
+    /** One entry per requested report the caller can read whose status is ready or pending_input, in request order. A report in any other status has no entry. A metric whose snapshot was fresh, whose query failed, or whose budget ran out keeps its previous snapshot; merge by metric_id. */
+    readonly reports: readonly SignalReportMetricSnapshotsApi[]
 }
 
 export interface SignalReportRefundSummaryResponseApi {
@@ -1979,7 +2319,7 @@ export interface SignalScoutSlackDestinationApi {
      * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
      */
     users?: string[] | null
-    /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
+    /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post. */
     thread_reports?: boolean
 }
 
@@ -2222,6 +2562,11 @@ export interface SignalScoutConfigApi {
     readonly skill_name: string
     /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
     readonly description: string
+    /**
+     * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+     * @maxLength 200
+     */
+    display_name?: string
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
     /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
@@ -2426,10 +2771,47 @@ export interface SignalScoutConfigCreateApi {
  */
 export type PatchedSignalScoutConfigUpdateApiStructuredOutputSchema = { [key: string]: unknown } | null
 
+export interface SignalScoutSlackDestinationUpdateApi {
+    /**
+     * ID of the Slack integration whose bot posts this scout's findings and reports.
+     * @minimum 1
+     */
+    integration_id: number
+    /**
+     * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set.
+     * @maxLength 255
+     * @nullable
+     */
+    channel?: string | null
+    /**
+     * Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.
+     * @minItems 1
+     * @maxItems 5
+     * @nullable
+     * @items.maxLength 255
+     * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
+     */
+    users?: string[] | null
+    /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post. */
+    thread_reports?: boolean
+}
+
+export interface SignalScoutOutputDestinationsUpdateApi {
+    /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+    slack?: SignalScoutSlackDestinationUpdateApi | null
+    /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+    webhook?: SignalScoutWebhookDestinationApi | null
+}
+
 /**
- * Editable schedule, enablement, and emit posture for one scout config.
+ * Editable display name, schedule, enablement, and emit posture for one scout config.
  */
 export interface PatchedSignalScoutConfigUpdateApi {
+    /**
+     * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+     * @maxLength 200
+     */
+    display_name?: string
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Turning this off records a user pause (`status` becomes `paused_by_user`, which the system never overrides); turning it on resumes the scout from any pause. Only a change of value is a lifecycle action: re-sending the current value leaves the existing status and its ownership untouched. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -2447,7 +2829,7 @@ export interface PatchedSignalScoutConfigUpdateApi {
      */
     run_cron_schedule?: string | null
     /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
-    output_destinations?: SignalScoutOutputDestinationsApi
+    output_destinations?: SignalScoutOutputDestinationsUpdateApi
     /**
      * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
@@ -2484,6 +2866,19 @@ export interface PatchedSignalScoutConfigUpdateApi {
 }
 
 /**
+ * Request body for an on-demand (`run now`) scout dispatch.
+ *
+ * Every field is optional: a plain trigger sends no body at all.
+ */
+export interface SignalScoutManualRunRequestApi {
+    /**
+     * Optional steering for this run only, such as 'focus on the checkout regression' or 'skip the staging traffic today'. The agent reads it alongside the scout's durable notes and weighs it the same way: it directs attention, it never forces a finding. Use it instead of leaving a scout note that would also steer every later scheduled run. The note is kept on the run for history and is never read by another run. Because the agent reads it verbatim while holding privileged tools, a run that carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor access to skills, the same bar as leaving a note.
+     * @maxLength 1000
+     */
+    note?: string
+}
+
+/**
  * Response for an on-demand (`run now`) scout dispatch.
  *
  * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
@@ -2512,7 +2907,7 @@ export interface ScoutMemberApi {
     /** The member's last name (may be empty). */
     last_name: string
     /**
-     * The member's resolved GitHub login (lowercased), already resolved server-side — put this value in a report's `suggested_reviewers` once you've matched the finding's owner to this row. Null when the member has no linked GitHub identity: a null-login member can't be routed to at all (neither a login nor a uuid resolves), so pick a different owner or leave `suggested_reviewers` empty.
+     * The member's resolved GitHub login (lowercased), already resolved server-side. Null when the member has no linked GitHub account, which does not stop you routing to them: pass their `user_uuid` in `suggested_reviewers` and the report reaches them. A null login only means no draft PR can be opened as that person.
      * @nullable
      */
     github_login: string | null
@@ -3295,9 +3690,11 @@ export type SignalScoutRunSummaryApiMetadata = {
     model?: string
     runtime_adapter?: string
     reasoning_effort?: string
+    service_tier?: string
     network_access?: string
     write_scopes?: string[]
     triggered_by?: string
+    run_note?: string
     derived?: SignalScoutRunSummaryApiMetadataDerived
     [key: string]: unknown
 }
@@ -3411,9 +3808,11 @@ export type SignalScoutRunDetailApiMetadata = {
     model?: string
     runtime_adapter?: string
     reasoning_effort?: string
+    service_tier?: string
     network_access?: string
     write_scopes?: string[]
     triggered_by?: string
+    run_note?: string
     derived?: SignalScoutRunDetailApiMetadataDerived
     [key: string]: unknown
 }
@@ -3503,10 +3902,9 @@ export interface ReportEvidenceApi {
 /**
  * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
  *
- * The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
- * org member's linked GitHub login (and wins over a supplied `github_login` when both are given). A
- * `user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a
- * reviewer is never silently dropped.
+ * A reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a
+ * member with no linked GitHub account routes the report like anyone else. A `user_uuid` that
+ * isn't an org member of this team is rejected — so a reviewer is never silently dropped.
  */
 export interface SuggestedReviewerApi {
     /**
@@ -3514,7 +3912,7 @@ export interface SuggestedReviewerApi {
      * @maxLength 200
      */
     github_login?: string
-    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
+    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here. */
     user_uuid?: string
     /**
      * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.
@@ -3522,6 +3920,89 @@ export interface SuggestedReviewerApi {
      * @nullable
      */
     reason?: string | null
+}
+
+export interface ReportMetricComparisonApi {
+    /** Baseline or previous value, formatted like the current value. */
+    value: number
+    /**
+     * Short context for the comparison, such as `Previous period`.
+     * @maxLength 40
+     */
+    label: string
+}
+
+/**
+ * Authoring shape: unlike a read response, the live query cannot be absent or redacted.
+ */
+export interface ReportMetricWriteApi {
+    /**
+     * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
+     * @maxLength 100
+     */
+    metric_id: string
+    /**
+     * Short human-readable label for the measurement.
+     * @maxLength 200
+     */
+    title: string
+    /** What the value measures, independent of how it is formatted or drawn.
+     *
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom */
+    kind: ReportMetricKindEnumApi
+    /** `primary` for the report's key observation, otherwise `supporting`.
+     *
+     * * `primary` - primary
+     * * `supporting` - supporting */
+    role?: RoleEnumApi
+    /**
+     * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+     * @nullable
+     */
+    value?: number | null
+    /**
+     * When the visible snapshot value was measured; null when value is null.
+     * @nullable
+     */
+    value_at?: string | null
+    /**
+     * Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.
+     * @maxItems 14
+     * @nullable
+     */
+    series?: number[] | null
+    /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
+     *
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency */
+    value_format?: ValueFormatEnumApi
+    /**
+     * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
+     * @maxLength 40
+     * @nullable
+     */
+    unit?: string | null
+    /** Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition. */
+    query: unknown
+    /**
+     * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
+     * @maxLength 500
+     * @nullable
+     */
+    caption?: string | null
+    /** Legacy optional comparison. New report metrics must omit it. */
+    comparison?: ReportMetricComparisonApi | null
 }
 
 /**
@@ -3566,6 +4047,12 @@ export interface EditReportRequestApi {
      */
     charts?: ReportChartApi[] | null
     /**
+     * The report's full impact-metric set. Omit or send null to preserve it; send an empty list to clear it. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes; a snapshot is only an optional cached fallback. Snapshot-only/queryless payloads are invalid, and legacy rows of that shape are always redacted.
+     * @maxItems 6
+     * @nullable
+     */
+    metrics?: ReportMetricWriteApi[] | null
+    /**
      * The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report.
      * @maxItems 3
      * @nullable
@@ -3590,6 +4077,11 @@ export interface EditReportResponseApi {
      * @nullable
      */
     charts_set: number | null
+    /**
+     * How many impact metrics the report now shows, or null when untouched/unchanged. 0 means the edit removed every metric.
+     * @nullable
+     */
+    metrics_set: number | null
     /**
      * How many prompts the report now suggests, or null if the edit left them as they were (the field omitted, or a re-send of what was already stored). 0 means the edit took the report's suggested prompts down.
      * @nullable
@@ -3756,11 +4248,22 @@ export interface EmitReportRequestApi {
      */
     charts?: ReportChartApi[]
     /**
+     * Optional typed impact measurements. Use one primary metric for the key observation and supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes. A value/value_at snapshot is an optional cached fallback. Affected users must use one series with `math: dau`. Snapshot-only/queryless payloads are invalid; legacy rows of that shape are always redacted.
+     * @maxItems 6
+     */
+    metrics?: ReportMetricWriteApi[]
+    /**
      * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.
      * @maxItems 3
      * @items.maxLength 200
      */
     suggested_prompts?: string[]
+    /**
+     * Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
+     * @maxLength 200
+     * @nullable
+     */
+    idempotency_key?: string | null
 }
 
 export interface EmitReportResponseApi {
@@ -3791,6 +4294,8 @@ export interface EmitReportResponseApi {
      * @nullable
      */
     remediation: string | null
+    /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
+    idempotent_replay: boolean
 }
 
 /**
@@ -3927,6 +4432,34 @@ export interface RecordStructuredOutputResponseApi {
     recorded_count: number
     /** Deterministic event ids of the recorded `$scout_structured_output` events, in submission order. Stable across a resubmission of the identical batch, which is what makes retrying a failed delivery safe. */
     record_ids: string[]
+}
+
+/**
+ * What one scout spent in the window, and what it produced for that spend.
+ */
+export interface ScoutCostApi {
+    /** Full skill name of the scout, e.g. `signals-scout-error-tracking`. */
+    skill_name: string
+    /** Model spend attributed to the scout's runs in the window, in US dollars. Zero when none of its runs had spend attributed, which `priced_run_count` tells apart from a scout that really spent nothing. */
+    spend_usd: number
+    /** Runs the scout started in the window. */
+    run_count: number
+    /** Runs of the scout that had spend attributed. Lower than `run_count` where a run failed before its first model call, or its generations haven't landed yet. Divide `spend_usd` by this, not by `run_count`, for cost per run. */
+    priced_run_count: number
+    /** Distinct inbox reports the scout filed or added to in the window. A report it authored in one run and edited in three counts once. Zero means the scout produced no reports, so cost per report has no value rather than a value of zero. */
+    reports_touched: number
+}
+
+/**
+ * Model spend and output per scout over a window.
+ */
+export interface ScoutCostsApi {
+    /** Window the rows describe, in days. */
+    window_days: number
+    /** One row per scout that started at least one run on this project in the window. */
+    scouts: ScoutCostApi[]
+    /** False when this deployment has no internal AI observability project to read the generations from, so `scouts` is empty and every spend is unknown rather than zero. */
+    available: boolean
 }
 
 /**
@@ -4384,7 +4917,7 @@ export interface SignalUserAutonomyConfigApi {
      */
     readonly slack_notification_integration_id: number | null
     /**
-     * Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null disables Slack notifications.
+     * Where the reviewer ping goes, in the same `id|name` shape PostHog uses elsewhere (only the id is required): a channel (`C0123ABC456|#alerts`), or a workspace member (`U0123ABC456|@sam`) who is sent a direct message. Null disables Slack notifications.
      * @maxLength 255
      * @nullable
      */
@@ -4399,8 +4932,45 @@ export interface SignalUserAutonomyConfigApi {
     slack_notification_min_priority?: AutonomyPriorityEnumApi | BlankEnumApi | null
     /** Whether to add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Assignment is additive, so turning it off never removes an assignee from a pull request that already has one. */
     github_assign_on_pull_request?: boolean
+    /**
+     * Whether implementation pull requests for reports that suggest this user as reviewer open ready for review instead of draft, so the full CI matrix starts right away. Null follows the project's default_open_pull_request_ready. Applies only when the pull request is created; a pull request somebody converts back to draft stays draft.
+     * @nullable
+     */
+    github_open_pull_request_ready?: boolean | null
     readonly created_at: string
     readonly updated_at: string
+}
+
+export interface SignalUserAutonomyConfigCreateApi {
+    autostart_priority?: AutonomyPriorityEnumApi | null
+    /**
+     * Primary key of a Slack `Integration` row in one of the caller's teams. Pair with `slack_notification_channel` to enable notifications; pass null on either to disable them.
+     * @nullable
+     */
+    slack_notification_integration_id?: number | null
+    /**
+     * `channel_id|#channel-name` target, the same convention used by Insight Alerts, or a `member_id|@display-name` target (`U0123ABC456|@sam`) to send the ping as a direct message. A member target is checked against the workspace on save.
+     * @maxLength 255
+     * @nullable
+     */
+    slack_notification_channel?: string | null
+    /** Set true to send the ping as a direct message from the PostHog app. The caller's own member id is resolved in the connected workspace and stored in `slack_notification_channel`, so nothing has to be picked. Rejected when the workspace has no eligible account for the caller, and cannot be combined with `slack_notification_channel`. */
+    slack_notification_direct_message?: boolean
+    /** P0 is highest. Null = notify for every priority. When set, reports without a priority judgment do not notify.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    slack_notification_min_priority?: AutonomyPriorityEnumApi | null
+    /** Add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Turning it off stops future assignment and never removes an existing assignee. */
+    github_assign_on_pull_request?: boolean
+    /**
+     * Open implementation pull requests for reports that suggest this user as reviewer ready for review instead of draft, so the full CI matrix runs without anybody clicking Ready. Null follows the project default. A ready pull request runs the full matrix on every push.
+     * @nullable
+     */
+    github_open_pull_request_ready?: boolean | null
 }
 
 export type SignalsProcessingListParams = {
@@ -4655,6 +5225,15 @@ export type SignalsScoutRunsListParams = {
      * @minLength 1
      */
     text?: string
+}
+
+export type SignalsScoutRunsCostsParams = {
+    /**
+     * Window in days over runs' `created_at` (default 7). Only 7 is accepted today — it matches the window the roster's fleet headline spans, so every number on the page describes one span.
+     * @minimum 7
+     * @maximum 7
+     */
+    window_days?: number
 }
 
 export type SignalsScoutRunsRecentEmissionsParams = {

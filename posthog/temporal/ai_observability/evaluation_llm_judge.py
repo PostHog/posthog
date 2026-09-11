@@ -16,7 +16,11 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     terminal_user_error_result,
     terminal_user_error_result_from_application_error,
 )
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io, extract_event_tools
+from posthog.temporal.ai_observability.evaluation_event_io import (
+    extract_event_io,
+    extract_event_tools,
+    hydrate_event_reference,
+)
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
@@ -212,7 +216,7 @@ def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActiv
 
 def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     evaluation = inputs.evaluation
-    event_data = inputs.event_data
+    event_data = hydrate_event_reference(inputs.event_data)
 
     if evaluation["evaluation_type"] != "llm_judge":
         raise ApplicationError(

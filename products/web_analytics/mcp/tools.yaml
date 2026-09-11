@@ -172,12 +172,14 @@ tools:
             idempotent: false
         title: Create a custom bot rule
         description: >
-            Add one bot rule so traffic matching it classifies as a bot. Set `key` to the event property to read (such
-            as $raw_user_agent or $ip), `matcher` to 'contains' (case-insensitive substring), 'regex' (RE2), or 'cidr'
-            (an IP network range, only with $ip), `pattern` to the value to match, and `name` to the label to report.
-            Optionally set `category` to a built-in category like ai_crawler to relabel the traffic type. The rule is
-            rejected if its pattern cannot run. Use this when a scraper is hitting the site that the built-in list
-            misses.
+            Add one bot rule so traffic matching it classifies as a bot. A rule holds one or more conditions in `items`,
+            combined with `combiner` ('AND' or 'OR', default 'AND'). Each condition sets `key` to the event property to
+            read (such as $raw_user_agent, $screen_width, or $ip), `matcher` to 'contains' (case-insensitive substring),
+            'regex' (RE2), 'exact' (case-sensitive equality), or 'cidr' (an IP network range, only with $ip), and
+            `pattern` to the value to match. Set `name` to the label to report, and optionally `category` to a built-in
+            category like ai_crawler to relabel the traffic type. The rule is rejected if a pattern cannot run. Use this
+            when a scraper is hitting the site that the built-in list misses, including one only identifiable by a
+            combination of properties (an 800x600 screen).
     web-analytics-bot-rules-destroy:
         operation: web_analytics_bot_rules_destroy
         enabled: true

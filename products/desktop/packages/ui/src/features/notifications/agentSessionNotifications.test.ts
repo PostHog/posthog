@@ -19,7 +19,9 @@ describe("AgentSessionNotificationService", () => {
 
     service.notify({
       kind: "turn_completed",
+      trigger: "local_prompt_response",
       taskId: "task-1",
+      taskRunId: "run-1",
       taskTitle: "Fix notifications",
       stopReason: "end_turn",
       durationMs: 42_000,
@@ -31,6 +33,11 @@ describe("AgentSessionNotificationService", () => {
       "end_turn",
       "task-1",
       42_000,
+      {
+        trigger: "local_prompt_response",
+        taskRunId: "run-1",
+        agentSpoke: false,
+      },
     );
     expect(speech.speak).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -46,7 +53,9 @@ describe("AgentSessionNotificationService", () => {
 
     service.notify({
       kind: "needs_input",
+      trigger: "cloud_permission_request",
       taskId: "task-1",
+      taskRunId: "run-1",
       taskTitle: "Fix notifications",
       isTaskAuthor: true,
       agentSpoke: true,
@@ -55,6 +64,11 @@ describe("AgentSessionNotificationService", () => {
     expect(notifications.notifyPermissionRequest).toHaveBeenCalledWith(
       "Fix notifications",
       "task-1",
+      {
+        trigger: "cloud_permission_request",
+        taskRunId: "run-1",
+        agentSpoke: true,
+      },
     );
     expect(speech.speak).not.toHaveBeenCalled();
   });
@@ -66,6 +80,7 @@ describe("AgentSessionNotificationService", () => {
 
       service.notify({
         kind: "turn_completed",
+        trigger: "local_prompt_response",
         taskId: "task-1",
         taskTitle: "Fix notifications",
         stopReason: "end_turn",
