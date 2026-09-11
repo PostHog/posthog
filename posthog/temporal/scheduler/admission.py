@@ -1,7 +1,8 @@
 import uuid
 import hashlib
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Literal
@@ -131,9 +132,21 @@ def _deduplicate_requests(requests: Sequence[SchedulerClaimRequest]) -> tuple[li
     return list(unique.values()), multiplicities
 
 
-def _set_scheduler_lock_timeout() -> None:
+@contextmanager
+def _scheduler_lock_timeout() -> Iterator[None]:
+    """Bound scheduler locks without changing a caller-owned transaction's timeout."""
+
     with connection.cursor() as cursor:
+        cursor.execute("SHOW lock_timeout")
+        previous_timeout = cursor.fetchone()[0]
         cursor.execute("SELECT set_config('lock_timeout', %s, TRUE)", [f"{SCHEDULER_LOCK_TIMEOUT_MS}ms"])
+
+    yield
+
+    # Reached only after a successful block. On a database error, the enclosing
+    # atomic block rolls back its savepoint and PostgreSQL restores SET LOCAL.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT set_config('lock_timeout', %s, TRUE)", [previous_timeout])
 
 
 def _lock_or_create_pool(scheduler: str, region: str, tenant_key: str) -> TemporalSchedulerPermitPool:
@@ -187,8 +200,7 @@ def reserve_scheduler_claims(
     claim_time = _resolve_time(now)
     lease_expires_at = claim_time + limits.lease_duration
 
-    with transaction.atomic():
-        _set_scheduler_lock_timeout()
+    with transaction.atomic(), _scheduler_lock_timeout():
         global_pool = _lock_or_create_pool(scheduler, region, "")
         tenant_pools = _lock_or_create_tenant_pools(
             scheduler,
@@ -348,8 +360,7 @@ def confirm_scheduler_claim(
 ) -> bool:
     _validate_lease_duration(lease_duration)
     transition_time = _resolve_time(now)
-    with transaction.atomic():
-        _set_scheduler_lock_timeout()
+    with transaction.atomic(), _scheduler_lock_timeout():
         claim = (
             TemporalSchedulerClaim.objects.select_for_update()
             .filter(
@@ -389,8 +400,7 @@ def renew_scheduler_claim(
 ) -> bool:
     _validate_lease_duration(lease_duration)
     transition_time = _resolve_time(now)
-    with transaction.atomic():
-        _set_scheduler_lock_timeout()
+    with transaction.atomic(), _scheduler_lock_timeout():
         claim = (
             TemporalSchedulerClaim.objects.select_for_update()
             .filter(
@@ -446,8 +456,7 @@ def _finish_scheduler_claim(
     if snapshot is None:
         return False
 
-    with transaction.atomic():
-        _set_scheduler_lock_timeout()
+    with transaction.atomic(), _scheduler_lock_timeout():
         global_pool = _get_locked_existing_pool(snapshot["scheduler"], snapshot["region"], "")
         tenant_pool = _get_locked_existing_pool(snapshot["scheduler"], snapshot["region"], snapshot["tenant_key"])
         try:
@@ -589,8 +598,7 @@ def prune_inactive_scheduler_claims(
     if limit <= 0 or limit > MAX_PRUNE_CLAIMS_PER_CALL:
         raise ValueError(f"limit must contain between 1 and {MAX_PRUNE_CLAIMS_PER_CALL} items")
 
-    with transaction.atomic():
-        _set_scheduler_lock_timeout()
+    with transaction.atomic(), _scheduler_lock_timeout():
         completed_candidates = list(
             TemporalSchedulerClaim.objects.select_for_update(skip_locked=True)
             .filter(
