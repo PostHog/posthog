@@ -493,7 +493,12 @@ async def test_custom_export_runs_without_legacy_events_tables(
                 "inserted_at": "2024-02-01 12:00:00",
                 "created_at": "2024-02-01 12:00:00",
                 "elements_chain": "",
-                "properties": {"$browser": "Firefox", "amount": 2.5, "person": {"properties": "event value"}},
+                "properties": {
+                    "$browser": "Firefox",
+                    "amount": 2.5,
+                    "person": {"properties": "event value"},
+                    "$feature_flags": {"some-feature": "true"},
+                },
                 "person_properties": {"email": "buyer@example.com"},
                 "temporary_properties": {"$set": {"email": "buyer@example.com"}},
             }
@@ -502,7 +507,7 @@ async def test_custom_export_runs_without_legacy_events_tables(
                 + "\n".join(json.dumps(value) for value in [row, row, {**row, "team_id": ateam.pk + 1}])
             )
             schema: BatchExportSchema = {
-                "hogql_query": "SELECT e.properties.$browser AS browser, e.properties.amount AS amount, e.person.properties.email AS email, e.properties.person.properties AS nested FROM events AS e",
+                "hogql_query": "SELECT e.properties.$browser AS browser, e.properties.amount AS amount, e.person.properties.email AS email, e.properties.person.properties AS nested, e.properties.`$feature/some-feature` AS flag FROM events AS e",
                 "fields": [{"expression": "events.mat_removed_column", "alias": "browser"}],
                 "values": {"unused_old_parameter": "stale"},
             }
@@ -512,7 +517,7 @@ async def test_custom_export_runs_without_legacy_events_tables(
             assert fields is not None
             assert "unused_old_parameter" not in values
             predicate, values = await database_sync_to_async(compose_filters_clause)(
-                [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Firefox"]}],
+                [{"key": "$feature/some-feature", "type": "event", "operator": "exact", "value": ["true"]}],
                 team_id=ateam.pk,
                 values=values,
             )
@@ -540,6 +545,7 @@ async def test_custom_export_runs_without_legacy_events_tables(
             assert rows[0]["amount"] == "2.5"
             assert rows[0]["email"] == "buyer@example.com"
             assert rows[0]["nested"] == "event value"
+            assert rows[0]["flag"] == "true"
             assert json.loads(rows[0]["properties"])["$browser"] == "Firefox"
             assert json.loads(rows[0]["person_properties"])["email"] == "buyer@example.com"
             assert json.loads(rows[0]["set"]) == {"email": "buyer@example.com"}
