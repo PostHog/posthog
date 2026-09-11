@@ -89,7 +89,7 @@ function ShareSkillMenuItem({
                 data-attr="llma-skill-dropdown-publish-community"
                 fullWidth
             >
-                Share publicly on GitHub
+                Publish to PostHog community…
             </LemonButton>
         </AccessControlAction>
     )

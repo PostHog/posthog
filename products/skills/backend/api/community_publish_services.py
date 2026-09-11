@@ -558,7 +558,7 @@ def _community_pr_body(*, name: str, slug: str, author_handle: str) -> str:
     )
     return (
         f"Adds the **{name}** community skill (`skills/{slug}/`).\n\n"
-        f"{credit} via the in-product *Share publicly on GitHub* flow.\n\n"
+        f"{credit} via the in-product *Publish to community* flow.\n\n"
         "A maintainer should review the instructions for safety before merging; "
         "set `trust_tier` on review. On merge, CI regenerates `registry.json` and PostHog syncs it."
     )
