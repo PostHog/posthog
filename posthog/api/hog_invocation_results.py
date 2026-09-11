@@ -116,7 +116,13 @@ def _summarize_invocation_globals(parsed: dict[str, Any]) -> InvocationGlobalsSu
     event = parsed.get("event")
     current_action = parsed.get("currentAction")
     return InvocationGlobalsSummary(
-        key_sizes={key: len(json.dumps(value, separators=(",", ":"))) for key, value in parsed.items()},
+        # SafeJSONRenderer sends UTF-8 without ASCII escaping, so measure that same encoding.
+        # `json.dumps` defaults to ensure_ascii=True, which counts a non-ASCII value by its
+        # escaped characters and overstates it about 2x for CJK and 3x for emoji.
+        key_sizes={
+            key: len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+            for key, value in parsed.items()
+        },
         event_name=event.get("event") if isinstance(event, dict) else None,
         current_action_id=current_action.get("id") if isinstance(current_action, dict) else None,
     )

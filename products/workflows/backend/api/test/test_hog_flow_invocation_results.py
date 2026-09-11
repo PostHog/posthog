@@ -13,6 +13,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.hog_invocation_results.sql import INSERT_HOG_INVOCATION_RESULT_SQL
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.renderers import SafeJSONRenderer
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -266,6 +267,15 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
         assert set(body["invocation_globals"]) == expected_keys
         for key in expected_keys:
             assert body["invocation_globals"][key] == SAMPLE_GLOBALS[key]
+
+    def test_detail_reports_globals_key_sizes_as_response_bytes(self):
+        # Non-ASCII values are ordinary in event and person properties. ASCII-escaped JSON counts
+        # the escaped characters, which reports the key as larger than the response really sends.
+        payload = {"event": {"event": "购买", "properties": {"$city": "東京", "note": "🎉"}}}
+        self._seed("inv-1", invocation_globals=json.dumps(payload))
+        body = self._detail("inv-1", {"include_globals": "event"}).json()
+        rendered = SafeJSONRenderer().render(body["invocation_globals"]["event"])
+        assert body["invocation_globals_summary"]["key_sizes"]["event"] == len(rendered)
 
     def test_detail_invocation_globals_degrades_to_empty_on_garbage(self):
         self._seed("inv-1", invocation_globals="not-valid-base64-or-json")
