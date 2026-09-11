@@ -416,6 +416,11 @@ class ErrorTrackingSymbolSet(UUIDTModel):
                 models.F("id"),
                 name="et_symset_bucket_cleanup_idx",
             ),
+            # The list page sorts one team's symbol sets by `created_at` or `last_used` and pages
+            # with LIMIT. `id` is the last column so the tiebreak that keeps paging stable comes
+            # from the same ordered scan rather than a sort of every row the team owns.
+            models.Index(fields=["team", "created_at", "id"], name="et_symset_team_created_idx"),
+            models.Index(fields=["team", "last_used", "id"], name="et_symset_team_used_idx"),
         ]
 
         constraints = [
