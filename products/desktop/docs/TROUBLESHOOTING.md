@@ -1,5 +1,14 @@
 # Troubleshooting
 
+## Conversation is too large to continue
+
+A request can exceed the size limit when a conversation contains large images or tool output.
+The app keeps the session connected and reports the size error instead of restarting the agent and sending the same request again.
+Restarting the session does not reduce the request size.
+
+Start a new task with a short text summary of the work.
+Do not copy the old images or full tool output into the new task.
+
 ## Codex asks for the same permissions again
 
 Codex Auto keeps approvals for actions outside its allowed scope.
