@@ -207,8 +207,12 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   `reply` schema description says the same. Test and lint output leave the reply: the driver posts the verdict's
   `verification` field under it as a collapsed "How this was verified" block (`_verification_section`,
   `temporal/resolution.py`), after the commit link, and inserts the blank line GitHub needs before a `---` the model
-  wrote directly under its verdict (`_normalize_reply_divider`; without it the verdict renders as a heading). The
-  resolution-criteria skill's step 4 no longer asks for "how it was verified" in the reply (new canonical version).
+  wrote directly under its verdict (`_normalize_reply_divider`; without it the verdict renders as a heading). A reply
+  past the shape (more than 5 support lines or 150 visible words) is folded, not cut or rejected: the verdict and the
+  first lines stay visible, the rest goes under a collapsed "More detail" block, and a warning logs the drift
+  (`_fold_overlong_reply`). Rejecting was ruled out in review: a schema limit fails the turn parser with no correction
+  path, so a landed fix commit would get no reply. The resolution-criteria skill's step 4 no longer asks for "how it
+  was verified" in the reply (new canonical version).
 - **Why.** Dogfood feedback on PR #97753: four replies of 5 to 7 paragraphs each, walls of text nobody reads. The
   prompt asked for a self-contained answer plus how it was verified, and the model over-delivered; the
   `verification` field was stored and shown nowhere. The shape lives in the prompt, not the editable criteria

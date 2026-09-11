@@ -32,6 +32,7 @@ from products.review_hog.backend.temporal.resolution import (
     _append_task_run,
     _deliver_side_effects,
     _fail_resolution,
+    _fold_overlong_reply,
     _normalize_reply_divider,
     _prepare_run,
     _PreparedRun,
@@ -118,6 +119,31 @@ class TestReplyBodyRendering(SimpleTestCase):
     @parameterized.expand([("none", None), ("blank", "   \n")])
     def test_empty_verification_adds_no_block(self, _name: str, verification: str | None) -> None:
         assert _verification_section(verification) == ""
+
+    @parameterized.expand(
+        [
+            ("three_lines", "Fixed. Done.\n\n---\n\n- a\n- b\n- c"),
+            ("five_lines_at_the_cap", "Escalating. Yours.\n\n---\n\n- a\n- b\n- c\n- d\n- e"),
+        ]
+    )
+    def test_reply_in_shape_is_left_alone(self, _name: str, reply: str) -> None:
+        assert _fold_overlong_reply(reply, thread_id="PRRT_1") == reply
+
+    def test_reply_past_the_shape_folds_the_rest(self) -> None:
+        lines = [f"- line {i} with a few words" for i in range(1, 9)]
+        out = _fold_overlong_reply("Fixed. Done.\n\n---\n\n" + "\n".join(lines), thread_id="PRRT_1")
+        visible, _, folded = out.partition("<details>")
+        assert visible.strip().splitlines()[-1] == "- line 5 with a few words"
+        assert "- line 6 with a few words" in folded and "- line 8 with a few words" in folded
+        assert "<summary><strong>More detail</strong></summary>" in folded
+
+    def test_wall_without_divider_keeps_the_first_paragraph_visible(self) -> None:
+        paragraphs = [" ".join(["word"] * 60) for _ in range(4)]
+        out = _fold_overlong_reply("\n\n".join(paragraphs), thread_id="PRRT_1")
+        visible, _, folded = out.partition("<details>")
+        assert visible.startswith(paragraphs[0] + "\n\n---\n\n")
+        assert visible.count("word") == 120
+        assert folded.count("word") == 120
 
 
 class TestResolutionPersistenceAndDelivery(BaseTest):

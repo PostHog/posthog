@@ -341,6 +341,45 @@ def _normalize_reply_divider(reply: str) -> str:
     return re.sub(r"(?<=[^\n])\n---(?=\n|$)", "\n\n---", reply)
 
 
+# The prompt asks for one verdict sentence, a divider, then at most 5 short lines. A reply past this
+# cap is folded rather than cut or rejected: rejecting would leave a landed fix commit with no reply.
+_REPLY_MAX_VISIBLE_LINES = 5
+_REPLY_MAX_VISIBLE_WORDS = 150
+
+
+def _fold_overlong_reply(reply: str, *, thread_id: str) -> str:
+    """Keep the verdict and the first support lines visible; fold the rest into a collapsed block."""
+    head, divider, rest = reply.strip().partition("\n---\n")
+    if not divider:
+        head, _, rest = head.partition("\n\n")
+    head = head.strip()
+    lines = [line for line in rest.strip().splitlines() if line.strip()]
+    words = len(head.split()) + sum(len(line.split()) for line in lines)
+    if len(lines) <= _REPLY_MAX_VISIBLE_LINES and words <= _REPLY_MAX_VISIBLE_WORDS:
+        return reply
+    kept: list[str] = []
+    budget = _REPLY_MAX_VISIBLE_WORDS - len(head.split())
+    for line in lines:
+        if len(kept) == _REPLY_MAX_VISIBLE_LINES or len(line.split()) > budget:
+            break
+        kept.append(line)
+        budget -= len(line.split())
+    folded = lines[len(kept) :]
+    logger.warning(
+        "Reply for thread %s exceeded the reply shape (%d lines, %d words); folded %d line(s)",
+        thread_id,
+        len(lines),
+        words,
+        len(folded),
+    )
+    visible = head if not kept else f"{head}\n\n---\n\n" + "\n".join(kept)
+    return (
+        f"{visible}\n\n<details>\n<summary><strong>More detail</strong></summary>\n<br>\n\n"
+        + "\n".join(folded)
+        + "\n\n</details>"
+    )
+
+
 def _verification_section(verification: str | None) -> str:
     """The verdict's lint/test results as a collapsed block: the reply stays short, the proof stays on the thread."""
     text = (verification or "").strip()
@@ -431,7 +470,7 @@ def _deliver_side_effects(
         if verified:
             _append_commit_artefact(input, report_id, branch, updated)
     if not updated.reply_posted:
-        body = _normalize_reply_divider(updated.reply)
+        body = _fold_overlong_reply(_normalize_reply_divider(updated.reply), thread_id=updated.thread_id)
         if updated.outcome == ThreadOutcome.FIXED.value and updated.commit_sha:
             if updated.commit_restricted:
                 body += (

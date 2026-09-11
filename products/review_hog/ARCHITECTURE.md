@@ -54,7 +54,9 @@ sentence, a `---` divider, then at most 3 short lines (5 for an escalation), in 
 the `writing-simplified-technical-english` skill the sandbox image carries. Test and lint output never enters the
 reply text: the driver posts the verdict's `verification` under it as a collapsed "How this was verified" block
 (`_verification_section`) after the commit link, and inserts the blank line GitHub needs before a `---` the model
-wrote directly under its verdict (`_normalize_reply_divider`). A FIXED verdict's echoed commit SHA is verified
+wrote directly under its verdict (`_normalize_reply_divider`). A reply past the shape (more than 5 support lines or
+150 visible words) is folded, not cut: the verdict and the first lines stay visible and the rest lands under a
+collapsed "More detail" block, with a warning logged (`_fold_overlong_reply`). A FIXED verdict's echoed commit SHA is verified
 server-side before delivery (`commit_on_branch`);
 an unproven SHA posts the reply without the commit link and never auto-resolves. A real commit is then checked
 against the hard-floor **path backstop** (`commit_restricted_paths`): one touching `.github/`, CODEOWNERS, or
