@@ -1,6 +1,5 @@
 import "reflect-metadata";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
-import { ConnectivityService } from "../services/connectivity/service";
 import { EnvironmentService } from "../services/environment/service";
 import { FocusService } from "../services/focus/service";
 import { FocusSyncService } from "../services/focus/sync-service";
@@ -10,7 +9,6 @@ import { LOGS_SERVICE } from "../services/local-logs/identifiers";
 import { LocalLogsService } from "../services/local-logs/service";
 import { WatcherService } from "../services/watcher/service";
 import {
-  CONNECTIVITY_SERVICE,
   ENVIRONMENT_SERVICE,
   FOCUS_SERVICE,
   FOCUS_SYNC_SERVICE,
@@ -28,7 +26,6 @@ interface WorkspaceServerBindings {
   [WATCHER_SERVICE]: WatcherService;
   [LOCAL_LOGS_SERVICE]: LocalLogsService;
   [LOGS_SERVICE]: LocalLogsService;
-  [CONNECTIVITY_SERVICE]: ConnectivityService;
   [ENVIRONMENT_SERVICE]: EnvironmentService;
 }
 
@@ -40,5 +37,4 @@ container.bind(FS_SERVICE).to(FsService).inSingletonScope();
 container.bind(WATCHER_SERVICE).to(WatcherService).inSingletonScope();
 container.bind(LOCAL_LOGS_SERVICE).to(LocalLogsService).inSingletonScope();
 container.bind(LOGS_SERVICE).toService(LOCAL_LOGS_SERVICE);
-container.bind(CONNECTIVITY_SERVICE).to(ConnectivityService).inSingletonScope();
 container.bind(ENVIRONMENT_SERVICE).to(EnvironmentService).inSingletonScope();

@@ -68,9 +68,9 @@ class FakeSession:
 
     def _next(self) -> FakeResponse:
         index = len(self.calls) - 1
-        if callable(self._responses):
-            return self._responses(index)
-        return self._responses.pop(0)
+        if isinstance(self._responses, list):
+            return self._responses.pop(0)
+        return self._responses(index)
 
     def request(
         self,

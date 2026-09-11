@@ -5,11 +5,13 @@ from unittest.mock import MagicMock, patch
 import structlog
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Transient_Error_Messages
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixpanel import (
     MixpanelSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.mixpanel import EXPORT_TRUNCATED_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.source import MixpanelSource
 
 LOGGER = structlog.get_logger()
@@ -132,3 +134,35 @@ class TestSourceForPipeline:
                 ),
             )
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+
+class TestNonRetryableErrors:
+    source = MixpanelSource()
+
+    @parameterized.expand(
+        [
+            ("401", "401 Client Error: Unauthorized for url: https://mixpanel.com/api/query/cohorts/list"),
+            ("403", "403 Client Error: Forbidden for url: https://mixpanel.com/api/query/engage"),
+            ("402", "402 Client Error: Payment Required for url: https://mixpanel.com/api/query/cohorts/list"),
+        ]
+    )
+    def test_billing_and_auth_failures_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("429", "429 Client Error: Too Many Requests for url: https://mixpanel.com/api/query/engage"),
+            ("500", "500 Server Error: Internal Server Error for url: https://mixpanel.com/api/query/engage"),
+        ]
+    )
+    def test_transient_failures_stay_retryable(self, _name: str, other_error: str) -> None:
+        assert not any(key in other_error for key in self.source.get_non_retryable_errors())
+
+    def test_truncated_export_is_classified_retryable(self) -> None:
+        observed_error = f"{EXPORT_TRUNCATED_ERROR} for 2024-01-01"
+        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+        assert any(key in observed_error for key in self.source.get_retryable_errors())
+
+    def test_truncated_export_has_customer_facing_copy(self) -> None:
+        # The shared map keys on a literal, so a reworded error would silently lose its copy.
+        assert EXPORT_TRUNCATED_ERROR in Transient_Error_Messages

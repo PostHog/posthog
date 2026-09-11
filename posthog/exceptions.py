@@ -5,7 +5,7 @@ from django.http.response import JsonResponse
 
 import structlog
 from rest_framework import status
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import APIException, Throttled, ValidationError
 from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import get_query_tags
@@ -29,12 +29,16 @@ class QuotaLimitExceeded(APIException):
     default_detail = "Your organization reached its billing limit for this resource. Increase the limits in Billing settings, or ask an org admin to do so."
 
 
-class APIQueriesQuotaExceeded(QuotaLimitExceeded):
-    default_code = "api_queries_quota_exceeded"
+class APIQueriesBudgetExceeded(Throttled):
+    # DRF sets this in Throttled.__init__ and its handler turns it into Retry-After; the stubs omit it.
+    wait: Optional[float]
+
+    default_code = "api_queries_budget_exceeded"
+    # DRF appends "Expected available in N seconds." to this, so the wait is not repeated here.
     default_detail = (
-        "Your organization has read more query data over the API than its free allowance for this month. "
-        "API queries will be available again when the allowance resets. "
-        "Upgrade your plan in Billing settings to restore access sooner, or ask an org admin to do so."
+        "This project used its hourly budget of data read by API queries. "
+        "To stay under it, read less data per query or run queries less often. "
+        "See https://posthog.com/docs/sql/optimizing-queries for ways to read less."
     )
 
 
@@ -101,11 +105,13 @@ class ClickHouseBytesLimitExceeded(ValidationError):
 
 
 class ClickHouseQueryTimeOut(APIException):
+    user_safe = True
     status_code = 504
     default_detail = "Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize."
 
 
 class ClickHouseQueryMemoryLimitExceeded(APIException):
+    user_safe = True
     # Custom code in the actionable-validation family (400/512/513) the frontend routes to the
     # "problem with this query" panel. Distinct from 512 (query-too-slow) so an out-of-memory
     # failure is never mistaken for a timeout on either the client or in status-based alerting.

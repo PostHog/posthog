@@ -21,6 +21,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
+from posthog.temporal.oauth import scout_mcp_scopes, scout_scope_posture
 
 from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
@@ -34,10 +35,11 @@ from products.signals.backend.scout_harness.limits import (
     FAILURE_STREAK_MAX_RUNS,
     FAILURE_STREAK_MIN_SPAN_MINUTES,
     STALE_RUN_CUTOFF_S,
+    TRIGGERED_BY_SCHEDULE,
     failure_streak_pause_threshold,
     interval_runs_in_tolerance_window,
 )
-from products.signals.backend.scout_harness.model_selection import resolve_scout_model
+from products.signals.backend.scout_harness.model_selection import RUNTIME_ADAPTER_CODEX, resolve_scout_model
 from products.signals.backend.scout_harness.prompt import (
     HARNESS_PROMPT_VERSION,
     SignalScoutRunSummary,
@@ -137,7 +139,8 @@ def run_signals_scout(
     skill_version: int | None = None,
     repository: str | None = None,
     verbose: bool = False,
-    triggered_by: str = "schedule",
+    triggered_by: str = TRIGGERED_BY_SCHEDULE,
+    run_note: str | None = None,
 ) -> RunResult:
     """Synchronous entrypoint: resolves config, spawns sandbox, persists the run row.
 
@@ -152,6 +155,7 @@ def run_signals_scout(
             repository=repository,
             verbose=verbose,
             triggered_by=triggered_by,
+            run_note=run_note,
         )
     )
 
@@ -163,13 +167,20 @@ async def arun_signals_scout(
     skill_version: int | None = None,
     repository: str | None = None,
     verbose: bool = False,
-    triggered_by: str = "schedule",
+    triggered_by: str = TRIGGERED_BY_SCHEDULE,
+    run_note: str | None = None,
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity).
 
-    `triggered_by` is `"schedule"` for coordinator-dispatched runs (including breaker probes)
-    and `"manual"` for on-demand triggers (the `run` endpoint, the management command). Only
-    scheduled failures feed the failure-streak breaker; see the failure path below.
+    `triggered_by` is `"schedule"` for coordinator-dispatched runs (including breaker probes),
+    `"manual"` for on-demand triggers (the `run` endpoint, the management command) and
+    `"workflow"` for a workflow step that runs a scout. Only scheduled failures feed the
+    failure-streak breaker; see the failure path below. Anything but `"schedule"` is also stamped
+    onto the run row's `metadata`, which is what the workflow path's cooldown reads.
+
+    `run_note` is the one-off steering a person typed when triggering the run by hand. It renders
+    its own prompt section and is stamped on the run row, so the run it steered says so in its own
+    history; it is never carried into a later run.
     """
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
 
@@ -251,16 +262,26 @@ async def arun_signals_scout(
     # the human who authored or enabled the scout instead of pooling on one team-level default
     # user. Scouts don't clone a repo on the cadence path, so they don't need a GitHub integration
     # — the `resolve_acting_user_id_for_team` fallback prefers the GitHub creator when present but
-    # falls back to any active org member, so a team that never connected GitHub still runs (these
-    # dominated the fleet failure rate when the run instead crashed ~5s into `_spawn_and_run` and
-    # booked a bogus `failed`). The only remaining short-circuit is the genuine "no active user to
-    # act as" case; like the withheld / in-flight skips it leaves no row, no lifecycle event, and
-    # a `skip_reason` the coordinator can surface — not a failure.
+    # falls back to any other member with access to this project, so a team that never connected
+    # GitHub still runs (these dominated the fleet failure rate when the run instead crashed ~5s
+    # into `_spawn_and_run` and booked a bogus `failed`). The only remaining short-circuit is the
+    # genuine "no member can act" case; like the withheld / in-flight skips it leaves no row, no
+    # lifecycle event, and a `skip_reason` the coordinator can surface — not a failure.
     user_id = await database_sync_to_async(resolve_scout_acting_user_id, thread_sensitive=False)(
         team, skill.name, config
     )
     if user_id is None:
         user_id = await database_sync_to_async(resolve_acting_user_id_for_team, thread_sensitive=False)(team.id)
+        if user_id is not None and _granted_write_scopes(config):
+            # The grant was approved for the person the runs act as. The team fallback is a member
+            # who never approved it, so this run holds only the fleet posture. Cleared in memory
+            # only: the runner never saves the config row, so the grant is back the moment the
+            # author's identity resolves again.
+            logger.info(
+                "signals_scout: withholding write access, acting user is the team fallback",
+                extra={"team_id": team_id, "skill_name": skill.name, "user_id": user_id},
+            )
+            config.write_scopes = []
     if user_id is None:
         logger.info(
             "signals_scout: skipping run, no active user to act as for team",
@@ -309,14 +330,25 @@ async def arun_signals_scout(
         runtime_adapter: str | None = scout_model.runtime_adapter
         model: str | None = scout_model.model
         reasoning_effort: str | None = scout_model.reasoning_effort
+        service_tier: str | None = scout_model.service_tier
     elif agent_runtime.runtime_adapter:
         runtime_adapter = agent_runtime.runtime_adapter
         model = agent_runtime.model
         reasoning_effort = agent_runtime.reasoning_effort
+        service_tier = agent_runtime.service_tier
     else:
         runtime_adapter = None
         model = None
         reasoning_effort = None
+        service_tier = None
+    # The OpenAI queue travels with the model it was configured beside, like the rest of the
+    # triple: a slice's own tier, or the pipeline pin's when the pin's model runs. It never crosses
+    # to a model the operator did not pair it with (some reject the field outright), which is what
+    # lets one slice trial `flex` against the remainder's standard queue on the same model. Only a
+    # Codex turn joins an OpenAI queue, so a claude runtime drops it rather than stamping a tier the
+    # run never asked for onto the A/B readout.
+    if runtime_adapter != RUNTIME_ADAPTER_CODEX:
+        service_tier = None
     # Resolved here rather than inside `_spawn_and_run` so the failure and cancellation paths below
     # can report the same prompt shape the run actually got: a spawn that raises never returns, so a
     # value resolved in there would be unavailable to exactly the runs whose shape matters most.
@@ -361,6 +393,9 @@ async def arun_signals_scout(
             model=model,
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
+            service_tier=service_tier,
+            triggered_by=triggered_by,
+            run_note=run_note,
         )
         runtime_s = time.monotonic() - started
         emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
@@ -383,8 +418,10 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.COMPLETED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
+            service_tier=service_tier,
         )
         return RunResult(
             run_id=str(run_id),
@@ -431,7 +468,7 @@ async def arun_signals_scout(
         # on a lane whose schedule never failed.
         streak = (
             await database_sync_to_async(_record_failure_streak, thread_sensitive=False)(config.pk)
-            if triggered_by == "schedule"
+            if triggered_by == TRIGGERED_BY_SCHEDULE
             else None
         )
         _capture_run_finished(
@@ -445,8 +482,10 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.FAILED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
+            service_tier=service_tier,
             error_type=type(exc).__name__,
             error_message=str(exc)[:300],
             extra_properties=_poll_timeout_properties(exc),
@@ -505,8 +544,10 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.CANCELLED.value,
             runtime_s=runtime_s,
             emitted_count=None,
+            triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
+            service_tier=service_tier,
         )
         raise
 
@@ -542,6 +583,27 @@ def _governed_metric_names_for_team(team: Team, user_id: int) -> list[str] | Non
     except Exception as error:
         capture_exception(error)
         return None
+
+
+def _granted_write_scopes(config: SignalScoutConfig) -> list[str]:
+    """The extra write scopes this scout's next run actually holds.
+
+    Read through `scout_scope_posture` rather than off the column, so the prompt, the run row, and
+    the analytics events can never name a scope the token drops — a grant made before the allowlist
+    narrowed stops reaching all four at once. A dry run (`emit=False`) holds no grant at all: dry
+    run exists so a person can watch what a scout would do before it reaches the inbox, and a
+    dry run that edits dashboards has already done the thing they wanted to preview.
+    """
+    return scout_scope_posture("signals_scout", _write_scopes_for_run(config))["extra_write_scopes"]
+
+
+def _write_scopes_for_run(config: SignalScoutConfig) -> object:
+    """The stored grant as the posture builder should see it, or nothing for a dry run.
+
+    Returns the column value unshaped so that the posture builder's own type check is what decides
+    what a malformed value grants. Coercing here would turn a stray JSON object into its keys.
+    """
+    return config.write_scopes if config.emit else []
 
 
 def _mcp_server_names_for_run(team: Team, user_id: int, config: SignalScoutConfig) -> list[str]:
@@ -584,6 +646,9 @@ async def _spawn_and_run(
     model: str | None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
+    service_tier: str | None = None,
+    triggered_by: str = TRIGGERED_BY_SCHEDULE,
+    run_note: str | None = None,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
@@ -607,6 +672,15 @@ async def _spawn_and_run(
         network_access_level,
     )
     report_channel = skill_uses_report_channel(skill.allowed_tools)
+    # `write_scopes` adds the user-facing writes this ONE scout was granted from its settings, so a
+    # scout asked to maintain dashboards can change them. Everything else about the posture is
+    # identical across the fleet. Composed once here, because the token, the prompt, and the run row
+    # all have to read the same grant — `scout_scope_posture` drops anything the allowlist no longer
+    # holds, and mint time intersects it again. A dry run gets no grant (see `_write_scopes_for_run`).
+    scope_posture = scout_scope_posture(
+        "signals_scout_reports" if report_channel else "signals_scout",
+        _write_scopes_for_run(config),
+    )
     # Scout sandboxes never get the write-capable installation token: task creation attaches the
     # team's GitHub integration to every task, so without this request a repo-less scout run on a
     # GitHub-connected team is silently provisioned with the FULL token. Requesting read access on
@@ -643,8 +717,9 @@ async def _spawn_and_run(
         # A scout that opted into the report channel gets `signals_scout_reports` instead —
         # the same posture plus `signal_scout_report:write` — so the MCP server exposes the
         # emit_report/edit_report tools. Every other scout gets plain `signals_scout` and never
-        # sees them.
-        posthog_mcp_scopes=("signals_scout_reports" if report_channel else "signals_scout"),
+        # sees them. Dispatched as the preset string unless this scout holds a grant, so a scout
+        # without one never depends on the sandbox worker reading the posture dict.
+        posthog_mcp_scopes=scout_mcp_scopes(scope_posture),
         github_read_access=True,
         # `None` keeps the agent-server default; an override pins the whole run on one model
         # (the `scouts-model-selection` gate routes it here). The model the gateway actually serves
@@ -653,6 +728,8 @@ async def _spawn_and_run(
         # Paired with `model`: the agent server derives the LLM provider from the runtime.
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
+        # Codex-only, and independent of the model pin: which OpenAI queue the run's turns join.
+        service_tier=service_tier,
     )
     governed_metric_names = await database_sync_to_async(_governed_metric_names_for_team, thread_sensitive=False)(
         team, user_id
@@ -675,6 +752,11 @@ async def _spawn_and_run(
         # when the config carries a schema AND emit is on — records land solely as project
         # events, so a dry-run scout must not be steered at a tool that fails closed.
         structured_output_schema=(config.structured_output_schema if config.emit else None),
+        # Names the objects this scout may change, so it acts on them and reports what it changed.
+        # Resolved through the same allowlist the token is, so the prompt can never promise write
+        # access the token does not carry.
+        write_scopes=scope_posture["extra_write_scopes"],
+        run_note=run_note,
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -703,8 +785,11 @@ async def _spawn_and_run(
             model=model,
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
+            service_tier=service_tier,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            triggered_by=triggered_by,
+            run_note=run_note,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -719,8 +804,10 @@ async def _spawn_and_run(
             business_knowledge_maintained=business_knowledge_maintained,
             run_id=run_id,
             task_run_id=str(task_run.id),
+            triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
+            service_tier=service_tier,
         )
 
     session, result = await MultiTurnSession.start(
@@ -739,10 +826,12 @@ async def _spawn_and_run(
         mcp_gateway_server_ids=[str(server_id) for server_id in (config.mcp_gateway_server_ids or [])],
         # Tag every scout $ai_generation with its stage AND its scout, so scout spend is both
         # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id)
-        # and attributable to one scout. `ai_stage` is the only run-shaped value the harness
-        # controls that reaches $ai_generation — the rest of the properties there are stamped
-        # by the agent server off the task row. Team attribution rides along as `team_id`.
+        # and attributable to one scout. Team attribution rides along as `team_id`.
         ai_stage=_ai_stage(skill),
+        # `ai_stage` collapses team-authored scouts to `scout:custom` to bound a fleet-wide tag's
+        # cardinality, so it cannot name one. `ai_agent_name` is read per team and carries the
+        # full skill name for canonical and custom scouts alike.
+        ai_agent_name=skill.name,
         on_task_run_created=_create_bridge_row,
         # Keep the per-turn poll budget at the run's runtime cap so the dropped-finalization
         # salvage fires before the activity's `start_to_close_timeout` (DEFAULT_MAX_RUNTIME_S +
@@ -900,18 +989,23 @@ def _create_run_row(
     model: str | None = None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
+    service_tier: str | None = None,
     github_guidance: bool = False,
     business_knowledge_maintained: bool = False,
+    triggered_by: str = TRIGGERED_BY_SCHEDULE,
+    run_note: str | None = None,
 ) -> SignalScoutRun:
-    # Stamp the routed model triple onto the row's `metadata` so "which model ran this?" is a
-    # column read on the run API, not an analytics-event join. Keys are omitted (not null-valued)
-    # on the default path, so their absence means the agent-server default served the run.
+    # Stamp the routed model triple (and the OpenAI queue it asked for) onto the row's `metadata`
+    # so "which model ran this?" is a column read on the run API, not an analytics-event join. Keys
+    # are omitted (not null-valued) on the default path, so their absence means the agent-server
+    # default served the run.
     metadata: dict[str, Any] = {
         key: value
         for key, value in (
             ("model", model),
             ("runtime_adapter", runtime_adapter),
             ("reasoning_effort", reasoning_effort),
+            ("service_tier", service_tier),
         )
         if value is not None
     }
@@ -949,6 +1043,22 @@ def _create_run_row(
     # section: records land solely as project events, so a dry-run scout has no channel.
     if config.structured_output_schema and config.emit:
         metadata["structured_output_schema"] = config.structured_output_schema
+    # Dispatch-time snapshot of what this run could write, stamped like the network posture and for
+    # the same reason: the config's grant can be widened or revoked afterwards, which would rewrite
+    # what past runs are recorded as having been able to change. Omitted when the scout holds no
+    # grant, so absence reads as "the fleet posture".
+    if granted_write_scopes := _granted_write_scopes(config):
+        metadata["write_scopes"] = granted_write_scopes
+    # Omitted on the default path like the model triple, so absence reads as "the schedule".
+    # Load-bearing for the workflow path specifically: its 30-minute cooldown counts prior
+    # *workflow*-triggered runs of this (team, skill), and this is the only record of which those
+    # were — a scheduled patrol or a human's "Run now" must not extend it.
+    if triggered_by != TRIGGERED_BY_SCHEDULE:
+        metadata["triggered_by"] = triggered_by
+    # The only record of why a manual run behaved differently from the scheduled ones around it,
+    # because the note is deliberately never stored as a scout note.
+    if run_note:
+        metadata["run_note"] = run_note
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,
@@ -1143,8 +1253,10 @@ def _capture_run_started(
     business_knowledge_maintained: bool,
     run_id: Any,
     task_run_id: str,
+    triggered_by: str,
     model: str | None = None,
     runtime_adapter: str | None = None,
+    service_tier: str | None = None,
 ) -> None:
     """Emit the scout-owned run-started analytics event.
 
@@ -1170,6 +1282,8 @@ def _capture_run_started(
         business_knowledge_maintained=business_knowledge_maintained,
         model=model,
         runtime_adapter=runtime_adapter,
+        service_tier=service_tier,
+        triggered_by=triggered_by,
     )
     try:
         posthoganalytics.capture(
@@ -1277,6 +1391,8 @@ def _attach_run_shape_props(
     business_knowledge_maintained: bool,
     model: str | None,
     runtime_adapter: str | None,
+    service_tier: str | None,
+    triggered_by: str,
 ) -> None:
     """Attach the dimensions that describe what this run was configured with, to both lifecycle
     events from one place so the started and finished streams can never drift apart.
@@ -1285,10 +1401,17 @@ def _attach_run_shape_props(
     which is the dimension a prompt A/B has to hold constant, and until it existed nothing recorded
     which build a run used. Model and runtime adapter are attached only when the
     `scouts-model-selection` gate (or a runtime pin) routed the run, so their absence means the
-    agent-server default served it. `network_access` follows the same absent-means-default
+    agent-server default served it; `service_tier` likewise only when a slice or pipeline pin asked
+    for an OpenAI queue, so a flex arm and its standard control split without joining through
+    `$ai_generation`. `network_access` follows the same absent-means-default
     convention (attached only for `full`), so an event-based readout never pools runs with
-    different egress capabilities under one model or prompt. All of these make run outcomes
-    (timeout rate, runtime, emit volume) sliceable without joining through $ai_generation.
+    different egress capabilities under one model or prompt. `write_scopes` is attached only for a scout
+    granted extra write access, so a readout can separate runs that could change project objects from
+    runs that could not. `triggered_by` follows the run row's
+    own absent-means-schedule convention (`_create_run_row`), so the started/finished streams can
+    separate workflow-triggered volume, failure, and latency from scheduled and manual traffic
+    without a database join. All of these make run outcomes (timeout rate, runtime, emit volume)
+    sliceable without joining through $ai_generation.
     """
     properties["harness_prompt_version"] = HARNESS_PROMPT_VERSION
     properties["report_channel"] = resolve_report_channel_variant(skill.allowed_tools)
@@ -1297,10 +1420,16 @@ def _attach_run_shape_props(
     properties["business_knowledge_maintained"] = business_knowledge_maintained
     if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
         properties["network_access"] = config.network_access
+    if granted_write_scopes := _granted_write_scopes(config):
+        properties["write_scopes"] = granted_write_scopes
     if model is not None:
         properties["model"] = model
     if runtime_adapter is not None:
         properties["runtime_adapter"] = runtime_adapter
+    if service_tier is not None:
+        properties["service_tier"] = service_tier
+    if triggered_by != TRIGGERED_BY_SCHEDULE:
+        properties["triggered_by"] = triggered_by
 
 
 def _capture_run_finished(
@@ -1315,8 +1444,10 @@ def _capture_run_finished(
     status: str,
     runtime_s: float,
     emitted_count: int | None,
+    triggered_by: str,
     model: str | None = None,
     runtime_adapter: str | None = None,
+    service_tier: str | None = None,
     error_type: str | None = None,
     error_message: str | None = None,
     extra_properties: dict[str, Any] | None = None,
@@ -1356,6 +1487,8 @@ def _capture_run_finished(
         business_knowledge_maintained=business_knowledge_maintained,
         model=model,
         runtime_adapter=runtime_adapter,
+        service_tier=service_tier,
+        triggered_by=triggered_by,
     )
     # Only attach failure context on failed runs — keeps successful / cancelled events clean
     # rather than carrying explicit-null error fields on every event.

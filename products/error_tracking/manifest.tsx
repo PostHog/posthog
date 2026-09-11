@@ -16,6 +16,7 @@ export const manifest: ProductManifest = {
             name: 'Error tracking',
             iconType: 'error_tracking',
             description: 'Track and analyze your error tracking data to understand and fix issues.',
+            docsHref: 'https://posthog.com/docs/error-tracking',
         },
         ErrorTrackingIssue: {
             import: () => import('./frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),

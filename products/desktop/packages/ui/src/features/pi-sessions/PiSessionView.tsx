@@ -114,17 +114,16 @@ function usePiSessionConnection(
 function usePiExtensionConnection(
   taskId: string,
   taskRunId: string | undefined,
-  isCloud: boolean,
   connectionState: PiControllerSessionState["connectionState"] | undefined,
 ): void {
   const controller = useService<PiExtensionController>(PI_EXTENSION_CONTROLLER);
   useEffect(() => {
-    if (isCloud || connectionState !== "connected") {
+    if (connectionState !== "connected") {
       return;
     }
     void controller.connect(taskId, taskRunId).catch(() => {});
     return () => controller.disconnect(taskId);
-  }, [connectionState, controller, isCloud, taskId, taskRunId]);
+  }, [connectionState, controller, taskId, taskRunId]);
 }
 
 function usePiDraftContext(
@@ -490,12 +489,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
   );
 
   usePiSessionConnection(task, isTaskAuthor);
-  usePiExtensionConnection(
-    taskId,
-    taskRunId,
-    isCloud,
-    session?.connectionState,
-  );
+  usePiExtensionConnection(taskId, taskRunId, session?.connectionState);
 
   const status = session?.status;
   const isStreaming = status?.isStreaming ?? false;
@@ -636,6 +630,8 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
 
   const currentExtensionState =
     extensionState ?? createEmptyPiExtensionTaskState();
+  const { "current-work": currentWork, ...extensionStatuses } =
+    currentExtensionState.statuses;
   const extensionDialog = currentExtensionState.dialogs[0];
 
   return (
@@ -668,6 +664,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           repoPath={repoPath}
           promptRecallRef={promptRecallRef}
           hasPendingPermission={Boolean(mcpPermission)}
+          currentWork={currentWork}
         />
       </div>
       <div
@@ -679,15 +676,11 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           onEdit={editQueuedMessage}
           onRemove={removeQueuedMessage}
         />
-        {!isCloud && (
-          <>
-            <PiExtensionStatuses statuses={currentExtensionState.statuses} />
-            <PiExtensionWidgets
-              widgets={currentExtensionState.widgets}
-              placement="aboveEditor"
-            />
-          </>
-        )}
+        <PiExtensionStatuses statuses={extensionStatuses} />
+        <PiExtensionWidgets
+          widgets={currentExtensionState.widgets}
+          placement="aboveEditor"
+        />
         {mcpPermission ? (
           isMcpPermissionResponding ? (
             <Skeleton className="h-24 w-full" />
@@ -707,7 +700,11 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           <PromptInput
             sessionId={taskId}
             toolbarEndSlot={
-              <ContextUsageIndicator usage={contextUsage} taskId={taskId} />
+              <ContextUsageIndicator
+                usage={contextUsage}
+                taskId={taskId}
+                originProduct={task.origin_product}
+              />
             }
             taskId={taskId}
             repoPath={repoPath}
@@ -754,12 +751,10 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
             onCancel={cancelPrompt}
           />
         )}
-        {!isCloud && (
-          <PiExtensionWidgets
-            widgets={currentExtensionState.widgets}
-            placement="belowEditor"
-          />
-        )}
+        <PiExtensionWidgets
+          widgets={currentExtensionState.widgets}
+          placement="belowEditor"
+        />
       </div>
     </div>
   );

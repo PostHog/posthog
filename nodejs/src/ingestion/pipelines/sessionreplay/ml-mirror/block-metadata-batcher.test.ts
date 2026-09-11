@@ -51,14 +51,25 @@ describe('BlockMetadataBatcher', () => {
         offsets = { offsetsStore: jest.fn() }
     })
 
-    it('accumulates across batches and flushes once at the row cap', async () => {
-        const batcher = makeBatcher(60_000, 3)
+    it.each(['rows', 'bytes'])('accumulates across batches and flushes once at the %s cap', async (limit) => {
+        const batcher = new BlockMetadataBatcher(
+            store,
+            offsets,
+            {
+                flushIntervalMs: 60_000,
+                maxRows: limit === 'rows' ? 3 : 1000,
+                maxBytes: limit === 'bytes' ? msg(0).value!.length * 3 : undefined,
+            },
+            0
+        )
         await batcher.handleBatch([msg(0), msg(1)], 0)
         expect(store.write).not.toHaveBeenCalled() // 2 < 3, still buffered
 
         await batcher.handleBatch([msg(2), msg(3)], 0)
         expect(store.write).toHaveBeenCalledTimes(1)
         expect(store.write.mock.calls[0][0]).toHaveLength(4) // all four rolled into one object
+        await batcher.handleBatch([msg(4)], 0)
+        expect(store.write).toHaveBeenCalledTimes(1)
     })
 
     it('flushes the buffer once the interval elapses, even on an empty poll', async () => {

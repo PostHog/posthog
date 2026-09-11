@@ -1,12 +1,14 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { RunStatus } from '../logics/runStreamLogic'
 import type { PermissionRequestRecord } from '../types/streamTypes'
+import { useDebouncedDraft } from './composer/useDebouncedDraft'
 import { RunSurface } from './RunSurfaceImpl'
 
 jest.mock('kea', () => ({
@@ -25,8 +27,7 @@ jest.mock('../logics/runStreamLogic', () => ({
 jest.mock('../logics/taskLogic', () => ({ taskLogic: jest.fn(() => ({ __mock: 'taskLogic' })) }))
 
 jest.mock('./ThreadView', () => ({ ThreadView: () => <div data-attr="thread" /> }))
-jest.mock('./ResourcesBar', () => ({ ResourcesBar: () => <div data-attr="resources" /> }))
-jest.mock('./ContextUsageBar', () => ({ ContextUsageBar: () => <div data-attr="context" /> }))
+jest.mock('./ContextUsageChip', () => ({ ContextUsageChip: () => <div data-attr="context" /> }))
 jest.mock('./PermissionInput', () => ({ PermissionInput: () => <div data-attr="permission" /> }))
 jest.mock('./QuestionInput', () => ({ QuestionInput: () => <div data-attr="question" /> }))
 jest.mock('./RunLogSkeleton', () => ({ RunLogSkeleton: () => <div data-attr="run-log-skeleton" /> }))
@@ -35,17 +36,21 @@ function setValues(
     overrides: Partial<{
         currentRunStatus: RunStatus | null
         pendingPermissionRequest: PermissionRequestRecord | null
+        respondingToPermission: boolean
         bootstrapLoading: boolean
+        runOpening: boolean
         threadItems: unknown[]
-        task: { origin_product: string; runtime?: RuntimeEnumApi } | null
+        task: { origin_product: string; runtime?: TaskRuntimeEnumApi } | null
     }>
 ): void {
     ;(useValues as jest.Mock).mockReturnValue({
         bootstrapLoading: false,
         threadItems: [],
+        hasThreadItems: !!overrides.threadItems?.length,
         pendingPermissionRequest: null,
+        respondingToPermission: false,
         currentRunStatus: 'in_progress',
-        task: { origin_product: 'user_created', runtime: RuntimeEnumApi.Acp },
+        task: { origin_product: 'user_created', runtime: TaskRuntimeEnumApi.Acp },
         taskLoading: false,
         taskError: null,
         taskNotFound: false,
@@ -70,6 +75,26 @@ function renderLiveWithComposer(statusOrOverrides: RunStatus | null | Parameters
     )
 }
 
+function DraftComposer(): JSX.Element {
+    const [saved, setSaved] = useState('')
+    const draft = useDebouncedDraft(saved, setSaved)
+    return (
+        <>
+            <textarea data-attr="draft" value={draft.value} onChange={(event) => draft.onChange(event.target.value)} />
+            <button
+                onClick={() =>
+                    draft.submit(() => {
+                        setSaved('')
+                        return ''
+                    })
+                }
+            >
+                Send draft
+            </button>
+        </>
+    )
+}
+
 describe('RunSurface', () => {
     beforeEach(() => {
         jest.clearAllMocks()
@@ -82,7 +107,7 @@ describe('RunSurface', () => {
     })
 
     it('does not mount the ACP run surface for a Pi task', () => {
-        setValues({ task: { origin_product: 'user_created', runtime: RuntimeEnumApi.Pi } })
+        setValues({ task: { origin_product: 'user_created', runtime: TaskRuntimeEnumApi.Pi } })
 
         render(
             <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
@@ -112,6 +137,20 @@ describe('RunSurface', () => {
     })
 
     describe('Composer slot', () => {
+        it('clears a draft sent before its debounce commits', () => {
+            jest.useFakeTimers()
+            try {
+                render(<DraftComposer />)
+                fireEvent.change(screen.getByTestId('draft'), { target: { value: 'Continue' } })
+                fireEvent.click(screen.getByText('Send draft'))
+                expect(screen.getByTestId('draft')).toHaveValue('')
+                act(() => jest.runOnlyPendingTimers())
+                expect(screen.getByTestId('draft')).toHaveValue('')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it.each<RunStatus>(['queued', 'in_progress'])(
             'renders the composer children for an active run (%s)',
             (status) => {
@@ -129,9 +168,9 @@ describe('RunSurface', () => {
             }
         )
 
-        it('hides the composer during the null bootstrap window', () => {
-            renderLiveWithComposer(null)
-            expect(screen.queryByTestId('composer')).not.toBeInTheDocument()
+        it.each([false, true])('shows the pending composer only for an optimistic start: %s', (runOpening) => {
+            renderLiveWithComposer({ currentRunStatus: null, runOpening })
+            expect(!!screen.queryByTestId('composer')).toBe(runOpening)
             // The thread still renders while bootstrapping.
             expect(screen.getByTestId('thread')).toBeInTheDocument()
         })
@@ -142,7 +181,7 @@ describe('RunSurface', () => {
                 pendingPermissionRequest: { requestId: 'r1' } as PermissionRequestRecord,
             })
             expect(screen.getByTestId('permission')).toBeInTheDocument()
-            expect(screen.queryByTestId('composer')).not.toBeInTheDocument()
+            expect(screen.getByTestId('composer')).not.toBeVisible()
         })
 
         it('renders the question input when the pending request carries questions', () => {
@@ -154,8 +193,51 @@ describe('RunSurface', () => {
                 } as PermissionRequestRecord,
             })
             expect(screen.getByTestId('question')).toBeInTheDocument()
-            expect(screen.queryByTestId('composer')).not.toBeInTheDocument()
+            expect(screen.getByTestId('composer')).not.toBeVisible()
         })
+
+        it.each(['delivery', 'cancellation'])(
+            'hides the approval during %s and preserves a draft across restoration before its debounce commits',
+            (transition) => {
+                jest.useFakeTimers()
+                try {
+                    const request = { requestId: 'r1', sourceRunId: 'run-1' } as PermissionRequestRecord
+                    const surface = (isStopping = false): JSX.Element => (
+                        <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+                            <RunSurface.Composer isStopping={isStopping}>
+                                <DraftComposer />
+                            </RunSurface.Composer>
+                        </RunSurface.Root>
+                    )
+                    setValues({ pendingPermissionRequest: request })
+                    const { rerender } = render(surface())
+                    const card = screen.getByTestId('permission')
+                    const draft = screen.getByTestId('draft')
+                    expect(card).toBeVisible()
+                    setValues({ pendingPermissionRequest: request, respondingToPermission: transition === 'delivery' })
+                    rerender(surface(transition === 'cancellation'))
+                    expect(card).not.toBeVisible()
+                    expect(draft).toBeVisible()
+                    fireEvent.change(draft, { target: { value: 'a newer draft' } })
+                    setValues({ pendingPermissionRequest: request, respondingToPermission: false })
+                    rerender(surface())
+                    expect(screen.getByTestId('permission')).toBe(card)
+                    expect(card).toBeVisible()
+                    expect(draft).toHaveValue('a newer draft')
+                    act(() => {
+                        jest.advanceTimersByTime(150)
+                    })
+                    setValues({ pendingPermissionRequest: null })
+                    rerender(surface())
+                    expect(screen.getByTestId('draft')).toBe(draft)
+                    expect(draft).toBeVisible()
+                    expect(draft).toHaveValue('a newer draft')
+                } finally {
+                    cleanup()
+                    jest.useRealTimers()
+                }
+            }
+        )
 
         it('renders nothing in read-only mode', () => {
             setValues({ currentRunStatus: 'in_progress' })
@@ -197,26 +279,32 @@ describe('RunSurface', () => {
     })
 
     describe('Thread slot', () => {
-        it('shows the run-log skeleton while bootstrapping with no thread items yet', () => {
-            setValues({ bootstrapLoading: true, threadItems: [] })
-            render(
-                <RunSurface.Root taskId="task-1" runId="run-1" interaction="read-only">
-                    <RunSurface.Thread />
-                </RunSurface.Root>
-            )
-            expect(screen.getByTestId('run-log-skeleton')).toBeInTheDocument()
-            expect(screen.queryByTestId('thread')).not.toBeInTheDocument()
-        })
+        it.each([null, { origin_product: 'user_created' }])(
+            'shows the run-log skeleton with no thread items and task=%j',
+            (task) => {
+                setValues({ bootstrapLoading: true, threadItems: [], task })
+                render(
+                    <RunSurface.Root taskId="task-1" runId="run-1" interaction="read-only">
+                        <RunSurface.Thread />
+                    </RunSurface.Root>
+                )
+                expect(screen.getByTestId('run-log-skeleton')).toBeInTheDocument()
+                expect(screen.queryByTestId('thread')).not.toBeInTheDocument()
+            }
+        )
 
-        it('swaps the skeleton for the thread once items arrive', () => {
-            setValues({ bootstrapLoading: true, threadItems: [{ id: 'x' }] })
-            render(
-                <RunSurface.Root taskId="task-1" runId="run-1" interaction="read-only">
-                    <RunSurface.Thread />
-                </RunSurface.Root>
-            )
-            expect(screen.getByTestId('thread')).toBeInTheDocument()
-            expect(screen.queryByTestId('run-log-skeleton')).not.toBeInTheDocument()
-        })
+        it.each([null, { origin_product: 'user_created' }])(
+            'keeps a populated thread visible while bootstrapping with task=%j',
+            (task) => {
+                setValues({ bootstrapLoading: true, threadItems: [{ id: 'x' }], task })
+                render(
+                    <RunSurface.Root taskId="task-1" runId="run-1" interaction="read-only">
+                        <RunSurface.Thread />
+                    </RunSurface.Root>
+                )
+                expect(screen.getByTestId('thread')).toBeInTheDocument()
+                expect(screen.queryByTestId('run-log-skeleton')).not.toBeInTheDocument()
+            }
+        )
     })
 })

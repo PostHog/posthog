@@ -235,7 +235,7 @@ def _merge_fingerprint_into_closest_issue(
 
         source_issue_id = source_fingerprint.issue_id
         target_issue_id = target_fingerprint.issue_id
-        merge_result = target_fingerprint.issue.merge(
+        merge_result, _merged_issue_ids = target_fingerprint.issue.merge(
             issue_ids=[source_issue_id],
             expected_fingerprint_issue_ids={
                 fingerprint: source_issue_id,

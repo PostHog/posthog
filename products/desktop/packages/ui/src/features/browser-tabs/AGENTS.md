@@ -111,6 +111,7 @@ differ. Desktop ships first.
 
 ### Closing
 - Closing the active tab focuses its neighbour.
+- Middle-clicking any tab closes it, including a pinned tab.
 - Closing the last tab of a **secondary** window closes the window. Closing the
   last tab of the **primary** window replaces it with a fresh `/activity` tab.
 
@@ -187,6 +188,7 @@ Each tab carries the nav state its href cannot express, in `viewState`:
   A rail click navigates the active tab back to its own remembered href rather
   than to the destination's root. Per tab on purpose: a window-global memory
   would let one tab's rail click restore an href another tab established.
+  Record and replay both go through `isRestorableVisitHref` (canvas `railPane.ts`), so a settings or redirect-alias href is never remembered and a stale stored one is never replayed.
 
 `BrowserTabStrip`'s navigation effect is the **single writer for settled router
 navigation**. It runs on every settled navigation, including the ones a rail
@@ -213,9 +215,9 @@ retarget its originating background tab as described below. `railHistoryStore`
 - `rewriteSavedLocation` (in `@posthog/shared`) runs over persisted hrefs on
   load, so a snapshot written before the routes were flattened does not restore
   tabs onto `/website/*` routes that no longer exist.
-- Per-tab `scrollState` is reserved but **unwired** — scroll restoration is a
-  later follow-up (it needs a sandbox postMessage contract; the canvas iframe is
-  null-origin so the host can't read scroll).
+- Per-tab `scrollState` is reserved but **unwired**. Router history restores native
+  page scroll for report visits and their source pages. Canvas iframe scrolling
+  still needs a sandbox postMessage contract; the iframe is null-origin.
 
 ## Gotchas / implementation notes
 

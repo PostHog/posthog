@@ -4,4 +4,4 @@ rules:
     - match:
           - '/hono/analytics.test.ts'
           - '/unit/posthog/analytics.test.ts'
-      owners: team-mcp-analytics
+      owners: mcp-analytics

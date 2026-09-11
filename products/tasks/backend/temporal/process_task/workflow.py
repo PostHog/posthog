@@ -1725,13 +1725,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             agent_server_output = await self._start_agent_server(sandbox_output, boot_excluded_ms=wizard_ms)
         self._agent_shadow_launched = bool(sandbox_output.agent_shadow_launched or agent_server_output.shadow_launched)
         self._agent_ready_at = workflow.now() if self._agent_boot_interaction_telemetry_enabled else None
-        await self._emit_progress("agent", "completed", "Started agent", "setup")
+        await self._emit_progress("agent", "completed", "Agent ready", "setup")
 
         await self._track_workflow_event(
             "sandbox_started",
             {
                 "run_id": run_id,
+                "task_run_id": run_id,
                 "task_id": self.context.task_id,
+                "team_id": self.context.team_id,
+                "origin_product": self.context.origin_product,
                 "sandbox_id": sandbox_id,
                 "sandbox_url": agent_server_output.sandbox_url,
                 "used_snapshot": sandbox_output.used_snapshot,
@@ -1758,6 +1761,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "agent_session_init_ms": agent_server_output.session_init_ms,
                 "agent_server_total_ms": agent_server_output.boot_phases_ms.get("server_total"),
                 "agent_server_http_ready_ms": agent_server_output.boot_phases_ms.get("http_ready"),
+                "agent_launcher_to_process_ms": agent_server_output.boot_phases_ms.get("launcher_to_process"),
                 "agent_context_fetch_ms": agent_server_output.boot_phases_ms.get("context_fetch"),
                 "agent_acp_initialize_ms": agent_server_output.boot_phases_ms.get("acp_initialize"),
                 "agent_repository_ready_ms": agent_server_output.boot_phases_ms.get("repository_ready"),
@@ -1939,7 +1943,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 detail="Resumed from a previous snapshot",
             )
         else:
-            await self._emit_progress("sandbox", "completed", "Set up sandbox", "setup")
+            await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup")
 
         # Resuming from a filesystem snapshot carries the previous run's
         # credentials baked into .git/config and any agentsh env file — refresh
@@ -2021,7 +2025,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 ):
                     raise _TaskCompletedDuringSandboxCreation
                 used_snapshot = False
-                await self._emit_progress("sandbox", "completed", "Set up sandbox", "setup")
+                await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup")
 
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
@@ -3222,14 +3226,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
     @temporalio.workflow.signal
-    async def turn_completed(self) -> None:
+    async def turn_completed(self, trace_id: str | None = None) -> None:
         if not self._is_agent_design_enabled or not self._current_slack_relay_workflow_id:
             return
         relay_id = self._current_slack_relay_workflow_id
         self._current_slack_relay_workflow_id = None
         try:
             handle = workflow.get_external_workflow_handle(relay_id)
-            await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn)
+            await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, trace_id)
         except Exception as e:
             workflow.logger.debug(
                 "slack_status_complete_failed",

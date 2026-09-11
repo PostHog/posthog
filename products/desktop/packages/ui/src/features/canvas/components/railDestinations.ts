@@ -12,16 +12,21 @@ import type { RailVisit } from "@posthog/shared";
 import type { SidebarNavItem } from "@posthog/shared/analytics-events";
 import { readMirror } from "@posthog/ui/features/browser-tabs/tabsSync";
 import { SpacesIcon } from "@posthog/ui/features/canvas/components/SpacesIcon";
-import type { NavRailPane } from "@posthog/ui/features/canvas/railPane";
+import {
+  isRestorableVisitHref,
+  type NavRailPane,
+} from "@posthog/ui/features/canvas/railPane";
 import {
   applyTabViewState,
   showChannelList,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { requestSidebarSearchFocus } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
 import {
   formatHotkey,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import type { CountBadgeTone } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
@@ -90,6 +95,12 @@ function showSpaces(): void {
   navigateToChannel(channelId);
 }
 
+/** Navigating to the root instead would close what you are reading. */
+function focusColumnSearch(): void {
+  useSidebarStore.getState().setOpen(true);
+  requestSidebarSearchFocus();
+}
+
 /**
  * Where each rail destination was when the ACTIVE TAB last left it. Per tab, so
  * a pick in one tab can never restore an href another tab established, and so
@@ -130,7 +141,13 @@ export function pickRailDestination(
   destination: RailDestination,
   current: NavRailPane,
 ): void {
-  if (destination.pane === current) {
+  // A report page belongs to the list that opened it, and only its `?from=`
+  // says which, so a route pattern cannot answer this.
+  const here = currentHref() ?? "";
+  const onDestination =
+    destination.pane === current &&
+    isRestorableVisitHref(destination.pane, here);
+  if (onDestination) {
     (destination.onReclick ?? destination.onPick)();
     return;
   }
@@ -138,7 +155,11 @@ export function pickRailDestination(
   // A remembered visit that IS where we already are restores nothing, and the
   // click would look dead. Fall through to the destination's root instead, so
   // a pick always goes somewhere.
-  if (visit && visit.href !== currentHref()) restoreVisit(visit);
+  const restorable =
+    visit &&
+    visit.href !== currentHref() &&
+    isRestorableVisitHref(destination.pane, visit.href);
+  if (restorable) restoreVisit(visit);
   else destination.onPick();
 }
 
@@ -170,6 +191,7 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     Icon: BellIcon,
     href: "/activity",
     onPick: navigateToActivity,
+    onReclick: focusColumnSearch,
     count: (counts) => counts.activity,
   },
   {
@@ -179,6 +201,7 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     Icon: ShapesIcon,
     href: "/canvases",
     onPick: () => navigateToCanvases(),
+    onReclick: focusColumnSearch,
   },
   {
     pane: "inbox",
@@ -187,6 +210,7 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     Icon: EnvelopeSimple,
     href: "/inbox",
     onPick: navigateToInbox,
+    onReclick: focusColumnSearch,
     shortcut: formatHotkey(SHORTCUTS.INBOX),
     count: (counts) => counts.inbox,
     enabled: (flags) => flags.inbox,

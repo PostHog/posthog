@@ -124,7 +124,8 @@ class TestPostHogCodeEventHandler(SimpleTestCase):
             ("member_joined_channel_routes", "member_joined_channel", "handled_locally", 202, True),
             ("message_dm_routes", "message", "handled_locally", 202, True),
             ("app_uninstalled_routes", "app_uninstalled", "handled_locally", 202, True),
-            ("non_handled_event_type_skips_routing", "reaction_added", "handled_locally", 202, False),
+            ("reaction_added_routes", "reaction_added", "handled_locally", 202, True),
+            ("non_handled_event_type_skips_routing", "emoji_changed", "handled_locally", 202, False),
         ]
     )
     @patch("products.slack_app.backend.api.route_posthog_code_event_to_relevant_region")
@@ -284,6 +285,29 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert SlackUserProfileCache.objects.filter(integration=other_integration).exists()
         assert Integration.objects.filter(id=self.posthog_code_integration.id).exists()
         assert mock_proxy.call_count == expected_proxy_calls
+
+    @patch("products.slack_app.backend.api.capture_slack_event")
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_app_uninstalled_captures_once_for_multi_project_workspace(self, _mock_proxy, mock_capture):
+        # A workspace linked to several projects has several rows here; capturing per
+        # row would let one uninstall inflate a plain count of the event.
+        second_team = Team.objects.create(organization=self.organization, name="Second Team")
+        Integration.objects.create(
+            team=second_team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-second"},
+        )
+
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        route_posthog_code_event_to_relevant_region(request, {"type": "app_uninstalled"}, "T12345")
+
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.args[1] == "slack app uninstalled"
+        assert mock_capture.call_args.kwargs["linked_project_count"] == 2
 
     @patch("products.slack_app.backend.api._proxy_event_to_region")
     @patch("products.slack_app.backend.services.slack_user_info.SlackUserProfileCache.objects.filter")
@@ -1683,7 +1707,7 @@ class TestPostSlackUserEphemeral(SimpleTestCase):
         # the timeout on one access and calling on another leaves the request on the SDK
         # default. Nothing about the app's behavior changes when that happens, so only an
         # assertion on the client instance catches it.
-        from products.slack_app.backend.api import SLACK_FEEDBACK_TIMEOUT_SECONDS, _post_slack_user_ephemeral
+        from products.slack_app.backend.api import SLACK_WEBHOOK_TIMEOUT_SECONDS, _post_slack_user_ephemeral
 
         built_clients: list[MagicMock] = []
 
@@ -1697,7 +1721,7 @@ class TestPostSlackUserEphemeral(SimpleTestCase):
 
         assert posted is True
         assert len(built_clients) == 1
-        assert built_clients[0].timeout == SLACK_FEEDBACK_TIMEOUT_SECONDS
+        assert built_clients[0].timeout == SLACK_WEBHOOK_TIMEOUT_SECONDS
         built_clients[0].chat_postEphemeral.assert_called_once()
 
     def test_failed_delivery_is_reported_as_not_replied(self):

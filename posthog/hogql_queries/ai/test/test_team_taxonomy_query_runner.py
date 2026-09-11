@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -65,7 +65,7 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_caching(self):
         now = timezone.now()
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             _create_person(
                 distinct_ids=["person1"],
                 properties={"email": "person1@example.com"},
@@ -100,14 +100,14 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # Cached: still 1 CH result + well-known events
             self.assertEqual(len(response.results), 1 + len(WELL_KNOWN_EVENT_NAMES))
 
-        with freeze_time(now + timedelta(minutes=59)):
+        with time_machine.travel(now + timedelta(minutes=59), tick=False):
             runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery())
             response = runner.run()
 
             assert isinstance(response, CachedTeamTaxonomyQueryResponse)
             self.assertEqual(len(response.results), 1 + len(WELL_KNOWN_EVENT_NAMES))
 
-        with freeze_time(now + timedelta(minutes=61)):
+        with time_machine.travel(now + timedelta(minutes=61), tick=False):
             runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery())
             response = runner.run()
 

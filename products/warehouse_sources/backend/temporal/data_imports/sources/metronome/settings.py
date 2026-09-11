@@ -1,15 +1,17 @@
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any, Literal
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField
 
 METRONOME_BASE_URL = "https://api.metronome.com"
 
-# Every paginated Metronome list endpoint caps `limit` at 100.
+# Metronome caps `limit` at 100 on every list endpoint that accepts it.
 PAGE_SIZE = 100
 
 # List responses share a `{"data": [...], "next_page": "..."}` envelope, and the cursor goes back
@@ -20,6 +22,22 @@ CURSOR_PARAM = "next_page"
 
 # `GET /v1/auditLogs` is the only endpoint with a server-side lower bound on record time.
 AUDIT_LOG_START_PARAM = "starting_on"
+
+# How `POST /v1/usage` aggregates the period it is asked for: one row per hour, one row per day, or
+# one row for the whole period.
+WindowSize = Literal["none", "hour", "day"]
+
+# How far back a first sync of each bucketed usage table reaches. A bucketed table holds one row per
+# customer, billable metric and period, so its size is the account's customer/metric pairs
+# multiplied by the number of periods. The hourly table holds 24 rows for every daily row, so it
+# reaches back less far.
+USAGE_DAILY_HISTORY = timedelta(days=365)
+USAGE_HOURLY_HISTORY = timedelta(days=30)
+
+# Metronome accepts usage events backdated up to 34 days, so a period that already synced can still
+# change. Each incremental run re-reads this much of the period it already covered and upserts it.
+USAGE_DAILY_LOOKBACK_SECONDS = 7 * 24 * 60 * 60
+USAGE_HOURLY_LOOKBACK_SECONDS = 24 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -45,12 +63,17 @@ class MetronomeEndpointConfig:
     path: str
     primary_key: list[str]
     method: Literal["get", "post"] = "get"
-    # Filter payload for the POST list endpoints. `limit` and `next_page` stay in the query string
-    # on these; only the filters move into the body.
+    # Filter payload for the POST list endpoints. Only the filters move into the body, and
+    # `next_page` stays in the query string. See `accepts_page_size` for whether `limit` joins it.
     json_body: dict[str, Any] = field(default_factory=dict)
     extra_params: dict[str, Any] = field(default_factory=dict)
     # Endpoints whose response carries a `next_page` cursor; the rest return the whole collection.
     paginated: bool = True
+    # Whether the endpoint takes a `limit` page-size parameter. `POST /v1/usage` follows
+    # `next_page` but rejects `limit`, and answers the whole request with a 400 when it is
+    # present. Following the cursor and setting a page size are separate capabilities, so
+    # `paginated` must not decide both.
+    accepts_page_size: bool = True
     # Server-side lower bound for incremental syncs. Metronome rejects this window when a cursor
     # is also sent, so it only rides the first request of a run.
     incremental_start_param: str | None = None
@@ -60,6 +83,19 @@ class MetronomeEndpointConfig:
     page_size: int = PAGE_SIZE
     fanout: DependentEndpointConfig | None = None
     body_fanout: BodyFanoutConfig | None = None
+    # `POST /v1/usage` needs a `window_size`/`starting_on`/`ending_before` window in its body. The
+    # window is computed per run, because `ending_before` is the sync time, so it can't live in the
+    # static `json_body`. When set, the resource builder fills the window in. None means the
+    # endpoint sends no window.
+    window_size: WindowSize | None = None
+    # The order rows are emitted in. `POST /v1/usage` groups its rows by customer and billable
+    # metric rather than by time, so a bucketed table declares "desc" to hold the incremental
+    # watermark back until the walk finishes. Committing it per batch would advance it to the newest
+    # period of the first customer walked, and the next run would then skip every older period the
+    # remaining customers still owe.
+    sort_mode: SortMode = "asc"
+    should_sync_default: bool = True
+    default_incremental_lookback_seconds: int | None = None
 
 
 # Customer-scoped children bind the parent's `id` into their path as `customer_id`. Every child
@@ -138,6 +174,57 @@ METRONOME_ENDPOINTS: dict[str, MetronomeEndpointConfig] = {
         path="/v1/credit-types/list",
         primary_key=["id"],
     ),
+    "plans": MetronomeEndpointConfig(
+        name="plans",
+        path="/v1/plans",
+        primary_key=["id"],
+        # Deprecated by Metronome in favor of contracts, but still the only place a customer's
+        # plan is named. No created/updated filter, so every run reads the whole list.
+    ),
+    "usage": MetronomeEndpointConfig(
+        name="usage",
+        path="/v1/usage",
+        method="post",
+        # One aggregate per customer and billable metric — the endpoint carries no row id.
+        primary_key=["customer_id", "billable_metric_id"],
+        accepts_page_size=False,
+        # `none` returns a single lifetime aggregate per customer/metric over the requested window,
+        # which starts at the epoch, so the row count stays bounded by the account. The two tables
+        # below carry the same usage split into periods, over a window bounded per table.
+        window_size="none",
+    ),
+    # Both bucketed tables start off: a first sync of either is far larger than the whole rest of
+    # the catalog, and the lifetime `usage` table above already answers the common question.
+    "usage_daily": MetronomeEndpointConfig(
+        name="usage_daily",
+        path="/v1/usage",
+        method="post",
+        # One row per customer, billable metric and day, so the period joins the key that the
+        # lifetime table identifies a row by.
+        primary_key=["customer_id", "billable_metric_id", "start_timestamp"],
+        partition_key="start_timestamp",
+        accepts_page_size=False,
+        window_size="day",
+        incremental_fields=[incremental_field("start_timestamp")],
+        default_incremental_field="start_timestamp",
+        default_incremental_lookback_seconds=USAGE_DAILY_LOOKBACK_SECONDS,
+        sort_mode="desc",
+        should_sync_default=False,
+    ),
+    "usage_hourly": MetronomeEndpointConfig(
+        name="usage_hourly",
+        path="/v1/usage",
+        method="post",
+        primary_key=["customer_id", "billable_metric_id", "start_timestamp"],
+        partition_key="start_timestamp",
+        accepts_page_size=False,
+        window_size="hour",
+        incremental_fields=[incremental_field("start_timestamp")],
+        default_incremental_field="start_timestamp",
+        default_incremental_lookback_seconds=USAGE_HOURLY_LOOKBACK_SECONDS,
+        sort_mode="desc",
+        should_sync_default=False,
+    ),
     "audit_logs": MetronomeEndpointConfig(
         name="audit_logs",
         path="/v1/auditLogs",
@@ -153,6 +240,12 @@ METRONOME_ENDPOINTS: dict[str, MetronomeEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(METRONOME_ENDPOINTS)
+
+# The tables whose rows are one usage period, with how far back a first sync of each one reaches.
+USAGE_HISTORY: dict[str, timedelta] = {
+    "usage_daily": USAGE_DAILY_HISTORY,
+    "usage_hourly": USAGE_HOURLY_HISTORY,
+}
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in METRONOME_ENDPOINTS.items()

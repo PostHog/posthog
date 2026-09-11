@@ -121,6 +121,10 @@ python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-genera
 # Optional: pin the sandbox repository
 python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-general \
     --repository posthog/posthog --verbose
+
+# Steer this one run without leaving a note that would steer the scheduled ones too
+python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-general \
+    --note "focus on the checkout regression"
 ```
 
 The team must have a `SignalScoutConfig` row for the scout (the coordinator auto-creates one; the command also seeds it). Configs default to `emit=False` — the scout runs and logs but `emit_finding` writes nothing, so no finding reaches the Signals inbox until you flip `emit=True` on that scout's config (e.g. via the `scout-config-update` MCP tool).
@@ -141,6 +145,21 @@ python manage.py sync_signals_scout_skills --all-enabled --dry-run
 ```
 
 Output buckets per team: `created`, `updated`, `diverged` (team-edited or hand-authored rows left alone), `tombstoned` (rows the team already soft-deleted — left alone, never resurrected), `pruned` (live rows whose canonical skill was removed from disk — soft-deleted so the coordinator stops dispatching them). Same function the coordinator and runner call lazily — this command is just the impatient path.
+
+### Pre-computed scout suggestions
+
+`run_scout_suggestions` drives the headless "Suggested for this project" scan (`../scout_harness/suggestions.py`) without waiting for its Temporal coordinator. `--team-id` runs the scan inline for one team (bypassing the planner and its cap; the org still needs AI data processing approved) and prints the stored batch; `--show` prints the stored batch without running; `--plan` prints what the coordinator would dispatch on the next tick under the current `signals-scout-suggestions` flag payload.
+
+```bash
+# Generate (or regenerate) the batch for one team now, then print it
+python manage.py run_scout_suggestions --team-id 1
+
+# Just print what is stored
+python manage.py run_scout_suggestions --team-id 1 --show
+
+# What would the next coordinator tick dispatch?
+python manage.py run_scout_suggestions --plan
+```
 
 ## Backfilling task_run artefacts
 
