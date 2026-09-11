@@ -27320,7 +27320,9 @@
                 "Cybersource",
                 "GoogleAdSense",
                 "Sequenzy",
-                "Skio"
+                "Skio",
+                "Smartlead",
+                "Substack"
             ],
             "type": "string"
         },
