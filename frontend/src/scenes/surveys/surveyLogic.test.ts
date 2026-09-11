@@ -1718,9 +1718,39 @@ describe('surveyLogic filters for surveys responses', () => {
         }).toDispatchActions(['setAnswerFilters', 'loadSurveyBaseStats', 'loadSurveyDismissedAndSentCount'])
     })
 
+    it.each<[EventPropertyFilter['value'], number]>([
+        [[], 0],
+        ['', 0],
+        [0, 1],
+        ['feedback', 1],
+        [['feedback', 'other'], 1],
+    ])('counts active answer filters for %j', async (value, count) => {
+        await expectLogic(logic, () => {
+            logic.actions.setAnswerFilters(
+                [
+                    {
+                        key: SurveyEventProperties.SURVEY_RESPONSE,
+                        value,
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ],
+                false
+            )
+        }).toMatchValues({
+            activeAnswerFiltersCount: count,
+            activeResultsFilterCount: count,
+            hasActiveAnswerFilters: count > 0,
+        })
+    })
+
     it('clears filters with a single results reload', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+        }).toDispatchActions(['loadSurveySuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.setShowArchivedResponses(true)
             logic.actions.setAnswerFilters(
                 [
                     {
@@ -1750,18 +1780,22 @@ describe('surveyLogic filters for surveys responses', () => {
                 },
                 false
             )
-        }).toDispatchActions(['loadSurveySuccess'])
+        })
+            .toDispatchActions(['setAnswerFilters', 'setPropertyFilters'])
+            .toMatchValues({ activeResultsFilterCount: 3, showArchivedResponses: true })
 
         await expectLogic(logic, () => {
             logic.actions.clearFilters()
-        }).toDispatchActions([
-            'clearFilters',
-            'setAnswerFilters',
-            'setPropertyFilters',
-            'setDateRange',
-            'loadSurveyBaseStats',
-            'loadSurveyDismissedAndSentCount',
-        ])
+        })
+            .toDispatchActions([
+                'clearFilters',
+                'setAnswerFilters',
+                'setPropertyFilters',
+                'setDateRange',
+                'loadSurveyBaseStats',
+                'loadSurveyDismissedAndSentCount',
+            ])
+            .toMatchValues({ activeResultsFilterCount: 0, hasActiveFilters: false, showArchivedResponses: false })
     })
 
     describe('interval selection', () => {
