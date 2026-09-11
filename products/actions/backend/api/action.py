@@ -6,6 +6,7 @@ from typing import Any, cast
 from django.db import connection
 from django.db.models import Count
 
+import re2
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema, extend_schema_field
 from rest_framework import request, serializers, viewsets
@@ -137,6 +138,34 @@ class ActionStepJSONSerializer(serializers.Serializer):
             return build_selector_regex(selector)
         except Exception:
             return None
+
+    def validate(self, attrs: dict) -> dict:
+        attrs = super().validate(attrs)
+        errors: dict[str, str] = {}
+
+        regex_fields = [
+            ("url", "url_matching"),
+            ("href", "href_matching"),
+            ("text", "text_matching"),
+        ]
+        for field_name, matching_field in regex_fields:
+            matching_mode = attrs.get(matching_field)
+            if matching_mode is None and self.instance:
+                matching_mode = getattr(self.instance, matching_field, None)
+            field_val = attrs.get(field_name)
+            if field_val is None and self.instance:
+                field_val = getattr(self.instance, field_name, None)
+
+            if matching_mode == "regex" and isinstance(field_val, str):
+                try:
+                    re2.compile(field_val)
+                except re2.error:
+                    errors[field_name] = f"Invalid regular expression: '{field_val}'"
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        return attrs
 
 
 class ActionSerializer(

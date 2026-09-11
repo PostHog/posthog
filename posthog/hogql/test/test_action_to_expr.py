@@ -2,11 +2,16 @@ from typing import Any, Optional
 
 from posthog.test.base import BaseTest, _create_event
 
+from django.test import SimpleTestCase
+
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, steps_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clear_locations
+
+from posthog.models.team import Team
 
 from products.actions.backend.models.action import Action, ActionStepJSON
 
@@ -176,3 +181,30 @@ class TestActionToExpr(BaseTest):
             clear_locations(steps_to_expr([], self.team)),
             clear_locations(parse_expr("true")),
         )
+
+
+class TestStepsToExprRegexValidation(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+        self.team = Team(id=1)
+
+    def test_steps_to_expr_invalid_url_regex(self):
+        steps = [
+            ActionStepJSON(event="$pageview", url="/shardlibrary/\\d+/\\", url_matching="regex"),
+        ]
+        with self.assertRaisesMessage(QueryError, "Invalid regular expression: '/shardlibrary/\\d+/\\'"):
+            steps_to_expr(steps, self.team)
+
+    def test_steps_to_expr_invalid_href_regex(self):
+        steps = [
+            ActionStepJSON(event="$autocapture", href="^abc\\", href_matching="regex"),
+        ]
+        with self.assertRaisesMessage(QueryError, "Invalid regular expression: '^abc\\'"):
+            steps_to_expr(steps, self.team)
+
+    def test_steps_to_expr_invalid_text_regex(self):
+        steps = [
+            ActionStepJSON(event="$autocapture", text="^foo(?!bar).+", text_matching="regex"),
+        ]
+        with self.assertRaisesMessage(QueryError, "Invalid regular expression: '^foo(?!bar).+'"):
+            steps_to_expr(steps, self.team)
