@@ -19,7 +19,7 @@ needs a user gesture and a confirm step in the host.
 import json
 import base64
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import field, replace
 from typing import TYPE_CHECKING, Any
 
 from django.core.validators import RegexValidator
@@ -59,6 +59,7 @@ class ConnectorCallStatus(models.TextChoices):
     OK = "ok"
     NOT_CONNECTED = "not_connected"
     NEEDS_REAUTH = "needs_reauth"
+    NEEDS_APPROVAL = "needs_approval"
     BLOCKED = "blocked"
     TOOL_MISSING = "tool_missing"
     WRITE_BLOCKED = "write_blocked"
@@ -97,6 +98,7 @@ class ConnectorCallResult:
     truncated: bool = False
     # Where the viewer connects the provider, for the not_connected state.
     connect_path: str | None = None
+    approval_token: str | None = field(default=None, repr=False)
 
 
 @frozen
@@ -561,15 +563,31 @@ def _call_native_tool(
 
 
 def _call_mcp_tool(
-    team_id: int, user_id: int, host: str, tool_name: str, arguments: dict[str, Any], actor_label: str
+    team_id: int,
+    user_id: int,
+    host: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    actor_label: str,
+    approval_token: str | None,
+    approval_context: str,
 ) -> ConnectorCallResult:
     outcome = mcp_store_facade.call_member_server_tool(
-        team_id, user_id, host, tool_name, arguments, actor_label=actor_label, allow_writes=False
+        team_id,
+        user_id,
+        host,
+        tool_name,
+        arguments,
+        actor_label=actor_label,
+        allow_writes=False,
+        approval_token=approval_token,
+        approval_context=approval_context,
     )
     if outcome.status != "ok":
         return ConnectorCallResult(
             status=ConnectorCallStatus(outcome.status),
             detail=outcome.detail,
+            approval_token=outcome.approval_token,
             connect_path="/settings/mcp-servers" if outcome.status in ("not_connected", "needs_reauth") else None,
         )
     bounded, truncated = _bounded(
@@ -590,6 +608,8 @@ def call_connector_tool(
     arguments: dict[str, Any],
     *,
     actor_label: str = "",
+    approval_token: str | None = None,
+    approval_context: str = "",
 ) -> ConnectorCallResult:
     """Run one declared connector tool as the viewer. The caller has already
     checked the canvas's capabilities and the rollout flag."""
@@ -603,7 +623,7 @@ def call_connector_tool(
             detail=f'Unknown provider "{provider}". Use a native provider ({", ".join(sorted(NATIVE_CONNECTORS))}) '
             f'or "{MCP_PROVIDER_PREFIX}<server host>".',
         )
-    return _call_mcp_tool(team_id, user_id, host, tool_name, arguments, actor_label)
+    return _call_mcp_tool(team_id, user_id, host, tool_name, arguments, actor_label, approval_token, approval_context)
 
 
 @frozen
@@ -625,39 +645,40 @@ class ConnectorListing:
     tools: list[ConnectorToolListing]
 
 
-def _native_tool_schema(tool: NativeConnectorTool) -> dict[str, Any]:
-    return _native_field_schema(tool.payload_serializer())
-
-
-def _native_field_schema(field: serializers.Field) -> dict[str, Any]:
-    schema: dict[str, Any]
+def _native_field_type_schema(field: serializers.Field) -> dict[str, Any]:
     if isinstance(field, serializers.Serializer):
-        schema = {
+        return {
             "type": "object",
             "properties": {name: _native_field_schema(child) for name, child in field.fields.items()},
             "required": [name for name, child in field.fields.items() if child.required],
         }
-    elif isinstance(field, (serializers.ListField, serializers.ListSerializer)):
+    if isinstance(field, (serializers.ListField, serializers.ListSerializer)):
         assert field.child is not None
-        schema = {"type": "array", "items": _native_field_schema(field.child)}
-    elif isinstance(field, serializers.DictField):
-        schema = {"type": "object", "additionalProperties": _native_field_schema(field.child)}
-    elif isinstance(field, serializers.BooleanField):
-        schema = {"type": "boolean"}
-    elif isinstance(field, serializers.IntegerField):
-        schema = {"type": "integer"}
-    elif isinstance(field, serializers.FloatField):
-        schema = {"type": "number"}
-    elif isinstance(field, serializers.JSONField) or type(field) is serializers.Field:
-        schema = {}
-    else:
-        schema = {"type": "string"}
+        return {"type": "array", "items": _native_field_schema(field.child)}
+    if isinstance(field, serializers.DictField):
+        return {"type": "object", "additionalProperties": _native_field_schema(field.child)}
+    for field_type, schema_type in (
+        (serializers.BooleanField, "boolean"),
+        (serializers.IntegerField, "integer"),
+        (serializers.FloatField, "number"),
+    ):
+        if isinstance(field, field_type):
+            return {"type": schema_type}
+    if isinstance(field, serializers.JSONField) or type(field) is serializers.Field:
+        return {}
+    return {"type": "string"}
+
+
+def _add_choice_schema(field: serializers.Field, schema: dict[str, Any]) -> None:
     if isinstance(field, serializers.ChoiceField):
         schema["enum"] = list(field.choices)
         if all(isinstance(choice, bool) for choice in field.choices):
             schema["type"] = "boolean"
         elif all(isinstance(choice, int) for choice in field.choices):
             schema["type"] = "integer"
+
+
+def _add_field_limits(field: serializers.Field, schema: dict[str, Any]) -> None:
     for attribute, keyword in (
         ("min_value", "minimum"),
         ("max_value", "maximum"),
@@ -669,20 +690,42 @@ def _native_field_schema(field: serializers.Field) -> dict[str, Any]:
             schema[keyword] = value
     if isinstance(field, serializers.CharField) and not field.allow_blank:
         schema["minLength"] = max(schema.get("minLength", 0), 1)
+
+
+def _add_field_pattern(field: serializers.Field, schema: dict[str, Any]) -> None:
     for validator in field.validators:
         if isinstance(validator, RegexValidator):
             regex = validator.regex
             schema["pattern"] = regex if isinstance(regex, str) else regex.pattern
+
+
+def _add_nullable_schema(field: serializers.Field, schema: dict[str, Any]) -> None:
     if field.allow_null:
         if "type" in schema:
             schema["type"] = [schema["type"], "null"]
         if "enum" in schema:
             schema["enum"].append(None)
+
+
+def _add_field_metadata(field: serializers.Field, schema: dict[str, Any]) -> None:
     if field.default is not serializers.empty and not callable(field.default):
         schema["default"] = field.default
     if field.help_text:
         schema["description"] = str(field.help_text)
+
+
+def _native_field_schema(field: serializers.Field) -> dict[str, Any]:
+    schema = _native_field_type_schema(field)
+    _add_choice_schema(field, schema)
+    _add_field_limits(field, schema)
+    _add_field_pattern(field, schema)
+    _add_nullable_schema(field, schema)
+    _add_field_metadata(field, schema)
     return schema
+
+
+def _native_tool_schema(tool: NativeConnectorTool) -> dict[str, Any]:
+    return _native_field_schema(tool.payload_serializer())
 
 
 def _mcp_tool_listing(tool: McpConnectorTool) -> ConnectorToolListing:

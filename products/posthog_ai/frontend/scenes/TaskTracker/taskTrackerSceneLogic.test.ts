@@ -3,7 +3,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { phaiAiComposerSeedLogic } from 'scenes/max/phaiAiComposerSeedLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -13,6 +15,8 @@ import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schema
 import { attachedContextLogic, runStreamLogic } from '../../api/logics'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
+import { runInteractionLogic } from '../../logics/runInteractionLogic'
+import { TaskDraftPersistence, taskDraftStorageKey } from '../../logics/taskDraftPersistence'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
@@ -54,6 +58,7 @@ describe('taskTrackerSceneLogic', () => {
     })
 
     beforeEach(() => {
+        localStorage.clear()
         createBody = null
         runBody = null
         useMocks({
@@ -92,72 +97,80 @@ describe('taskTrackerSceneLogic', () => {
     })
 
     it.each([
-        [false, ''],
-        [true, ''],
-        [true, 'A different task'],
-    ] as const)('handles a startup stop and draft when leaving=%s with a new draft=%s', async (leave, newDraft) => {
-        let finishCreation!: (response: [number, Record<string, unknown>]) => void
-        const creation = new Promise<[number, Record<string, unknown>]>((resolve) => {
-            finishCreation = resolve
-        })
-        let createdTasks: Task[] = []
-        useMocks({
-            get: { '/api/projects/:team/tasks/': () => [200, { results: createdTasks, count: createdTasks.length }] },
-            post: { '/api/projects/:team/tasks/': () => creation },
-        })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        router.actions.push('/tasks/new')
-        logic.actions.setNewTaskData({ description: 'A synthetic task' })
-        logic.actions.submitNewTask()
-        const streamKey = logic.values.activeCreation!.streamKey
-        expect(runStreamLogic({ streamKey }).values.threadItems).toEqual([
-            expect.objectContaining({ type: 'human_message', text: 'A synthetic task' }),
-        ])
-        expect(runStreamLogic({ streamKey }).values.streamPhase).toBe('provisioning')
-        const cancellation = runCancellationLogic({ streamKey })
-        const unmount = cancellation.mount()
-        try {
-            cancellation.actions.requestCancellation()
-            logic.actions.setStartupDraft('A follow-up draft')
-            if (leave) {
-                router.actions.push('/tasks/another-task')
+        [null, ''],
+        ['/tasks/another-task', ''],
+        ['/tasks/another-task', 'A different task'],
+        ['/activity/explore', ''],
+    ] as const)(
+        'handles a startup stop and draft when navigating to %s with a new draft=%s',
+        async (destination, newDraft) => {
+            let finishCreation!: (response: [number, Record<string, unknown>]) => void
+            const creation = new Promise<[number, Record<string, unknown>]>((resolve) => {
+                finishCreation = resolve
+            })
+            let createdTasks: Task[] = []
+            useMocks({
+                get: {
+                    '/api/projects/:team/tasks/': () => [200, { results: createdTasks, count: createdTasks.length }],
+                },
+                post: { '/api/projects/:team/tasks/': () => creation },
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            router.actions.push('/tasks/new')
+            logic.actions.setNewTaskData({ description: 'A synthetic task' })
+            logic.actions.submitNewTask()
+            const streamKey = logic.values.activeCreation!.streamKey
+            expect(runStreamLogic({ streamKey }).values.threadItems).toEqual([
+                expect.objectContaining({ type: 'human_message', text: 'A synthetic task' }),
+            ])
+            expect(runStreamLogic({ streamKey }).values.streamPhase).toBe('provisioning')
+            const cancellation = runCancellationLogic({ streamKey })
+            const unmount = cancellation.mount()
+            try {
+                cancellation.actions.requestCancellation()
+                logic.actions.setStartupDraft('A follow-up draft')
+                if (destination) {
+                    router.actions.push(destination)
+                }
+                if (newDraft) {
+                    router.actions.push('/tasks/new')
+                    logic.actions.setNewTaskData({ description: newDraft })
+                }
+                createdTasks = [buildTask({ id: 'new-task', description: 'A synthetic task' })]
+                await expectLogic(logic, () =>
+                    finishCreation([
+                        200,
+                        {
+                            id: 'new-task',
+                            latest_run: { id: 'run-1' },
+                        },
+                    ])
+                ).toFinishAllListeners()
+                if (destination) {
+                    expect(logic.values.activeCreation).toBeNull()
+                    expect(cancellation.values.cancellationState).toBeNull()
+                    expect(router.values.location.pathname).toContain(newDraft ? '/tasks/new' : destination)
+                    expect(toolEvents.values.applyBackTargetClaims[streamKey]).toBeUndefined()
+                } else {
+                    expect(logic.values.activeCreation).toEqual({
+                        streamKey,
+                        interactionKey: streamKey,
+                        composerWasFocused: false,
+                        taskId: 'new-task',
+                        runId: 'run-1',
+                        draft: 'A follow-up draft',
+                    })
+                    expect(cancellation.values.cancellationState).toBe('waiting')
+                }
+                expect(logic.values.newTaskData.description).toBe(newDraft)
+                expect(logic.values.isSubmittingTask).toBe(false)
+                await waitFor(() => expect(logic.values.tasks).toEqual(createdTasks))
+            } finally {
+                unmount()
             }
-            if (newDraft) {
-                router.actions.push('/tasks/new')
-                logic.actions.setNewTaskData({ description: newDraft })
-            }
-            createdTasks = [buildTask({ id: 'new-task', description: 'A synthetic task' })]
-            await expectLogic(logic, () =>
-                finishCreation([
-                    200,
-                    {
-                        id: 'new-task',
-                        latest_run: { id: 'run-1' },
-                    },
-                ])
-            ).toFinishAllListeners()
-            if (leave) {
-                expect(logic.values.activeCreation).toBeNull()
-                expect(cancellation.values.cancellationState).toBeNull()
-                expect(router.values.location.pathname).toContain(newDraft ? '/tasks/new' : '/tasks/another-task')
-                expect(toolEvents.values.applyBackTargetClaims[streamKey]).toBeUndefined()
-            } else {
-                expect(logic.values.activeCreation).toEqual({
-                    streamKey,
-                    taskId: 'new-task',
-                    runId: 'run-1',
-                    draft: 'A follow-up draft',
-                })
-                expect(cancellation.values.cancellationState).toBe('waiting')
-            }
-            expect(logic.values.newTaskData.description).toBe(newDraft)
-            expect(logic.values.isSubmittingTask).toBe(false)
-            await waitFor(() => expect(logic.values.tasks).toEqual(createdTasks))
-        } finally {
-            unmount()
         }
-    })
+    )
 
     it('loads PostHog Desktop access and exposes it to the task UI', async () => {
         logic.mount()
@@ -199,13 +212,26 @@ describe('taskTrackerSceneLogic', () => {
             logic.actions.submitNewTask()
             const streamKey = logic.values.activeCreation!.streamKey
             expect(runStreamLogic({ streamKey }).values.streamPhase).toBe('provisioning')
-            logic.actions.setStartupDraft('Include a weekly comparison')
+            const interaction = runInteractionLogic.findMounted(streamKey)!
+            interaction.actions.enableTaskDraftPersistence('user-1', 997)
+            interaction.actions.setComposerFormValues({ draft: 'Include a weekly comparison' })
+            interaction.actions.submitComposerForm()
+            interaction.actions.setComposerFormValues({ draft: 'Also include a chart' })
+
+            if (failure !== 'task') {
+                await waitFor(() =>
+                    expect(new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, 'new-task')).restore()).toEqual({
+                        draft: 'Explain the example chart\n\nInclude a weekly comparison\n\nAlso include a chart',
+                        recovery: 'unconfirmed',
+                    })
+                )
+            }
 
             await expectLogic(logic, finishRequest).toFinishAllListeners()
 
             expect(logic.values.activeCreation).toBeNull()
             expect(logic.values.newTaskData.description).toBe(
-                'Explain the example chart\n\nInclude a weekly comparison'
+                'Explain the example chart\n\nInclude a weekly comparison\n\nAlso include a chart'
             )
             expect(logic.values.isSubmittingTask).toBe(false)
             expect(router.values.location.pathname).toContain('/tasks/new')
@@ -514,23 +540,26 @@ describe('taskTrackerSceneLogic', () => {
     // host to `/tasks/:id`, and must never have its `activeCreation` cleared by unrelated main-app
     // navigation. Guards against either guard (`props.panelId` in `submitNewTask` / `urlToAction`) being
     // dropped, which would yank the host to the tasks scene or silently drop the panel's in-flight run.
-    it('does not navigate on create and ignores url cleanup for an embedded instance', async () => {
-        const panelLogic = taskTrackerSceneLogic({ panelId: 'test-panel' })
-        panelLogic.mount()
-        const initialPath = router.values.location.pathname
+    it.each(['/tasks/some-other-task', '/activity/explore'])(
+        'keeps an embedded creation in place after navigation to %s',
+        async (destination) => {
+            const panelLogic = taskTrackerSceneLogic({ panelId: 'test-panel' })
+            panelLogic.mount()
+            const initialPath = router.values.location.pathname
 
-        panelLogic.actions.setNewTaskData({ description: 'do the thing' })
-        panelLogic.actions.submitNewTask()
-        await expectLogic(panelLogic).toFinishAllListeners()
+            panelLogic.actions.setNewTaskData({ description: 'do the thing' })
+            panelLogic.actions.submitNewTask()
+            await expectLogic(panelLogic).toFinishAllListeners()
 
-        expect(router.values.location.pathname).toBe(initialPath)
-        expect(panelLogic.values.activeCreation).toMatchObject({ taskId: 'new-task' })
+            expect(router.values.location.pathname).toBe(initialPath)
+            expect(panelLogic.values.activeCreation).toMatchObject({ taskId: 'new-task' })
 
-        router.actions.push('/tasks/some-other-task')
-        expect(panelLogic.values.activeCreation).toMatchObject({ taskId: 'new-task' })
+            router.actions.push(destination)
+            expect(panelLogic.values.activeCreation).toMatchObject({ taskId: 'new-task' })
 
-        panelLogic.unmount()
-    })
+            panelLogic.unmount()
+        }
+    )
 
     // Opening a task from the panel's history must render its run in place (a task with a run) or fall
     // back to the full detail page (a task that never ran) — never the other way round.
@@ -580,6 +609,52 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.activeCreation).toEqual(expectedActiveCreation)
         expect(logic.values.historyExpanded).toBe(false)
         expect(router.values.location.pathname).toContain(expectedPath ?? initialPath)
+    })
+
+    it.each([null, '/activity/explore'])('keeps a URL prompt attached until navigation to %s', async (destination) => {
+        let finishCreation!: (response: [number, Record<string, unknown>]) => void
+        const creation = new Promise<[number, Record<string, unknown>]>((resolve) => {
+            finishCreation = resolve
+        })
+        let createCount = 0
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/': async ({ request }) => {
+                    createCount++
+                    createBody = (await request.json()) as Record<string, unknown>
+                    return creation
+                },
+            },
+        })
+        router.actions.push(urls.ai(undefined, 'analyze churn'))
+        const unmountBridge = phaiAiComposerSeedLogic().mount()
+        try {
+            logic.mount()
+            const streamKey = logic.values.activeCreation!.streamKey
+            expect(runStreamLogic({ streamKey }).values.threadItems).toEqual([
+                expect.objectContaining({ type: 'human_message', text: 'analyze churn' }),
+            ])
+            if (destination) {
+                router.actions.push(destination)
+                expect(logic.values.activeCreation).toBeNull()
+            }
+            await expectLogic(logic, () =>
+                finishCreation([200, { id: 'new-task', latest_run: { id: 'run-1' } }])
+            ).toFinishAllListeners()
+
+            expect(createBody).toMatchObject({ description: 'analyze churn' })
+            expect(createCount).toBe(1)
+            if (destination) {
+                expect(logic.values.activeCreation).toBeNull()
+                expect(router.values.location.pathname).toContain(destination)
+            } else {
+                expect(logic.values.activeCreation).toMatchObject({ taskId: 'new-task', runId: 'run-1' })
+                expect(router.values.location.pathname).toContain('/tasks/new-task')
+            }
+        } finally {
+            finishCreation([200, { id: 'new-task', latest_run: { id: 'run-1' } }])
+            unmountBridge()
+        }
     })
 
     // A CTA opens the panel and stamps its prompt onto composerSeedLogic BEFORE the composer mounts, so the

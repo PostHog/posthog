@@ -3353,9 +3353,9 @@ class TestExternalDataSchemaSerializerValidation(APIBaseTest):
         assert self.schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
 
 
-class TestSyncTypeConfigLostUpdateProtection(APIBaseTest):
-    """The serializer's full-instance save must not revert a sync_type_config key that a concurrent
-    CDC extract activity committed after the request loaded the row."""
+class TestSerializerLostUpdateProtection(APIBaseTest):
+    """A PATCH must not revert what another writer committed after the request loaded the row —
+    a sync_type_config key from a CDC extract activity, or the link fields "Delete data" clears."""
 
     def setUp(self):
         super().setUp()
@@ -3447,6 +3447,43 @@ class TestSyncTypeConfigLostUpdateProtection(APIBaseTest):
         # The user's key change landed AND the concurrent position (a key the request didn't touch) survived.
         assert self.schema.cdc_table_mode == "both"
         assert self.schema.sync_type_config["cdc_last_log_position"] == "0/900"
+
+    def test_patch_does_not_revert_a_concurrent_delete_data(self):
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+
+        table = DataWarehouseTable.objects.create(
+            team=self.team, name="orders", format="Parquet", external_data_source=self.source
+        )
+        self.schema.table = table
+        self.schema.initial_sync_complete = True
+        self.schema.save()
+
+        instance = ExternalDataSchema.objects.get(id=self.schema.id)  # in-memory copy, still linked
+
+        with mock.patch("products.data_warehouse.backend.facade.api.get_s3_client"):
+            ExternalDataSchema.objects.get(id=self.schema.id).delete_table()
+
+        serializer = ExternalDataSchemaSerializer(
+            instance,
+            data={"should_sync": False},
+            partial=True,
+            context={"team_id": self.team.pk, "post_commit_actions": []},
+        )
+        serializer.is_valid(raise_exception=True)
+        saved = serializer.save()
+
+        self.schema.refresh_from_db()
+        table.refresh_from_db()
+        assert saved.table_id is None
+        assert saved.initial_sync_complete is False
+        assert self.schema.should_sync is False
+        assert self.schema.table_id is None
+        assert self.schema.status is None
+        assert self.schema.last_synced_at is None
+        assert self.schema.initial_sync_complete is False
+        assert table.deleted is True
 
 
 class TestAvailableColumnsAcrossSqlSources(APIBaseTest):

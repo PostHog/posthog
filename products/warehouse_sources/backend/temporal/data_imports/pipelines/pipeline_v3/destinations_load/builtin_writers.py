@@ -1,6 +1,6 @@
 """Registering the writers that ship with warehouse sources.
 
-Postgres, Redshift and S3 ship here. The other destination types have writers built on batch exports'
+Postgres, Redshift, Snowflake and S3 ship here. The other destination types have writers built on batch exports'
 clients, parked on `tom/dwh-destination-writers-parked`, and each one lands in its own change
 once it has been run against that warehouse. Registering a type whose writer has never
 executed is how a customer discovers it does not work.
@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.regis
 SUPPORTED_DESTINATION_TYPES: list[str] = [
     str(ExternalDataDestination.Type.POSTGRES),
     str(ExternalDataDestination.Type.REDSHIFT),
+    str(ExternalDataDestination.Type.SNOWFLAKE),
     str(ExternalDataDestination.Type.S3),
 ]
 
@@ -46,9 +47,13 @@ def register_builtin_destination_writers() -> None:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.s3 import (  # noqa: PLC0415
         S3DestinationWriter,
     )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.snowflake import (  # noqa: PLC0415
+        SnowflakeDestinationWriter,
+    )
 
     register_destination_writer(ExternalDataDestination.Type.POSTGRES, PostgresDestinationWriter)
     register_destination_writer(ExternalDataDestination.Type.REDSHIFT, RedshiftDestinationWriter)
+    register_destination_writer(ExternalDataDestination.Type.SNOWFLAKE, SnowflakeDestinationWriter)
     register_destination_writer(ExternalDataDestination.Type.S3, S3DestinationWriter)
 
 

@@ -9,6 +9,48 @@ feature: data_quality
 url_prefix: /
 ui_apps: {}
 tools:
+    data-catalog-metrics-check-suite-runs-check-runs-list:
+        operation: data_catalog_metrics_check_suite_runs_check_runs_list
+        enabled: false
+    data-catalog-metrics-check-suite-runs-list:
+        operation: data_catalog_metrics_check_suite_runs_list
+        enabled: false
+    data-catalog-metrics-check-suite-runs-retrieve:
+        operation: data_catalog_metrics_check_suite_runs_retrieve
+        enabled: false
+    data-catalog-metrics-checks-check-types-list:
+        operation: data_catalog_metrics_checks_check_types_list
+        enabled: false
+    data-catalog-metrics-checks-create:
+        operation: data_catalog_metrics_checks_create
+        enabled: false
+    data-catalog-metrics-checks-destroy:
+        operation: data_catalog_metrics_checks_destroy
+        enabled: false
+    data-catalog-metrics-checks-health-retrieve:
+        operation: data_catalog_metrics_checks_health_retrieve
+        enabled: false
+    data-catalog-metrics-checks-list:
+        operation: data_catalog_metrics_checks_list
+        enabled: false
+    data-catalog-metrics-checks-partial-update:
+        operation: data_catalog_metrics_checks_partial_update
+        enabled: false
+    data-catalog-metrics-checks-retrieve:
+        operation: data_catalog_metrics_checks_retrieve
+        enabled: false
+    data-catalog-metrics-checks-run-all-create:
+        operation: data_catalog_metrics_checks_run_all_create
+        enabled: false
+    data-catalog-metrics-checks-run-create:
+        operation: data_catalog_metrics_checks_run_create
+        enabled: false
+    data-catalog-metrics-checks-runs-list:
+        operation: data_catalog_metrics_checks_runs_list
+        enabled: false
+    data-catalog-metrics-checks-update:
+        operation: data_catalog_metrics_checks_update
+        enabled: false
     data-quality-check-create-on-table:
         operation: warehouse_tables_checks_create
         enabled: true

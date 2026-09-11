@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataDestina
 DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
     str(ExternalDataDestination.Type.POSTGRES): (str(Integration.IntegrationKind.POSTGRESQL),),
     str(ExternalDataDestination.Type.REDSHIFT): (str(Integration.IntegrationKind.AWS_REDSHIFT),),
+    str(ExternalDataDestination.Type.SNOWFLAKE): (str(Integration.IntegrationKind.SNOWFLAKE),),
     str(ExternalDataDestination.Type.S3): (
         str(Integration.IntegrationKind.AWS_S3),
         str(Integration.IntegrationKind.S3_COMPATIBLE),
