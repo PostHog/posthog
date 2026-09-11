@@ -409,6 +409,16 @@ export type ScoutRunGroup =
     | { kind: 'quiet'; runs: SignalScoutRunSummary[] }
     | { kind: 'failed'; runs: SignalScoutRunSummary[] }
 
+/**
+ * A group's React key. A folded group is keyed by its last run rather than its first, because the
+ * detail view passes runs newest-first: a poll that prepends a run, or an in-flight run that
+ * settles into the fold, changes the first run. That would remount the group and discard the
+ * expanded state it owns, closing it under the reader.
+ */
+export function scoutRunGroupKey(group: ScoutRunGroup): string {
+    return group.kind === 'run' ? group.run.run_id : group.runs[group.runs.length - 1].run_id
+}
+
 export function groupScoutRuns(runs: SignalScoutRunSummary[]): ScoutRunGroup[] {
     const groups: ScoutRunGroup[] = []
     for (const run of runs) {

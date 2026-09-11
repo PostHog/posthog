@@ -21,6 +21,7 @@ import {
     scoutDisplayName,
     scoutReportActivityLabel,
     scoutRunFailureLine,
+    scoutRunGroupKey,
     scoutRunReportLabel,
     weeklyCronToDayTime,
 } from './scoutRunsWindow'
@@ -259,6 +260,14 @@ describe('scoutRunsWindow report channel', () => {
         it('keeps a lone quiet run as a group of one, so the list does not switch grammar', () => {
             const groups = groupScoutRuns([quiet('a')])
             expect(groups[0].kind === 'quiet' && groups[0].runs).toHaveLength(1)
+        })
+
+        // The detail view polls and prepends, so a group's key has to survive a newer run joining
+        // it. Otherwise React remounts the group and the reader's open rows close.
+        it('keys a folded group the same way once a newer run joins it', () => {
+            const [before] = groupScoutRuns([quiet('b'), quiet('c')])
+            const [after] = groupScoutRuns([quiet('a'), quiet('b'), quiet('c')])
+            expect(scoutRunGroupKey(after)).toEqual(scoutRunGroupKey(before))
         })
     })
 

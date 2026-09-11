@@ -23,6 +23,7 @@ import {
     ScoutRunFilter,
     ScoutRunGroup,
     scoutRunFailureLine,
+    scoutRunGroupKey,
     scoutRunReportLabel,
     SCOUT_NO_RECENT_RUNS,
     SCOUT_RUNS_PER_SCOUT_LABEL,
@@ -437,11 +438,11 @@ export function ScoutRunHistorySection({
             <div className="overflow-hidden rounded border border-primary bg-surface-primary">
                 {groups.map((group) =>
                     group.kind === 'run' ? (
-                        <ScoutRunRow key={group.run.run_id} run={group.run} skillName={skillName} />
+                        <ScoutRunRow key={scoutRunGroupKey(group)} run={group.run} skillName={skillName} />
                     ) : group.kind === 'quiet' ? (
-                        <QuietRunGroup key={group.runs[0].run_id} runs={group.runs} skillName={skillName} />
+                        <QuietRunGroup key={scoutRunGroupKey(group)} runs={group.runs} skillName={skillName} />
                     ) : (
-                        <FailedRunGroup key={group.runs[0].run_id} runs={group.runs} skillName={skillName} />
+                        <FailedRunGroup key={scoutRunGroupKey(group)} runs={group.runs} skillName={skillName} />
                     )
                 )}
             </div>
