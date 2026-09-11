@@ -435,13 +435,16 @@ function Root<T>({
             if (!didInitialScrollRef.current || element.clientHeight === 0 || element.clientWidth === 0) {
                 return
             }
+            // `item.key`, not a re-derivation from `item.index`: the virtualizer produced that key from
+            // its current `getItemKey`, while this listener is only re-bound in the passive phase, so a
+            // scroll event arriving after an append can otherwise map a new index through the old `items`.
             const firstVisibleItem = virtualizer.getVirtualItems().find((item) => {
-                const itemKey = getVirtualItemKey(item.index)
+                const itemKey = String(item.key)
                 return item.end > element.scrollTop && itemKey !== HEADER_KEY && !itemKey.startsWith(FOOTER_KEY)
             })
             if (firstVisibleItem) {
                 lastReadItems.delete(scrollRestorationKey)
-                lastReadItems.set(scrollRestorationKey, getVirtualItemKey(firstVisibleItem.index))
+                lastReadItems.set(scrollRestorationKey, String(firstVisibleItem.key))
                 if (lastReadItems.size > 100) {
                     lastReadItems.delete(lastReadItems.keys().next().value!)
                 }
@@ -449,7 +452,7 @@ function Root<T>({
         }
         element.addEventListener('scroll', rememberPosition, { passive: true })
         return () => element.removeEventListener('scroll', rememberPosition)
-    }, [scrollRestorationKey, virtualizer, getVirtualItemKey, itemsLoading])
+    }, [scrollRestorationKey, virtualizer, itemsLoading])
 
     // The only way to flip pinning. Two pins have to move together and in the same tick as the gesture:
     // ours, and the core's at-end growth compensation, which is a second pin we do not otherwise control.
