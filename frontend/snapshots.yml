@@ -5649,7 +5649,7 @@ snapshots:
     products-posthog-ai-onboardingtakeover--start-step--light:
         hash: v1.k794b7964.d1fadd3c1c5f4734cf0ae54b7ddc1f64e351cbd0ef1e7b16b78968f98ad51a44.1u2R4G2yaaKLW_puoLCQrIIPiZcZYN6UMWWziknTITk
     products-posthog-ai-permissioninput--matching-configuration--dark:
-        hash: v1.k794b7964.be1eb7f0d99c67d743ea7fbc6ed8b4e0aefa7b561d30ae83b27546225b1a7703.08vwdgLYXwvFBF_mzK2cuSlZDQkpBLRDhRQY9dENK7I
+        hash: v1.k794b7964.32f3cd289ba4d85f920f30164b8ff264b752c418d9ccc42a6f708458ba668467.jvnRfjTZoG9Z6ymsDBqaXC7R3KCkYSeKQUp2JE0yiVo
     products-posthog-ai-permissioninput--matching-configuration--light:
         hash: v1.k794b7964.d478b95b0240c651b90a4634978a3f934ce34d7e7a92197d8a4e7aa4db6c0775.BIuSpIBo6bRQIfOtoOmZunCm5FarVrrEyUaCMb7oxlY
     products-posthog-ai-permissioninput--mismatched-configuration--dark:
