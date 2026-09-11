@@ -38,7 +38,7 @@ import statistics
 from datetime import datetime
 from typing import Any
 
-# a failed run whose wall-clock is this long or longer is timeout-shaped, not a fast crash.
+# a failed run with no `failure_reason` whose wall-clock is this long or longer is timeout-shaped.
 # The per-run budget is 15 minutes (scout_harness/limits.py); a run that reached ~14 minutes ran
 # to the wall rather than crashing early.
 TIMEOUT_MINUTES = 14.0
@@ -131,12 +131,21 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
 
     durations = [m for r in runs if (m := minutes_between(r.get("started_at"), r.get("completed_at"))) is not None]
     median_dur = round(statistics.median(durations), 1) if durations else None
+    # `failure_reason` is authoritative when the row carries one: a run that hit the wall says so,
+    # and a run that names a credential or tool failure is not a timeout however long it ran.
+    # The duration heuristic covers rows from before the field existed.
     timeouts = sum(
         1
         for r in runs
         if r.get("status") == "failed"
-        and (m := minutes_between(r.get("started_at"), r.get("completed_at"))) is not None
-        and m >= TIMEOUT_MINUTES
+        and (
+            "timeout" in (r.get("failure_reason") or "").lower()
+            or (
+                not r.get("failure_reason")
+                and (m := minutes_between(r.get("started_at"), r.get("completed_at"))) is not None
+                and m >= TIMEOUT_MINUTES
+            )
+        )
     )
 
     # cadence: consecutive gaps between run starts

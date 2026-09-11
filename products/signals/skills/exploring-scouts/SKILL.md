@@ -91,7 +91,7 @@ Read the result against three cases:
   Nothing is running.
   Tell the user which scouts exist and that they're all off — and say who switched each one off, which `status` carries: `paused_by_user` means a person (or a launch seed posture) turned it off, `paused_by_system` means an automatic pause with its cause in `pause_reason` (`no_output` / `ignored` / `repeated_failures`).
   Either kind resumes with `enabled: true` via `scout-config-update`.
-  A `repeated_failures` pause is the failure breaker: the streak of scheduled failures (`consecutive_failure_count`; manual and workflow-triggered runs don't count) ran one past what the schedule fits in twelve hours, clamped to 5–25 (daily: 5, hourly: 13). It is half-open, so the coordinator probes the scout once a day and resumes it on a clean run; read the newest run's `failure_reason` to say what kept failing.
+  A `repeated_failures` pause is the failure breaker: the streak of scheduled failures (`consecutive_failure_count`; manual and workflow-triggered runs don't count) ran one past what the schedule fits in twelve hours, clamped to 5–25 (daily: 5, rolling hourly interval: 13, hourly cron: 15, since cron slots are counted over a window padded for daylight-saving shifts). It is half-open, so the coordinator probes the scout once a day and resumes it on a clean run; read the newest run's `failure_reason` to say what kept failing.
 - **At least one `enabled: true`** — the fleet is registered and that scout is allowed to run.
   For each enabled scout note its cadence (`run_cron_schedule` when set, else `run_interval_minutes`; the cron wins), `emit` (false = **dry-run**, runs but writes nothing to the inbox), and `last_run_at`.
   A `status` of `pending_pause` means the scout still runs but the system has flagged it to pause soon (cause in `pause_reason`); any config edit clears the warning.
@@ -253,7 +253,7 @@ Each row also carries `scout_name`, so a fleet-wide page tells you which scout a
 For the whole fleet at once, filter on the source instead: `{ "source_product": "signals_scout", "limit": 20 }`.
 Every report a scout authors carries backing signals tagged `source_product="signals_scout"`, and that filter keeps any report whose contributing signals include the tag, so the result is the set of reports the fleet has authored.
 Neither filter captures edit-only work: a scout that edits an existing non-scout report (appending a note to a pipeline report, say) adds no `signals_scout` signal, so that report won't match; trace edits through the run rows' `edited_report_ids` instead.
-Suppressed reports are hidden by default, so add `include_all_statuses: true` (or `status: "suppressed"`) when judging how much of a scout's output got filtered.
+Suppressed reports are hidden by default, so add `include_all_statuses: true` (or `status: "suppressed"`) when judging how much of a scout's output got filtered. Even then the `source_product` filter misses a report the safety judge suppressed, because an unsafe report's signals are never indexed; the run rows' `emitted_report_ids` are the complete enumeration for a signal-to-noise audit.
 
 An empty result means the fleet hasn't authored any reports (yet), **not** that the filter is broken.
 Scouts hold a high bar — most runs close out without writing — so on a quiet or newly enrolled project zero scout reports is the normal, expected state.
