@@ -46,6 +46,11 @@ function makeSession(overrides: Partial<WizardSessionDTOApi> = {}): WizardSessio
 // Max jittered gap for the default 3s interval is 3.6s — advancing past it guarantees the next tick.
 const PAST_MAX_JITTERED_INTERVAL_MS = 4000
 
+// jsdom's `navigator.onLine` is a read-only getter, so a test flips it by redefining the property.
+function setOnLine(value: boolean): void {
+    Object.defineProperty(window.navigator, 'onLine', { value, configurable: true })
+}
+
 describe('wizardSessionStreamLogic polling mode', () => {
     let logic: ReturnType<typeof wizardSessionStreamLogic.build>
 
@@ -65,6 +70,7 @@ describe('wizardSessionStreamLogic polling mode', () => {
     afterEach(() => {
         logic?.unmount()
         jest.useRealTimers()
+        setOnLine(true)
     })
 
     it('polls the latest session and feeds it through sessionUpdated', async () => {
@@ -143,6 +149,41 @@ describe('wizardSessionStreamLogic polling mode', () => {
         jest.advanceTimersByTime(PAST_MAX_JITTERED_INTERVAL_MS)
         await expectLogic(logic).toDispatchActions(['sessionUpdated'])
         expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
+    })
+
+    // A reconnect builds a new loop, and while the backoff lived in that loop every reconnect put a
+    // client whose requests all fail back to the 3s base cadence.
+    it('keeps its backoff across a reconnect instead of restarting at full cadence', async () => {
+        mockLatestRetrieve.mockRejectedValue(new Error('network is unreachable'))
+
+        logic.actions.connect()
+        await expectLogic(logic).toDispatchActions(['connectionErrored'])
+        jest.advanceTimersByTime(2 * PAST_MAX_JITTERED_INTERVAL_MS)
+        await expectLogic(logic).toDispatchActions(['connectionErrored'])
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
+
+        // Two failures put the next gap at 12s ±20%, and the reconnect must not shorten it.
+        logic.actions.connect()
+        await expectLogic(logic).toDispatchActions(['connectionErrored'])
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(3)
+        jest.advanceTimersByTime(2 * PAST_MAX_JITTERED_INTERVAL_MS)
+        await Promise.resolve()
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(3)
+    })
+
+    it('skips ticks while the browser is offline and resumes when it comes back', async () => {
+        mockLatestRetrieve.mockResolvedValue(makeSession())
+        setOnLine(false)
+
+        logic.actions.connect()
+        jest.advanceTimersByTime(10 * PAST_MAX_JITTERED_INTERVAL_MS)
+        await Promise.resolve()
+        expect(mockLatestRetrieve).not.toHaveBeenCalled()
+
+        setOnLine(true)
+        window.dispatchEvent(new Event('online'))
+        await expectLogic(logic).toDispatchActions(['sessionUpdated'])
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(1)
     })
 })
 

@@ -59,9 +59,26 @@ export function sseReconnectDelayMs(attempt: number, random: () => number = Math
 
 export type PollTickOutcome = 'ok' | 'empty' | 'terminal'
 
+/**
+ * A poll loop's accumulated backoff. Hold it outside `createPollLoop` when the caller rebuilds the
+ * loop — a reconnect, a transport swap, a flag flip — so the counters survive the rebuild.
+ * Otherwise a client whose requests all fail returns to full cadence on every rebuild and never
+ * winds down.
+ */
+export interface PollBackoff {
+    consecutiveFailures: number
+    consecutiveEmpty: number
+}
+
+export function createPollBackoff(): PollBackoff {
+    return { consecutiveFailures: 0, consecutiveEmpty: 0 }
+}
+
 export interface PollLoopOptions {
     /** Base cadence between ticks; jitter and backoff are applied on top. */
     intervalMs: number
+    /** Backoff counters to read and write. Defaults to state private to this loop. */
+    backoff?: PollBackoff
     /** Fetch + dispatch one snapshot. Classify the result; throw on request failure. */
     tick: () => Promise<PollTickOutcome>
     /** Called for each failed tick. Return 'stop' to end the loop permanently. */
@@ -83,61 +100,102 @@ export interface PollLoopOptions {
  *   errors stop the loop, so an outage or a deleted resource is not hammered at full cadence.
  * - Consecutive empty ticks past EMPTY_POLLS_BEFORE_BACKOFF back off the same way, so an endpoint
  *   with nothing to report (no session yet, killswitched) winds down instead of polling forever.
+ * - Ticks are skipped entirely while `navigator.onLine` is false, so a client with no network stops
+ *   filing failed requests until it has one again.
  */
 export function createPollLoop(options: PollLoopOptions): () => () => void {
+    // Outside the setup function on purpose. The disposables plugin re-runs setup on a tab-visibility
+    // resume, so counters kept in there would reset on every resume.
+    const backoff = options.backoff ?? createPollBackoff()
+
     return (): (() => void) => {
         let cancelled = false
+        // The loop ended itself. Distinct from `cancelled` (external teardown), because the `online`
+        // listener below must not revive a loop that reached a terminal tick or a permanent error.
+        let finished = false
+        let inFlight = false
         let timer: number | undefined
-        let consecutiveFailures = 0
-        let consecutiveEmpty = 0
 
         const nextDelayMs = (): number => {
-            if (consecutiveFailures > 0) {
-                return Math.min(options.intervalMs * 2 ** consecutiveFailures, MAX_POLL_BACKOFF_MS)
+            if (backoff.consecutiveFailures > 0) {
+                return Math.min(options.intervalMs * 2 ** backoff.consecutiveFailures, MAX_POLL_BACKOFF_MS)
             }
-            const emptyOverage = consecutiveEmpty - EMPTY_POLLS_BEFORE_BACKOFF
+            const emptyOverage = backoff.consecutiveEmpty - EMPTY_POLLS_BEFORE_BACKOFF
             if (emptyOverage >= 0) {
                 return Math.min(options.intervalMs * 2 ** (emptyOverage + 1), MAX_POLL_BACKOFF_MS)
             }
             return options.intervalMs
         }
 
+        const endLoop = (): void => {
+            finished = true
+            options.onLoopEnd?.()
+        }
+
+        // A tick's dispatches can synchronously dispose this loop; don't schedule an orphan.
+        const scheduleNext = (delayMs: number): void => {
+            if (cancelled || finished) {
+                return
+            }
+            timer = window.setTimeout(() => void poll(), jitteredIntervalMs(delayMs))
+        }
+
         const poll = async (): Promise<void> => {
             // Re-checked every tick, not just at connect: the disposables plugin re-runs setup on
             // tab-visibility resume, so connect-time guards alone would let a stale loop revive.
             if (options.shouldStop?.()) {
-                options.onLoopEnd?.()
+                endLoop()
                 return
             }
+            // The browser reports no network, so a request can only fail in the transport. Skipping
+            // it keeps a disconnected client quiet instead of filing a failed request per tick.
+            // `onOnline` wakes the loop as soon as the network returns; this timer is the fallback
+            // for the cases the event misses.
+            if (navigator.onLine === false) {
+                scheduleNext(MAX_POLL_BACKOFF_MS)
+                return
+            }
+            inFlight = true
             try {
                 const outcome = await options.tick()
                 if (cancelled) {
                     return
                 }
-                consecutiveFailures = 0
-                consecutiveEmpty = outcome === 'empty' ? consecutiveEmpty + 1 : 0
+                backoff.consecutiveFailures = 0
+                backoff.consecutiveEmpty = outcome === 'empty' ? backoff.consecutiveEmpty + 1 : 0
                 if (outcome === 'terminal') {
-                    options.onLoopEnd?.()
+                    endLoop()
                     return
                 }
             } catch (error) {
                 if (cancelled) {
                     return
                 }
-                consecutiveFailures += 1
-                if (options.onError(error, consecutiveFailures) === 'stop') {
-                    options.onLoopEnd?.()
+                backoff.consecutiveFailures += 1
+                if (options.onError(error, backoff.consecutiveFailures) === 'stop') {
+                    endLoop()
                     return
                 }
+            } finally {
+                inFlight = false
             }
-            // A tick's dispatches can synchronously dispose this loop; don't schedule an orphan.
-            if (!cancelled) {
-                timer = window.setTimeout(() => void poll(), jitteredIntervalMs(nextDelayMs()))
-            }
+            scheduleNext(nextDelayMs())
         }
+
+        // Coming back online is the signal to retry, so don't sit out the rest of a 60s backoff gap.
+        const onOnline = (): void => {
+            if (cancelled || finished || inFlight) {
+                return
+            }
+            window.clearTimeout(timer)
+            void poll()
+        }
+        window.addEventListener('online', onOnline)
+
         void poll()
         return () => {
             cancelled = true
+            window.removeEventListener('online', onOnline)
             window.clearTimeout(timer)
         }
     }

@@ -43,11 +43,14 @@ const reportedDetectedSessions = new Set<string>()
 const reportedFinishedSessions = new Set<string>()
 
 // One "share" of the wizard session transport per mounted instance. wizardSessionStreamLogic
-// connect/disconnect is NOT refcounted and the keyed instance is shared across instances of this
-// logic, so nobody may cut the transport out from under a co-mounted consumer: shares are released
-// on unmount (and early, by a cloud instance whose run went terminal), and only the LAST release
-// disconnects. Without this, a finishing cloud run would kill the stream for the still-mounted
-// local instance and the "Run it yourself" recovery flow would go deaf until a full remount.
+// connect/disconnect is NOT itself refcounted and the keyed instance is shared across instances of
+// this logic, so this is where both ends get counted: nobody may cut the transport out from under a
+// co-mounted consumer, and nobody may reopen one that is already running. Shares are released on
+// unmount (and early, by a cloud instance whose run went terminal); only the FIRST share connects
+// and only the LAST release disconnects. Without the release side, a finishing cloud run would kill
+// the stream for the still-mounted local instance and the "Run it yourself" recovery flow would go
+// deaf until a full remount. Without the acquire side, every mount would rebuild the transport and
+// reset its backoff, so a client whose requests keep failing never winds down.
 // Keyed by stream, not global: `wizardSessionStreamLogic` is itself keyed per workflow, so a single
 // flat set would both collide (two workflows share the instance key `local`) and leak (the last
 // release of ANY workflow would disconnect only its own stream, stranding the others).
@@ -64,10 +67,12 @@ function releaseSessionShare(streamKey: string, shareKey: string, disconnectSess
     }
 }
 
-function acquireSessionShare(streamKey: string, shareKey: string): void {
+/** Returns true for the share that has to open the transport — the first one held on this stream. */
+function acquireSessionShare(streamKey: string, shareKey: string): boolean {
     const shares = sessionStreamShares.get(streamKey) ?? new Set<string>()
     shares.add(shareKey)
     sessionStreamShares.set(streamKey, shares)
+    return shares.size === 1
 }
 
 export function resetWizardSyncTelemetryForTests(): void {
@@ -384,8 +389,12 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
     })),
     afterMount(({ actions, props, cache, values }) => {
         actions.connectTaskRun()
-        acquireSessionShare(sessionStreamKey(props), instanceKey(props))
-        actions.connectSession()
+        // Refcounted like the release side. `connect` rebuilds the transport rather than being
+        // idempotent, so a second instance mounting (the FAB gate flipping, the install step coming
+        // back into view) would drop a running poll loop and restart it with its backoff cleared.
+        if (acquireSessionShare(sessionStreamKey(props), instanceKey(props))) {
+            actions.connectSession()
+        }
         if (props.mode === 'local') {
             // The detector's REST poll is only useful to the local instance (it gates the FAB's
             // local stream and receives markActive sync) — mounting it from cloud instances would
