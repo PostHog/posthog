@@ -1,4 +1,9 @@
 export const SKILL_NAME_MAX_LENGTH = 64
+
+// Public repo a shared skill lands in. Kept in sync with COMMUNITY_SKILLS_REPO in the backend
+// products/skills/backend/api/community_skill_sync.py, which is the repo the catalog syncs from.
+export const COMMUNITY_SKILLS_REPO = 'PostHog/community-skills'
+export const COMMUNITY_SKILLS_REPO_URL = `https://github.com/${COMMUNITY_SKILLS_REPO}`
 // The Agent Skills spec (https://agentskills.io/specification) caps description at 1024. Writes
 // use that cap so a skill cannot grow past what community publish and export accept. Kept in sync
 // with the description serializer field and SPEC_DESCRIPTION_MAX_LENGTH in the backend.

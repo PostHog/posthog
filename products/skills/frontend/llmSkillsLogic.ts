@@ -494,7 +494,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 },
             },
         ],
-        // Resolved GitHub handle for the current user — used to prefill the publish dialog's
+        // Resolved GitHub handle for the current user — used to prefill the share dialog's
         // author_handle so the common case (GitHub-SSO'd users) is correct by default. Null when
         // no GitHub identity is linked; the dialog field then falls back to free text.
         githubLogin: [
