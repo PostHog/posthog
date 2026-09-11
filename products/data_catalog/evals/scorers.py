@@ -244,6 +244,14 @@ class MetricsCatalogBeforeDataDiscovery(Scorer):
         return Score(name=self._name(), score=1.0, metadata={"failed_catalog_lookups": failed_catalog_lookups})
 
 
+def _expected_metric_names(metric_name: object) -> list[str]:
+    if isinstance(metric_name, str):
+        return [metric_name] if metric_name else []
+    if isinstance(metric_name, list) and all(isinstance(name, str) and name for name in metric_name):
+        return metric_name
+    return []
+
+
 class CanonicalMetricRun(Scorer):
     """Binary: did the expected canonical metric run after discovery with the expected outcome?"""
 
@@ -277,11 +285,12 @@ class CanonicalMetricRun(Scorer):
             )
 
         metric_name = spec.get("metric_name")
-        if not isinstance(metric_name, str) or not metric_name:
+        metric_names = _expected_metric_names(metric_name)
+        if not metric_names:
             return Score(name=self._name(), score=0.0, metadata={"reason": "metric_name is required"})
 
         called_names = [call.input.get("name") for call in run_calls]
-        if any(name != metric_name for name in called_names):
+        if any(name not in metric_names for name in called_names):
             return Score(
                 name=self._name(),
                 score=0.0,
@@ -293,14 +302,15 @@ class CanonicalMetricRun(Scorer):
         post_catalog_runs = [
             call
             for call in run_calls
-            if call.input.get("name") == metric_name
+            if call.input.get("name") in metric_names
             and any(position < call.position for position in successful_catalog_positions)
         ]
         matching_calls = [call for call in post_catalog_runs if call.is_error is expected_error]
         contradicting_calls = [call for call in post_catalog_runs if call.is_error is not expected_error]
+        matched_names = {call.input.get("name") for call in matching_calls}
         # Mixed outcomes (e.g. a failed run followed by a successful one) are contradictory —
         # only accept when every canonical run agreed with the expected outcome.
-        if matching_calls and not contradicting_calls:
+        if matched_names == set(metric_names) and not contradicting_calls:
             return Score(
                 name=self._name(),
                 score=1.0,
@@ -523,7 +533,7 @@ class MetricsCatalogNotQueried(Scorer):
         parser = _parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-        hits = [c for c in _successful_sql(parser) if _is_catalog_lookup(c)]
+        hits = _successful_catalog_lookups(parser)
         return Score(name=self._name(), score=0.0 if hits else 1.0, metadata={"catalog_lookups": len(hits)})
 
 
