@@ -6118,7 +6118,7 @@ dev = [
 ]
 hogql-parser-parity = [{ name = "shrinkray", specifier = "==26.4.14.0" }]
 proto-codegen = [
-    { name = "grpcio-tools", specifier = "~=1.71.0" },
+    { name = "grpcio-tools", specifier = "~=1.75.1" },
     { name = "ruff", specifier = "~=0.15.20" },
 ]
 sentiment = [
