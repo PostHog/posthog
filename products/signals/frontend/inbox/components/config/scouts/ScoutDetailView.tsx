@@ -289,8 +289,9 @@ function BackToScouts(): JSX.Element {
 
 /**
  * The Reports tab: the inbox reports this scout authored or edited directly via the report channel
- * (`emit_report` / `edit_report`) in the recent window, newest-updated first. Uncapped, because the
- * tab is the cap — nothing sits below it that a long list could push away.
+ * (`emit_report` / `edit_report`) in the recent window, newest-updated first. The list is never
+ * trimmed for length, because the tab keeps it from pushing anything away, but the per-id fetch
+ * behind it is capped, so the panel says how many of the tab's count it is holding.
  */
 function ScoutReportsPanel({ skillName }: { skillName: string }): JSX.Element {
     const { reportRows, touchedReports, scoutReportsLoading, scoutRunsLoadedOnce } = useValues(
@@ -329,6 +330,14 @@ function ScoutReportsPanel({ skillName }: { skillName: string }): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
+            {/* The tab counts every report the runs name, while this list holds the ones a bounded
+                by-id fetch resolved. Say so when they differ, rather than leaving the reader to
+                count the cards against the tab. */}
+            {!scoutReportsLoading && reportRows.length < touchedReports.length && (
+                <span className="text-xs text-muted">
+                    {`Showing ${reportRows.length} of ${touchedReports.length} reports.`}
+                </span>
+            )}
             {reportRows.map(({ report, action }) => (
                 <ScoutReportCard key={report.id} report={report} action={action} />
             ))}
