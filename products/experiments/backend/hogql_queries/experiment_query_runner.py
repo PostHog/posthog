@@ -72,6 +72,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_multiple_variant_handling_from_experiment,
     has_activation_config,
 )
+from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,
     get_bayesian_experiment_result,
@@ -433,27 +434,27 @@ class ExperimentQueryRunner(QueryRunner):
 
         return not has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric)
 
-    def _precompute_skip_reason(self) -> Optional[str]:
+    def _precompute_skip_reason(self) -> Optional[PrecomputeSkipReason]:
         """Why precompute was not used, for the query-performance UI. None when it was attempted."""
         if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
             return None
         if self.query.precomputation_mode == PrecomputationMode.DIRECT:
-            return "override_direct"
+            return PrecomputeSkipReason.OVERRIDE_DIRECT
         if not self._team_experiments_config.experiment_precomputation_enabled:
-            return "team_disabled"
+            return PrecomputeSkipReason.TEAM_DISABLED
         if not experiment_has_min_runtime_for_precomputation(
             self.experiment.start_date,
             self.experiment.end_date,
         ):
-            return "min_runtime"
+            return PrecomputeSkipReason.MIN_RUNTIME
         if has_activation_config(self.experiment.exposure_criteria):
-            return "activation_config"
+            return PrecomputeSkipReason.ACTIVATION_CONFIG
         if has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric):
-            return "cohort_not_calculated"
+            return PrecomputeSkipReason.COHORT_NOT_CALCULATED
         if self.is_data_warehouse_query:
-            return "data_warehouse"
+            return PrecomputeSkipReason.DATA_WAREHOUSE
         if self.group_type_index is not None:
-            return "group_aggregation"
+            return PrecomputeSkipReason.GROUP_AGGREGATION
         return None  # precompute was attempted; a direct path means the build failed / wasn't ready
 
     def _retention_metric_events_precomputation_enabled(self) -> bool:
@@ -668,11 +669,12 @@ class ExperimentQueryRunner(QueryRunner):
         # Tag after _get_experiment_query() which sets the precompute flags
         exposures_path = "precomputed" if self._is_precomputed else "direct_scan"
         metric_events_path = self.metric_events_path
+        skip_reason = self._precompute_skip_reason()
         tag_queries(
             experiment_exposures_path=exposures_path,
             experiment_metric_events_path=metric_events_path,
             experiment_execution_path=exposures_path,
-            experiment_precompute_skip_reason=self._precompute_skip_reason(),
+            experiment_precompute_skip_reason=skip_reason.value if skip_reason is not None else None,
             experiment_scan_date_from=self.date_range.date_from,
             experiment_scan_date_to=self.date_range.date_to,
         )
