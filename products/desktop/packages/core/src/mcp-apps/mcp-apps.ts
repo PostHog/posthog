@@ -17,6 +17,7 @@ import {
   EXEC_TOOL_NAME,
   LEGACY_RESOURCE_URI_META_KEY,
   type McpAppsDiscoveryCompleteEvent,
+  type McpAppsServerConfigChangedEvent,
   McpAppsServiceEvent,
   type McpAppsServiceEvents,
   type McpAppsToolCancelledEvent,
@@ -58,6 +59,25 @@ interface ServerConnection {
   name: string;
   client: Client;
   transport: StreamableHTTPClientTransport;
+  config: McpServerConnectionConfig;
+}
+
+function headersEqual(
+  a: Record<string, string>,
+  b: Record<string, string>,
+): boolean {
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => a[key] === b[key])
+  );
+}
+
+function configMatches(
+  a: McpServerConnectionConfig,
+  b: McpServerConnectionConfig,
+): boolean {
+  return a.url === b.url && headersEqual(a.headers, b.headers);
 }
 
 class MissingMcpServerConfigError extends Error {}
@@ -77,6 +97,9 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
   private unavailableServers = new Set<string>();
   private pendingDiscoveries = new Map<string, Promise<void>>();
   private discoveryFailedAt = new Map<string, number>();
+  // Bumped when a server's registered URL or headers change; fetches started
+  // before the bump must not write their results into the caches after it.
+  private serverConfigGenerations = new Map<string, number>();
   private readonly log: ScopedLogger;
 
   constructor(
@@ -110,10 +133,16 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
    * No connections are created at this point.
    */
   setServerConfigs(configs: McpServerConnectionConfig[]): void {
-    this.serverConfigs.clear();
+    const previous = this.serverConfigs;
+    this.serverConfigs = new Map(
+      configs.map((config) => [config.name, config]),
+    );
     this.unavailableServers.clear();
     for (const config of configs) {
-      this.serverConfigs.set(config.name, config);
+      const previousConfig = previous.get(config.name);
+      if (previousConfig && !configMatches(previousConfig, config)) {
+        this.handleServerConfigChange(config.name);
+      }
     }
   }
 
@@ -126,8 +155,99 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
    */
   addServerConfigs(configs: McpServerConnectionConfig[]): void {
     for (const config of configs) {
+      const previousConfig = this.serverConfigs.get(config.name);
       this.serverConfigs.set(config.name, config);
       this.unavailableServers.delete(config.name);
+      if (previousConfig && !configMatches(previousConfig, config)) {
+        this.handleServerConfigChange(config.name);
+      }
+    }
+  }
+
+  private configGeneration(serverName: string): number {
+    return this.serverConfigGenerations.get(serverName) ?? 0;
+  }
+
+  /**
+   * Synchronously invalidate everything a server name served under its old
+   * URL or headers, then close the old connection in the background. Doing
+   * this at registration time — not lazily on the next connection — is what
+   * keeps a cached or already-rendered app from the old configuration talking
+   * to the replacement server with its project or account headers.
+   */
+  private handleServerConfigChange(serverName: string): void {
+    const hadState =
+      this.connections.has(serverName) ||
+      this.discoveredServers.has(serverName) ||
+      this.hasServerState(serverName);
+    if (!hadState) {
+      return;
+    }
+
+    this.log.warn(
+      "MCP server config changed under the same name — invalidating its UI state",
+      { serverName },
+    );
+
+    this.invalidateServerState(serverName);
+    const generation = (this.serverConfigGenerations.get(serverName) ?? 0) + 1;
+    this.serverConfigGenerations.set(serverName, generation);
+
+    const conn = this.connections.get(serverName);
+    this.connections.delete(serverName);
+    if (conn) {
+      void this.closeConnection(conn);
+    }
+
+    this.emit(McpAppsServiceEvent.ServerConfigChanged, {
+      serverName,
+      configGeneration: generation,
+    } satisfies McpAppsServerConfigChangedEvent);
+  }
+
+  private hasServerState(serverName: string): boolean {
+    const keyPrefix = this.resourceKey(serverName, "");
+    for (const map of [this.resourceCache, this.resourceMetaCache]) {
+      for (const key of map.keys()) {
+        if (key.startsWith(keyPrefix)) return true;
+      }
+    }
+    for (const assoc of this.toolAssociations.values()) {
+      if (assoc.serverName === serverName) return true;
+    }
+    return false;
+  }
+
+  private invalidateServerState(serverName: string): void {
+    this.discoveredServers.delete(serverName);
+    this.unavailableServers.delete(serverName);
+    this.discoveryFailedAt.delete(serverName);
+    this.evictServerEntries(this.resourceCache, serverName);
+    this.evictServerEntries(this.resourceMetaCache, serverName);
+    this.evictServerEntries(this.pendingFetches, serverName);
+    for (const [key, assoc] of this.toolAssociations) {
+      if (assoc.serverName === serverName) {
+        this.toolAssociations.delete(key);
+        this.toolDefinitions.delete(key);
+      }
+    }
+  }
+
+  private async closeConnection(conn: ServerConnection): Promise<void> {
+    // Let an in-flight lazy discovery land its connection first so it is
+    // closed here instead of lingering as a stray reconnect after teardown.
+    const pendingDiscovery = this.pendingDiscoveries.get(conn.name);
+    if (pendingDiscovery) {
+      await pendingDiscovery.catch(() => undefined);
+    }
+
+    try {
+      await conn.client.close();
+    } catch (err) {
+      this.log.warn("Error closing MCP connection", {
+        serverName: conn.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -334,8 +454,16 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
   ): Promise<ServerConnection> {
     const existing = this.connections.get(serverName);
     if (existing) {
-      this.log.debug("Reusing existing MCP connection", { serverName });
-      return existing;
+      const current = this.serverConfigs.get(serverName);
+      // Reuse would keep the old url/headers after a re-registration (a
+      // project switch rewrites X-PostHog-Project-Id). Registration already
+      // invalidates on change; this is the backstop for a config that changed
+      // without going through setServerConfigs/addServerConfigs.
+      if (current && configMatches(current, existing.config)) {
+        this.log.debug("Reusing existing MCP connection", { serverName });
+        return existing;
+      }
+      this.handleServerConfigChange(serverName);
     }
 
     // Deduplicate concurrent connection attempts. The pending entry must cover
@@ -404,7 +532,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       serverVersion: client.getServerVersion(),
     });
 
-    return { name: config.name, client, transport };
+    return { name: config.name, client, transport, config };
   }
 
   /**
@@ -452,6 +580,19 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     serverName: string,
     resourceUri: string,
   ): Promise<McpUiResource | null> {
+    // Registration-time invalidation normally evicts these first, but check
+    // before serving from cache: HTML fetched under the old URL/headers must
+    // never render against the replacement server.
+    const currentConfig = this.serverConfigs.get(serverName);
+    const existingConn = this.connections.get(serverName);
+    if (
+      currentConfig &&
+      existingConn &&
+      !configMatches(currentConfig, existingConn.config)
+    ) {
+      this.handleServerConfigChange(serverName);
+    }
+
     const key = this.resourceKey(serverName, resourceUri);
     const cached = this.resourceCache.get(key);
     if (cached) {
@@ -488,6 +629,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     serverName: string,
     resourceUri: string,
   ): Promise<McpUiResource | null> {
+    const startGeneration = this.configGeneration(serverName);
     // Best-effort warm of resourceMetaCache so CSP/permissions attach on paths
     // where handleDiscovery never ran (cloud runs fetching by result URI). The
     // read below decides success on its own.
@@ -564,12 +706,15 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     };
 
     // A failed warm-up with no known metadata may have produced a CSP-less
-    // copy; leave it uncached so a later fetch can attach the real CSP.
+    // copy; leave it uncached so a later fetch can attach the real CSP. And a
+    // config change mid-fetch makes this result old-configuration content:
+    // do not let it repopulate caches the invalidation just cleared.
     const cacheable =
-      warmed ||
-      resourceMeta !== undefined ||
-      csp !== undefined ||
-      permissions !== undefined;
+      this.configGeneration(serverName) === startGeneration &&
+      (warmed ||
+        resourceMeta !== undefined ||
+        csp !== undefined ||
+        permissions !== undefined);
     if (cacheable) {
       this.resourceCache.set(
         this.resourceKey(serverName, resourceUri),
@@ -719,19 +864,16 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
   }
 
   async disconnectServer(serverName: string): Promise<void> {
-    // Let an in-flight lazy discovery land its connection first so it is
-    // closed here instead of lingering as a stray reconnect after teardown.
     const pendingDiscovery = this.pendingDiscoveries.get(serverName);
     if (pendingDiscovery) {
       await pendingDiscovery.catch(() => undefined);
     }
 
-    this.discoveredServers.delete(serverName);
-    this.unavailableServers.delete(serverName);
-    this.discoveryFailedAt.delete(serverName);
+    this.invalidateServerState(serverName);
 
     const conn = this.connections.get(serverName);
     if (!conn) return;
+    this.connections.delete(serverName);
 
     try {
       await conn.client.close();
@@ -741,16 +883,6 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
         error: err instanceof Error ? err.message : String(err),
       });
     }
-    this.connections.delete(serverName);
-
-    for (const [key, assoc] of this.toolAssociations) {
-      if (assoc.serverName === serverName) {
-        this.toolAssociations.delete(key);
-      }
-    }
-
-    this.evictServerEntries(this.resourceCache, serverName);
-    this.evictServerEntries(this.resourceMetaCache, serverName);
   }
 
   async cleanup(): Promise<void> {

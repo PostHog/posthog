@@ -779,6 +779,40 @@ describe("mcpToolCall result rendering", () => {
     expect("structuredContent" in (rawOutput.rawOutput ?? {})).toBe(false);
   });
 
+  it("bounds an oversized raw MCP result on rawOutput (regression)", () => {
+    const result = mapAppServerNotification(
+      "s-1",
+      APP_SERVER_NOTIFICATIONS.ITEM_COMPLETED,
+      {
+        item: {
+          type: "mcpToolCall",
+          id: "m4",
+          server: "posthog",
+          tool: "exec",
+          status: "completed",
+          arguments: { command: "call query-trends" },
+          result: {
+            content: [{ type: "text", text: "x".repeat(1_100_000) }],
+            structuredContent: { rows: "y".repeat(1_100_000) },
+            _meta: { ui: { resourceUri: "ui://posthog/chart.html" } },
+          },
+        },
+      },
+    );
+    const rawOutput = result?.update as {
+      rawOutput?: Record<string, unknown>;
+    };
+    expect(rawOutput.rawOutput).toEqual({
+      content: [
+        {
+          type: "text",
+          text: expect.stringContaining("too large to store"),
+        },
+      ],
+      _meta: { ui: { resourceUri: "ui://posthog/chart.html" } },
+    });
+  });
+
   it("renders a failed mcpToolCall's error message", () => {
     const result = mapAppServerNotification(
       "s-1",

@@ -108,6 +108,42 @@ describe("McpAppsService config resolver", () => {
     expect(createConnection).toHaveBeenCalledTimes(1);
   });
 
+  it("reconnects instead of reusing a connection whose config changed (regression)", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const firstClient = makeClient();
+    const secondClient = makeClient();
+    let nextClient = firstClient;
+    vi.spyOn(internals(service), "createConnection").mockImplementation(
+      async (c) => ({
+        name: c.name,
+        client: nextClient,
+        transport: {},
+        config: c,
+      }),
+    );
+
+    await internals(service).getOrCreateConnection("posthog");
+    expect(firstClient.close).not.toHaveBeenCalled();
+
+    // Re-registering the same config must not tear down a working connection.
+    await internals(service).getOrCreateConnection("posthog");
+    expect(firstClient.close).not.toHaveBeenCalled();
+
+    nextClient = secondClient;
+    service.addServerConfigs([
+      { ...config("posthog"), headers: { "X-PostHog-Project-Id": "2" } },
+    ]);
+    // Registration already closed the old connection; the next
+    // getOrCreateConnection creates the replacement rather than reusing it.
+    await vi.waitFor(() => {
+      expect(firstClient.close).toHaveBeenCalled();
+    });
+    const conn = (await internals(service).getOrCreateConnection(
+      "posthog",
+    )) as { client: ReturnType<typeof makeClient> };
+    expect(conn.client).toBe(secondClient);
+  });
+
   it("addServerConfigs merges without clearing existing configs", async () => {
     service.setServerConfigs([config("posthog")]);
     service.addServerConfigs([config("installation")]);
@@ -170,7 +206,7 @@ function makeClient(metaOn: "list" | "read" = "list") {
 
 function connectClient(service: McpAppsService, client = makeClient()) {
   vi.spyOn(internals(service), "createConnection").mockImplementation(
-    async (c) => ({ name: c.name, client, transport: {} }),
+    async (c) => ({ name: c.name, client, transport: {}, config: c }),
   );
   return client;
 }
@@ -180,7 +216,12 @@ function connectClients(
   clients: Record<string, ReturnType<typeof makeClient>>,
 ) {
   vi.spyOn(internals(service), "createConnection").mockImplementation(
-    async (c) => ({ name: c.name, client: clients[c.name], transport: {} }),
+    async (c) => ({
+      name: c.name,
+      client: clients[c.name],
+      transport: {},
+      config: c,
+    }),
   );
 }
 
@@ -497,6 +538,137 @@ describe("McpAppsService lazy discovery", () => {
   });
 });
 
+describe("McpAppsService server config change", () => {
+  let service: McpAppsService;
+
+  beforeEach(() => {
+    service = makeService();
+  });
+
+  function changedConfig(name: string): McpServerConnectionConfig {
+    return { ...config(name), headers: { "X-PostHog-Project-Id": "2" } };
+  }
+
+  it("evicts a server's cached UI the moment its config changes, not on next connect", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const client = makeClient();
+    connectClient(service, client);
+
+    await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(client.readResource).toHaveBeenCalledTimes(1);
+
+    service.addServerConfigs([changedConfig("posthog")]);
+
+    // The cache must already be gone: a fetch right after the config change
+    // misses and refetches through the new connection instead of serving
+    // HTML fetched under the old headers.
+    await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(client.readResource).toHaveBeenCalledTimes(2);
+    expect(client.close).toHaveBeenCalled();
+  });
+
+  it.each(["setServerConfigs", "addServerConfigs"] as const)(
+    "emits ServerConfigChanged when %s re-registers a server with different headers",
+    async (method) => {
+      service.setServerConfigs([config("posthog")]);
+      connectClient(service);
+      await service.getUiResourceByUri("posthog", REVIEW_URI);
+
+      const onConfigChanged = vi.fn();
+      service.on(McpAppsServiceEvent.ServerConfigChanged, onConfigChanged);
+      service[method]([changedConfig("posthog")]);
+
+      expect(onConfigChanged).toHaveBeenCalledExactlyOnceWith({
+        serverName: "posthog",
+        configGeneration: 1,
+      });
+    },
+  );
+
+  it("does not invalidate on an identical re-registration", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const client = connectClient(service);
+    await service.getUiResourceByUri("posthog", REVIEW_URI);
+
+    const onConfigChanged = vi.fn();
+    service.on(McpAppsServiceEvent.ServerConfigChanged, onConfigChanged);
+    service.addServerConfigs([config("posthog")]);
+    service.setServerConfigs([config("posthog")]);
+
+    expect(onConfigChanged).not.toHaveBeenCalled();
+    expect(client.close).not.toHaveBeenCalled();
+    await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(client.readResource).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not emit for a server with no state under the old config", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const onConfigChanged = vi.fn();
+    service.on(McpAppsServiceEvent.ServerConfigChanged, onConfigChanged);
+
+    // Never connected or cached anything: nothing to invalidate.
+    service.addServerConfigs([changedConfig("posthog")]);
+    expect(onConfigChanged).not.toHaveBeenCalled();
+  });
+
+  it("drops the old connection and tool associations on config change", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const client = makeClient();
+    connectClient(service, client);
+    await service.hasUiForTool("mcp__posthog__loops-review");
+
+    service.addServerConfigs([changedConfig("posthog")]);
+
+    // The association map was cleared, so rediscovery re-lists tools.
+    await expect(
+      service.hasUiForTool("mcp__posthog__loops-review"),
+    ).resolves.toBe(true);
+    expect(client.listTools).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a mid-flight fetch from the old config out of the cache", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const client = makeClient();
+    let releaseRead: (() => void) | undefined;
+    const readStarted = new Promise<void>((markStarted) => {
+      client.readResource.mockImplementation(
+        async ({ uri }: { uri: string }) => {
+          markStarted();
+          await new Promise<void>((resolve) => {
+            releaseRead = resolve;
+          });
+          return {
+            contents: [
+              { uri, mimeType: UI_MIME_TYPE, text: "<html>old config</html>" },
+            ],
+          };
+        },
+      );
+    });
+    connectClient(service, client);
+
+    const pending = service.getUiResourceByUri("posthog", REVIEW_URI);
+    // Wait until the read is in flight under the old config, then switch.
+    await readStarted;
+    service.addServerConfigs([changedConfig("posthog")]);
+    releaseRead?.();
+    const resource = await pending;
+    expect(resource?.html).toBe("<html>old config</html>");
+
+    // The old-config result must not have repopulated the cache: the next
+    // fetch reads through the new connection instead of serving stale HTML.
+    client.readResource.mockImplementation(
+      async ({ uri }: { uri: string }) => ({
+        contents: [
+          { uri, mimeType: UI_MIME_TYPE, text: "<html>new config</html>" },
+        ],
+      }),
+    );
+    const refetched = await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(refetched?.html).toBe("<html>new config</html>");
+  });
+});
+
 function makeProxyClient(
   tools: Array<{ name: string; _meta?: { ui: Record<string, unknown> } }>,
 ) {
@@ -514,7 +686,7 @@ function connectProxyClient(
   client: ReturnType<typeof makeProxyClient>,
 ) {
   vi.spyOn(internals(service), "createConnection").mockImplementation(
-    async (c) => ({ name: c.name, client, transport: {} }),
+    async (c) => ({ name: c.name, client, transport: {}, config: c }),
   );
   return client;
 }

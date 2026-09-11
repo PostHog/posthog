@@ -4,11 +4,16 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@earendil-works/pi-ai";
+import type {
+  McpCallDetails,
+  McpResultMeta,
+} from "@posthog/harness/extensions/mcp/tool-bridge";
 import {
   type AgentContent,
   type AgentConversationEvent,
   type AgentToolCallContent,
   type AgentToolCallStatus,
+  boundPersistedMcpResult,
   createPiToolCallRecord,
   isPiToolName,
   mcpToolKey,
@@ -51,9 +56,20 @@ interface PiToolExecutionResult {
   details?: unknown;
 }
 
-const mcpToolDetailsSchema = z.object({
+// Derive from the harness's one declaration of this envelope
+// (tool-bridge.ts) so the read side cannot drift from the write side.
+const mcpResultMetaSchema: z.ZodType<McpResultMeta> = z.object({
+  structuredContent: z.record(z.string(), z.unknown()).optional(),
+  _meta: z.record(z.string(), z.unknown()).optional(),
+});
+
+const mcpToolDetailsSchema: z.ZodType<McpCallDetails> = z.object({
   posthog: z.object({
-    mcp: z.object({ server: z.string().min(1), tool: z.string().min(1) }),
+    mcp: z.object({
+      server: z.string().min(1),
+      tool: z.string().min(1),
+      result: mcpResultMetaSchema.optional(),
+    }),
   }),
 });
 
@@ -261,6 +277,18 @@ export function createPiMessageTranslator(): PiMessageTranslator {
     if (mcpDetails.success) {
       const mcp = mcpDetails.data.posthog.mcp;
       toolCall._meta = posthogToolMeta({ toolName: mcpToolKey(mcp), mcp });
+
+      const resultMeta = mcp.result;
+      if (
+        resultMeta &&
+        (resultMeta.structuredContent !== undefined ||
+          resultMeta._meta !== undefined)
+      ) {
+        toolCall.rawOutput = boundPersistedMcpResult({
+          content: result.content,
+          ...resultMeta,
+        });
+      }
     }
 
     const translator = isPiToolName(toolName)
