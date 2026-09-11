@@ -647,9 +647,10 @@ pub struct TestLeaderService {
     /// partition fence above this one names its holder, which is the fact
     /// the refusal has to carry all the way back to the caller.
     person_fence_op: Arc<Mutex<Option<String>>>,
-    /// Every `ReleaseFences` batch received: the routed partition and the
-    /// person ids it carried, so a test can see how the router split a
-    /// caller's batch.
+    /// Every `FencePersons` and `ReleaseFences` batch received: the routed
+    /// partition and the person ids it carried, so a test can see how the
+    /// router split a caller's batch.
+    fence_batches: Arc<Mutex<Vec<(u32, Vec<i64>)>>>,
     release_batches: Arc<Mutex<Vec<(u32, Vec<i64>)>>>,
 }
 
@@ -659,8 +660,15 @@ impl TestLeaderService {
             persons: DashMap::new(),
             fenced: Arc::new(AtomicBool::new(false)),
             person_fence_op: Arc::new(Mutex::new(None)),
+            fence_batches: Arc::new(Mutex::new(Vec::new())),
             release_batches: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    /// Handle for reading the received fence batches after the service
+    /// has been moved into the server.
+    pub fn fence_batches(&self) -> Arc<Mutex<Vec<(u32, Vec<i64>)>>> {
+        Arc::clone(&self.fence_batches)
     }
 
     /// Handle for reading the received release batches after the service
@@ -716,6 +724,36 @@ impl PersonHogLeader for TestLeaderService {
     ) -> Result<Response<personhog_proto::personhog::types::v1::FencePersonResponse>, Status> {
         require_partition_metadata(&request)?;
         Err(Status::unimplemented("not exercised by router tests"))
+    }
+
+    /// Seals the persons it holds at their stored version and reports the
+    /// rest not found, so a test can see both lists cross the router.
+    async fn fence_persons(
+        &self,
+        request: Request<personhog_proto::personhog::types::v1::FencePersonsRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::FencePersonsResponse>, Status> {
+        let partition = require_partition_metadata(&request)?;
+        let req = request.into_inner();
+        self.fence_batches
+            .lock()
+            .unwrap()
+            .push((partition, req.person_ids.clone()));
+        let mut response = personhog_proto::personhog::types::v1::FencePersonsResponse::default();
+        for person_id in req.person_ids {
+            match self.persons.get(&(req.team_id, person_id)) {
+                Some(person) => {
+                    response
+                        .sealed
+                        .push(personhog_proto::personhog::types::v1::FencedPersonSeal {
+                            person_id,
+                            version: person.version,
+                            created_at: person.created_at,
+                        })
+                }
+                None => response.not_found.push(person_id),
+            }
+        }
+        Ok(Response::new(response))
     }
 
     async fn release_fence(

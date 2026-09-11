@@ -123,6 +123,13 @@ impl PersonHogService for MockPersonHogService {
         Err(Status::unimplemented("not exercised by this mock"))
     }
 
+    async fn fence_persons(
+        &self,
+        _req: Request<personhog_proto::personhog::types::v1::FencePersonsRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::FencePersonsResponse>, Status> {
+        Err(Status::unimplemented("not exercised by this mock"))
+    }
+
     async fn release_fence(
         &self,
         _req: Request<personhog_proto::personhog::types::v1::ReleaseFenceRequest>,

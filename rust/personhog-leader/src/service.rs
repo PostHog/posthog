@@ -4,13 +4,15 @@ use std::time::Instant;
 
 use common_kafka::kafka_producer::KafkaContext;
 use dashmap::DashMap;
+use futures::StreamExt;
 use metrics::{counter, histogram};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
 use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
-    GetPersonRequest, GetPersonResponse, LifecycleOpType, Person, ReleaseFenceRequest,
-    ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse, ReleaseOutcome,
-    SealedSourceSnapshot, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    FencePersonRequest, FencePersonResponse, FencePersonsRequest, FencePersonsResponse,
+    FencedPersonSeal, FoldPersonDocumentRequest, FoldPersonDocumentResponse, GetPersonRequest,
+    GetPersonResponse, LifecycleOpType, Person, ReleaseFenceRequest, ReleaseFenceResponse,
+    ReleaseFencesRequest, ReleaseFencesResponse, ReleaseOutcome, SealedSourceSnapshot,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 use rdkafka::producer::FutureProducer;
 use tokio::sync::Mutex;
@@ -47,9 +49,30 @@ use personhog_common::properties::{
 /// overrides via [`PersonHogLeaderService::with_fence_capacity`].
 const DEFAULT_FENCE_MAP_MAX_ENTRIES: usize = 250_000;
 
-/// The ceiling on persons per `ReleaseFences` call. The lifecycle service
-/// caps an op at this many, so a larger batch is a caller bug, not load.
-const MAX_RELEASE_BATCH_SIZE: usize = 250;
+/// The ceiling on persons per `FencePersons` or `ReleaseFences` call. The
+/// lifecycle service caps an op at this many, so a larger batch is a
+/// caller bug, not load.
+const MAX_LIFECYCLE_BATCH_SIZE: usize = 250;
+
+/// Fences of one `FencePersons` call in flight at once. Above the
+/// fallback pool's size, extra fences only queue at the pool while the
+/// batch holds every touched partition's handoff drain.
+const FENCE_BATCH_CONCURRENCY: usize = 16;
+
+/// The one error a batch answers for: a semantic refusal is the final
+/// answer for its person and must not hide behind a sibling's transient
+/// error, which the saga would retry.
+#[allow(clippy::result_large_err)]
+fn first_batch_failure(failures: Vec<Status>) -> Result<(), Status> {
+    let mut failures = failures.into_iter();
+    let Some(first) = failures.next() else {
+        return Ok(());
+    };
+    Err(failures
+        .find(is_semantic_refusal)
+        .filter(|_| !is_semantic_refusal(&first))
+        .unwrap_or(first))
+}
 
 /// The per-person inputs of a committed release, validated the same way
 /// whether they arrive alone or in a batch.
@@ -410,6 +433,86 @@ impl PersonHogLeaderService {
         self.fences.remove(&cache_key);
         counter!("personhog_leader_fences_total", "action" => "released_committed").increment(1);
         Ok(())
+    }
+
+    /// Fence one person and seal its state under its per-person lock.
+    /// Shared by `FencePerson` and `FencePersons` so what freezes a person
+    /// is decided in one place. The caller has admitted the partition:
+    /// routing validated, authority and ownership checked, and the handoff
+    /// inflight guard held.
+    async fn fence_one(
+        &self,
+        partition: u32,
+        cache_key: PersonCacheKey,
+        op_id: Uuid,
+        op_type: LifecycleOpType,
+    ) -> Result<Person, Status> {
+        let mutex = self
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let _guard = mutex.lock().await;
+
+        let refence = if let Some(entry) = self.fences.get(&cache_key) {
+            if entry.op_id != op_id {
+                let holder = *entry.value();
+                drop(entry);
+                // At most one lifecycle op holds a person; the loser backs
+                // off or aborts. The holder may also be a ghost (its op
+                // settled without this leader hearing); kick the lazy heal
+                // like the write paths do, since on a low-traffic person
+                // no other caller will.
+                if let Some(healer) = &self.fence_healer {
+                    healer.maybe_heal(cache_key.clone(), holder);
+                }
+                return Err(fenced_status(&holder));
+            }
+            true
+        } else {
+            false
+        };
+
+        // The memory fuse: the map has no eviction, so a surge of ops is
+        // bounded here, by shedding new fences. Re-seals are exempt — the
+        // person is already fenced, refusing frees nothing — and so is
+        // the takeover scan, whose marks are already live. The saga's
+        // retry absorbs the backpressure.
+        if !refence && self.fences.len() >= self.fence_map_max_entries {
+            counter!("personhog_leader_fences_total", "action" => "shed_capacity").increment(1);
+            return Err(Status::resource_exhausted(format!(
+                "fence map at capacity ({} live fences); retry later",
+                self.fence_map_max_entries
+            )));
+        }
+
+        // The seal: the newest cached state, captured under the same lock
+        // that admits writes — no gap for a write to sneak into. Fencing
+        // produces nothing and does not advance the version; the sealed
+        // version is the person's current one raised to the emitted
+        // floor, made final by the fence. The floor matters because a
+        // pre-fence write with an indeterminate outcome leaves a version
+        // spent above the cache's — sealing below it would derive the
+        // death document at a version that may already be live. A
+        // same-op re-fence takes this path too, re-sealing with fresh
+        // state (the saga's seal step is safe to repeat).
+        let person = self.lookup_or_load_locked(partition, &cache_key).await?;
+        // The load can park on the per-key lock or a recovery; the seal,
+        // not the arrival, must be backed by ownership.
+        self.check_authority(partition)?;
+        if person.is_deleted {
+            return Err(Status::not_found("person is destroyed"));
+        }
+
+        let mut sealed = cached_person_to_proto(&person);
+        sealed.version = self
+            .emitted_versions
+            .floor_for(partition, &cache_key, person.version);
+
+        self.fences.insert(cache_key, FenceState { op_id, op_type });
+        counter!("personhog_leader_fences_total", "action" => "fenced").increment(1);
+        Ok(sealed)
     }
 
     /// The aborted half of a release for one person: drop the fence, keep
@@ -1919,71 +2022,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             team_id: req.team_id,
             person_id: req.person_id,
         };
-        let mutex = self
-            .locks
-            .entry(cache_key.clone())
-            .or_default()
-            .value()
-            .clone();
-        let _guard = mutex.lock().await;
-
-        let refence = if let Some(entry) = self.fences.get(&cache_key) {
-            if entry.op_id != op_id {
-                let holder = *entry.value();
-                drop(entry);
-                // At most one lifecycle op holds a person; the loser backs
-                // off or aborts. The holder may also be a ghost (its op
-                // settled without this leader hearing); kick the lazy heal
-                // like the write paths do, since on a low-traffic person
-                // no other caller will.
-                if let Some(healer) = &self.fence_healer {
-                    healer.maybe_heal(cache_key.clone(), holder);
-                }
-                return Err(fenced_status(&holder));
-            }
-            true
-        } else {
-            false
-        };
-
-        // The memory fuse: the map has no eviction, so a surge of ops is
-        // bounded here, by shedding new fences. Re-seals are exempt — the
-        // person is already fenced, refusing frees nothing — and so is
-        // the takeover scan, whose marks are already live. The saga's
-        // retry absorbs the backpressure.
-        if !refence && self.fences.len() >= self.fence_map_max_entries {
-            counter!("personhog_leader_fences_total", "action" => "shed_capacity").increment(1);
-            return Err(Status::resource_exhausted(format!(
-                "fence map at capacity ({} live fences); retry later",
-                self.fence_map_max_entries
-            )));
-        }
-
-        // The seal: the newest cached state, captured under the same lock
-        // that admits writes — no gap for a write to sneak into. Fencing
-        // produces nothing and does not advance the version; the sealed
-        // version is the person's current one raised to the emitted
-        // floor, made final by the fence. The floor matters because a
-        // pre-fence write with an indeterminate outcome leaves a version
-        // spent above the cache's — sealing below it would derive the
-        // death document at a version that may already be live. A
-        // same-op re-fence takes this path too, re-sealing with fresh
-        // state (the saga's seal step is safe to repeat).
-        let person = self.lookup_or_load_locked(partition, &cache_key).await?;
-        // The load can park on the per-key lock or a recovery; the seal,
-        // not the arrival, must be backed by ownership.
-        self.check_authority(partition)?;
-        if person.is_deleted {
-            return Err(Status::not_found("person is destroyed"));
-        }
-
-        let mut sealed = cached_person_to_proto(&person);
-        sealed.version = self
-            .emitted_versions
-            .floor_for(partition, &cache_key, person.version);
-
-        self.fences.insert(cache_key, FenceState { op_id, op_type });
-        counter!("personhog_leader_fences_total", "action" => "fenced").increment(1);
+        let sealed = self.fence_one(partition, cache_key, op_id, op_type).await?;
 
         self.authoritative_ok(
             partition,
@@ -1991,6 +2030,95 @@ impl PersonHogLeader for PersonHogLeaderService {
                 sealed: Some(sealed),
             },
         )
+    }
+
+    async fn fence_persons(
+        &self,
+        request: Request<FencePersonsRequest>,
+    ) -> Result<Response<FencePersonsResponse>, Status> {
+        let partition = partition_from_metadata(&request)?;
+        let req = request.into_inner();
+        if req.person_ids.len() > MAX_LIFECYCLE_BATCH_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "FencePersons carries {} persons; the cap is {MAX_LIFECYCLE_BATCH_SIZE}",
+                req.person_ids.len()
+            )));
+        }
+        let team_id = req.team_id;
+        let op_id = Uuid::parse_str(&req.op_id)
+            .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
+        let op_type = req.op_type();
+        if op_type == LifecycleOpType::Unspecified {
+            return Err(Status::invalid_argument("op_type must be specified"));
+        }
+        // The router grouped the saga's batch by owning pod, so the persons
+        // span partitions. Every one must be served here right now: a
+        // stale grouping refuses the whole batch before anything is
+        // fenced, and the router re-resolves and retries like any
+        // ownership refusal.
+        self.validate_ownership(partition)?;
+        self.check_authority(partition)?;
+        let mut partitions: BTreeSet<u32> = BTreeSet::new();
+        let mut located = Vec::with_capacity(req.person_ids.len());
+        for person_id in req.person_ids {
+            let person_partition = partition_for_person(team_id, person_id, self.num_partitions);
+            self.validate_ownership(person_partition)?;
+            self.check_authority(person_partition)?;
+            partitions.insert(person_partition);
+            located.push((person_partition, person_id));
+        }
+        histogram!("personhog_leader_fence_batch_size").record(located.len() as f64);
+
+        // A fence gates writes on its partition, so it respects the
+        // handoff write freeze on every partition the batch touches.
+        let mut inflight_guards = Vec::with_capacity(partitions.len());
+        for person_partition in &partitions {
+            let Some(guard) = self.inflight.try_begin(*person_partition) else {
+                return Err(Status::failed_precondition(format!(
+                    "partition {person_partition} is fenced for handoff; writes are rejected"
+                )));
+            };
+            inflight_guards.push(guard);
+        }
+
+        // Every fence runs to completion before the batch answers: a
+        // sibling's refusal must not cancel a load in flight under a
+        // per-person lock. The batch holds the handoff drain of every
+        // partition it touches for its whole duration, and a cold person
+        // loads through the fallback pool, so the fences are bounded to
+        // keep that pool's queue, and the drain hold, shallow.
+        let fence_futures = located
+            .into_iter()
+            .map(|(person_partition, person_id)| async move {
+                let cache_key = PersonCacheKey { team_id, person_id };
+                (
+                    person_id,
+                    self.fence_one(person_partition, cache_key, op_id, op_type)
+                        .await,
+                )
+            });
+        let results: Vec<_> = futures::stream::iter(fence_futures)
+            .buffer_unordered(FENCE_BATCH_CONCURRENCY)
+            .collect()
+            .await;
+
+        let mut sealed = Vec::with_capacity(results.len());
+        let mut not_found = Vec::new();
+        let mut failures = Vec::new();
+        for (person_id, result) in results {
+            match result {
+                Ok(person) => sealed.push(FencedPersonSeal {
+                    person_id,
+                    version: person.version,
+                    created_at: person.created_at,
+                }),
+                Err(status) if status.code() == tonic::Code::NotFound => not_found.push(person_id),
+                Err(status) => failures.push(status),
+            }
+        }
+        first_batch_failure(failures)?;
+
+        self.authoritative_ok(partition, FencePersonsResponse { sealed, not_found })
     }
 
     async fn release_fence(
@@ -2047,9 +2175,9 @@ impl PersonHogLeader for PersonHogLeaderService {
     ) -> Result<Response<ReleaseFencesResponse>, Status> {
         let partition = partition_from_metadata(&request)?;
         let req = request.into_inner();
-        if req.persons.len() > MAX_RELEASE_BATCH_SIZE {
+        if req.persons.len() > MAX_LIFECYCLE_BATCH_SIZE {
             return Err(Status::invalid_argument(format!(
-                "ReleaseFences carries {} persons; the cap is {MAX_RELEASE_BATCH_SIZE}",
+                "ReleaseFences carries {} persons; the cap is {MAX_LIFECYCLE_BATCH_SIZE}",
                 req.persons.len()
             )));
         }
@@ -2124,16 +2252,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                     })
                     .collect();
                 let results = futures::future::join_all(release_futures).await;
-                // A semantic refusal is the final answer for its person and
-                // must not hide behind a sibling's transient error, which
-                // the saga would retry.
-                let mut failures = results.into_iter().filter_map(Result::err);
-                if let Some(first) = failures.next() {
-                    return Err(failures
-                        .find(is_semantic_refusal)
-                        .filter(|_| !is_semantic_refusal(&first))
-                        .unwrap_or(first));
-                }
+                first_batch_failure(results.into_iter().filter_map(Result::err).collect())?;
             }
             ReleaseOutcome::Aborted => {
                 for (person_partition, person) in &located {

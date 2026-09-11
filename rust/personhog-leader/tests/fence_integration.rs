@@ -25,9 +25,9 @@ use personhog_leader::warnings::WarningsProducer;
 use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, FoldPersonDocumentRequest, GetPersonRequest, LifecycleOpType, Person,
-    ReleaseFenceItem, ReleaseFenceRequest, ReleaseFencesRequest, ReleaseOutcome,
-    SealedSourceSnapshot, UpdatePersonPropertiesRequest,
+    FencePersonRequest, FencePersonsRequest, FoldPersonDocumentRequest, GetPersonRequest,
+    LifecycleOpType, Person, ReleaseFenceItem, ReleaseFenceRequest, ReleaseFencesRequest,
+    ReleaseOutcome, SealedSourceSnapshot, UpdatePersonPropertiesRequest,
 };
 use prost::Message;
 use rdkafka::consumer::{BaseConsumer, Consumer};
@@ -2678,6 +2678,152 @@ fn person_on_other_partition(harness: &FenceHarness) -> (i64, u32) {
         }
         id += 1;
     }
+}
+
+/// A person id above `after` on the harness person's partition.
+fn another_person_on_harness_partition(harness: &FenceHarness, after: i64) -> i64 {
+    let mut id = after + 1;
+    loop {
+        if partition_for_person(harness.team_id, id, NUM_PARTITIONS) == harness.partition {
+            return id;
+        }
+        id += 1;
+    }
+}
+
+/// One `FencePersons` call fences every victim of an op across the
+/// partitions this pod serves, sealing each exactly as a single fence
+/// would, and reports a destroyed person in its answer instead of failing
+/// the batch for it.
+#[tokio::test]
+async fn a_batched_fence_spans_the_partitions_this_pod_serves() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let first_id = harness.person_id;
+    let (second_id, second_partition) = person_on_other_partition(&harness);
+    harness.cache.create_partition(second_partition);
+    seed_person(
+        &harness.cache,
+        second_partition,
+        CachedPerson {
+            id: second_id,
+            uuid: Uuid::now_v7().to_string(),
+            team_id,
+            version: 5,
+            ..test_cached_person()
+        },
+    );
+    let destroyed_id = another_person_on_harness_partition(&harness, second_id);
+    seed_person(
+        &harness.cache,
+        partition,
+        CachedPerson {
+            id: destroyed_id,
+            uuid: Uuid::now_v7().to_string(),
+            team_id,
+            is_deleted: true,
+            ..test_cached_person()
+        },
+    );
+    let op = Uuid::now_v7();
+
+    // Routed by the first person, as the router does.
+    let response = harness
+        .client
+        .fence_persons(with_partition(
+            FencePersonsRequest {
+                team_id,
+                op_id: op.to_string(),
+                op_type: LifecycleOpType::Delete.into(),
+                person_ids: vec![first_id, second_id, destroyed_id],
+            },
+            partition,
+        ))
+        .await
+        .expect("batched fence succeeds")
+        .into_inner();
+
+    let mut sealed: Vec<(i64, i64)> = response
+        .sealed
+        .iter()
+        .map(|seal| (seal.person_id, seal.version))
+        .collect();
+    sealed.sort_unstable();
+    assert_eq!(
+        sealed,
+        vec![(first_id, 1), (second_id, 5)],
+        "each seal is that person's current version"
+    );
+    assert_eq!(response.not_found, vec![destroyed_id]);
+    assert_eq!(
+        response.sealed[0].created_at,
+        test_cached_person().created_at
+    );
+
+    // Both persons are fenced by the op: writes on either partition are
+    // rejected with the typed fence, and a same-op re-fence re-seals.
+    for (person_id, person_partition) in [(first_id, partition), (second_id, second_partition)] {
+        let status = harness
+            .client
+            .update_person_properties(with_partition(
+                update_request(team_id, person_id),
+                person_partition,
+            ))
+            .await
+            .expect_err("a batch-fenced person rejects writes");
+        assert_eq!(status.code(), Code::FailedPrecondition);
+        assert_eq!(
+            status.metadata().get(FENCED_OP_ID_METADATA_KEY).unwrap(),
+            op.to_string().as_str()
+        );
+        harness
+            .client
+            .fence_person(with_partition(
+                fence_request(team_id, person_id, &op),
+                person_partition,
+            ))
+            .await
+            .expect("a same-op re-fence re-seals");
+    }
+}
+
+/// A batch may not reach onto a partition this pod does not serve: one
+/// such person refuses the whole call before anything is fenced, the same
+/// fail-closed stance as a misrouted single fence.
+#[tokio::test]
+async fn a_batched_fence_with_an_unserved_person_is_refused_whole() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let (foreign_id, _) = person_on_other_partition(&harness);
+
+    let status = harness
+        .client
+        .fence_persons(with_partition(
+            FencePersonsRequest {
+                team_id,
+                op_id: Uuid::now_v7().to_string(),
+                op_type: LifecycleOpType::Delete.into(),
+                person_ids: vec![person_id, foreign_id],
+            },
+            partition,
+        ))
+        .await
+        .expect_err("a batch with an unserved person is refused");
+    assert_eq!(status.code(), Code::FailedPrecondition);
+    assert!(status.metadata().get(FENCED_METADATA_KEY).is_none());
+
+    // The local person was never fenced: a write goes through.
+    harness
+        .client
+        .update_person_properties(with_partition(
+            update_request(team_id, person_id),
+            partition,
+        ))
+        .await
+        .expect("the local person is still writable");
 }
 
 /// One `ReleaseFences` call closes every fence of an op across the

@@ -8,8 +8,9 @@ import "personhog/types/v1/person.proto";
 // partition and resolving the owning pod via the coordination routing table.
 // The partition travels in the `x-partition` request-metadata header, set by
 // the router, rather than in the request body — so the router can forward
-// client request bytes verbatim without a decode/re-encode. ReleaseFences is
-// the one exception: the router decodes it to split the batch by owning pod.
+// client request bytes verbatim without a decode/re-encode. FencePersons and
+// ReleaseFences are the exceptions: the router decodes them to split the
+// batch by owning pod, and merges the FencePersons answers back into one.
 service PersonHogLeader {
   // Apply property updates to a person. Merges $set, $set_once, and $unset
   // diffs into the cached person state.
@@ -37,6 +38,20 @@ service PersonHogLeader {
   // holds a person. The fence never lapses on a timer: only ReleaseFence
   // (or the op being observed finished) clears it.
   rpc FencePerson(personhog.types.v1.FencePersonRequest) returns (personhog.types.v1.FencePersonResponse);
+
+  // FencePerson for many persons of one op, with the same per-person
+  // semantics. The router splits the saga's batch by owning pod, so the
+  // persons may span partitions; every one must hash to a partition this
+  // pod serves, and one that does not refuses the whole batch
+  // FAILED_PRECONDITION before anything is fenced (the router bounces and
+  // re-resolves, as for any ownership refusal). Each person is then fenced
+  // exactly as FencePerson fences it, under its own lock and on its own
+  // partition. A person FencePerson would answer NOT_FOUND is reported in
+  // the response instead, so the batch still answers for the rest; any
+  // other failure returns that person's status, and the persons already
+  // fenced stay fenced, since the saga's retry re-seals them like any
+  // repeated FencePerson.
+  rpc FencePersons(personhog.types.v1.FencePersonsRequest) returns (personhog.types.v1.FencePersonsResponse);
 
   // The closing half of FencePerson. `committed` (the person was
   // destroyed): verify the op against its live mark row — the request

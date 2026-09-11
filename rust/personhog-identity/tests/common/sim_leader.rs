@@ -34,10 +34,10 @@ use uuid::Uuid;
 use personhog_common::grpc::semantic_refusal;
 use personhog_identity::leader::{LifecycleLeader, PropertyWriter};
 use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
-    LifecycleOpType, Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest,
-    ReleaseFencesResponse, ReleaseOutcome, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse,
+    FencePersonRequest, FencePersonResponse, FencePersonsRequest, FencePersonsResponse,
+    FencedPersonSeal, FoldPersonDocumentRequest, FoldPersonDocumentResponse, LifecycleOpType,
+    Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
+    ReleaseOutcome, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 
 /// Which RPC a scripted failure applies to.
@@ -70,6 +70,10 @@ pub enum LeaderCall {
     Fence {
         person_id: i64,
         op_type: LifecycleOpType,
+    },
+    /// A `FencePersons` call, recorded before its per-person fences.
+    FenceBatch {
+        person_ids: Vec<i64>,
     },
     Fold {
         target_person_id: i64,
@@ -138,9 +142,9 @@ pub struct SimLeader {
     /// Injected `last_seen_at` per person: leader-side state with no
     /// Postgres column.
     last_seen: Mutex<HashMap<i64, i64>>,
-    /// Whether `ReleaseFences` is served; off, it answers UNIMPLEMENTED
-    /// like a router or leader that predates it.
-    release_fences_supported: AtomicBool,
+    /// Whether the batch RPCs are served; off, they answer UNIMPLEMENTED
+    /// like a router or leader that predates them.
+    batch_rpcs_supported: AtomicBool,
 }
 
 impl SimLeader {
@@ -154,7 +158,7 @@ impl SimLeader {
             scripted: Mutex::new(HashMap::new()),
             sealed_identified: Mutex::new(HashMap::new()),
             last_seen: Mutex::new(HashMap::new()),
-            release_fences_supported: AtomicBool::new(true),
+            batch_rpcs_supported: AtomicBool::new(true),
         }
     }
 
@@ -162,8 +166,8 @@ impl SimLeader {
         self.calls.lock().unwrap().clone()
     }
 
-    pub fn disable_release_fences(&self) {
-        self.release_fences_supported.store(false, Ordering::SeqCst);
+    pub fn disable_batch_rpcs(&self) {
+        self.batch_rpcs_supported.store(false, Ordering::SeqCst);
     }
 
     /// Script the next matching call for `person_id` (the fold matches on
@@ -352,11 +356,54 @@ impl LifecycleLeader for SimLeader {
         })
     }
 
+    async fn fence_persons(
+        &self,
+        request: FencePersonsRequest,
+    ) -> Result<FencePersonsResponse, Status> {
+        if !self.batch_rpcs_supported.load(Ordering::SeqCst) {
+            return Err(Status::unimplemented("unknown method: FencePersons"));
+        }
+        if request.person_ids.is_empty() {
+            return Err(Status::invalid_argument(
+                "FencePersons needs at least one person",
+            ));
+        }
+        self.record(LeaderCall::FenceBatch {
+            person_ids: request.person_ids.clone(),
+        });
+        let mut response = FencePersonsResponse::default();
+        for person_id in request.person_ids {
+            let single = self
+                .fence_person(FencePersonRequest {
+                    team_id: request.team_id,
+                    person_id,
+                    op_id: request.op_id.clone(),
+                    op_type: request.op_type,
+                })
+                .await;
+            match single {
+                Ok(fenced) => {
+                    let sealed = fenced.sealed.expect("the sim always seals");
+                    response.sealed.push(FencedPersonSeal {
+                        person_id,
+                        version: sealed.version,
+                        created_at: sealed.created_at,
+                    });
+                }
+                Err(status) if status.code() == tonic::Code::NotFound => {
+                    response.not_found.push(person_id);
+                }
+                Err(status) => return Err(status),
+            }
+        }
+        Ok(response)
+    }
+
     async fn release_fences(
         &self,
         request: ReleaseFencesRequest,
     ) -> Result<ReleaseFencesResponse, Status> {
-        if !self.release_fences_supported.load(Ordering::SeqCst) {
+        if !self.batch_rpcs_supported.load(Ordering::SeqCst) {
             return Err(Status::unimplemented("unknown method: ReleaseFences"));
         }
         let ReleaseFencesRequest {

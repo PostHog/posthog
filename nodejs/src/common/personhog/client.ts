@@ -120,6 +120,7 @@ export function resolveConsistencyHeader(message: unknown): 'strong' | 'eventual
 const LEADER_ROUTED_METHODS = new Set([
     'UpdatePersonProperties',
     'FencePerson',
+    'FencePersons',
     'ReleaseFence',
     'ReleaseFences',
     'FoldPersonDocument',

@@ -137,6 +137,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     setPersonDistinctIdVersionFloor: () => ({}),
     setPersonVersionFloor: () => ({ updated: false }),
     fencePerson: () => ({}),
+    fencePersons: () => ({}),
     releaseFence: () => ({}),
     releaseFences: () => ({}),
     foldPersonDocument: () => ({}),
@@ -269,6 +270,7 @@ describe('resolvePersonRoutingKey', () => {
     it.each([
         ['UpdatePersonProperties', ConsistencyLevel.UNSPECIFIED],
         ['FencePerson', ConsistencyLevel.UNSPECIFIED],
+        ['FencePersons', ConsistencyLevel.UNSPECIFIED],
         ['ReleaseFence', ConsistencyLevel.UNSPECIFIED],
         ['ReleaseFences', ConsistencyLevel.UNSPECIFIED],
         ['FoldPersonDocument', ConsistencyLevel.UNSPECIFIED],

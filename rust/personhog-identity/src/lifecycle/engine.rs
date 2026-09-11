@@ -35,6 +35,7 @@ const OPS_COMPLETED_TOTAL: &str = "personhog_lifecycle_ops_completed_total";
 const OP_DURATION_MS: &str = "personhog_lifecycle_op_duration_ms";
 const SWEEPER_RESUMED_TOTAL: &str = "personhog_lifecycle_sweeper_resumed_total";
 const STEP_FAILURES_TOTAL: &str = "personhog_lifecycle_step_failures_total";
+const STEP_DURATION_MS: &str = "personhog_lifecycle_step_duration_ms";
 const OPS_PARKED_TOTAL: &str = "personhog_lifecycle_ops_parked_total";
 const OPS_PARKED: &str = "personhog_lifecycle_ops_parked";
 
@@ -418,7 +419,19 @@ impl Engine {
                 }
             }
 
-            if let Err(err) = driver.run_step(&self.pool, &row).await {
+            // Timed whatever the outcome: a failed step's time is still time
+            // the op spent, and the failure counter below says why.
+            let step_started = std::time::Instant::now();
+            let step_result = driver.run_step(&self.pool, &row).await;
+            common_metrics::histogram(
+                STEP_DURATION_MS,
+                &[
+                    ("op_type".to_string(), row.op_type.clone()),
+                    ("step".to_string(), row.step.clone()),
+                ],
+                step_started.elapsed().as_secs_f64() * 1000.0,
+            );
+            if let Err(err) = step_result {
                 // Attributable escalation: a persistently failing op (a
                 // corrupt row, a wedged leader call) shows up as this
                 // counter climbing for one op_type/kind, not as generic
