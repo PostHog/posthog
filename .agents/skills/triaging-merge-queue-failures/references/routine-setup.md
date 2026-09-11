@@ -32,7 +32,9 @@ Set the variable back to the old login, or delete those marker comments, before 
 
 Trunk publishes **no check run** in this repository, so there is nothing named `Trunk Merge Queue (master)` to key on.
 The sweep reads the `trunk-io[bot]` sticky comment and the per-attempt shadow PRs (`trunk-merge/pr-<n>/<uuid>`) instead, both through `scripts/mq-queue-state.sh`.
-`SKILL.md` documents the state vocabulary; if Trunk changes its wording, a `state=unknown` shows up in the run report and the fix is one pattern in that script.
+`SKILL.md` documents the state vocabulary; if Trunk changes its wording, a `state=unknown` shows up in the run report with a `fingerprint_sha=` line, and the fix is one pattern in that script.
+The digest is one-way on purpose, because the sweep holds requeue credentials and Trunk quotes repo-controlled text into its comments.
+To read the wording behind a reported digest, run `state` yourself with `MQ_FINGERPRINT_DIR` set to a directory; leave it unset in the routine.
 
 The sandbox is also more restricted than a laptop, and each limit fails quietly rather than loudly: no `gh` binary, no GraphQL, no working `gh api --paginate`, and repo-scoped REST only.
 `SKILL.md` has the details under "Sandbox constraints"; both helpers fall back to `curl` and page by hand.
