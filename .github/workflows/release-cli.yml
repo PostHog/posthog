@@ -173,8 +173,8 @@ jobs:
                         "alertContext": "The release stopped before it asked for approval. The changesets stay on master until another CLI change lands."
                       }
 
-    release:
-        name: Prepare CLI release
+    prepare-release:
+        name: Prepare CLI release pull request
         needs: [check-changesets, cli-release-preview, notify-approval-needed]
         runs-on: ubuntu-latest
         timeout-minutes: 30
@@ -182,10 +182,10 @@ jobs:
         environment: Release SDK
         permissions:
             contents: write
+            pull-requests: write
         outputs:
             new-version: ${{ steps.prepare-release.outputs.new-version }}
-            release-tag: ${{ steps.release-metadata.outputs.release-tag }}
-            release-commit: ${{ steps.commit-release.outputs.commit-hash }}
+            release-pr: ${{ steps.release-pr.outputs.url }}
         steps:
             - name: Get GitHub App token
               id: app-token
@@ -264,10 +264,8 @@ jobs:
                   echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
                   echo "Prepared posthog-cli v$new_version"
 
-            # This job commits straight to master, so nothing stands between what Sampo
-            # writes and master's own markdown gates. Sampo indents a multi-paragraph
-            # changeset under its changelog bullet and leaves that indent on the blank
-            # lines between the paragraphs, which the format check rejects.
+            # Sampo can leave blank lines indented in multi-paragraph changelog entries.
+            # Format before the release pull request is created so its checks see the final change.
             - name: Install pnpm dependencies
               if: steps.prepare-release.outputs.new-version != ''
               uses: ./.github/actions/pnpm-install
@@ -276,8 +274,7 @@ jobs:
 
             # Same two passes as `hogli format:markdown`, called directly because hogli
             # needs a Python venv this job does not set up. The last command re-runs the
-            # gate, so an unfixable violation stops the release instead of reddening
-            # master for every open PR.
+            # gate, so an unfixable violation stops the release before the pull request opens.
             - name: Format the changelog
               if: steps.prepare-release.outputs.new-version != ''
               run: |
@@ -329,33 +326,90 @@ jobs:
                       exit 1
                   fi
 
-            - name: Commit release changes
+            - name: Reset release branch to master
+              if: steps.check-changes.outputs.committed == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  RELEASE_BRANCH: chore/release-posthog-cli
+                  TARGET_SHA: ${{ github.sha }}
+              run: |
+                  if gh api "repos/${{ github.repository }}/git/ref/heads/$RELEASE_BRANCH" >/dev/null 2>&1; then
+                      gh api -X PATCH "repos/${{ github.repository }}/git/refs/heads/$RELEASE_BRANCH" \
+                          -f sha="$TARGET_SHA" -F force=true
+                  else
+                      gh api "repos/${{ github.repository }}/git/refs" \
+                          -f ref="refs/heads/$RELEASE_BRANCH" -f sha="$TARGET_SHA"
+                  fi
+
+            - name: Commit release changes to release branch
               id: commit-release
               if: steps.check-changes.outputs.committed == 'true'
               uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
                   commit_message: 'chore(cli): release v${{ steps.prepare-release.outputs.new-version }}'
                   repo: ${{ github.repository }}
-                  branch: master
+                  branch: chore/release-posthog-cli
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
-            - name: Sync checkout to release commit
+            - name: Create or update release pull request
+              id: release-pr
               if: steps.commit-release.outputs.commit-hash != ''
               env:
-                  COMMIT_HASH: ${{ steps.commit-release.outputs.commit-hash }}
-              run: |
-                  git fetch origin master
-                  git reset --hard "$COMMIT_HASH"
-
-            - name: Set release metadata
-              id: release-metadata
-              if: steps.commit-release.outputs.commit-hash != ''
-              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   NEW_VERSION: ${{ steps.prepare-release.outputs.new-version }}
+                  RELEASE_BRANCH: chore/release-posthog-cli
               run: |
-                  release_tag="posthog-cli/v$NEW_VERSION"
-                  echo "release-tag=$release_tag" >> "$GITHUB_OUTPUT"
+                  body_file="$RUNNER_TEMP/release-pr.md"
+                  cat > "$body_file" <<EOF
+                  ## Problem
+
+                  The CLI release version bump must pass the normal pull request checks before it reaches master.
+
+                  ## Changes
+
+                  - Prepare posthog-cli v$NEW_VERSION for release.
+
+                  ## How did you test this code?
+
+                  - The release workflow validates the generated changelog and package changes before it opens this pull request.
+
+                  ## Automatic notifications
+
+                  - [ ] Publish to changelog?
+
+                  ## Docs update
+
+                  None.
+
+                  ## 🤖 Agent context
+
+                  **Autonomy:** Fully autonomous
+                  EOF
+
+                  existing_pr=$(gh pr list --head "$RELEASE_BRANCH" --state open --json number --jq '.[0].number' 2>/dev/null || true)
+                  if [ -n "$existing_pr" ]; then
+                      gh pr edit "$existing_pr" --title "chore(cli): release v$NEW_VERSION" --body-file "$body_file"
+                      pr_url=$(gh pr view "$existing_pr" --json url --jq '.url')
+                  else
+                      pr_url=$(gh pr create \
+                          --title "chore(cli): release v$NEW_VERSION" \
+                          --body-file "$body_file" \
+                          --base master \
+                          --head "$RELEASE_BRANCH")
+                  fi
+
+                  echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+
+            - name: Notify Slack - Release pull request created
+              if: steps.release-pr.outputs.url != '' && needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Release pull request created: ${{ steps.release-pr.outputs.url }}'
+                  emoji_reaction: 'eyes'
 
             - name: Send failure event to PostHog
               if: ${{ failure() }}
@@ -371,12 +425,12 @@ jobs:
                         "ref": "${{ github.ref }}",
                         "repository": "${{ github.repository }}",
                         "sdk": "posthog-cli",
-                        "jobName": "release",
+                        "jobName": "prepare-release",
                         "packageName": "posthog-cli",
                         "packageVersion": "${{ steps.prepare-release.outputs.new-version || 'unknown' }}",
                         "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
                         "alertText": ":rotating_light: Failed to prepare release posthog-cli@v${{ steps.prepare-release.outputs.new-version || 'unknown' }} :rotating_light:",
-                        "alertContext": "The version bump step failed before cargo-dist ran."
+                        "alertContext": "The version bump pull request could not be prepared."
                       }
 
             - name: Notify Slack - Failed
@@ -387,10 +441,72 @@ jobs:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
                   thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-                  message: "❌ Failed to prepare `posthog-cli@v${{ steps.prepare-release.outputs.new-version || 'unknown' }}`. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>"
+                  message: "❌ Failed to prepare the release pull request for `posthog-cli@v${{ steps.prepare-release.outputs.new-version || 'unknown' }}`. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>"
                   emoji_reaction: 'x'
 
-    # Keep cargo-dist publishing in this workflow so the Release approval gates the full release path.
+    # A merged release pull request deletes the consumed changesets, which starts this
+    # workflow again. Only that release commit may continue to publishing.
+    release:
+        name: Identify merged CLI release
+        needs: check-changesets
+        if: needs.check-changesets.outputs.has-changesets == 'false'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        outputs:
+            new-version: ${{ steps.release-metadata.outputs.new-version }}
+            release-tag: ${{ steps.release-metadata.outputs.release-tag }}
+            release-commit: ${{ steps.release-metadata.outputs.release-commit }}
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: master
+                  fetch-depth: 2
+
+            - name: Identify release commit
+              id: release-metadata
+              run: |
+                  subject=$(git log -1 --format=%s)
+                  changed_changesets=$(git diff --name-only HEAD^ HEAD -- cli/.sampo/changesets)
+                  if ! [[ "$subject" =~ ^chore\(cli\):\ release\ v ]] || [ -z "$changed_changesets" ]; then
+                      echo "This is not a merged CLI release pull request"
+                      exit 0
+                  fi
+
+                  new_version=$(grep '^version = ' cli/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+                  release_tag="posthog-cli/v$new_version"
+                  if git ls-remote --exit-code --tags origin "refs/tags/$release_tag" >/dev/null 2>&1; then
+                      echo "Release tag $release_tag already exists; skipping publication"
+                      exit 0
+                  fi
+
+                  echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
+                  echo "release-tag=$release_tag" >> "$GITHUB_OUTPUT"
+                  echo "release-commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+            - name: Send failure event to PostHog
+              if: ${{ failure() }}
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
+                  event: 'posthog-sdk-github-release-workflow-failure'
+                  properties: >-
+                      {
+                        "commitSha": "${{ github.sha }}",
+                        "jobStatus": "${{ job.status }}",
+                        "ref": "${{ github.ref }}",
+                        "repository": "${{ github.repository }}",
+                        "sdk": "posthog-cli",
+                        "jobName": "identify-merged-release",
+                        "packageName": "posthog-cli",
+                        "packageVersion": "unknown",
+                        "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                        "alertText": ":rotating_light: Failed to identify the merged posthog-cli release :rotating_light:",
+                        "alertContext": "The merged release did not pass the checks required before publishing."
+                      }
+
+    # Publish only after the reviewed release pull request has merged into master.
     # Run 'dist plan' (or host) to determine what tasks we need to do
     plan-release:
         name: Plan cargo-dist release
