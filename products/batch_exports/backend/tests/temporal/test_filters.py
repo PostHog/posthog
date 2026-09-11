@@ -99,6 +99,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
         "hogql0",
     ],
 )
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
 def test_compose_filters_clause(
     filters: list[dict[str, typing.Any]],
     expected_clause: str,

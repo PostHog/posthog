@@ -129,6 +129,7 @@ class SerializedExportProperties(CloningVisitor):
             split_restricted_property_names,
         )
 
+        self.use_native_schema = context.uses_new_events_schema()
         restrictions = context.restricted_properties or set()
         restricted_names = split_restricted_property_names(restrictions)
         self.event_restrictions = set(restricted_names.event)
@@ -147,10 +148,12 @@ class SerializedExportProperties(CloningVisitor):
         if node.chain[index : index + 2] == ["person", "properties"]:
             # `poe.properties` is the events table's own copy of the person properties.
             node.chain[index : index + 2] = ["poe", "properties"]
+        is_event_property = False
         if node.chain[index : index + 2] == ["poe", "properties"]:
             restrictions, property_chain = self.person_restrictions, node.chain[index + 2 :]
         elif str(node.chain[index]) == "properties":
             restrictions, property_chain = self.event_restrictions, node.chain[index + 1 :]
+            is_event_property = True
         else:
             return node
         if restrictions:
@@ -162,6 +165,11 @@ class SerializedExportProperties(CloningVisitor):
                 for key in restrictions
             ):
                 return ast.Constant(value=None)
+        if self.use_native_schema and is_event_property and property_chain:
+            key = property_chain[0]
+            if isinstance(key, str) and key.startswith("$feature/"):
+                # The native table keeps flags in the $feature_flags map rather than as $feature/<key> paths.
+                node.chain[index + 1 : index + 2] = ["$feature_flags", key.removeprefix("$feature/")]
         return node
 
 
