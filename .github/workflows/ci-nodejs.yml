@@ -302,7 +302,10 @@ jobs:
                     run: pnpm --filter=@posthog/nodejs format:check
 
                   - name: Lint with ESLint
-                    run: pnpm --filter=@posthog/nodejs lint
+                    # Type-aware linting holds the whole TS program in memory and sits right at
+                    # Node's default heap ceiling, so it aborts at random. Same headroom the
+                    # Jest steps in this workflow already give themselves.
+                    run: NODE_OPTIONS='--max_old_space_size=4096' pnpm --filter=@posthog/nodejs lint
 
                   # Guards the cdp/ingestion separation: fails on new lane->lane or shared->lane
                   # imports. Presence-checked so branches without the guard yet are unaffected.
