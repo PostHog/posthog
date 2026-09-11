@@ -1,8 +1,11 @@
 mod common;
 
+use std::collections::HashSet;
+
 use common::TestContext;
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::GroupKey;
+use personhog_replica::team_allowlist::TeamAllowlist;
 use rand::Rng;
 use rstest::rstest;
 use uuid::Uuid;
@@ -397,6 +400,169 @@ async fn test_delete_persons_clears_cohort_memberships() {
         cohort_row_count(&ctx.pool, cohort_id, &[person.id]).await,
         0
     );
+
+    ctx.cleanup().await.ok();
+}
+
+async fn tombstone_state(
+    pool: &sqlx::PgPool,
+    team_id: i64,
+    person_id: i64,
+) -> (bool, i64, serde_json::Value, Vec<(bool, i64)>) {
+    let (is_deleted, version, properties): (bool, i64, serde_json::Value) = sqlx::query_as(
+        "SELECT is_deleted, version, properties FROM posthog_person WHERE team_id = $1 AND id = $2",
+    )
+    .bind(team_id)
+    .bind(person_id)
+    .fetch_one(pool)
+    .await
+    .expect("person row should still exist");
+    let distinct_ids: Vec<(bool, i64)> = sqlx::query_as(
+        "SELECT is_deleted, version FROM posthog_persondistinctid WHERE team_id = $1 AND person_id = $2 ORDER BY id",
+    )
+    .bind(team_id)
+    .bind(person_id)
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    (is_deleted, version, properties, distinct_ids)
+}
+
+async fn hash_key_override_count(pool: &sqlx::PgPool, team_id: i64, person_id: i64) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = $2",
+    )
+    .bind(team_id)
+    .bind(person_id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn test_delete_persons_tombstones_allowlisted_team() {
+    let ctx = TestContext::new_with_tombstone_deletes(TeamAllowlist::All).await;
+    let cohort_id: i64 = 8802;
+    let person = ctx
+        .insert_person(
+            "tombstone_a@example.com",
+            Some(serde_json::json!({"email": "tombstone_a@example.com"})),
+        )
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "tombstone_b")
+        .await
+        .unwrap();
+    ctx.add_person_to_cohort(person.id, cohort_id)
+        .await
+        .unwrap();
+    ctx.insert_hash_key_override(person.id, "flag", "hash")
+        .await
+        .unwrap();
+
+    let deleted = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[person.uuid])
+        .await
+        .expect("delete persons");
+    assert_eq!(deleted, 1);
+
+    // The rows survive as tombstones: the counter continued from 0 to 1 on
+    // every row and the properties are gone.
+    let (is_deleted, version, properties, distinct_ids) =
+        tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
+    assert!(is_deleted);
+    assert_eq!(version, 1);
+    assert_eq!(properties, serde_json::json!({}));
+    assert_eq!(distinct_ids, vec![(true, 1), (true, 1)]);
+    assert_eq!(
+        cohort_row_count(&ctx.pool, cohort_id, &[person.id]).await,
+        0
+    );
+    assert_eq!(
+        hash_key_override_count(&ctx.pool, ctx.team_id, person.id).await,
+        0
+    );
+
+    // Reads treat a tombstone as absent.
+    assert!(ctx
+        .storage
+        .get_person_by_id(ctx.team_id, person.id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "tombstone_b")
+        .await
+        .unwrap()
+        .is_none());
+
+    // Deleting again is a no-op: no second version bump.
+    let deleted = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[person.uuid])
+        .await
+        .unwrap();
+    assert_eq!(deleted, 0);
+    let (_, version, _, _) = tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
+    assert_eq!(version, 1);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_hard_deletes_team_outside_allowlist() {
+    // Team 1 is outside the random range TestContext draws from.
+    let ctx =
+        TestContext::new_with_tombstone_deletes(TeamAllowlist::Only(HashSet::from([1]))).await;
+    let person = ctx.insert_person("hard_delete", None).await.unwrap();
+
+    let deleted = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[person.uuid])
+        .await
+        .unwrap();
+    assert_eq!(deleted, 1);
+
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM posthog_person WHERE team_id = $1 AND id = $2")
+            .bind(ctx.team_id)
+            .bind(person.id)
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_batch_for_team_tombstones_and_terminates() {
+    let ctx = TestContext::new_with_tombstone_deletes(TeamAllowlist::All).await;
+    let p1 = ctx.insert_person("batch_tomb_1", None).await.unwrap();
+    let p2 = ctx.insert_person("batch_tomb_2", None).await.unwrap();
+    let p3 = ctx.insert_person("batch_tomb_3", None).await.unwrap();
+
+    // The loop must skip rows it already tombstoned, or it never reaches 0.
+    let mut counts = Vec::new();
+    for _ in 0..3 {
+        counts.push(
+            ctx.storage
+                .delete_persons_batch_for_team(ctx.team_id, 2)
+                .await
+                .unwrap(),
+        );
+    }
+    assert_eq!(counts, vec![2, 1, 0]);
+
+    for person in [&p1, &p2, &p3] {
+        let (is_deleted, version, _, distinct_ids) =
+            tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
+        assert!(is_deleted);
+        assert_eq!(version, 1);
+        assert_eq!(distinct_ids, vec![(true, 1)]);
+    }
 
     ctx.cleanup().await.ok();
 }

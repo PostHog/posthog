@@ -108,6 +108,14 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 config.bulk_max_pg_connections
             );
 
+            let tombstone_delete_teams = config
+                .person_delete_tombstone_teams()
+                .expect("Invalid configuration");
+            tracing::info!(
+                allowlist = ?tombstone_delete_teams,
+                "Person delete tombstone allowlist"
+            );
+
             Arc::new(PostgresStorage::new(
                 primary_pool,
                 replica_pool,
@@ -115,6 +123,7 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 bulk_replica_pool,
                 config.bulk_chunk_size,
                 config.bulk_max_concurrent_chunks,
+                tombstone_delete_teams,
             ))
         }
         other => {
