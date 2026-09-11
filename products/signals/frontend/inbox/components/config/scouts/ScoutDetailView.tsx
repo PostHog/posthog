@@ -133,10 +133,10 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
 
     const switchTab = (next: ScoutDetailTab): void => {
         captureScoutAction({
-            actionType: 'switch_tab',
+            actionType: 'switch_detail_tab',
             surface: 'scout_detail',
             skillName,
-            extra: { tab: next },
+            extra: { filter: next },
         })
         setScoutDetailTab(next)
     }
