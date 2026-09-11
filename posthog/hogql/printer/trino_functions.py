@@ -58,12 +58,8 @@ TRINO_FUNCTION_RENAMES: dict[str, str] = {
     "fromUnixTimestamp": "from_unixtime",
     "replaceAll": "replace",
     "replaceRegexpAll": "regexp_replace",
-    "arrayStringConcat": "array_join",
-    "JSONLength": "json_array_length",
-    "toTypeName": "typeof",
     "now": "now",
     "startsWith": "starts_with",
-    "endsWith": "ends_with",
     "rand": "random",
     "dateTrunc": "date_trunc",
     "substringUTF8": "substring",
@@ -76,7 +72,6 @@ TRINO_FUNCTION_RENAMES: dict[str, str] = {
     "mapFromArrays": "map",
     "mapUpdate": "map_concat",
     "log": "ln",
-    "path": "url_extract_path",
     "decodeURLComponent": "url_decode",
     "decodeURLFormComponent": "url_decode",
     "trimLeft": "ltrim",
@@ -91,7 +86,6 @@ TRINO_FUNCTION_RENAMES: dict[str, str] = {
     "dotProduct": "dot_product",
     "L2Distance": "euclidean_distance",
     "bitAnd": "bitwise_and",
-    "bitNot": "bitwise_not",
     "bitOr": "bitwise_or",
     "bitXor": "bitwise_xor",
     "corr": "corr",
@@ -341,6 +335,26 @@ def _identity(name: str) -> Callable[[list[str]], str]:
         return args[0]
 
     return handler
+
+
+def _constant(name: str, value: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 1)
+        return value
+
+    return handler
+
+
+def _array_string_concat(args: list[str]) -> str:
+    if len(args) not in {1, 2}:
+        raise _invalid_arguments("arrayStringConcat", "arrayStringConcat expects an array and optional separator.")
+    separator = args[1] if len(args) == 2 else "''"
+    return f"array_join({args[0]}, {separator})"
+
+
+def _ends_with(args: list[str]) -> str:
+    _require_args("endsWith", args, 2)
+    return f"({args[1]} = '' OR substr({args[0]}, -length({args[1]})) = {args[1]})"
 
 
 def _format_date_time(args: list[str]) -> str:
@@ -667,7 +681,11 @@ def _base64_decode(args: list[str]) -> str:
 
 def _try_base64_decode(args: list[str]) -> str:
     _require_args("tryBase64Decode", args, 1)
-    return f"coalesce(TRY(from_utf8(from_base64({args[0]}))), '')"
+    valid = (
+        f"mod(length({args[0]}), 4) = 0 AND "
+        f"regexp_like({args[0]}, '^(?:[A-Za-z0-9+/]{{4}})*(?:[A-Za-z0-9+/]{{2}}==|[A-Za-z0-9+/]{{3}}=)?$')"
+    )
+    return f"IF({valid}, coalesce(TRY(from_utf8(from_base64({args[0]}))), ''), '')"
 
 
 def _ascii(args: list[str]) -> str:
@@ -700,6 +718,15 @@ def _map_lambda(name: str, target: str) -> Callable[[list[str]], str]:
     return handler
 
 
+def _map_apply(args: list[str]) -> str:
+    _require_args("mapApply", args, 2)
+    transformed = f"transform_values({args[1]}, {args[0]})"
+    return (
+        f"map_from_entries(transform(map_entries({transformed}), "
+        "__hogql_entry -> ROW(__hogql_entry[2][1], __hogql_entry[2][2])))"
+    )
+
+
 def _json_agg(args: list[str]) -> str:
     _require_args("json_agg", args, 1)
     return f"json_format(CAST(array_agg({args[0]}) AS JSON))"
@@ -720,7 +747,8 @@ def _date_arithmetic(name: str, operator: str) -> Callable[[list[str]], str]:
 
 def _make_date(args: list[str]) -> str:
     _require_args("make_date", args, 3)
-    return f"CAST(format('%04d-%02d-%02d', {args[0]}, {args[1]}, {args[2]}) AS DATE)"
+    value = f"TRY_CAST(format('%04d-%02d-%02d', {args[0]}, {args[1]}, {args[2]}) AS DATE)"
+    return f"IF({value} BETWEEN DATE '1970-01-01' AND DATE '2149-06-06', {value}, DATE '1970-01-01')"
 
 
 def _timezone(args: list[str]) -> str:
@@ -1328,7 +1356,11 @@ def _make_timestamp(name: str, with_timezone_result: bool) -> Callable[[list[str
         _require_args(name, args, expected)
         parts = ", ".join(f"CAST({argument} AS BIGINT)" for argument in args[:5])
         seconds = f"CAST(truncate({args[5]}) AS BIGINT)"
-        timestamp = f"CAST(format('%04d-%02d-%02d %02d:%02d:%02d', {parts}, {seconds}) AS TIMESTAMP)"
+        value = f"TRY_CAST(format('%04d-%02d-%02d %02d:%02d:%02d', {parts}, {seconds}) AS TIMESTAMP)"
+        timestamp = (
+            f"IF({value} BETWEEN TIMESTAMP '1970-01-01 00:00:00' AND TIMESTAMP '2106-02-07 06:28:15', "
+            f"{value}, TIMESTAMP '1970-01-01 00:00:00')"
+        )
         return f"with_timezone({timestamp}, {args[6]})" if with_timezone_result else timestamp
 
     return handler
@@ -1447,7 +1479,7 @@ def _path_full(args: list[str]) -> str:
     result = (
         f"concat({path}, IF({has_query}, concat('?', {query}), ''), IF({fragment} = '', '', concat('#', {fragment})))"
     )
-    return f"element_at(transform(ARRAY[{args[0]}], __hogql_url -> {result}), 1)"
+    return f"element_at(transform(ARRAY[{args[0]}], __hogql_url -> IF(strpos(__hogql_url, '/') = 0, '', {result})), 1)"
 
 
 def _extract_url_parameters(name: str, names_only: bool) -> Callable[[list[str]], str]:
@@ -1495,8 +1527,13 @@ def _append_trailing_character(args: list[str]) -> str:
     _require_args("appendTrailingCharIfAbsent", args, 2)
     return (
         f"IF(length({args[1]}) <> 1, fail('appendTrailingCharIfAbsent expects one character'), "
-        f"IF({args[0]} = '' OR ends_with({args[0]}, {args[1]}), {args[0]}, concat({args[0]}, {args[1]})))"
+        f"IF({args[0]} = '' OR {_ends_with(args)}, {args[0]}, concat({args[0]}, {args[1]})))"
     )
+
+
+def _path(args: list[str]) -> str:
+    _require_args("path", args, 1)
+    return f"IF(strpos({args[0]}, '/') = 0, '', coalesce(url_extract_path({args[0]}), ''))"
 
 
 def _map_key_like(name: str, extract: bool) -> Callable[[list[str]], str]:
@@ -1802,6 +1839,7 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "arrayPushFront": _array_push_front,
     "arrayPushBack": _array_push_back,
     "arrayResize": _array_resize,
+    "arrayStringConcat": _array_string_concat,
     "arrayDifference": _array_difference,
     "arrayProduct": _array_product,
     "arrayUniq": _array_uniq,
@@ -1810,6 +1848,7 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "base58Encode": _base58_encode,
     "base64Decode": _base64_decode,
     "tryBase64Decode": _try_base64_decode,
+    "endsWith": _ends_with,
     "ascii": _ascii,
     "concatWithSeparator": _concat_with_separator,
     "left": _left,
@@ -1871,7 +1910,7 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "IPv4CIDRToRange": _ipv4_cidr_to_range,
     "toValidUTF8": _identity("toValidUTF8"),
     "mapContains": _map_contains,
-    "mapApply": _map_lambda("mapApply", "transform_entries"),
+    "mapApply": _map_apply,
     "mapFilter": _map_lambda("mapFilter", "map_filter"),
     "mapContainsKeyLike": _map_key_like("mapContainsKeyLike", False),
     "mapExtractKeyLike": _map_key_like("mapExtractKeyLike", True),
@@ -1945,6 +1984,7 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "netloc": _netloc,
     "cutURLParameter": _cut_url_parameter,
     "pathFull": _path_full,
+    "path": _path,
     "extractURLParameters": _extract_url_parameters("extractURLParameters", False),
     "extractURLParameterNames": _extract_url_parameters("extractURLParameterNames", True),
     "port": _port,
@@ -1981,7 +2021,9 @@ TRINO_FUNCTION_HANDLERS.update(
         "arrayAUC": _identity("arrayAUC"),
         "tupleToNameValuePairs": _identity("tupleToNameValuePairs"),
         "mapPopulateSeries": _identity("mapPopulateSeries"),
-        "indexHint": _identity("indexHint"),
+        "toTypeName": _identity("toTypeName"),
+        "bitNot": _identity("bitNot"),
+        "indexHint": _constant("indexHint", "1"),
         "factorial": _factorial,
         "formatReadableSize": _format_readable(
             "formatReadableSize", 1024, ("B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB")

@@ -148,7 +148,7 @@ ARRAY_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "arrayResize": HogQLFunctionMeta("arrayResize", 2, 3),
     "arraySlice": HogQLFunctionMeta("arraySlice", 2, 3),
     "arraySort": HogQLFunctionMeta("arraySort", 1, None),
-    "arrayReverseSort": HogQLFunctionMeta("arraySort", 1, None),
+    "arrayReverseSort": HogQLFunctionMeta("arrayReverseSort", 1, None),
     "arrayUniq": HogQLFunctionMeta("arrayUniq", 1, None),
     "arrayJoin": HogQLFunctionMeta("arrayJoin", 1, 1),
     "arrayDifference": HogQLFunctionMeta("arrayDifference", 1, 1),
