@@ -4,13 +4,12 @@ import { ReactNode } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonCheckbox, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
-import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils/numbers'
-import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
+import { AxisLabelFilter } from 'scenes/insights/EditorFilters/AxisLabelFilter'
 import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
 import { LegendOptionsFilter } from 'scenes/insights/EditorFilters/LegendOptionsFilter'
 import { LifecyclePercentagesFilter } from 'scenes/insights/EditorFilters/LifecyclePercentagesFilter'
@@ -104,10 +103,10 @@ function ConfidenceInterval(): JSX.Element {
     const { isLineGraph, isLinearScale } = useLineGraphState()
 
     return (
-        <LemonSwitch
-            label="Show confidence intervals"
-            className="pb-2"
-            fullWidth
+        <LemonCheckbox
+            label={<span className="font-normal">Show confidence intervals</span>}
+            className="p-1 px-2"
+            size="small"
             checked={showConfidenceIntervals}
             disabledReason={
                 !isLineGraph
@@ -135,10 +134,10 @@ function MovingAverage(): JSX.Element {
     const { isLineGraph, isLinearScale } = useLineGraphState()
 
     return (
-        <LemonSwitch
-            label="Show moving average"
-            className="pb-2"
-            fullWidth
+        <LemonCheckbox
+            label={<span className="font-normal">Show moving average</span>}
+            className="p-1 px-2"
+            size="small"
             checked={showMovingAverage}
             disabledReason={
                 !isLineGraph
@@ -211,40 +210,43 @@ export function SectionHeader({
     )
 }
 
-// Every insight display toggle as a ready-to-use menu item, so callers assemble the Options menu by
-// referencing `DisplayOptions.X` instead of repeating `{ label: () => <X /> }` for each one.
+// Every insight display toggle, keyed so the Options panel is assembled by referencing
+// `DisplayOptions.X` instead of importing each filter component.
 export const DisplayOptions = {
-    Smoothing: { label: () => <Smoothing /> },
-    Legend: { label: () => <ShowLegendFilter /> },
-    LegendOptions: { label: () => <LegendOptionsFilter /> },
-    ExcludeOutliers: { label: () => <ExcludeOutliers /> },
-    MetricSummary: { label: () => <MetricSummaryFilter /> },
-    MetricShowChange: { label: () => <MetricShowChangeFilter /> },
-    MetricColor: { label: () => <MetricColorFilter /> },
-    LifecycleStacking: { label: () => <LifecycleStackingFilter /> },
-    LifecyclePercentages: { label: () => <LifecyclePercentagesFilter /> },
-    ValueLabels: { label: () => <ValueOnSeriesFilter /> },
-    PercentStack: { label: () => <PercentStackViewFilter /> },
-    StackBreakdown: { label: () => <StackBreakdownFilter /> },
-    SliceNames: { label: () => <SliceNamesFilter /> },
-    PieTotal: { label: () => <ShowPieTotalFilter /> },
-    AlertThresholdLines: { label: () => <ShowAlertThresholdLinesFilter /> },
-    AlertAnomalyPoints: { label: () => <ShowAlertAnomalyPointsFilter /> },
-    MultipleYAxes: { label: () => <ShowMultipleYAxesFilter /> },
-    TrendLines: { label: () => <ShowTrendLinesFilter /> },
-    HideIncompleteFunnelPeriods: { label: () => <HideIncompleteConversionWindowPeriodsFilter /> },
-    Annotations: { label: () => <ShowAnnotationsFilter /> },
-    ResultCustomizationBy: { label: () => <ResultCustomizationByPicker /> },
-    Unit: { label: () => <UnitPicker /> },
-    Scale: { label: () => <ScalePicker /> },
-    YAxisRange: { label: () => <YAxisRangeFilter /> },
-    LineStyle: { label: () => <LineStylePicker /> },
-    ConfidenceInterval: { label: () => <ConfidenceInterval /> },
-    ConfidenceLevel: { label: () => <ConfidenceLevelInput /> },
-    MovingAverage: { label: () => <MovingAverage /> },
-    MovingAverageIntervals: { label: () => <MovingAverageIntervalsInput /> },
-    AxisLabels: { label: () => <AxisLabelsFilter /> },
-    DecimalPrecision: { label: () => <DecimalPrecision /> },
-    RetentionDashboardDisplay: { label: () => <RetentionDashboardDisplayPicker /> },
-    RetentionCohortLabelStart: { label: () => <RetentionCohortLabelStartIndexPicker /> },
-} satisfies Record<string, LemonMenuItem>
+    Smoothing,
+    Legend: ShowLegendFilter,
+    LegendOptions: LegendOptionsFilter,
+    ExcludeOutliers,
+    MetricSummary: MetricSummaryFilter,
+    MetricShowChange: MetricShowChangeFilter,
+    MetricColor: MetricColorFilter,
+    LifecycleStacking: LifecycleStackingFilter,
+    LifecyclePercentages: LifecyclePercentagesFilter,
+    ValueLabels: ValueOnSeriesFilter,
+    PercentStack: PercentStackViewFilter,
+    StackBreakdown: StackBreakdownFilter,
+    SliceNames: SliceNamesFilter,
+    PieTotal: ShowPieTotalFilter,
+    AlertThresholdLines: ShowAlertThresholdLinesFilter,
+    AlertAnomalyPoints: ShowAlertAnomalyPointsFilter,
+    MultipleYAxes: ShowMultipleYAxesFilter,
+    TrendLines: ShowTrendLinesFilter,
+    HideIncompleteFunnelPeriods: HideIncompleteConversionWindowPeriodsFilter,
+    Annotations: ShowAnnotationsFilter,
+    ResultCustomizationBy: ResultCustomizationByPicker,
+    Unit: UnitPicker,
+    Scale: ScalePicker,
+    YAxisRange: YAxisRangeFilter,
+    LineStyle: LineStylePicker,
+    ConfidenceInterval,
+    ConfidenceLevel: ConfidenceLevelInput,
+    MovingAverage,
+    MovingAverageIntervals: MovingAverageIntervalsInput,
+    XAxisLabel: () => <AxisLabelFilter axis="x" />,
+    YAxisLabel: () => <AxisLabelFilter axis="y" />,
+    DecimalPrecision,
+    RetentionDashboardDisplay: RetentionDashboardDisplayPicker,
+    RetentionCohortLabelStart: RetentionCohortLabelStartIndexPicker,
+} satisfies Record<string, () => JSX.Element | null>
+
+export type DisplayOption = (typeof DisplayOptions)[keyof typeof DisplayOptions]
