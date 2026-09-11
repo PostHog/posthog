@@ -911,9 +911,7 @@ def _cohort_manifests_from_alerts(
     anyway, and one bad row must not brick discovery for the rest of the
     project.
     """
-    grouped: defaultdict[tuple[int, int, int, int, bool, datetime], list[tuple[str, str | None]]] = defaultdict(
-        list
-    )
+    grouped: defaultdict[tuple[int, int, int, int, bool, datetime], list[tuple[str, str | None]]] = defaultdict(list)
     for row in rows:
         try:
             broken_reason = _detect_broken_filter_config(row["filters"])
@@ -964,7 +962,7 @@ def _cohort_manifests_from_alerts(
                     projection_eligible=projection_eligible,
                     date_to_iso=date_to.isoformat(),
                     alert_ids=[alert_id for alert_id, _updated_at in chunk],
-                    updated_at_by_alert_id={alert_id: updated_at for alert_id, updated_at in chunk},
+                    updated_at_by_alert_id=dict(chunk),
                 )
             )
     return manifests
