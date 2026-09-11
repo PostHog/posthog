@@ -125,6 +125,18 @@ BILLING_GUIDANCE_ERRORS: dict[str, type[APIException]] = {
 
 
 BILLING_LIMIT_TODAYS_USAGE_KEYS = ("posthog_code_credits",)
+BILLING_ACCESS_DENIED_MESSAGE = (
+    "Your PostHog user does not have billing access for this organization. "
+    "Ask someone with billing access to run this or update your role."
+)
+BILLING_USAGE_SPEND_ACCESS_DENIED_MESSAGE = (
+    "Your PostHog user does not have access to billing usage and spend for this organization. "
+    "Ask someone with billing access to run this or update your role."
+)
+BILLING_PROJECT_ACCESS_DENIED_MESSAGE = (
+    "The requested projects are not available to this PostHog user or token. "
+    "Adjust the project filter or ask someone with billing access to run this."
+)
 
 
 def _owner_only_billing_enabled(user: User, organization: Organization) -> Optional[bool]:
@@ -252,7 +264,7 @@ class HasBillingAccess(permissions.BasePermission):
     Permission to allow users with Billing access to access Billing endpoints.
     """
 
-    message = "You do not have access to Billing for this organization."
+    message = BILLING_ACCESS_DENIED_MESSAGE
 
     def has_permission(self, request: Request, view: Any) -> bool:
         try:
@@ -271,7 +283,7 @@ class HasBillingUsageSpendReadAccess(permissions.BasePermission):
     Permission for read-only billing usage/spend endpoints.
     """
 
-    message = "You do not have access to billing usage and spend data for this organization."
+    message = BILLING_USAGE_SPEND_ACCESS_DENIED_MESSAGE
 
     def has_permission(self, request: Request, view: Any) -> bool:
         try:
@@ -700,7 +712,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         org = self._get_org()
         if is_token_auth_request(request):
             if not org or not isinstance(request.user, User) or not user_has_billing_access(request.user, org):
-                raise PermissionDenied("You do not have access to Billing for this organization.")
+                raise PermissionDenied(BILLING_ACCESS_DENIED_MESSAGE)
 
         # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
         if hasattr(org, "billing"):
@@ -1382,7 +1394,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             accessible_team_ids = sorted(set(accessible_team_ids).intersection(token_scoped_team_ids))
 
         if not accessible_team_ids:
-            raise PermissionDenied(HasBillingUsageSpendReadAccess.message)
+            raise PermissionDenied(BILLING_PROJECT_ACCESS_DENIED_MESSAGE)
 
         requested_team_ids = self._parse_team_ids(params_to_pass.get("team_ids"))
         if not requested_team_ids:
@@ -1390,7 +1402,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         scoped_team_ids = sorted(set(requested_team_ids).intersection(accessible_team_ids))
         if not scoped_team_ids:
-            raise PermissionDenied(HasBillingUsageSpendReadAccess.message)
+            raise PermissionDenied(BILLING_PROJECT_ACCESS_DENIED_MESSAGE)
 
         return scoped_team_ids
 
