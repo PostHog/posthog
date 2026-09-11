@@ -189,7 +189,7 @@ class TestGetRows:
         # This endpoint answers with no pagination object at all, so there is no total_pages
         # to break on — the walk has to end on the first empty page instead of running to the cap.
         page = {"emailer_messages": [{"id": "m1", "created_at": "2024-01-01T00:00:00Z"}], "emailer_steps": []}
-        empty = {"emailer_messages": [], "emailer_steps": []}
+        empty: dict[str, list[Any]] = {"emailer_messages": [], "emailer_steps": []}
         mock_session.return_value.get.side_effect = [
             _raw_response(page),
             _raw_response(empty),
