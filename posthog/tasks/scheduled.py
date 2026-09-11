@@ -985,7 +985,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*/6", minute="15"),
+        crontab(minute="15"),
         sync_experiment_approval_policies.s(),
         name="sync experiment approval policies",
     )
