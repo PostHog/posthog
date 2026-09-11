@@ -1,8 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from freezegun import freeze_time
 from parameterized import parameterized
 
 from posthog.hogql import ast
