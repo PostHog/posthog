@@ -222,13 +222,13 @@ const InboxReportsListSchema = () => {
 
 const inboxReportsList = (): ToolBase<
     ReturnType<typeof InboxReportsListSchema>,
-    WithAgentNote<WithPostHogUrl<Schemas.PaginatedSignalReportList>>
+    WithAgentNote<WithPostHogUrl<Schemas.PaginatedSignalReportListList>>
 > => ({
     name: 'inbox-reports-list',
     schema: InboxReportsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSignalReportList>({
+        const result = await context.api.request<Schemas.PaginatedSignalReportListList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
             query: {
@@ -266,6 +266,7 @@ const inboxReportsList = (): ToolBase<
                     'id',
                     'title',
                     'summary',
+                    'metrics',
                     'status',
                     'priority',
                     'actionability',
@@ -827,6 +828,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.charts !== undefined) {
             body['charts'] = params.charts
         }
+        if (params.metrics !== undefined) {
+            body['metrics'] = params.metrics
+        }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
         }
@@ -883,6 +887,9 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
         }
         if (params.charts !== undefined) {
             body['charts'] = params.charts
+        }
+        if (params.metrics !== undefined) {
+            body['metrics'] = params.metrics
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
@@ -1578,6 +1585,9 @@ const signalsScoutEditReport = (): ToolBase<
         if (params.charts !== undefined) {
             body['charts'] = params.charts
         }
+        if (params.metrics !== undefined) {
+            body['metrics'] = params.metrics
+        }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
         }
@@ -1637,6 +1647,9 @@ const signalsScoutEmitReport = (): ToolBase<
         }
         if (params.charts !== undefined) {
             body['charts'] = params.charts
+        }
+        if (params.metrics !== undefined) {
+            body['metrics'] = params.metrics
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts

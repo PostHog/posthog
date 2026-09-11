@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use personhog_common::client::RouterClient;
+use personhog_common::grpc::CLIENT_NAME_HEADER;
 use personhog_proto::personhog::{
     identity::v1::{
         person_hog_identity_client::PersonHogIdentityClient, GetOrCreatePersonEntry,
@@ -18,10 +19,21 @@ use personhog_proto::personhog::{
         UpdatePersonPropertiesResponse,
     },
 };
+use tonic::metadata::MetadataValue;
 use tonic::transport::Channel;
 use tonic::Request;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const HARNESS_CLIENT_NAME: &str = "personhog-test-harness";
+
+fn with_client_name<T>(message: T) -> Request<T> {
+    let mut request = Request::new(message);
+    request.metadata_mut().insert(
+        CLIENT_NAME_HEADER,
+        MetadataValue::from_static(HARNESS_CLIENT_NAME),
+    );
+    request
+}
 
 /// Harness wrapper over the shared router client: same wire behavior,
 /// anyhow-flavored results for scenario code.
@@ -41,7 +53,8 @@ impl HarnessClient {
     /// connection landed on.
     pub async fn connect_with_channels(url: &str, channels: usize) -> Result<Self> {
         let inner = RouterClient::with_channels(url, REQUEST_TIMEOUT, channels)
-            .context("invalid router URL")?;
+            .context("invalid router URL")?
+            .with_client_name(HARNESS_CLIENT_NAME);
         Ok(Self { inner })
     }
 
@@ -150,7 +163,7 @@ impl IdentityClient {
         let resp = self
             .inner
             .clone()
-            .get_or_create_persons_by_distinct_ids(Request::new(
+            .get_or_create_persons_by_distinct_ids(with_client_name(
                 GetOrCreatePersonsByDistinctIdsRequest { entries },
             ))
             .await
@@ -179,7 +192,7 @@ impl IdentityClient {
         let resp = self
             .inner
             .clone()
-            .merge_persons(Request::new(MergePersonsRequest {
+            .merge_persons(with_client_name(MergePersonsRequest {
                 team_id,
                 target_distinct_id: target_distinct_id.to_string(),
                 sources: source_distinct_ids
@@ -236,7 +249,7 @@ impl LifecycleClient {
         let resp = self
             .inner
             .clone()
-            .delete_persons(Request::new(DeletePersonsRequest {
+            .delete_persons(with_client_name(DeletePersonsRequest {
                 team_id,
                 person_ids,
                 op_id: op_id.to_string(),
