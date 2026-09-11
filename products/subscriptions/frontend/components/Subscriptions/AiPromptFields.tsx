@@ -14,8 +14,13 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
 import type { SubscriptionType } from '~/types'
 
-import type { AIWindowConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type {
+    AIWindowConfigApi,
+    DeliveryConfigApi,
+    SubscriptionContextApi,
+} from 'products/subscriptions/frontend/generated/api.schemas'
 
+import { SubscriptionContextPicker } from './SubscriptionContextPicker'
 import {
     type AiSubscriptionDisplayOption,
     getAiSubscriptionDisplayOptionState,
@@ -110,10 +115,14 @@ const AI_DISPLAY_OPTIONS: { option: AiSubscriptionDisplayOption; label: string; 
 
 interface AiPromptFieldsProps {
     compactAnalysisWindow?: boolean
+    contexts: SubscriptionContextApi[]
+    contextsEnabled: boolean
     prompt?: string | null
     targetType?: SubscriptionType['target_type'] | null
     windowMode?: AIWindowConfigApi['mode']
     consentBanner?: ReactNode
+    onAddContext: (context: SubscriptionContextApi) => void
+    onRemoveContext: (context: SubscriptionContextApi) => void
     onSelectAnalysisWindow: (mode: AIWindowConfigApi['mode']) => void
     onSelectExample: (prompt: string, label: string) => void
 }
@@ -124,10 +133,14 @@ function shouldShowAiPromptExamples(prompt?: string | null): boolean {
 
 export function AiPromptFields({
     compactAnalysisWindow = false,
+    contexts,
+    contextsEnabled,
     prompt,
     targetType,
     windowMode,
     consentBanner,
+    onAddContext,
+    onRemoveContext,
     onSelectAnalysisWindow,
     onSelectExample,
 }: AiPromptFieldsProps): JSX.Element {
@@ -140,6 +153,22 @@ export function AiPromptFields({
                 <LemonBanner type="warning" className="text-sm">
                     {consentBanner}
                 </LemonBanner>
+            ) : null}
+            {contextsEnabled ? (
+                <LemonField
+                    name="contexts"
+                    label="Context"
+                    info="Add up to three dashboards or insights to focus this report. Without context, the report chooses relevant project data based on your prompt."
+                    className="gap-1 min-w-0"
+                >
+                    {() => (
+                        <SubscriptionContextPicker
+                            contexts={contexts}
+                            onAdd={onAddContext}
+                            onRemove={onRemoveContext}
+                        />
+                    )}
+                </LemonField>
             ) : null}
             <LemonField
                 name="prompt"
