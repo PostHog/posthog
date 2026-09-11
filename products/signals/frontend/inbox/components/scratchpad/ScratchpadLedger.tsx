@@ -12,18 +12,14 @@ import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api
 
 import { SCRATCHPAD_PAGE_SIZE, scratchpadLogic } from '../../logics/scratchpadLogic'
 import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
-import {
-    KIND_TAG_TYPE,
-    isReportUuid,
-    scratchpadKindOf,
-    scratchpadTopicOf,
-    shortenUuid,
-} from '../../utils/scratchpadKeys'
+import { KIND_TAG_TYPE, isReportUuid, scratchpadKindOf, scratchpadTopicOf } from '../../utils/scratchpadKeys'
 
-// Below this the six columns stop fitting, so every row collapses into one stacked cell. Measured
+// Below 52rem the six columns stop fitting, so every row collapses into one stacked cell. Broken
 // on the container, not the viewport: the panel gets about 520 px once the nav and a side panel
-// are open, which no viewport breakpoint ever reports.
-const NARROW = '@max-[52rem]/ledger'
+// are open, which no viewport breakpoint ever reports. The variants are spelled out on each column
+// rather than built from a constant, because Tailwind only emits a class it can read in the source.
+const WIDE_ONLY = '@max-[52rem]/ledger:hidden'
+const NARROW_ONLY = 'hidden @max-[52rem]/ledger:table-cell'
 // Pipeline stages write to the scratchpad too. They are not scouts and have no scout page, so the
 // Scout column names the stage and says which it is rather than linking nowhere.
 const PIPELINE_PREFIX = 'pipeline:'
@@ -41,43 +37,43 @@ export function ScratchpadLedger(): JSX.Element {
         {
             title: 'Updated',
             key: 'updated',
-            className: `${NARROW}:hidden w-32`,
+            className: `${WIDE_ONLY} w-32`,
             render: (_, entry) => (entry.updated_at ? <TZLabel time={entry.updated_at} className="text-xs" /> : null),
         },
         {
             title: 'Scout',
             key: 'scout',
-            className: `${NARROW}:hidden max-w-40`,
+            className: `${WIDE_ONLY} max-w-40`,
             render: (_, entry) => <ScoutCell skillName={entry.created_by_skill} />,
         },
         {
             title: 'Kind',
             key: 'kind',
-            className: `${NARROW}:hidden w-24`,
+            className: `${WIDE_ONLY} w-24`,
             render: (_, entry) => <KindCell entryKey={entry.key} />,
         },
         {
             title: 'Key',
             key: 'key',
-            className: `${NARROW}:hidden max-w-64`,
+            className: `${WIDE_ONLY} max-w-64`,
             render: (_, entry) => <KeyCell entry={entry} reportTitles={reportTitles} />,
         },
         {
             title: 'Note',
             key: 'note',
-            className: `${NARROW}:hidden`,
+            className: WIDE_ONLY,
             render: (_, entry) => <NotePreview content={entry.content} />,
         },
         {
             title: 'Carried',
             key: 'carried',
-            className: `${NARROW}:hidden w-24 text-right`,
+            className: `${WIDE_ONLY} w-24 text-right`,
             render: (_, entry) => <CarriedCell entry={entry} />,
         },
         {
             title: 'Entry',
             key: 'stacked',
-            className: `hidden ${NARROW}:table-cell`,
+            className: NARROW_ONLY,
             render: (_, entry) => <StackedCell entry={entry} reportTitles={reportTitles} />,
         },
     ]
@@ -147,7 +143,8 @@ function KeyCell({
         return (
             <Tooltip title={entry.key}>
                 <Link to={urls.inboxReport('reports', topic)} subtle className="truncate text-xs">
-                    Report: {title || shortenUuid(topic)}
+                    {/* Enough of the UUID to tell two apart while the title is loading, or gone. */}
+                    Report: {title || topic.slice(0, 8)}
                 </Link>
             </Tooltip>
         )

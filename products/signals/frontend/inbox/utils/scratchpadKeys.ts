@@ -65,11 +65,6 @@ export function isReportUuid(segment: string): boolean {
     return UUID_PATTERN.test(segment)
 }
 
-/** Enough of a UUID to tell two apart while its report title is still loading, or gone. */
-export function shortenUuid(uuid: string): string {
-    return uuid.slice(0, 8)
-}
-
 /** The note's kind, or null when the key's first segment is not one the fleet uses as a kind. */
 export function scratchpadKindOf(key: string): string | null {
     const [first] = key.split(':')

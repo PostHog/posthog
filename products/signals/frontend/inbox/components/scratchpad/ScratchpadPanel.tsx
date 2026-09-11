@@ -43,7 +43,7 @@ export function ScratchpadPanel(): JSX.Element {
         scoutFacets,
         kindFacets,
         topicFacets,
-        expiringSoonCount,
+        windowStats,
         visibleBookkeepingCount,
         hasActiveFilters,
         hasMoreOlderEntries,
@@ -81,9 +81,9 @@ export function ScratchpadPanel(): JSX.Element {
             <ScratchpadHeader
                 totalCount={totalCount}
                 loadedSpanLabel={loadedSpanLabel}
-                scoutCount={scoutFacets.length}
-                topicCount={topicFacets.length}
-                expiringSoonCount={expiringSoonCount}
+                scoutCount={windowStats.scouts}
+                topicCount={windowStats.topics}
+                expiringSoonCount={windowStats.expiringSoon}
                 loading={isInitialLoad}
             />
 
@@ -94,7 +94,7 @@ export function ScratchpadPanel(): JSX.Element {
                         placeholder="Search keys and notes…"
                         value={searchText}
                         onChange={setSearchText}
-                        className="flex-1 min-w-[12rem]"
+                        className="min-w-[12rem] flex-1"
                         allowClear
                     />
                     <FacetSelect
@@ -153,7 +153,6 @@ export function ScratchpadPanel(): JSX.Element {
                                 size="xsmall"
                                 onClick={() => loadOlderEntries()}
                                 loading={olderEntriesLoading}
-                                disabledReason={olderEntriesLoading ? 'Loading older entries' : undefined}
                             >
                                 Load older entries
                             </LemonButton>
@@ -184,18 +183,20 @@ function FacetSelect({
     labelOf?: (value: string) => string
 }): JSX.Element {
     return (
-        <LemonInputSelect
-            mode="multiple"
-            size="small"
-            placeholder={placeholder}
-            value={value}
-            onChange={onChange}
-            className="min-w-[10rem] max-w-[16rem]"
-            options={facets.map((facet) => ({
-                key: facet.value,
-                label: `${labelOf ? labelOf(facet.value) : facet.value} (${facet.count})`,
-            }))}
-        />
+        // The select fills its parent, so the width it gets has to come from a wrapper.
+        <div className="w-44">
+            <LemonInputSelect
+                mode="multiple"
+                size="small"
+                placeholder={placeholder}
+                value={value}
+                onChange={onChange}
+                options={facets.map((facet) => ({
+                    key: facet.value,
+                    label: `${labelOf ? labelOf(facet.value) : facet.value} (${facet.count})`,
+                }))}
+            />
+        </div>
     )
 }
 
