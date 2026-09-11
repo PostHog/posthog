@@ -17,6 +17,7 @@ import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
+import { formatSkillLookupMiss } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import { getToolDefinitions, type FlagGatedTool, type ScopeGatedTool } from './toolDefinitions'
 import {
@@ -1688,6 +1689,12 @@ export function createExecTool(
                                 : {}),
                             input,
                         })
+                        // A skill lookup that misses is not a failure the agent should
+                        // read as one. Telemetry above still records the 404.
+                        const lookupMiss = formatSkillLookupMiss(tool.name, err, input)
+                        if (lookupMiss) {
+                            return lookupMiss
+                        }
                         throw err
                     }
                     const durationMs = Date.now() - startedAt
