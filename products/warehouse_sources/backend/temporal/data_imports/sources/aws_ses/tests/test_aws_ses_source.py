@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses im
     aws_ses as transport_module,
     source as source_module,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.aws_ses import AwsSesError
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.source import AwsSesSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsses import AwsSesSourceConfig
@@ -56,21 +57,27 @@ class TestAwsSesSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "Amazon SES request failed: UnrecognizedClientException - The security token included in the request is invalid",
-            "Amazon SES request failed: SignatureDoesNotMatch - Signature expired",
-            "Amazon SES request failed: ExpiredTokenException - The security token included in the request is expired",
-            "Amazon SES request failed: AccessDeniedException - not authorized to perform: ses:GetAccount",
+            str(AwsSesError("UnrecognizedClientException", "The security token is invalid", "account", "/p")),
+            str(AwsSesError("SignatureDoesNotMatch", "Signature expired", "account", "/p")),
+            str(AwsSesError("ExpiredTokenException", "The security token is expired", "account", "/p")),
+            str(AwsSesError("AccessDeniedException", "not authorized to perform: ses:GetAccount", "account", "/p")),
+            str(AwsSesError("BadRequestException", "no reason", "multi_region_endpoints", "/p")),
             "Invalid AWS region: 'email.evil.example/'",
         ],
     )
     def test_permanent_aws_failures_stop_the_sync_instead_of_retrying(self, observed_error: str) -> None:
         assert any(key in observed_error for key in self.source.get_non_retryable_errors())
 
+    def test_a_rejected_request_keeps_the_message_that_names_the_failing_table(self) -> None:
+        # A fixed friendly string would replace the raised message and hide which of the ten
+        # tables AWS rejected.
+        assert self.source.get_non_retryable_errors()["Amazon SES request failed: BadRequestException"] is None
+
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "Amazon SES request failed: TooManyRequestsException - Rate exceeded",
-            "Amazon SES request failed: HTTP 503 - ",
+            str(AwsSesError("TooManyRequestsException", "Rate exceeded", "account", "/p")),
+            str(AwsSesError("HTTP 503", "", "account", "/p")),
         ],
     )
     def test_transient_aws_failures_keep_retrying(self, observed_error: str) -> None:

@@ -59,6 +59,9 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
             "Amazon SES request failed: InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
             "Amazon SES request failed: ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
             "Amazon SES request failed: AccessDeniedException": "These AWS credentials are missing SES read permissions. Grant ses:GetAccount, ses:ListConfigurationSets, ses:GetConfigurationSet, ses:ListEmailIdentities, ses:GetEmailIdentity, ses:ListSuppressedDestinations, ses:ListEmailTemplates, ses:GetEmailTemplate, ses:ListContactLists, ses:GetContactList, ses:ListDedicatedIpPools, ses:GetDedicatedIpPool, ses:GetDedicatedIps, ses:ListCustomVerificationEmailTemplates, ses:GetCustomVerificationEmailTemplate and ses:ListMultiRegionEndpoints to the IAM user or role.",
+            # No retry turns a 400 into rows. `None` keeps the raised message, which names the
+            # table; a fixed string here could not say which of the ten tables AWS rejected.
+            "Amazon SES request failed: BadRequestException": None,
             "Invalid AWS region": "Enter a valid AWS region code like us-east-1.",
             "AWS access key ID and secret access key are required": "Enter both an AWS access key ID and a secret access key.",
         }

@@ -224,7 +224,8 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         Returns `dict[str, str | None]`:
             key = a partial error message to match on
-            value = a friendly error message to show to users. We fallback to displaying the key when this is missing
+            value = a friendly error message to show to users. `None` keeps the raised error message,
+                which is what a source wants when that message carries detail no fixed string could
         """
 
         return {}

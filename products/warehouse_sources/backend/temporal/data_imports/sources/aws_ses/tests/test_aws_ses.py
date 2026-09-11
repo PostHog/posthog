@@ -153,7 +153,7 @@ class TestSendRequest:
         credentials = Credentials("AKIAEXAMPLE", "secret")
 
         with time_machine.travel("2026-08-07T10:00:00Z", tick=False):
-            send_request(session, credentials, "eu-west-1", "/v2/email/account")
+            send_request(session, credentials, "eu-west-1", "account", "/v2/email/account")
 
         assert session.get.call_args[0][0] == "https://email.eu-west-1.amazonaws.com/v2/email/account"
         headers = session.get.call_args[1]["headers"]
@@ -170,6 +170,7 @@ class TestSendRequest:
             session,
             Credentials("key", "secret"),
             "us-east-1",
+            "suppressed_destinations",
             "/v2/email/suppression/addresses",
             {"StartDate": "2026-08-01T00:00:00Z", "PageSize": 1000},
         )
@@ -182,7 +183,9 @@ class TestSendRequest:
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = make_response(200, {})
 
-        send_request(session, Credentials("key", "secret", "session-token"), "us-east-1", "/v2/email/account")
+        send_request(
+            session, Credentials("key", "secret", "session-token"), "us-east-1", "account", "/v2/email/account"
+        )
 
         assert session.get.call_args[1]["headers"]["X-Amz-Security-Token"] == "session-token"
 
@@ -195,19 +198,34 @@ class TestErrorClassification:
             headers={"x-amzn-ErrorType": "AccessDeniedException:http://internal.amazon.example/coral/"},
         )
 
-        assert str(error_for_response(response)) == "Amazon SES request failed: AccessDeniedException - denied"
+        assert str(error_for_response(response, "account", "/v2/email/account")) == (
+            "Amazon SES request failed: AccessDeniedException - denied (table account, GET /v2/email/account)"
+        )
 
     def test_the_namespaced_body_type_is_stripped_to_the_bare_code(self) -> None:
         response = make_response(400, {"__type": "com.amazonaws.ses#BadRequestException", "message": "bad"})
 
-        assert str(error_for_response(response)) == "Amazon SES request failed: BadRequestException - bad"
+        assert str(error_for_response(response, "account", "/v2/email/account")) == (
+            "Amazon SES request failed: BadRequestException - bad (table account, GET /v2/email/account)"
+        )
+
+    def test_a_bodyless_bad_request_is_explained_instead_of_trailing_off_after_the_dash(self) -> None:
+        # SESv2 declares BadRequestException with zero members, so the body carries no message.
+        response = make_response(
+            400, {}, headers={"x-amzn-ErrorType": "BadRequestException:http://internal.amazon.example/coral/"}
+        )
+
+        message = str(error_for_response(response, "multi_region_endpoints", "/v2/email/multi-region-endpoints"))
+
+        assert f"BadRequestException - {aws_ses._BAD_REQUEST_EXPLANATION}" in message
+        assert message.endswith("(table multi_region_endpoints, GET /v2/email/multi-region-endpoints)")
 
     def test_a_non_json_error_body_still_produces_a_usable_message(self) -> None:
         response = requests.Response()
         response.status_code = 503
         response._content = b"<html>gateway</html>"
 
-        assert "HTTP 503" in str(error_for_response(response))
+        assert "HTTP 503" in str(error_for_response(response, "account", "/v2/email/account"))
 
 
 class TestResolveStartDate:
@@ -261,7 +279,7 @@ class TestGetRows:
 
         assert batches == [[{"sending_enabled": True, "enforcement_status": "HEALTHY"}]]
         assert send.call_count == 1
-        assert send.call_args[0][3] == "/v2/email/account"
+        assert send.call_args[0][4] == "/v2/email/account"
 
     def test_pagination_follows_next_token_until_aws_stops_returning_one(self) -> None:
         batches, send, _ = self._run(
@@ -273,8 +291,8 @@ class TestGetRows:
 
         assert [row["email_address"] for batch in batches for row in batch] == ["a@example.com", "b@example.com"]
         assert batches[0][0]["last_update_time"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
-        assert "NextToken" not in send.call_args_list[0][0][4]
-        assert send.call_args_list[1][0][4]["NextToken"] == "page-2"
+        assert "NextToken" not in send.call_args_list[0][0][5]
+        assert send.call_args_list[1][0][5]["NextToken"] == "page-2"
 
     def test_state_is_saved_after_each_page_and_cleared_once_the_walk_completes(self) -> None:
         _, _, manager = self._run(
@@ -294,20 +312,20 @@ class TestGetRows:
         )
 
         assert send.call_count == 1
-        assert send.call_args[0][4]["NextToken"] == "page-7"
+        assert send.call_args[0][5]["NextToken"] == "page-7"
 
     def test_an_expired_saved_token_restarts_the_walk_instead_of_failing_the_job(self) -> None:
         batches, send, manager = self._run(
             [
-                AwsSesError("Amazon SES request failed: InvalidNextTokenException - expired"),
+                AwsSesError("InvalidNextTokenException", "expired", "suppressed_destinations", "/path"),
                 suppression_page(["a@example.com"]),
             ],
             manager=FakeResumeManager(AwsSesResumeConfig(next_token="stale")),
         )
 
         assert [row["email_address"] for batch in batches for row in batch] == ["a@example.com"]
-        assert send.call_args_list[0][0][4].get("NextToken") == "stale"
-        assert "NextToken" not in send.call_args_list[1][0][4]
+        assert send.call_args_list[0][0][5].get("NextToken") == "stale"
+        assert "NextToken" not in send.call_args_list[1][0][5]
         assert manager.cleared is True
 
     def test_an_invalid_token_from_aws_itself_is_not_swallowed(self) -> None:
@@ -316,8 +334,8 @@ class TestGetRows:
         with pytest.raises(AwsSesError, match="InvalidNextTokenException"):
             self._run(
                 [
-                    AwsSesError("Amazon SES request failed: InvalidNextTokenException - expired"),
-                    AwsSesError("Amazon SES request failed: InvalidNextTokenException - expired"),
+                    AwsSesError("InvalidNextTokenException", "expired", "suppressed_destinations", "/path"),
+                    AwsSesError("InvalidNextTokenException", "expired", "suppressed_destinations", "/path"),
                 ],
                 manager=FakeResumeManager(AwsSesResumeConfig(next_token="stale")),
             )
@@ -329,12 +347,12 @@ class TestGetRows:
             db_incremental_field_last_value=dt.datetime(2026, 8, 7, 12, 0, tzinfo=dt.UTC),
         )
 
-        assert send.call_args[0][4]["StartDate"] == "2026-08-06T12:00:00Z"
+        assert send.call_args[0][5]["StartDate"] == "2026-08-06T12:00:00Z"
 
     def test_a_full_refresh_walks_the_list_unbounded(self) -> None:
         _, send, _ = self._run([suppression_page([])])
 
-        assert "StartDate" not in send.call_args[0][4]
+        assert "StartDate" not in send.call_args[0][5]
 
     def test_configuration_sets_fan_out_from_bare_names_to_full_rows(self) -> None:
         batches, send, _ = self._run(
@@ -351,7 +369,7 @@ class TestGetRows:
             endpoint="configuration_sets",
         )
 
-        assert send.call_args_list[1][0][3] == "/v2/email/configuration-sets/transactional"
+        assert send.call_args_list[1][0][4] == "/v2/email/configuration-sets/transactional"
         first, second = batches[0][0], batches[1][0]
         assert first["configuration_set_name"] == "transactional"
         assert first["sending_options_sending_enabled"] is True
@@ -379,7 +397,7 @@ class TestGetRows:
             endpoint="email_identities",
         )
 
-        assert send.call_args_list[1][0][3] == "/v2/email/identities/user%40example.com"
+        assert send.call_args_list[1][0][4] == "/v2/email/identities/user%40example.com"
         row = batches[0][0]
         assert row["identity_name"] == "user@example.com"
         assert row["sending_enabled"] is True
@@ -390,7 +408,7 @@ class TestGetRows:
         batches, _, _ = self._run(
             [
                 {"EmailIdentities": [{"IdentityName": "gone.example.com"}, {"IdentityName": "kept.example.com"}]},
-                AwsSesError("Amazon SES request failed: NotFoundException - not found"),
+                AwsSesError("NotFoundException", "not found", "email_identities", "/path"),
                 {"IdentityType": "DOMAIN"},
             ],
             endpoint="email_identities",
@@ -557,7 +575,7 @@ class TestGetRows:
         for key_column in primary_key:
             assert expected_row[key_column]
         if detail_path is not None:
-            assert send.call_args_list[1][0][3] == detail_path
+            assert send.call_args_list[1][0][4] == detail_path
 
     def test_an_account_with_no_dedicated_ips_yields_an_empty_table_and_stays_reachable(self) -> None:
         batches, _, manager = self._run([{"DedicatedIps": []}], endpoint="dedicated_ips")
@@ -594,17 +612,17 @@ class TestValidateCredentials:
         with mock.patch.object(aws_ses, "send_request", return_value={"SendingEnabled": True}) as send:
             assert validate_credentials("key", "secret", None, "us-east-1") == (True, None)
 
-        assert send.call_args[0][3] == "/v2/email/account"
+        assert send.call_args[0][4] == "/v2/email/account"
 
     def test_a_genuine_key_missing_the_account_permission_still_validates_at_create(self) -> None:
         # Scope for each table is reported per endpoint in the schema picker instead.
-        error = AwsSesError("Amazon SES request failed: AccessDeniedException - not authorized")
+        error = AwsSesError("AccessDeniedException", "not authorized", "account", "/v2/email/account")
 
         with mock.patch.object(aws_ses, "send_request", side_effect=error):
             assert validate_credentials("key", "secret", None, "us-east-1") == (True, None)
 
     def test_a_rejected_key_is_surfaced_to_the_user(self) -> None:
-        error = AwsSesError("Amazon SES request failed: UnrecognizedClientException - invalid token")
+        error = AwsSesError("UnrecognizedClientException", "invalid token", "account", "/v2/email/account")
 
         with mock.patch.object(aws_ses, "send_request", side_effect=error):
             assert validate_credentials("key", "secret", None, "us-east-1") == (False, str(error))
@@ -618,8 +636,11 @@ class TestValidateCredentials:
 
     def test_validating_a_schema_probes_that_endpoint_and_names_the_missing_permission(self) -> None:
         error = AwsSesError(
-            "Amazon SES request failed: AccessDeniedException - User: arn:aws:iam::123456789012:user/etl "
-            "is not authorized to perform: ses:ListSuppressedDestinations on resource: arn:aws:ses:us-east-1:123456789012:suppression-list"
+            "AccessDeniedException",
+            "User: arn:aws:iam::123456789012:user/etl is not authorized to perform: "
+            "ses:ListSuppressedDestinations on resource: arn:aws:ses:us-east-1:123456789012:suppression-list",
+            "suppressed_destinations",
+            "/v2/email/suppression/addresses",
         )
 
         with mock.patch.object(aws_ses, "send_request", side_effect=error):
@@ -638,11 +659,11 @@ class TestValidateCredentials:
 
 class TestEndpointPermissions:
     def test_only_the_denied_endpoint_is_reported_unreachable(self) -> None:
-        def respond(session: Any, credentials: Any, region: str, path: str, params: Any = None) -> dict[str, Any]:
+        def respond(
+            session: Any, credentials: Any, region: str, endpoint: str, path: str, params: Any = None
+        ) -> dict[str, Any]:
             if path == "/v2/email/account":
-                raise AwsSesError(
-                    "Amazon SES request failed: AccessDeniedException - not authorized to perform: ses:GetAccount"
-                )
+                raise AwsSesError("AccessDeniedException", "not authorized to perform: ses:GetAccount", endpoint, path)
             return {}
 
         with mock.patch.object(aws_ses, "send_request", side_effect=respond):
@@ -660,7 +681,10 @@ class TestEndpointPermissions:
         responses = [
             {"EmailIdentities": [{"IdentityName": "example.com"}]},
             AwsSesError(
-                "Amazon SES request failed: AccessDeniedException - not authorized to perform: ses:GetEmailIdentity"
+                "AccessDeniedException",
+                "not authorized to perform: ses:GetEmailIdentity",
+                "email_identities",
+                "/v2/email/identities/example.com",
             ),
         ]
 
@@ -671,8 +695,25 @@ class TestEndpointPermissions:
 
     def test_transient_failures_do_not_hide_tables_from_the_schema_picker(self) -> None:
         with mock.patch.object(
-            aws_ses, "send_request", side_effect=AwsSesError("Amazon SES request failed: HTTP 503 - gateway")
+            aws_ses,
+            "send_request",
+            side_effect=AwsSesError(
+                "HTTP 503", "gateway", "suppressed_destinations", "/v2/email/suppression/addresses"
+            ),
         ):
             reasons = probe_endpoint_permissions("key", "secret", None, "us-east-1", ["suppressed_destinations"])
 
         assert reasons == {"suppressed_destinations": None}
+
+    def test_a_table_the_region_cannot_serve_is_reported_instead_of_staying_selectable(self) -> None:
+        # SESv2 answers an operation the region does not support with a bodyless 400.
+        with mock.patch.object(
+            aws_ses,
+            "send_request",
+            side_effect=AwsSesError(
+                "BadRequestException", "no reason", "multi_region_endpoints", "/v2/email/multi-region-endpoints"
+            ),
+        ):
+            reasons = probe_endpoint_permissions("key", "secret", None, "us-east-1", ["multi_region_endpoints"])
+
+        assert reasons == {"multi_region_endpoints": aws_ses._BAD_REQUEST_EXPLANATION}
