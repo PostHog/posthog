@@ -63,6 +63,11 @@ QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
         nullable=False,
         description="Query outcome type, e.g. 'QueryFinish' or 'ExceptionWhileProcessing'.",
     ),
+    "is_initial_query": BooleanDatabaseField(
+        name="is_initial_query",
+        nullable=False,
+        description="True for the query a client sent. False for the per-shard subqueries ClickHouse ran on its behalf, which repeat the parent's tags.",
+    ),
     "exception_code": IntegerDatabaseField(
         name="exception_code", nullable=False, description="ClickHouse exception code if the query failed, else 0."
     ),
@@ -205,6 +210,11 @@ class RawQueryLogArchiveTable(Table):
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "query_id": StringDatabaseField(
             name="query_id", nullable=False, description="ClickHouse-assigned query identifier."
+        ),
+        "is_initial_query": BooleanDatabaseField(
+            name="is_initial_query",
+            nullable=False,
+            description="True for the query a client sent, false for its per-shard subqueries.",
         ),
         "lc_client_query_id": StringDatabaseField(
             name="lc_client_query_id", nullable=False, description="Client-supplied query identifier."

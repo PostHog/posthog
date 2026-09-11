@@ -61,4 +61,5 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
             "median_rows_q_error",
             "p90_rows_q_error",
             "median_bytes_q_error",
+            "p90_bytes_q_error",
         ]
