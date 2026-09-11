@@ -59,7 +59,8 @@ wrote directly under its verdict (`_normalize_reply_divider`). A reply past the 
 collapsed "More detail" block, with a warning logged (`_fold_overlong_reply`). The whole posted body is scrubbed of
 credential shapes last (`tools/redaction.py::redact_secrets`: PostHog secret key prefixes, GitHub token shapes, and
 `x-access-token` clone URLs), because the sandbox holds live tokens and the agent may paste command output into
-`verification`. A FIXED verdict's echoed commit SHA is verified
+`verification`; the review stage runs the same scrub over the review body and every inline finding comment in
+`publish_review.py::_post_github_review`. A FIXED verdict's echoed commit SHA is verified
 server-side before delivery (`commit_on_branch`);
 an unproven SHA posts the reply without the commit link and never auto-resolves. A real commit is then checked
 against the hard-floor **path backstop** (`commit_restricted_paths`): one touching `.github/`, CODEOWNERS, or

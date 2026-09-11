@@ -18,6 +18,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     is_app_bot_author,
 )
 from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
+from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -470,6 +471,17 @@ def _post_github_review(
     # head, so a force-push between review and post would misplace the inline comments. Best-effort:
     # the probe isolates an unresolvable commit (stale/unreachable head) from a comment-positioning
     # failure, so we post unpinned rather than failing (or dropping the inline comments).
+    # The review and validation sandboxes hold live tokens, and the model text arrives here unfiltered.
+    body, redacted = redact_secrets(body)
+    scrubbed: list[ReviewComment] = []
+    for comment in comments:
+        comment_body, count = redact_secrets(comment["body"])
+        redacted += count
+        scrubbed.append({**comment, "body": comment_body})
+    comments = scrubbed
+    if redacted:
+        logger.warning(f"Redacted {redacted} credential-shaped value(s) from the review for {owner}/{repo}#{pr_number}")
+
     review_payload: dict[str, Any] = {"body": body, "event": "COMMENT"}
     if head_sha:
         try:

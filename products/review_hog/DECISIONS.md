@@ -216,8 +216,11 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   token inline, and nothing inspected the body before it posted (the reply had the same gap on master). The posted
   body is now scrubbed of credential shapes last (`tools/redaction.py`: PostHog secret prefixes `phx_`/`phs_`/
   `pha_`/`phr_`, GitHub `gh?_`/`github_pat_` tokens, `x-access-token` clone URLs; `phc_` project tokens are public
-  and stay), with a warning logged, and the prompt asks for a summary rather than raw command output. Comparing
-  against live token values was not done: the delivery step only holds a GitHub token. The resolution-criteria
+  and stay), with a warning logged, and the prompt asks for a summary rather than raw command output. The review
+  stage runs the same scrub over the review body and every inline finding comment (`_post_github_review`), since
+  its sandboxes hold the same tokens. Comparing against live token values was ruled out as overengineering: the
+  sandbox's copies can differ from what the delivery step could fetch, and the shapes already cover every
+  credential type the sandbox holds. The resolution-criteria
   skill's step 4 no longer asks for "how it was verified" in the reply (new canonical version).
 - **Why.** Dogfood feedback on PR #97753: four replies of 5 to 7 paragraphs each, walls of text nobody reads. The
   prompt asked for a self-contained answer plus how it was verified, and the model over-delivered; the
