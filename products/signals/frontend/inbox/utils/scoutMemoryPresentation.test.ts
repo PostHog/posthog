@@ -23,6 +23,29 @@ describe('scoutMemoryPresentation', () => {
             expect(linkReportIdsInNote(`Dismissed ${OTHER_ID} as noise.`, reports, options)).toBe(expected)
         })
 
+        // Report titles are untrusted agent output. These are the characters that escape a markdown
+        // link label, so a resolved report's title must not carry them into the rewritten note.
+        it.each<[string, string, string]>([
+            ['a backtick, which closes the code span a note wraps the id in', 'LCP `regression`', 'LCP regression'],
+            [
+                'an angle autolink, which links out of the label',
+                'LCP <https://evil.example>',
+                'LCP https://evil.example',
+            ],
+            [
+                'a blank line, which ends the paragraph the link sits in',
+                'LCP\n\nhttps://evil.example',
+                'LCP https://evil.example',
+            ],
+            ['everything, leaving a label that would be invisible', '`<>`', 'Untitled report'],
+        ])('drops %s', (_name, title, expected) => {
+            const linked = linkReportIdsInNote(
+                `Dismissed ${REPORT_ID}.`,
+                new Map([[REPORT_ID, { id: REPORT_ID, title }]])
+            )
+            expect(linked).toContain(`[${expected}](`)
+        })
+
         it('leaves an id that already sits in a link target alone', () => {
             const note = `See [the report](/project/2/inbox/reports/${REPORT_ID}).`
             expect(linkReportIdsInNote(note, reports)).toBe(note)

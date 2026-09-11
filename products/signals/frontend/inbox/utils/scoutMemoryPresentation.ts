@@ -17,6 +17,24 @@ function truncateReportId(id: string): string {
 }
 
 /**
+ * A report title as a markdown link label. The title is untrusted: an agent writes it from ticket
+ * and issue text. The characters that escape the label are removed rather than escaped, because a
+ * derived note wraps the report id in a code span, and a backslash escape inside a code span
+ * renders as a literal backslash. `[` and `]` close the label, a backtick closes that code span,
+ * and `<url>` renders as a link inside the link, carrying a target the title chose. Whitespace
+ * collapses because a blank line ends the paragraph the link sits in. A bare url needs nothing:
+ * inside a link label GFM leaves it as text.
+ */
+function reportLinkLabel(title: string | null, fallback: string): string {
+    const label = displayConventionalCommitTitle(title, fallback)
+        .replace(/[[\]`<>]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    // A title of nothing but stripped characters would render as an invisible empty link.
+    return label || fallback
+}
+
+/**
  * The note, with every report id that resolves to a report this scout touched rewritten as a
  * markdown link carrying the report's title. Ids that resolve to nothing — an older window, a
  * deleted report — shrink to a truncated code span, because the full uuid wraps to a second line
@@ -36,9 +54,7 @@ export function linkReportIdsInNote(
         if (!report) {
             return truncateUnmatched ? truncateReportId(id) : id
         }
-        // Brackets in a title would close the link label early, so they go.
-        const label = displayConventionalCommitTitle(report.title, 'Untitled report').replace(/[[\]]/g, '')
-        return `[${label}](${urls.inboxReport('reports', report.id)})`
+        return `[${reportLinkLabel(report.title, 'Untitled report')}](${urls.inboxReport('reports', report.id)})`
     })
 }
 
