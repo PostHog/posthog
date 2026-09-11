@@ -1,28 +1,19 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, getContext, kea, listeners, path, reducers, selectors } from 'kea'
 import type { PostHog } from 'posthog-js/dist/module'
 
+import { RegexMatchingError, startRegexMatching } from 'lib/regex/regexMatching'
 import { uuid } from 'lib/utils/dom'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
+import { DisposablesManager } from '~/kea-disposables'
 import { CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { EventType } from '~/types'
 
-function tryRegexMatch(text: string, pattern: string): boolean {
-    // If the pattern looks like /regex/ or /regex/flags, treat as regex
-    const regexMatch = pattern.match(/^\/(.+)\/([gimsuy]*)$/)
-    if (regexMatch) {
-        try {
-            const re = new RegExp(regexMatch[1], regexMatch[2])
-            return re.test(text)
-        } catch {
-            // Invalid regex, fall back to plain includes
-            return text.toLowerCase().includes(pattern.toLowerCase())
-        }
-    }
-    // Plain case-insensitive substring match
-    return text.toLowerCase().includes(pattern.toLowerCase())
+function regexSearch(pattern: string): { pattern: string; flags: string } | null {
+    const match = pattern.match(/^\/(.+)\/([gimsuy]*)$/)
+    return match ? { pattern: match[1], flags: match[2] } : null
 }
 
 const MAX_EVENTS = 5000
@@ -53,11 +44,15 @@ export interface eventDebugMenuLogicValues {
     hidePostHogProperties: boolean
     isCollapsedEventRow: (eventId: string | null | undefined) => boolean
     isPaused: boolean
+    literalSearch: boolean
     pinnedEventIds: Set<string>
     pinnedEvents: EventType[]
+    regexMatchedEvents: EventType[]
     relativeTimestamps: boolean
+    searchError: RegexMatchingError | null
     searchFilteredEvents: EventType[]
     searchFilteredEventsCount: Record<EventCategory, number>
+    searchPending: boolean
     searchText: string
     selectedEventTypes: EventCategory[]
     totalEventsCount: number
@@ -79,11 +74,29 @@ export interface eventDebugMenuLogicActions {
     markExpanded: (id: string | null | undefined) => {
         id: string | null | undefined
     }
+    refreshRegexSearch: () => {
+        value: true
+    }
+    resetRegexSearch: () => {
+        value: true
+    }
     setHidePostHogFlags: (hide: boolean) => {
         hide: boolean
     }
     setHidePostHogProperties: (hide: boolean) => {
         hide: boolean
+    }
+    setSearchPending: (pending: boolean) => {
+        pending: boolean
+    }
+    setSearchResult: (
+        events: EventType[],
+        error: RegexMatchingError | null,
+        literal: boolean
+    ) => {
+        error: RegexMatchingError | null
+        events: EventType[]
+        literal: boolean
     }
     setSearchText: (searchText: string) => {
         searchText: string
@@ -113,7 +126,12 @@ export interface eventDebugMenuLogicMeta {
             expandedEvent: string | null | undefined
         ) => (eventId: string | null | undefined) => boolean
         visibleEvents: (events: EventType[], bufferedEvents: EventType[], isPaused: boolean) => EventType[]
-        searchFilteredEvents: (visibleEvents: EventType[], searchText: string) => EventType[]
+        searchFilteredEvents: (
+            visibleEvents: EventType[],
+            searchText: string,
+            regexMatchedEvents: EventType[],
+            literalSearch: boolean
+        ) => EventType[]
         searchFilteredEventsCount: (searchFilteredEvents: EventType[]) => Record<EventCategory, number>
         activeFilteredEvents: (selectedEventTypes: EventCategory[], searchFilteredEvents: EventType[]) => EventType[]
         totalEventsCount: (visibleEvents: EventType[]) => number
@@ -143,6 +161,14 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
         values: [toolbarConfigLogic, ['posthog']],
     })),
     actions({
+        refreshRegexSearch: true,
+        resetRegexSearch: true,
+        setSearchPending: (pending: boolean) => ({ pending }),
+        setSearchResult: (events: EventType[], error: RegexMatchingError | null, literal: boolean) => ({
+            events,
+            error,
+            literal,
+        }),
         addEvent: (event: EventType) => ({ event }),
         markExpanded: (id: string | null | undefined) => ({ id }),
         setSearchText: (searchText: string) => ({ searchText }),
@@ -159,6 +185,37 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
         exportEvents: true,
     }),
     reducers({
+        regexMatchedEvents: [
+            [] as EventType[],
+            {
+                resetRegexSearch: () => [],
+                clearEvents: () => [],
+                setSearchResult: (_, { events }) => events,
+            },
+        ],
+        searchPending: [
+            false,
+            {
+                resetRegexSearch: () => false,
+                clearEvents: () => false,
+                setSearchPending: (_, { pending }) => pending,
+                setSearchResult: () => false,
+            },
+        ],
+        searchError: [
+            null as RegexMatchingError | null,
+            {
+                resetRegexSearch: () => null,
+                setSearchResult: (_, { error }) => error,
+            },
+        ],
+        literalSearch: [
+            false,
+            {
+                resetRegexSearch: () => false,
+                setSearchResult: (_, { literal }) => literal,
+            },
+        ],
         hidePostHogProperties: [
             false,
             {
@@ -266,14 +323,18 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
             },
         ],
         searchFilteredEvents: [
-            (s) => [s.visibleEvents, s.searchText],
-            (visibleEvents: EventType[], searchText: string) => {
-                return visibleEvents.filter((e: EventType) => {
-                    if (searchText && !tryRegexMatch(e.event, searchText)) {
-                        return false
-                    }
-                    return true
-                })
+            (s) => [s.visibleEvents, s.searchText, s.regexMatchedEvents, s.literalSearch],
+            (
+                visibleEvents: EventType[],
+                searchText: string,
+                regexMatchedEvents: EventType[],
+                literalSearch: boolean
+            ): EventType[] => {
+                if (!literalSearch && regexSearch(searchText)) {
+                    const matches = new Set(regexMatchedEvents)
+                    return visibleEvents.filter((event) => matches.has(event))
+                }
+                return visibleEvents.filter((event) => event.event.toLowerCase().includes(searchText.toLowerCase()))
             },
         ],
         searchFilteredEventsCount: [
@@ -376,7 +437,85 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
             },
         ],
     }),
+    listeners(({ actions, values, cache }) => ({
+        setSearchText: () => {
+            if (cache.searchQuery === values.searchText) {
+                return
+            }
+            cache.searchQuery = values.searchText
+            cache.disposables.dispose('regexSearch')
+            cache.searchSnapshot = undefined
+            actions.resetRegexSearch()
+            actions.refreshRegexSearch()
+        },
+        addEvent: () => {
+            actions.refreshRegexSearch()
+        },
+        togglePaused: () => {
+            cache.disposables.dispose('regexSearch')
+            cache.searchSnapshot = undefined
+            actions.setSearchPending(false)
+            actions.refreshRegexSearch()
+        },
+        clearEvents: () => {
+            cache.disposables.dispose('regexSearch')
+            cache.searchSnapshot = undefined
+        },
+        refreshRegexSearch: () => {
+            const regex = regexSearch(values.searchText)
+            if (!regex || values.searchError || values.literalSearch || cache.searchRunning) {
+                return
+            }
+            const snapshot = values.visibleEvents
+            const previous: EventType[] | undefined = cache.searchSnapshot
+            if (
+                !snapshot.length ||
+                (previous?.length === snapshot.length && previous.every((event, index) => event === snapshot[index]))
+            ) {
+                return
+            }
+            cache.searchSnapshot = snapshot
+            const manager: DisposablesManager = cache.disposables
+            const context = getContext()
+            actions.setSearchPending(true)
+            manager.add(
+                () => {
+                    let active = true
+                    cache.searchRunning = true
+                    const request = startRegexMatching(snapshot.map((event) => ({ ...regex, subject: event.event })))
+                    void request.promise.then((result) => {
+                        if (!active || manager.isDisposed || getContext() !== context) {
+                            return
+                        }
+                        manager.dispose('regexSearch')
+                        if (result.status === 'error') {
+                            actions.setSearchResult([], result.error, false)
+                            return
+                        }
+                        const literal = result.results.some((check) => 'error' in check)
+                        const matches = snapshot.filter((_, index) => {
+                            const check = result.results[index]
+                            return 'matches' in check && check.matches
+                        })
+                        actions.setSearchResult(matches, null, literal)
+                        // Publish this batch before catching up so a continuous stream cannot starve the list.
+                        actions.refreshRegexSearch()
+                    })
+                    return () => {
+                        active = false
+                        cache.searchRunning = false
+                        request.cancel()
+                    }
+                },
+                'regexSearch',
+                { pauseOnPageHidden: false }
+            )
+        },
+    })),
     afterMount(({ values, actions, cache }) => {
+        cache.searchQuery = values.searchText
+        cache.searchRunning = false
+        cache.searchSnapshot = undefined
         cache.disposables.add(() => {
             return values.posthog?.on('eventCaptured', (e) => {
                 actions.addEvent(e)

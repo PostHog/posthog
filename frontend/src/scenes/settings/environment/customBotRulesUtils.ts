@@ -1,3 +1,5 @@
+import { RegexCheck, RegexMatchingError, startRegexMatching } from 'lib/regex/regexMatching'
+
 import { CustomBotCondition, CustomBotField, CustomBotMatcher, CustomBotRule } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator } from '~/types'
 
@@ -146,7 +148,7 @@ const UNSUPPORTED_CONSTRUCTS: { pattern: RegExp; label: string }[] = [
 // compileForPreview in lib/components/PathCleanFilters/pathCleaningUtils.ts.
 const LEADING_INLINE_FLAGS = /^\(\?([ims]+)\)/
 
-function compileCustomBotRegex(pattern: string): RegExp {
+function customBotRegexCheck(pattern: string, subject: string): RegexCheck {
     // Consume every leading flag group and dedupe the letters: Python accepts stacked or repeated
     // groups like (?i)(?s)x and (?ii)x, while RegExp rejects both a leftover (?s) group in the body
     // and a repeated letter in the flags argument.
@@ -162,7 +164,7 @@ function compileCustomBotRegex(pattern: string): RegExp {
         body = body.slice(match[0].length)
         match = body.match(LEADING_INLINE_FLAGS)
     }
-    return new RegExp(body, flags)
+    return { pattern: body, flags, subject }
 }
 
 /** An address as a number, with the width of its family. Null when it does not parse. */
@@ -252,7 +254,8 @@ export function validateCustomBotCondition(condition: CustomBotCondition): strin
         }
     }
     try {
-        compileCustomBotRegex(condition.pattern)
+        const { pattern, flags } = customBotRegexCheck(condition.pattern, '')
+        new RegExp(pattern, flags)
     } catch {
         return 'This is not a valid regular expression.'
     }
@@ -290,8 +293,12 @@ export function validateCustomBotRuleSet(rules: CustomBotRule[]): string | null 
     return null
 }
 
-/** Whether a condition matches one property value, mirroring how it is compiled for the query. */
-export function conditionMatchesValue(condition: CustomBotCondition, value: string): boolean {
+// The caller supplies isolated regex results; the editor's native syntax check does not execute a match.
+export function conditionMatchesValue(
+    condition: CustomBotCondition,
+    value: string,
+    matchRegex: (check: RegexCheck) => boolean
+): boolean {
     if (!value.trim() || validateCustomBotCondition(condition)) {
         return false
     }
@@ -305,11 +312,7 @@ export function conditionMatchesValue(condition: CustomBotCondition, value: stri
         return (network.value & mask) === (candidate.value & mask)
     }
     if (condition.matcher === CustomBotMatcher.Regex) {
-        try {
-            return compileCustomBotRegex(condition.pattern).test(value)
-        } catch {
-            return false
-        }
+        return matchRegex(customBotRegexCheck(condition.pattern, value))
     }
     if (condition.matcher === CustomBotMatcher.Exact) {
         return value === condition.pattern.trim()
@@ -318,12 +321,55 @@ export function conditionMatchesValue(condition: CustomBotCondition, value: stri
 }
 
 /** Whether a rule matches the test values, one value per property, combined the way the query is. */
-export function ruleMatchesValues(rule: CustomBotRule, values: Partial<Record<CustomBotField, string>>): boolean {
+export function ruleMatchesValues(
+    rule: CustomBotRule,
+    values: Partial<Record<CustomBotField, string>>,
+    matchRegex: (check: RegexCheck) => boolean
+): boolean {
     if (validateCustomBotRule(rule)) {
         return false
     }
-    const matches = rule.items.map((condition) => conditionMatchesValue(condition, values[condition.key] ?? ''))
+    const matches = rule.items.map((condition) =>
+        conditionMatchesValue(condition, values[condition.key] ?? '', matchRegex)
+    )
     return rule.combiner === FilterLogicalOperator.Or ? matches.some(Boolean) : matches.every(Boolean)
+}
+
+export type CustomBotPreviewResult =
+    | { status: 'success'; matched: CustomBotRule[] }
+    | { status: 'error'; error: RegexMatchingError }
+
+export function startCustomBotRulesPreview(
+    rules: CustomBotRule[],
+    values: Partial<Record<CustomBotField, string>>
+): { promise: Promise<CustomBotPreviewResult>; cancel: () => void } {
+    const checks: RegexCheck[] = []
+    const immediate = rules.filter((rule) =>
+        ruleMatchesValues(rule, values, (check) => {
+            checks.push(check)
+            return false
+        })
+    )
+    if (!checks.length) {
+        return { promise: Promise.resolve({ status: 'success', matched: immediate }), cancel: () => {} }
+    }
+    const request = startRegexMatching(checks)
+    return {
+        cancel: request.cancel,
+        promise: request.promise.then((result): CustomBotPreviewResult => {
+            if (result.status === 'error') {
+                return result
+            }
+            let index = 0
+            const matched = rules.filter((rule) =>
+                ruleMatchesValues(rule, values, () => {
+                    const check = result.results[index++]
+                    return 'matches' in check && check.matches
+                })
+            )
+            return { status: 'success', matched }
+        }),
+    }
 }
 
 function isCondition(value: unknown): value is CustomBotCondition {

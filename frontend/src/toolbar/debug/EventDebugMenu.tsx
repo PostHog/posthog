@@ -26,6 +26,7 @@ import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -218,6 +219,8 @@ function ToolbarIconButton({
 export const EventDebugMenu = (): JSX.Element => {
     const {
         searchText,
+        searchPending,
+        searchError,
         isCollapsedEventRow,
         activeFilteredEvents,
         pinnedEvents,
@@ -361,8 +364,18 @@ export const EventDebugMenu = (): JSX.Element => {
                 )}
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
+                {searchError ? (
+                    <LemonBanner type="warning">
+                        Could not search with this regex. Simplify the pattern or use plain text.
+                    </LemonBanner>
+                ) : searchPending ? (
+                    <div role="status" className="px-4 py-2 text-sm text-secondary">
+                        Searching events…
+                    </div>
+                ) : null}
                 <div className="flex flex-col gap-0.5">
-                    {!activeFilteredEvents.length ? (
+                    {!activeFilteredEvents.length &&
+                    (searchPending || searchError) ? null : !activeFilteredEvents.length ? (
                         <div className="px-4 py-2 text-sm text-secondary">
                             {searchText
                                 ? 'No events match your filters.'

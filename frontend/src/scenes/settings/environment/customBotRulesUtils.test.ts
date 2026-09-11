@@ -1,14 +1,22 @@
+import { RegexCheck } from 'lib/regex/regexMatching'
+
 import { CustomBotCondition, CustomBotField, CustomBotMatcher, CustomBotRule } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator } from '~/types'
 
 import {
-    conditionMatchesValue,
-    ruleMatchesValues,
+    conditionMatchesValue as matchCondition,
+    ruleMatchesValues as matchRule,
     parseCustomBotRules,
     validateCustomBotCondition,
     validateCustomBotRule,
     validateCustomBotRuleSet,
 } from './customBotRulesUtils'
+
+const nativeMatch = ({ pattern, flags, subject }: RegexCheck): boolean => new RegExp(pattern, flags).test(subject)
+const conditionMatchesValue = (condition: CustomBotCondition, value: string): boolean =>
+    matchCondition(condition, value, nativeMatch)
+const ruleMatchesValues = (rule: CustomBotRule, values: Partial<Record<CustomBotField, string>>): boolean =>
+    matchRule(rule, values, nativeMatch)
 
 const condition = (overrides: Partial<CustomBotCondition> = {}): CustomBotCondition => ({
     id: 'c1',
@@ -30,6 +38,17 @@ const ipCondition = (pattern: string): CustomBotCondition =>
     condition({ key: CustomBotField.IP, matcher: CustomBotMatcher.Cidr, pattern })
 
 describe('customBotRulesUtils', () => {
+    it('uses the supplied isolated regex result instead of matching on the main thread', () => {
+        const match = jest.fn(() => false)
+        expect(
+            matchCondition(
+                condition({ matcher: CustomBotMatcher.Regex, pattern: '(?ii)(?s)acme.bot' }),
+                'ACME\nBOT',
+                match
+            )
+        ).toBe(false)
+        expect(match).toHaveBeenCalledWith({ pattern: 'acme.bot', flags: 'is', subject: 'ACME\nBOT' })
+    })
     // These rules mirror the ones the API enforces. When they drift, a rule the editor calls valid
     // comes back as a 400 on save instead of an inline error next to the row.
     describe('validateCustomBotCondition', () => {

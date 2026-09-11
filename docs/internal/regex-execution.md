@@ -39,3 +39,38 @@ Browser scheduling can delay delivery of the main-thread timer, so the budget is
 The manager also checks elapsed time when messages arrive and cancels on document hide to avoid leaving work running in a background tab.
 
 Implementation: [worker manager](../../frontend/src/lib/regex/regexMatching.ts), [fixed worker source](../../frontend/src/lib/regex/regexWorkerSource.ts), and [preview logic](../../frontend/src/lib/regex/regexMatchingLogic.ts).
+
+## Custom bot rule previews
+
+The custom bot rule tester uses the same bounded worker for regex matching.
+Leading `i`, `m`, and `s` flag groups are translated to native JavaScript flags, including stacked and repeated groups.
+The existing bot validators still reject constructs that the backend cannot accept.
+The JavaScript preview does not guarantee the same results as the backend Hyperscan engine.
+Saved rules and backend validation are unchanged.
+
+Exact, contains, and IP range conditions keep their existing matching behavior and do not need a worker.
+Regex conditions in all tested rules share one worker batch and deadline.
+Rule conditions still combine with the selected all/any setting.
+Empty values do not match, and removing all rules that use a test field clears its preview.
+The tester shows a pending state while checking rules and an error if matching cannot complete.
+Simplify the regex or shorten the test value to try again.
+Editing the rules or test values cancels an older request; equal inputs do not retry a failed preview.
+
+## Toolbar event search
+
+Plain event searches remain case-insensitive substring searches and work without web workers.
+Use `/pattern/` or `/pattern/flags` for native JavaScript regex search.
+The recognized flags remain `g`, `i`, `m`, `s`, `u`, and `y`.
+Invalid regex syntax falls back to searching for the complete literal search string.
+Each event gets a fresh expression, so global and sticky flags do not carry a match position between events.
+
+The toolbar sends the visible event names as one batch using the worker and deadlines described above.
+As events arrive, only one batch can run at a time.
+A completed batch becomes visible before the toolbar checks the latest event list; incoming events do not repeatedly cancel valid work.
+Completed matches remain visible while the next batch runs.
+Worker failures, including browser or Content Security Policy restrictions, appear as search errors.
+Simplify the pattern or use plain text to continue.
+A failed pattern is not retried when events arrive, when the stream pauses or resumes, or when events are cleared.
+Change the search query to try again.
+Changing a query or clearing events cancels pending work, and the toolbar ignores stale results.
+Category filters, pause buffering, pinned events, and exports continue to use the filtered event list.

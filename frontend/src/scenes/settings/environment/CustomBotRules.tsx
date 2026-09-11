@@ -1,6 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 
@@ -20,6 +20,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { CustomBotCondition, CustomBotField, CustomBotMatcher, CustomBotRule } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator } from '~/types'
 
+import { customBotRulesPreviewLogic } from './customBotRulesPreviewLogic'
 import {
     CUSTOM_BOT_CATEGORY,
     CUSTOM_BOT_CATEGORY_OPTIONS,
@@ -32,7 +33,6 @@ import {
     matcherLabel,
     matcherOptionsFor,
     patternPlaceholderFor,
-    ruleMatchesValues,
     sanitizeCustomBotRules,
     parseCustomBotRules,
     validateCustomBotCondition,
@@ -112,6 +112,8 @@ export function CustomBotRules(): JSX.Element {
     const droppedCount = (Array.isArray(rawSavedRules) ? rawSavedRules.length : 0) - savedRules.length
     const [rules, setRules] = useState<CustomBotRule[]>(savedRules)
     const [testValues, setTestValues] = useState<Partial<Record<CustomBotField, string>>>({})
+    const instanceKey = useId()
+    const { preview } = useValues(customBotRulesPreviewLogic({ instanceKey, rules, testValues }))
 
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -128,7 +130,7 @@ export function CustomBotRules(): JSX.Element {
     const usedFields = CUSTOM_BOT_FIELD_OPTIONS.filter((option) =>
         rules.some((rule) => rule.items.some((condition) => condition.key === option.value))
     )
-    const matched = rules.filter((rule) => ruleMatchesValues(rule, testValues))
+    const matched = preview.status === 'success' ? preview.matched : []
     // Only values for a property still in use count as test input, so removing a rule does not leave
     // a stale value showing a phantom "no match".
     const hasTestInput = usedFields.some((field) => testValues[field.value]?.trim())
@@ -348,7 +350,18 @@ export function CustomBotRules(): JSX.Element {
                             />
                         </div>
                     ))}
-                    {matched.length > 0 ? (
+                    <span className="text-muted text-xs">
+                        Regex previews use JavaScript. Results can differ from the query engine.
+                    </span>
+                    {preview.status === 'pending' ? (
+                        <span role="status" className="text-muted">
+                            Checking rules…
+                        </span>
+                    ) : preview.status === 'error' ? (
+                        <LemonBanner type="warning">
+                            Could not check these rules. Simplify the regex or shorten the test value, then try again.
+                        </LemonBanner>
+                    ) : matched.length > 0 ? (
                         <span className="flex items-center gap-1 flex-wrap">
                             Matches
                             {matched.map((rule) => (
