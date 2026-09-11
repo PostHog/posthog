@@ -11,6 +11,7 @@ import {
     ExternalDataSchemaStatus,
     ExternalDataSourceSyncSchema,
     HogFunctionTemplateType,
+    IncrementalSyncBlockedReason,
 } from '~/types'
 
 export type SyncInterval = DataWarehouseSyncInterval | DataModelingSyncInterval
@@ -166,6 +167,13 @@ export const SyncTypeLabelMap: Record<NonNullable<ExternalDataSourceSyncSchema['
     webhook: 'Webhook',
     cdc: 'CDC',
     xmin: 'xmin',
+}
+
+export const IncrementalSyncBlockedMessageMap: Record<IncrementalSyncBlockedReason, string> = {
+    missing_primary_key:
+        "This table has no primary key, so it can't sync incrementally. Pick primary key columns, or change the sync method. If you added a primary key in the source, enable syncing to try again.",
+    duplicate_primary_key:
+        "The primary key used for this table isn't unique, so it can't sync incrementally. Remove the duplicate rows in the source and enable syncing to try again, or change the sync method. The key itself can't be changed once data has synced, unless you delete the synced data first.",
 }
 
 export const SyncFrequencyLabelMap: Record<DataWarehouseSyncInterval, string> = {

@@ -21,6 +21,10 @@ from posthog.models.team import Team
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
+    DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
+    DUPLICATE_PRIMARY_KEYS_RAW_ERROR,
+    MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
+    MISSING_PRIMARY_KEYS_RAW_ERROR,
     REPARTITION_HOLD_MAX_AGE,
     ExternalDataSchema,
     apply_incremental_lookback,
@@ -1281,3 +1285,33 @@ class TestRepartitionHoldsImport:
         naive = (datetime.now(UTC) - timedelta(minutes=5)).replace(tzinfo=None).isoformat()
         schema = self._schema_with({"temp_uri": "s3://t", "held_at": naive})
         assert schema.repartition_holds_import is True
+
+
+class TestIncrementalSyncBlocked(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("friendly_missing", MISSING_PRIMARY_KEY_DISABLED_MESSAGE, "missing_primary_key"),
+            ("friendly_duplicate", DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE, "duplicate_primary_key"),
+            ("raw_missing", f"MissingPrimaryKeysException: {MISSING_PRIMARY_KEYS_RAW_ERROR}", "missing_primary_key"),
+            (
+                "raw_duplicate",
+                f"DuplicatePrimaryKeysException: {DUPLICATE_PRIMARY_KEYS_RAW_ERROR}. Primary keys being used are: ['id']",
+                "duplicate_primary_key",
+            ),
+            ("unrelated_failure", "Your SSH tunnel credentials are not valid", None),
+            ("healthy_schema", None, None),
+        ]
+    )
+    def test_only_a_key_failure_reports_a_blocked_sync(
+        self, _name: str, latest_error: str | None, expected: str | None
+    ) -> None:
+        assert ExternalDataSchema(latest_error=latest_error).incremental_sync_blocked == expected
+
+    def test_blocked_markers_match_the_raised_errors(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (  # noqa: PLC0415 — pulls pyarrow, which the model path must not import
+            DUPLICATE_PRIMARY_KEYS_ERROR,
+            MISSING_PRIMARY_KEYS_ERROR,
+        )
+
+        assert MISSING_PRIMARY_KEYS_RAW_ERROR == MISSING_PRIMARY_KEYS_ERROR
+        assert DUPLICATE_PRIMARY_KEYS_RAW_ERROR == DUPLICATE_PRIMARY_KEYS_ERROR
