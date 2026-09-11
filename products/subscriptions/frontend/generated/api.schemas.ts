@@ -419,6 +419,8 @@ export interface SubscriptionWriteApi {
      * @maxItems 3
      */
     contexts?: SubscriptionWriteApiContextsItem[]
+    /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
+    readonly ai_query_plan_status: AIQueryPlanStatusEnumApi | null
     /** Delivery channel: email, slack, or teams.
      *
      * * `email` - Email

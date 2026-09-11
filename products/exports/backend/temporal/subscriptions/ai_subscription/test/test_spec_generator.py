@@ -7,12 +7,13 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyItem, TeamTaxonomyQuery
+from posthog.schema import CachedTeamTaxonomyQueryResponse, InsightVizNode, TeamTaxonomyItem, TeamTaxonomyQuery
 
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
 
 from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import ContextVisualCandidate
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     QueryPlan,
     QueryPlanStep,
@@ -848,6 +849,46 @@ class TestTopEventNames(APIBaseTest):
         names, _ = self._run_with_results(results, limit=20)
 
         assert names == ["export created"]
+
+
+class TestContextVisualPlannerContract:
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_offers_saved_visuals_and_drops_unknown_or_duplicate_model_refs(self, mock_chat: MagicMock) -> None:
+        candidate = ContextVisualCandidate(
+            ref="insight:7",
+            insight_id=7,
+            title="Curated signups",
+            visualization=InsightVizNode.model_validate(
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "signup"}],
+                        "dateRange": {"date_from": "-30d"},
+                    },
+                }
+            ),
+        )
+        structured = mock_chat.return_value.with_structured_output.return_value
+        structured.invoke.return_value = QueryPlan(
+            overall_intent="intent",
+            steps=[QueryPlanStep(description="d", hogql="SELECT 1")],
+            context_visual_refs=["insight:7", "insight:999", "insight:7"],
+        )
+
+        result = generate_query_plan(
+            cleaned_prompt="show signups",
+            context_blob="project context",
+            formatted_context="Curated signups: 42",
+            context_visual_candidates=(candidate,),
+            team=MagicMock(),
+            user=MagicMock(),
+        )
+
+        (messages,) = structured.invoke.call_args.args
+        assert "insight:7" in messages[1][1]
+        assert '"date_from":"-30d"' in messages[1][1]
+        assert result.context_visual_refs == ["insight:7"]
 
 
 class TestGenerateQueryPlanSubstitution(APIBaseTest):

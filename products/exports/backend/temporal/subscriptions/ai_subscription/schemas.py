@@ -80,6 +80,14 @@ class QueryPlan(BaseModel):
         description="Plain-English summary of what the report will tell the user.",
     )
     steps: list[QueryPlanStep] = Field(..., max_length=MAX_QUERY_PLAN_STEPS)
+    context_visual_refs: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_CHARTS_PER_REPORT,
+        description=(
+            "Opaque refs copied exactly from the offered saved visual candidates that directly help answer the prompt. "
+            "Prefer a suitable saved visual over requesting a generated chart for the same finding."
+        ),
+    )
 
 
 class EnrichedPromptSpec(BaseModel):

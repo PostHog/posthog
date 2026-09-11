@@ -32,6 +32,7 @@ from products.exports.backend.models.subscription import (
     get_unsubscribe_token,
 )
 from products.exports.backend.models.subscription_context import SubscriptionContext
+from products.exports.backend.temporal.subscriptions.ai_subscription.charts import charts_enabled
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
     MAX_REPORT_CONTEXTS,
     ReportContextSelection,
@@ -190,6 +191,8 @@ class SubscriptionReportContext:
     ai_query_plan: dict | None
     context_selection: ReportContextSelection
     creator_can_query: bool
+    include_images: bool
+    include_manage_link: bool
 
 
 class QueryAccessRevokedError(PromptRejectedError):
@@ -252,6 +255,8 @@ def _resolve_subscription_context(subscription: Subscription) -> SubscriptionRep
                     "query", "viewer"
                 )
             ),
+            include_images=current.includes_delivery_part("include_images"),
+            include_manage_link=current.includes_delivery_part("include_manage_link"),
         )
 
 
@@ -285,9 +290,14 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     if not context.creator_can_query:
         raise QueryAccessRevokedError("AI subscription creator no longer has query access; cannot deliver.")
 
-    report_context = await resolve_report_context(subscription, context.context_selection)
-
-    include_images = subscription.includes_delivery_part("include_images")
+    charts_enabled_for_team = context.include_images and await database_sync_to_async(
+        charts_enabled, thread_sensitive=False
+    )(context.team, context.user)
+    report_context = await resolve_report_context(
+        subscription,
+        context.context_selection,
+        include_visual_candidates=charts_enabled_for_team,
+    )
     result = await generate_ai_report(
         team=context.team,
         user=context.user,
@@ -296,8 +306,9 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         ai_query_plan=context.ai_query_plan,
         report_context=report_context,
         trace_correlation_id=subscription.id,
-        include_charts=include_images,
-        include_manage_link=subscription.includes_delivery_part("include_manage_link"),
+        include_charts=context.include_images,
+        include_manage_link=context.include_manage_link,
+        charts_enabled_override=charts_enabled_for_team,
     )
 
     if result.plan_to_persist is not None:
@@ -308,7 +319,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
                 subscription.team_id,
                 context.prompt,
                 result.plan_to_persist,
-                expected_include_images=include_images,
+                expected_include_images=context.include_images,
             )
         except Exception as exc:
             # The frozen plan is an optimization — losing this write must not abort the delivery (the
@@ -331,19 +342,60 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
 CHART_IMAGE_URL_TTL = timedelta(days=180)
 
 
-def build_chart_image_urls(charts: Any, *, team_id: int) -> list[dict]:
+type ChartImageUrl = dict[str, str]
+
+
+def _chart_image_fields(chart: object) -> tuple[int, str] | None:
+    if not isinstance(chart, dict):
+        return None
+    asset_id = chart.get("export_asset_id")
+    title = chart.get("title")
+    if not isinstance(asset_id, int) or isinstance(asset_id, bool) or not isinstance(title, str):
+        return None
+
+    source = chart.get("source")
+    if source is None:
+        # Rows written before chart provenance was added contain only the common fields.
+        return asset_id, title
+    if source == "generated":
+        step_index = chart.get("step_index")
+        return (asset_id, title) if isinstance(step_index, int) and not isinstance(step_index, bool) else None
+    if source != "context":
+        return None
+
+    context_ref = chart.get("context_ref")
+    insight_id = chart.get("insight_id")
+    dashboard_id = chart.get("dashboard_id")
+    dashboard_tile_id = chart.get("dashboard_tile_id")
+    if not isinstance(context_ref, str) or not isinstance(insight_id, int) or isinstance(insight_id, bool):
+        return None
+    if (dashboard_id is None) != (dashboard_tile_id is None):
+        return None
+    if dashboard_id is None:
+        return (asset_id, title) if context_ref == f"insight:{insight_id}" else None
+    if (
+        not isinstance(dashboard_id, int)
+        or isinstance(dashboard_id, bool)
+        or not isinstance(dashboard_tile_id, int)
+        or isinstance(dashboard_tile_id, bool)
+    ):
+        return None
+    expected_ref = f"dashboard-visual:{dashboard_id}:{dashboard_tile_id}:{insight_id}"
+    return (asset_id, title) if context_ref == expected_ref else None
+
+
+def build_chart_image_urls(charts: object, *, team_id: int) -> list[ChartImageUrl]:
     if not isinstance(charts, list):
         return []
-    urls: list[dict] = []
+    urls: list[ChartImageUrl] = []
     for chart in charts:
-        if not isinstance(chart, dict):
+        image_fields = _chart_image_fields(chart)
+        if image_fields is None:
             continue
-        asset_id = chart.get("export_asset_id")
-        if not isinstance(asset_id, int) or isinstance(asset_id, bool):
-            continue
+        asset_id, title = image_fields
         image_url = get_delivery_image_url(team_id=team_id, asset_id=asset_id, expiry_delta=CHART_IMAGE_URL_TTL)
         if image_url:
-            urls.append({"title": str(chart.get("title") or ""), "image_url": image_url})
+            urls.append({"title": title, "image_url": image_url})
     return urls
 
 

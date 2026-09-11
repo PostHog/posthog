@@ -27,7 +27,9 @@ from products.exports.backend.models.subscription import AIQueryPlanStatus
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     SPEC_INVALID_DROP_REASONS,
     ChartFailureReason,
-    RenderedChart,
+    ChartRenderFailure,
+    RenderedChartResult,
+    RenderedContextChart,
     ValidatedChart,
     charts_enabled,
     render_charts,
@@ -46,8 +48,10 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_cont
     CONTEXT_NAME_MAX_LENGTH,
     MAX_DASHBOARD_INSIGHTS,
     MAX_REPORT_CONTEXTS,
+    ContextVisualCandidate,
     ReportContextEvidence,
     ReportContextStatus,
+    select_context_visual_candidates,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     MAX_CHART_TITLE_LENGTH,
@@ -308,7 +312,7 @@ class AiReportResult:
     prompt: str | None = None
     # Set only when the run planned from scratch; the caller freezes it onto the subscription.
     plan_to_persist: Optional[dict] = None
-    charts: tuple[RenderedChart, ...] = ()
+    charts: tuple[RenderedChartResult, ...] = ()
     context: AiReportContext = field(default_factory=AiReportContext)
     authorized_context_refs: tuple[str, ...] = ()
     # Immutable account of the plan state for this delivery. The delivery activity persists this
@@ -330,6 +334,7 @@ async def generate_ai_report(
     trace_correlation_id: Optional[Union[int, str]] = None,
     include_charts: bool = True,
     include_manage_link: bool = True,
+    charts_enabled_override: bool | None = None,
 ) -> AiReportResult:
     if user is None:
         raise PromptRejectedError("AI report must have a user to run.")
@@ -353,6 +358,14 @@ async def generate_ai_report(
         properties={"window_start": window.start_literal, "window_end": window.end_literal},
     ) as slo:
         try:
+            charts_enabled_for_team = include_charts and (
+                charts_enabled_override
+                if charts_enabled_override is not None
+                else await database_sync_to_async(charts_enabled, thread_sensitive=False)(team, user)
+            )
+            context_visual_candidates = (
+                report_context.visual_candidates if charts_enabled_for_team and report_context is not None else ()
+            )
             # A stored plan that no longer validates self-heals by re-planning live.
             has_selected_context = context_provenance.has_selection
             if ai_query_plan is not None and not has_selected_context:
@@ -379,6 +392,7 @@ async def generate_ai_report(
                         formatted_context=formatted_context,
                         has_successful_context=has_successful_context,
                         context_events=context_events,
+                        context_visual_candidates=context_visual_candidates,
                     )
                     freshly_planned = True
             else:
@@ -391,13 +405,9 @@ async def generate_ai_report(
                     formatted_context=formatted_context,
                     has_successful_context=has_successful_context,
                     context_events=context_events,
+                    context_visual_candidates=context_visual_candidates,
                 )
                 freshly_planned = True
-            # A report that will not show its charts must not build or render them: each render is a
-            # headless PNG export holding a slot in a pool every concurrent report shares.
-            charts_enabled_for_team = include_charts and await database_sync_to_async(
-                charts_enabled, thread_sensitive=False
-            )(team, user)
             execution = await _execute_plan(
                 spec, team, user, window, trace_correlation_id, charts_enabled_for_team=charts_enabled_for_team
             )
@@ -405,27 +415,38 @@ async def generate_ai_report(
             chart_spec_failures = sum(
                 1 for diagnostic in diagnostics if diagnostic.chart_dropped_reason in SPEC_INVALID_DROP_REASONS
             )
+            selected_context_visuals = select_context_visual_candidates(
+                spec.plan.context_visual_refs, context_visual_candidates
+            )
             ranked = sorted(charts, key=lambda chart: chart.spec.importance, reverse=True)
-            selected, dropped = ranked[:MAX_CHARTS_PER_REPORT], ranked[MAX_CHARTS_PER_REPORT:]
+            generated_slots = max(0, MAX_CHARTS_PER_REPORT - len(selected_context_visuals))
+            selected, dropped = ranked[:generated_slots], ranked[generated_slots:]
             if dropped:
                 _capture_charts_truncated(
                     team=team,
                     trace_correlation_id=trace_correlation_id,
-                    requested=len(charts),
-                    selected=len(selected),
+                    requested=len(selected_context_visuals) + len(charts),
+                    selected=len(selected_context_visuals) + len(selected),
                 )
             synthesis_task = asyncio.ensure_future(
                 _synthesize(spec, execution.rendered, team, user, trace_correlation_id)
             )
-            render_task = asyncio.ensure_future(render_charts(selected, team=team, user=user))
+            render_task = (
+                asyncio.ensure_future(
+                    render_charts(selected, context_visuals=selected_context_visuals, team=team, user=user)
+                )
+                if charts_enabled_for_team
+                else None
+            )
             try:
                 report = await synthesis_task
             except BaseException:
-                render_task.cancel()
-                with contextlib.suppress(BaseException):
-                    await render_task
+                if render_task is not None:
+                    render_task.cancel()
+                    with contextlib.suppress(BaseException):
+                        await render_task
                 raise
-            rendered_charts, chart_failures = await render_task
+            rendered_charts, chart_failures = await render_task if render_task is not None else ([], [])
         except PromptRejectedError:
             # A rejected prompt is the input guard doing its job, not a service failure — keep it out of
             # the error budget so user-supplied bad input doesn't burn the SLO.
@@ -434,7 +455,7 @@ async def generate_ai_report(
 
         total_steps = len(spec.plan.steps)
         for failure in chart_failures:
-            if 0 <= failure.step_index < len(diagnostics):
+            if isinstance(failure, ChartRenderFailure) and 0 <= failure.step_index < len(diagnostics):
                 diagnostics[failure.step_index] = dataclasses.replace(
                     diagnostics[failure.step_index], chart_dropped_reason=failure.reason
                 )
@@ -446,6 +467,7 @@ async def generate_ai_report(
         ]
         failed_contexts = sum(status == "failed" for status in context_statuses)
         truncated_contexts = sum(status == "truncated" for status in context_statuses)
+        rendered_context_visuals = sum(isinstance(chart, RenderedContextChart) for chart in rendered_charts)
         slo.tag(
             total_steps=total_steps,
             failed_steps=failed_count,
@@ -454,11 +476,15 @@ async def generate_ai_report(
             selected_contexts=len(context_statuses),
             failed_contexts=failed_contexts,
             truncated_contexts=truncated_contexts,
-            charts_requested=len(charts),
+            charts_requested=len(selected_context_visuals) + len(charts),
             charts_rendered=len(rendered_charts),
             chart_failures=len(chart_failures),
             chart_failure_reasons=",".join(sorted({failure.reason for failure in chart_failures})),
             charts_dropped=len(dropped),
+            context_visuals_available=len(context_visual_candidates),
+            context_visuals_selected=len(selected_context_visuals),
+            context_visuals_rendered=rendered_context_visuals,
+            generated_charts_rendered=len(rendered_charts) - rendered_context_visuals,
         )
         if failed_count:
             logger.warning(
@@ -468,7 +494,9 @@ async def generate_ai_report(
                 total_steps=total_steps,
             )
         if dropped and rendered_charts:
-            report = report + _charts_truncated_footnote(len(rendered_charts), len(charts))
+            report = report + _charts_truncated_footnote(
+                len(rendered_charts), len(selected_context_visuals) + len(charts)
+            )
         if total_steps and failed_count == total_steps:
             # Every query failed, so the body is all "could not be computed" placeholders. Lead with a
             # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
@@ -579,6 +607,7 @@ async def _plan(
     formatted_context: str = "",
     has_successful_context: bool = True,
     context_events: Sequence[str] = (),
+    context_visual_candidates: Sequence[ContextVisualCandidate] = (),
 ) -> EnrichedPromptSpec:
     try:
         return await database_sync_to_async(build_enriched_prompt, thread_sensitive=False)(
@@ -590,6 +619,7 @@ async def _plan(
             formatted_context=formatted_context,
             has_successful_context=has_successful_context,
             context_events=context_events,
+            context_visual_candidates=context_visual_candidates,
         )
     except PromptRejectedError:
         raise

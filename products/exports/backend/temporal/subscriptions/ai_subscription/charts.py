@@ -1,7 +1,8 @@
 import asyncio
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Any, Literal, Optional, TypedDict
 
 import structlog
 
@@ -13,11 +14,16 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 
 from products.exports.backend.facade.api import RENDER_TIMEOUT, render_png_export
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
+    ContextVisualCandidate,
+    user_can_access_context_visual,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     ALLOWED_CHART_DISPLAYS,
     CONTINUOUS_CHART_DISPLAYS,
     MAX_CHART_CATEGORIES,
     MAX_CHART_SERIES,
+    MAX_CHARTS_PER_REPORT,
     MIN_CHART_CATEGORIES,
     MIN_CHART_ROWS,
     StepChart,
@@ -50,6 +56,7 @@ class ChartFailureReason(StrEnum):
     RENDER_ERROR = "render_error"
     RENDER_FAILED = "render_failed"
     BUDGET_EXHAUSTED = "budget_exhausted"
+    CONTEXT_ACCESS_REVOKED = "context_access_revoked"
 
 
 SPEC_INVALID_DROP_REASONS = frozenset(
@@ -74,12 +81,75 @@ class RenderedChart:
     export_asset_id: int
     title: str
     step_index: int
+    source: Literal["generated"] = "generated"
+
+
+@frozen
+class RenderedContextChart:
+    export_asset_id: int
+    title: str
+    context_ref: str
+    insight_id: int
+    dashboard_id: int | None = None
+    dashboard_tile_id: int | None = None
+    source: Literal["context"] = "context"
+
+
+type RenderedChartResult = RenderedChart | RenderedContextChart
+
+
+class GeneratedChartSnapshot(TypedDict):
+    source: Literal["generated"]
+    export_asset_id: int
+    title: str
+    step_index: int
+
+
+class ContextChartSnapshot(TypedDict):
+    source: Literal["context"]
+    export_asset_id: int
+    title: str
+    context_ref: str
+    insight_id: int
+    dashboard_id: int | None
+    dashboard_tile_id: int | None
+
+
+type RenderedChartSnapshot = GeneratedChartSnapshot | ContextChartSnapshot
+
+
+def serialize_rendered_chart(chart: RenderedChartResult) -> RenderedChartSnapshot:
+    if isinstance(chart, RenderedContextChart):
+        return {
+            "source": "context",
+            "export_asset_id": chart.export_asset_id,
+            "title": chart.title,
+            "context_ref": chart.context_ref,
+            "insight_id": chart.insight_id,
+            "dashboard_id": chart.dashboard_id,
+            "dashboard_tile_id": chart.dashboard_tile_id,
+        }
+    return {
+        "source": "generated",
+        "export_asset_id": chart.export_asset_id,
+        "title": chart.title,
+        "step_index": chart.step_index,
+    }
 
 
 @frozen
 class ChartRenderFailure:
     step_index: int
     reason: ChartFailureReason
+
+
+@frozen
+class ContextChartRenderFailure:
+    context_ref: str
+    reason: ChartFailureReason
+
+
+type AnyChartRenderFailure = ChartRenderFailure | ContextChartRenderFailure
 
 
 def charts_enabled(team: Team, user: User) -> bool:
@@ -178,63 +248,104 @@ def build_export_context(chart: ValidatedChart) -> dict:
     }
 
 
+def build_context_export_context(candidate: ContextVisualCandidate) -> dict:
+    return {
+        "limit_context": "posthog_ai",
+        "title": candidate.title,
+        "source": candidate.visualization.model_dump(mode="json"),
+    }
+
+
 async def render_charts(
     charts: list[ValidatedChart],
     *,
+    context_visuals: Sequence[ContextVisualCandidate] = (),
     team: Team,
     user: User,
-) -> tuple[list[RenderedChart], list[ChartRenderFailure]]:
-    if not charts:
+) -> tuple[list[RenderedChartResult], list[AnyChartRenderFailure]]:
+    bounded_context = list(context_visuals[:MAX_CHARTS_PER_REPORT])
+    generated_slots = max(0, MAX_CHARTS_PER_REPORT - len(bounded_context))
+    attempts: list[ValidatedChart | ContextVisualCandidate] = [*bounded_context, *charts[:generated_slots]]
+    if not attempts:
         return [], []
 
     semaphore = asyncio.Semaphore(_MAX_CONCURRENT_RENDERS)
 
-    async def render_one(chart: ValidatedChart) -> tuple[Optional[RenderedChart], Optional[ChartRenderFailure]]:
+    def failure_for(
+        attempt: ValidatedChart | ContextVisualCandidate, reason: ChartFailureReason
+    ) -> AnyChartRenderFailure:
+        if isinstance(attempt, ContextVisualCandidate):
+            return ContextChartRenderFailure(context_ref=attempt.ref, reason=reason)
+        return ChartRenderFailure(step_index=attempt.step_index, reason=reason)
+
+    async def render_one(
+        attempt: ValidatedChart | ContextVisualCandidate,
+    ) -> tuple[Optional[RenderedChartResult], Optional[AnyChartRenderFailure]]:
         async with semaphore:
+            if isinstance(attempt, ContextVisualCandidate):
+                can_access = await database_sync_to_async(user_can_access_context_visual, thread_sensitive=False)(
+                    team=team, user=user, candidate=attempt
+                )
+                if not can_access:
+                    logger.warning("ai_report.context_chart_access_revoked", context_ref=attempt.ref)
+                    return None, failure_for(attempt, ChartFailureReason.CONTEXT_ACCESS_REVOKED)
+                export_context = build_context_export_context(attempt)
+            else:
+                export_context = build_export_context(attempt)
             try:
                 asset, png = await asyncio.wait_for(
                     database_sync_to_async(render_png_export, thread_sensitive=False, executor=_RENDER_EXECUTOR)(
                         team=team,
                         created_by=user,
-                        export_context=build_export_context(chart),
+                        export_context=export_context,
                     ),
                     timeout=_RENDER_TIMEOUT_SECONDS,
                 )
             except TimeoutError:
-                logger.warning("ai_report.chart_render_timed_out", step_index=chart.step_index)
-                return None, ChartRenderFailure(step_index=chart.step_index, reason=ChartFailureReason.RENDER_TIMED_OUT)
+                logger.warning("ai_report.chart_render_timed_out")
+                return None, failure_for(attempt, ChartFailureReason.RENDER_TIMED_OUT)
             except Exception:
-                logger.warning("ai_report.chart_render_error", step_index=chart.step_index, exc_info=True)
-                return None, ChartRenderFailure(step_index=chart.step_index, reason=ChartFailureReason.RENDER_ERROR)
+                logger.warning("ai_report.chart_render_error", exc_info=True)
+                return None, failure_for(attempt, ChartFailureReason.RENDER_ERROR)
             if png is None:
-                logger.warning("ai_report.chart_render_failed", step_index=chart.step_index, error=str(asset.exception))
-                return None, ChartRenderFailure(step_index=chart.step_index, reason=ChartFailureReason.RENDER_FAILED)
-            return RenderedChart(export_asset_id=asset.id, title=chart.title, step_index=chart.step_index), None
+                logger.warning("ai_report.chart_render_failed", error=str(asset.exception))
+                return None, failure_for(attempt, ChartFailureReason.RENDER_FAILED)
+            if isinstance(attempt, ContextVisualCandidate):
+                return (
+                    RenderedContextChart(
+                        export_asset_id=asset.id,
+                        title=attempt.title,
+                        context_ref=attempt.ref,
+                        insight_id=attempt.insight_id,
+                        dashboard_id=attempt.dashboard_id,
+                        dashboard_tile_id=attempt.dashboard_tile_id,
+                    ),
+                    None,
+                )
+            return RenderedChart(export_asset_id=asset.id, title=attempt.title, step_index=attempt.step_index), None
 
-    tasks = {asyncio.create_task(render_one(chart)): chart for chart in charts}
+    tasks = {asyncio.create_task(render_one(attempt)): (index, attempt) for index, attempt in enumerate(attempts)}
     done, pending = await asyncio.wait(tasks.keys(), timeout=_CHART_PHASE_BUDGET_SECONDS)
     for task in pending:
         task.cancel()
     if pending:
-        logger.warning("ai_report.chart_phase_budget_exhausted", abandoned=len(pending), chart_count=len(charts))
+        logger.warning("ai_report.chart_phase_budget_exhausted", abandoned=len(pending), chart_count=len(attempts))
 
-    rendered: list[RenderedChart] = []
-    failures: list[ChartRenderFailure] = [
-        ChartRenderFailure(step_index=tasks[task].step_index, reason=ChartFailureReason.BUDGET_EXHAUSTED)
-        for task in pending
+    rendered_with_order: list[tuple[int, RenderedChartResult]] = []
+    failures_with_order: list[tuple[int, AnyChartRenderFailure]] = [
+        (tasks[task][0], failure_for(tasks[task][1], ChartFailureReason.BUDGET_EXHAUSTED)) for task in pending
     ]
     for task in done:
+        order, attempt = tasks[task]
         if task.exception() is not None:
-            logger.warning("ai_report.chart_render_error", step_index=tasks[task].step_index, exc_info=True)
-            failures.append(
-                ChartRenderFailure(step_index=tasks[task].step_index, reason=ChartFailureReason.RENDER_ERROR)
-            )
+            logger.warning("ai_report.chart_render_error", exc_info=True)
+            failures_with_order.append((order, failure_for(attempt, ChartFailureReason.RENDER_ERROR)))
             continue
         chart, failure = task.result()
         if chart is not None:
-            rendered.append(chart)
+            rendered_with_order.append((order, chart))
         if failure is not None:
-            failures.append(failure)
-    rendered.sort(key=lambda item: item.step_index)
-    failures.sort(key=lambda item: item.step_index)
-    return rendered, failures
+            failures_with_order.append((order, failure))
+    rendered_with_order.sort(key=lambda item: item[0])
+    failures_with_order.sort(key=lambda item: item[0])
+    return [chart for _, chart in rendered_with_order], [failure for _, failure in failures_with_order]

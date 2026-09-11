@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from parameterized import parameterized
 from rest_framework.exceptions import APIException
 
+from posthog.schema import InsightVizNode
+
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
 
 from posthog.errors import ExposedCHQueryError
@@ -21,6 +23,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.charts impo
     ValidatedChart,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
+    ContextVisualCandidate,
     InsightReportEvidence,
     ReportContextEvidence,
 )
@@ -1218,17 +1221,35 @@ async def test_charts_render_only_for_a_flagged_team_that_includes_them(
     mock_chat: MagicMock,
     _capture: MagicMock,
 ) -> None:
-    mock_bep.return_value = _spec_with_window_placeholder()
+    saved = _context_candidate()
+    spec = _spec_with_window_placeholder()
+    spec.plan.context_visual_refs = [saved.ref]
+    mock_bep.return_value = spec
     mock_run.return_value = _charted_run()
     mock_enabled.return_value = enabled
     mock_render.return_value = ([], [])
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
+    report_context = ReportContextEvidence(
+        dashboards=(),
+        insights=(InsightReportEvidence(id=7, name="Saved signups", status="success", content="42"),),
+        visual_candidates=(saved,),
+    )
     await generate_ai_report(
-        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), include_charts=include_charts
+        team=MagicMock(),
+        user=MagicMock(),
+        prompt="x",
+        window=_test_window(),
+        include_charts=include_charts,
+        report_context=report_context,
     )
 
     assert mock_run.call_args.kwargs["charts_enabled_for_team"] is expected
+    expected_context = (saved,) if expected else ()
+    assert mock_bep.call_args.kwargs["context_visual_candidates"] == expected_context
+    assert mock_render.await_count == int(expected)
+    if expected:
+        assert mock_render.call_args.kwargs["context_visuals"] == expected_context
 
 
 def _candidate(step_index: int, importance: int) -> ValidatedChart:
@@ -1242,16 +1263,36 @@ def _candidate(step_index: int, importance: int) -> ValidatedChart:
     )
 
 
+def _context_candidate(insight_id: int = 7) -> ContextVisualCandidate:
+    return ContextVisualCandidate(
+        ref=f"insight:{insight_id}",
+        insight_id=insight_id,
+        title="Saved signups",
+        visualization=InsightVizNode.model_validate(
+            {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "signup"}],
+                },
+            }
+        ),
+    )
+
+
 @patch(_SLO_CAPTURE)
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}.render_charts", new_callable=AsyncMock)
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_enriched_prompt")
-async def test_only_the_most_important_charts_are_rendered(
+async def test_saved_visuals_take_slots_before_the_most_important_generated_charts(
     mock_bep: MagicMock, mock_run: AsyncMock, mock_render: AsyncMock, mock_chat: MagicMock, _capture: MagicMock
 ) -> None:
+    saved = _context_candidate()
     candidates = [_candidate(0, 1), _candidate(1, 5), _candidate(2, 3)]
-    mock_bep.return_value = _spec_with_window_placeholder()
+    spec = _spec_with_window_placeholder()
+    spec.plan.context_visual_refs = [saved.ref]
+    mock_bep.return_value = spec
     mock_run.return_value = PlanExecution(
         rendered=["### s0\n\nok"],
         failed_count=0,
@@ -1260,12 +1301,19 @@ async def test_only_the_most_important_charts_are_rendered(
     )
     mock_render.return_value = ([], [])
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    report_context = ReportContextEvidence(
+        dashboards=(),
+        insights=(InsightReportEvidence(id=7, name="Saved signups", status="success", content="42"),),
+        visual_candidates=(saved,),
+    )
 
     with patch(f"{_RP}.MAX_CHARTS_PER_REPORT", 2):
-        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+        await generate_ai_report(
+            team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), report_context=report_context
+        )
 
-    rendered_arg = mock_render.call_args.args[0]
-    assert [chart.step_index for chart in rendered_arg] == [1, 2]
+    assert mock_render.call_args.kwargs["context_visuals"] == (saved,)
+    assert [chart.step_index for chart in mock_render.call_args.args[0]] == [1]
 
 
 _ONE_RENDERED = [RenderedChart(export_asset_id=1, title="c0", step_index=0)]

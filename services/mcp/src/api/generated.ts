@@ -85638,6 +85638,8 @@ export namespace Schemas {
          * @maxItems 3
          */
       contexts?: SubscriptionWriteContextsItem[];
+      /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
+      readonly ai_query_plan_status: AIQueryPlanStatusEnum | null;
       /** Delivery channel: email, slack, or teams.
        *
        * * `email` - Email
