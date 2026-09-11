@@ -67,6 +67,7 @@ import {
   useCanvasSource,
   useCanvasVersions,
   useDashboardMutations,
+  usePrimeCanvasView,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
@@ -119,6 +120,7 @@ import {
   shouldClearCanvasBrowse,
 } from "./canvasVersionNavigation";
 import { handleFreeformDataRequest } from "./freeformDataBridge";
+import { useCanvasConnectorPermission } from "./useCanvasConnectorPermission";
 import { useCanvasNavigation } from "./useCanvasNavigation";
 import { usePinnedArtifact } from "./usePinnedArtifact";
 
@@ -199,6 +201,15 @@ export function FreeformCanvasView({
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const authenticatedClient = useOptionalAuthenticatedClient();
+
+  // One combined round trip (record + live build + head source) that seeds the
+  // per-endpoint caches below where they're empty. On a cold open this removes
+  // the sequential source hop; after a hover prime it makes the whole open a
+  // cache hit. The per-endpoint queries stay authoritative once loaded.
+  const primeCanvasView = usePrimeCanvasView();
+  useEffect(() => {
+    if (dashboardId) primeCanvasView(dashboardId);
+  }, [dashboardId, primeCanvasView]);
 
   // The generation-task association lives in the canvas record's meta. Poll it
   // while a task is running so the fresh head version + the cleared association
@@ -610,12 +621,17 @@ export function FreeformCanvasView({
       setAgentRequest(null);
     }
   }, [dashboardId]);
+  const requestConnectorPermission = useCanvasConnectorPermission(
+    dashboardId,
+    displayedVersionId,
+  );
   const onDataRequest = useCallback(
     (method: string, payload: unknown) => {
       if (method !== "agentRequest") {
         return handleFreeformDataRequest(method, payload, queryClient, {
           dashboardId,
           sourceVersionId: displayedVersionId ?? undefined,
+          requestConnectorPermission,
         });
       }
       const input = canvasAgentRequestInputSchema.parse(payload);
@@ -631,7 +647,7 @@ export function FreeformCanvasView({
         agentRequestPromiseRef.current = { resolve, reject };
       });
     },
-    [queryClient, dashboardId, displayedVersionId],
+    [queryClient, dashboardId, displayedVersionId, requestConnectorPermission],
   );
   const cancelAgentRequest = useCallback(() => {
     agentRequestPromiseRef.current?.reject(new Error("Agent request canceled"));

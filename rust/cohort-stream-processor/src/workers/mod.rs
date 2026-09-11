@@ -13,6 +13,7 @@ pub mod stage2_gc;
 pub mod stage2_path;
 pub mod stage2_person_inputs;
 pub mod sweep_callback;
+pub mod sweep_path;
 pub mod worker;
 
 pub use event_path::{

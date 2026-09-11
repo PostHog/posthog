@@ -183,6 +183,10 @@ def _flag_write_source(request: Any) -> str:
     # below would read it as an unidentified caller.
     if getattr(request, "is_system", False):
         return "internal"
+    # PostHog AI builds its own request shim with no authenticator, so without this it lands
+    # in the same bucket as a caller we failed to identify.
+    if getattr(request, "is_posthog_ai", False):
+        return "posthog_ai"
     headers = getattr(request, "headers", None) or {}
     if headers.get("x-posthog-mcp-user-agent") or "posthog-mcp" in (headers.get("User-Agent") or ""):
         return "mcp"
@@ -1597,6 +1601,13 @@ class FeatureFlagSerializer(
             raise
 
     def _validate_filters_inner(self, filters, operation: str):
+        # Unknown keys survive normalization during the validation rollout. Reserve the
+        # config discriminator before that path can store an unsupported format.
+        if "version" in filters:
+            raise serializers.ValidationError(
+                "filters.version is reserved. Remove it from the request.", code="reserved_config_version"
+            )
+
         # An empty filters dict on an update carries no instruction, so the merged state is
         # the stored state and there is nothing to validate. Returning it untouched also
         # keeps normalization off flags the request never addressed: DRF hands DictField an
