@@ -59,9 +59,11 @@ The headline exports per module:
 - **`api/runner`** — **`EmbeddedRunner`** (`<EmbeddedRunner taskId? />`), the lazy, code-split TaskTracker
   workspace (composer + agent-run detail) for hosts that render the `/tasks` experience
   inline (the Max scene surfaces it behind the sandbox view toggle). The heavy scene chunk loads only via
-  `EmbeddedRunner`'s dynamic `import()`, so importing this module never statically pulls the scene. Task
-  selection still routes through the scene's own `/tasks/:id` URLs. Shared AI navigation owns task history,
-  so this remains the standalone workspace embedded in another host, not a route-decoupled widget.
+  `EmbeddedRunner`'s dynamic `import()`, so importing this module never statically pulls the scene. An
+  embedded host passes `taskId` to select a task, and the AI scene reads it from `/ai?task=<id>`. Never
+  route an embedded selection to `/tasks/:id`, because that moves the user out of the host. The standalone
+  `/tasks` scene keeps its own `/tasks/:id` URLs. Shared AI navigation owns task history, so this remains
+  the standalone workspace embedded in another host, not a route-decoupled widget.
 - **`api/primitives`** — **`Thread`** (Radix-style compound: `Thread.Root` is the virtualized presenter, the
   atoms `Thread.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall` are the building blocks for
   bespoke threads), **`Composer`** (logic-free compound input — the caller owns
