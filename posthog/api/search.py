@@ -239,7 +239,9 @@ def search_entities(
     if query:
         rows.sort(key=lambda row: row["rank"], reverse=True)
     else:
-        rows.sort(key=lambda row: (row["type"], row["_sort_name"] or ""))
+        # Sort by type only. The name order is the database's, whose collation is not Python's, and
+        # each entity's rows arrive contiguous, so a stable sort keeps the order the page was cut in.
+        rows.sort(key=lambda row: row["type"])
 
     # The entities partition the rows, so their counts sum to the total without another scan.
     total_count = sum(count for count in counts.values() if count is not None) if include_counts else None
