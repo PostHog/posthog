@@ -239,8 +239,8 @@ tools:
             supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To
             run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table
             reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or
-            should_sync=true to retry a table fixed at the source. Sending primary_key_columns or sync_type clears the
-            recorded block, because the configuration a run proved unusable is no longer the one in force."
+            should_sync=true to retry a table fixed at the source. That field reports the last run's failure, so it
+            clears once a run succeeds rather than when the update lands."
     external-data-schemas-reload:
         operation: external_data_schemas_reload_create
         enabled: true

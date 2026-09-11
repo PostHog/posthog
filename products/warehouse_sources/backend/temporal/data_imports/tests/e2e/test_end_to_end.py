@@ -3220,8 +3220,6 @@ async def test_postgres_duplicate_primary_key(team, postgres_config, postgres_co
         disable_error_message=job.latest_error,
         disable_exclude_workflow_id=mock.ANY,
     )
-    # The message the pipeline raises here is the real one, so this fails if it drifts from the
-    # text the teardown matches to record the block.
     assert schema.incremental_sync_blocked == IncrementalSyncBlockedReason.DUPLICATE_PRIMARY_KEY
 
 

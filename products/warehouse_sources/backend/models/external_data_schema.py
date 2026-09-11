@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.types import (
     ExternalDataSchemaSyncFrequency,
     ExternalDataSchemaSyncType,
     IncrementalFieldType,
+    IncrementalSyncBlockedReason,
 )
 
 if TYPE_CHECKING:
@@ -44,6 +45,43 @@ type IncrementalFieldValue = str | int | float | None
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
 SCHEMA_DELETED_JOB_ERROR = "Sync stopped because the table was deleted"
 AUTO_DISABLED_JOB_ERROR = "Sync stopped because of an error that retrying would not fix"
+
+# `Any_Source_Errors` rewrites the raised exception into this copy, so a blocked schema carries it
+# as `latest_error`. Matched below, not only displayed.
+MISSING_PRIMARY_KEY_DISABLED_MESSAGE = (
+    "This table needs a primary key to sync incrementally, but none is set. Choose a primary key "
+    "for the table in its sync settings, or switch it to full table replication, then re-enable the sync."
+)
+DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE = (
+    "The primary key set for this table isn't unique, so incremental syncing can't reliably match "
+    "rows to update. Choose a unique primary key in the table's sync settings, or switch it to full "
+    "table replication, then re-enable the sync."
+)
+
+# Runs that fail outside the workflow record the raw text instead. Copied from
+# `pipelines/core/arrow_utils.py`, which would pull pyarrow onto the Django model path; a test
+# holds the two in step.
+MISSING_PRIMARY_KEYS_RAW_ERROR = "Primary key required for incremental syncs"
+DUPLICATE_PRIMARY_KEYS_RAW_ERROR = "The primary keys for this table are not unique"
+
+_INCREMENTAL_SYNC_BLOCKED_MARKERS: tuple[tuple[str, IncrementalSyncBlockedReason], ...] = (
+    (MISSING_PRIMARY_KEY_DISABLED_MESSAGE, IncrementalSyncBlockedReason.MISSING_PRIMARY_KEY),
+    (MISSING_PRIMARY_KEYS_RAW_ERROR, IncrementalSyncBlockedReason.MISSING_PRIMARY_KEY),
+    (DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE, IncrementalSyncBlockedReason.DUPLICATE_PRIMARY_KEY),
+    (DUPLICATE_PRIMARY_KEYS_RAW_ERROR, IncrementalSyncBlockedReason.DUPLICATE_PRIMARY_KEY),
+)
+
+
+def incremental_sync_blocked_reason(latest_error: str | None) -> str | None:
+    """Classify a sync error as one of the two states a customer resolves by changing the key.
+
+    Reading the error keeps this in step with the failure by construction: a successful run clears
+    `latest_error`, and a different failure replaces it, so there is no second state to expire.
+    """
+    if not latest_error:
+        return None
+    return next((reason.value for marker, reason in _INCREMENTAL_SYNC_BLOCKED_MARKERS if marker in latest_error), None)
+
 
 # How stale a rewrite checkpoint may get before its import hold lapses. Generous on purpose: a
 # multi-budget rewrite renews the stamp on every advancing attempt, and attempts arrive at the
@@ -201,7 +239,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # See `sources/common/history_window.py`. A column rather than a `sync_type_config` key
     # because it has to outlive a reset, and clearing that blob is what a reset is for.
     history_start = models.DateTimeField(null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "incremental_sync_blocked": str | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -589,15 +627,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     @property
     def incremental_sync_blocked(self) -> str | None:
-        """Why the last run proved this schema's incremental sync can never succeed, if it did.
-
-        Written by the import teardown, and cleared by a sync-config change or by a successful run,
-        so a table fixed at the source resolves itself.
-        """
-        if self.sync_type_config:
-            return self.sync_type_config.get("incremental_sync_blocked", None)
-
-        return None
+        """Why the last run proved this schema's incremental sync can never succeed, if it did."""
+        return incremental_sync_blocked_reason(self.latest_error)
 
     @property
     def chunk_size_override(self) -> int | None:
@@ -1360,9 +1391,7 @@ def complete_schema_run(schema: ExternalDataSchema, *, last_synced_at: datetime)
     FAILED, hiding the breakage from the UI and the failure digest (the loader-side twin of this
     guard lives in jobs.update_external_job_status, which already checks under its own lock).
     Clears a stale ``cdc_extraction_paused`` marker — a successful run proves extraction resumed.
-    Clears ``incremental_sync_blocked`` for the same reason: the run that just succeeded proves the
-    table now has a key the merge can use, so a customer who fixed it at the source needs no further
-    action. Returns whether the repaint happened; the passed instance is refreshed either way.
+    Returns whether the repaint happened; the passed instance is refreshed either way.
     """
     with transaction.atomic():
         fresh = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
@@ -1370,7 +1399,6 @@ def complete_schema_run(schema: ExternalDataSchema, *, last_synced_at: datetime)
         repainted = not config.get("cdc_broken")
         if repainted:
             config.pop("cdc_extraction_paused", None)
-            config.pop("incremental_sync_blocked", None)
             fresh.sync_type_config = config
             fresh.status = ExternalDataSchema.Status.COMPLETED
             fresh.latest_error = None

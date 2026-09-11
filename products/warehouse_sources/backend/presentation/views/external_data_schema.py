@@ -391,7 +391,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "synced, as long as no key was set before), or set `sync_type` to `append` (only safe "
             "for insert-only tables: updated rows arrive as duplicates) or `full_refresh` (re-reads "
             "the whole table on every sync, and every row is billed). If the table was fixed at the "
-            "source instead, set `should_sync` to true to retry. A successful sync clears this."
+            "source instead, set `should_sync` to true to retry. This reports the last run's "
+            "failure, so it clears once a run succeeds or fails for another reason."
         ),
     )
     enabled_columns = serializers.ListField(
@@ -897,13 +898,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     f"{resulting_sync_type or 'not set'} on its own. "
                     "Include sync_type in the same request to change the sync type."
                 )
-
-        # A recorded block describes a sync configuration that a run proved unusable, so a request
-        # that changes the sync type or the primary key supersedes it and the next run decides
-        # again. A bare re-enable keeps the same configuration, so its marker stays until a run
-        # succeeds, which is what clears it for a table the customer fixed at the source.
-        if "sync_type" in data or "primary_key_columns" in data:
-            instance.sync_type_config.pop("incremental_sync_blocked", None)
 
         trigger_refresh = False
         # Update the validated_data with incremental fields
