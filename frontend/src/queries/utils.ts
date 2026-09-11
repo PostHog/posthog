@@ -664,6 +664,15 @@ export const getLegendPosition = (query: InsightQueryNode): string | undefined =
     return undefined
 }
 
+export const getShowSeriesNameWithBreakdown = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.showSeriesNameWithBreakdown
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.showSeriesNameWithBreakdown
+    }
+    return undefined
+}
+
 export const getShowAlertThresholdLines = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showAlertThresholdLines

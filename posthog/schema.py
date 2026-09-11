@@ -7507,6 +7507,10 @@ class StickinessFilter(BaseModel):
     )
     showLegend: bool | None = None
     showMultipleYAxes: bool | None = None
+    showSeriesNameWithBreakdown: bool | None = Field(
+        default=False,
+        description=("Whether a breakdown series' label carries the series name as well as the breakdown value."),
+    )
     showValuesOnSeries: bool | None = None
     stickinessCriteria: StickinessCriteria | None = None
 
@@ -8419,6 +8423,15 @@ class TrendsFilter(BaseModel):
     showMovingAverage: bool | None = None
     showMultipleYAxes: bool | None = False
     showPercentStackView: bool | None = False
+    showSeriesNameWithBreakdown: bool | None = Field(
+        default=False,
+        description=(
+            "Whether a breakdown series' label carries the series name as well as the"
+            ' breakdown value, for example "Signups: Chrome". Has no effect when the'
+            " query defines one series, because the prefix is then the same on every"
+            " breakdown value."
+        ),
+    )
     showTrendLines: bool | None = None
     showValuesOnSeries: bool | None = False
     smoothingIntervals: int | None = 1

@@ -115,6 +115,8 @@ export function TrendsBarChart({
         goalLines,
         showValuesOnSeries,
         showMultipleYAxes,
+        showSeriesNameWithBreakdown,
+        isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -141,8 +143,17 @@ export function TrendsBarChart({
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
+                showSeriesNameWithBreakdown,
+                isSingleSeriesDefinition,
             }),
-        [stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+        [
+            stackBreakdowns,
+            breakdownFilter,
+            allCohorts?.results,
+            formatPropertyValueForDisplay,
+            showSeriesNameWithBreakdown,
+            isSingleSeriesDefinition,
+        ]
     )
 
     const getLabel = useCallback(
@@ -151,8 +162,16 @@ export function TrendsBarChart({
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
+                showSeriesNameWithBreakdown,
+                isSingleSeriesDefinition,
             }),
-        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+        [
+            breakdownFilter,
+            allCohorts?.results,
+            formatPropertyValueForDisplay,
+            showSeriesNameWithBreakdown,
+            isSingleSeriesDefinition,
+        ]
     )
 
     const { series, labels, displayLabels } = useMemo(() => {

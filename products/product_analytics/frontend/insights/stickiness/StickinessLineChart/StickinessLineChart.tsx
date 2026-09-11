@@ -67,6 +67,8 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         hasPersonsModal,
         querySource,
         showValuesOnSeries,
+        showSeriesNameWithBreakdown,
+        isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -81,8 +83,16 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
+                showSeriesNameWithBreakdown,
+                isSingleSeriesDefinition,
             }),
-        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+        [
+            breakdownFilter,
+            allCohorts?.results,
+            formatPropertyValueForDisplay,
+            showSeriesNameWithBreakdown,
+            isSingleSeriesDefinition,
+        ]
     )
 
     const labels = currentPeriodResult?.labels ?? []

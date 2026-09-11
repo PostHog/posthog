@@ -8,6 +8,12 @@ const NO_BREAKDOWN_DEPS: TrendsSeriesLabelDeps = {
     formatPropertyValueForDisplay: undefined,
 }
 
+const BREAKDOWN_DEPS: TrendsSeriesLabelDeps = {
+    breakdownFilter: { breakdown_type: 'event', breakdown: '$browser' },
+    cohorts: undefined,
+    formatPropertyValueForDisplay: undefined,
+}
+
 const makeResult = (overrides: Partial<IndexedTrendResult>): IndexedTrendResult =>
     ({ id: 0, label: '$pageview', data: [], ...overrides }) as IndexedTrendResult
 
@@ -29,18 +35,35 @@ describe('getTrendsSeriesDisplayLabel', () => {
         ).toBe(expected)
     })
 
-    it('resolves to the breakdown value, not the custom name, for breakdown series', () => {
-        // The action (and its custom_name) is shared across every breakdown band, so the breakdown
-        // value must win — otherwise all bands collapse onto one label.
+    // The action (and its custom_name) is shared across every breakdown band, so the breakdown value
+    // must win by default — otherwise all bands collapse onto one label. `showSeriesNameWithBreakdown`
+    // opts into carrying both, which is the only way to read a chart whose series share a value.
+    it.each([
+        ['the breakdown value alone by default', {}, {}, 'Chrome'],
+        [
+            'the series name and the breakdown value when opted in',
+            {},
+            { showSeriesNameWithBreakdown: true },
+            'Signups: Chrome',
+        ],
+        [
+            'the breakdown value alone for a single-series query, where every band takes the same prefix',
+            {},
+            { showSeriesNameWithBreakdown: true, isSingleSeriesDefinition: true },
+            'Chrome',
+        ],
+        [
+            'the breakdown value alone when the row has no entity to name, rather than repeating it from the label',
+            { action: null, label: 'A + B - Chrome' },
+            { showSeriesNameWithBreakdown: true },
+            'Chrome',
+        ],
+    ])('resolves to %s', (_name, resultOverrides, depOverrides, expected) => {
         const result = makeResult({
             action: { custom_name: 'Signups' } as IndexedTrendResult['action'],
             breakdown_value: 'Chrome',
+            ...(resultOverrides as Partial<IndexedTrendResult>),
         })
-        const deps: TrendsSeriesLabelDeps = {
-            breakdownFilter: { breakdown_type: 'event', breakdown: '$browser' },
-            cohorts: undefined,
-            formatPropertyValueForDisplay: undefined,
-        }
-        expect(getTrendsSeriesDisplayLabel(result, deps)).toBe('Chrome')
+        expect(getTrendsSeriesDisplayLabel(result, { ...BREAKDOWN_DEPS, ...depOverrides })).toBe(expected)
     })
 })

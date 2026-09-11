@@ -79,6 +79,7 @@ import {
     getShowAnnotations,
     getShowLabelsOnSeries,
     getShowLegend,
+    getShowSeriesNameWithBreakdown,
     getShowMultipleYAxes,
     getShowPercentagesOnSeries,
     getShowPercentStackView,
@@ -266,6 +267,7 @@ export interface insightVizDataLogicValues {
     showMultipleYAxes: boolean | null | undefined
     showPercentStackView: boolean | null | undefined
     showPercentagesOnSeries: boolean | null | undefined
+    showSeriesNameWithBreakdown: boolean | null | undefined
     showValuesOnSeries: boolean | null | undefined
     slowQueryPossibilities: SlowQueryPossibilities[]
     stickinessFilter: StickinessFilter | null | undefined
@@ -883,6 +885,19 @@ export interface insightVizDataLogicMeta {
                 | WebStatsTableQuery
                 | null
         ) => string | null | undefined
+        showSeriesNameWithBreakdown: (
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null
+        ) => boolean | null | undefined
         showValuesOnSeries: (
             querySource:
                 | FunnelsQuery
@@ -1848,6 +1863,21 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     | import('~/queries/schema/schema-general').WebOverviewQuery
                     | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getLegendPosition(q) : null),
+        ],
+        showSeriesNameWithBreakdown: [
+            (s) => [s.querySource],
+            (
+                q:
+                    | FunnelsQuery
+                    | LifecycleQuery
+                    | RetentionQuery
+                    | StickinessQuery
+                    | TrendsQuery
+                    | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
+            ) => (q ? getShowSeriesNameWithBreakdown(q) : null),
         ],
         showValuesOnSeries: [
             (s) => [s.querySource],
