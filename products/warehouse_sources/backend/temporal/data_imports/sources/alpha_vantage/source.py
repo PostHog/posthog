@@ -64,13 +64,15 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Alpha Vantage has no server-side updated-at cursor, so every table is full refresh only.
+        # Only the functions carrying a server-side time filter can sync incrementally; the rest have
+        # no cursor at all. None supports append: those filters are coarser than the stored cursor, so
+        # every run re-delivers the rows on the boundary and only a merge can dedupe them.
         schemas = [
             SourceSchema(
                 name=endpoint.name,
-                supports_incremental=False,
+                supports_incremental=bool(endpoint.incremental_fields),
                 supports_append=False,
-                incremental_fields=[],
+                incremental_fields=endpoint.incremental_fields,
                 detected_primary_keys=endpoint.primary_keys,
                 should_sync_default=endpoint.should_sync_default,
                 description=endpoint.description,
@@ -111,6 +113,9 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
             symbols=symbols,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )
 
     @property
