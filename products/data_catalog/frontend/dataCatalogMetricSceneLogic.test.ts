@@ -1,7 +1,9 @@
 import { router } from 'kea-router'
 
 import { ApiConfig, ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -71,12 +73,49 @@ describe('dataCatalogMetricSceneLogic', () => {
         initKeaTests()
         logic = dataCatalogMetricSceneLogic({ name: 'weekly_active_users' })
         logic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_QUALITY_CHECKS], {
+            [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: true,
+        })
         await expectLogic(logic).toDispatchActions(['loadMetricSuccess'])
     })
 
     afterEach(() => {
         ;(ApiConfig.getCurrentTeamId as jest.Mock).mockReturnValue(1)
     })
+
+    it('synchronizes the Tests tab with navigation and preserves it on rename', async () => {
+        router.actions.push(urls.dataCatalogMetric('weekly_active_users'), { tab: 'tests' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.activeTab).toBe('tests')
+        logic.actions.setActiveTab('definition')
+        expect(router.values.searchParams.tab).toBeUndefined()
+        logic.actions.setActiveTab('tests')
+        expect(router.values.searchParams.tab).toBe('tests')
+        ;(dataCatalogMetricsPartialUpdate as jest.Mock).mockResolvedValue(buildMetric({ name: 'wau' }))
+        logic.actions.renameMetric('wau')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams.tab).toBe('tests')
+    })
+
+    // The metric check endpoints are gated on the same flag, so a link to the tab from a project
+    // outside the rollout has to land on Definition. Otherwise the panel mounts against endpoints
+    // that reject every request.
+    it('refuses the Tests tab while the data quality flag is off', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        router.actions.push(urls.dataCatalogMetric('weekly_active_users'), { tab: 'tests' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.metricChecksEnabled).toBe(false)
+        expect(logic.values.activeTab).toBe('definition')
+        expect(router.values.searchParams.tab).toBeUndefined()
+    })
+
+    it.each(['HogQLQuery', 'TrendsQuery', 'FunnelsQuery', 'EventsNode', 'MarkdownDefinition', null])(
+        'allows check authoring only for a HogQL definition (%s)',
+        (definition_kind) => {
+            logic.actions.setMetric(buildMetric({ definition_kind }))
+            expect(logic.values.supportsMetricChecks).toBe(definition_kind === 'HogQLQuery')
+        }
+    )
 
     it('saving an approved metric edit reflects the proposed status from the response', async () => {
         ;(dataCatalogMetricsPartialUpdate as jest.Mock).mockResolvedValue(

@@ -11,6 +11,7 @@ import { HEALTH_LABELS, HEALTH_TAG_TYPES } from './checksConstants'
 import { ChecksTable } from './ChecksTable'
 import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
+import { DataQualitySchedule } from './DataQualitySchedule'
 import { SuiteRunsHistory } from './SuiteRunsHistory'
 
 interface DataQualityChecksPanelProps extends DataQualityChecksLogicProps {
@@ -31,11 +32,14 @@ export function DataQualityChecksPanel({
         health,
         checks,
         checksLoading,
+        checksLoadError,
+        checksLoaded,
         enabledChecksCount,
         isSuiteRunning,
         pollTimedOut,
         runAllInFlight,
         accessDenied,
+        showSchedule,
     } = useValues(logic)
     const { runAll, loadChecks, loadHealth, upsertCheck, runCheck } = useActions(logic)
 
@@ -52,14 +56,24 @@ export function DataQualityChecksPanel({
     const addCheck = (): void => openEditor(null, logicProps, columnNames)
 
     if (accessDenied) {
-        return null
+        return logicProps.subjectType === 'metric' ? (
+            <p className="text-secondary">You don't have access to the tests for this metric.</p>
+        ) : null
+    }
+
+    if (checksLoadError && !checksLoaded) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: loadChecks }}>
+                Could not load the checks. Try again.
+            </LemonBanner>
+        )
     }
 
     return (
         <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
             <div className="flex flex-col gap-2 mt-4">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                         {!hideTitle && <h3 className="mb-0 text-lg font-semibold">Data quality</h3>}
                         {health && (
                             <LemonTag type={HEALTH_TAG_TYPES[health.health] ?? 'default'}>
@@ -75,7 +89,7 @@ export function DataQualityChecksPanel({
                             <span className="text-secondary text-sm">Run checks to see health</span>
                         )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                         <LemonButton
                             type="secondary"
                             size="small"
@@ -98,6 +112,8 @@ export function DataQualityChecksPanel({
                     </div>
                 </div>
 
+                {showSchedule && <DataQualitySchedule metricId={logicProps.subjectId} />}
+
                 {dataLastSyncedAt && (
                     <p className="mb-0 text-secondary text-sm">
                         Checks test the data from the last sync (synced <TZLabel time={dataLastSyncedAt} />
@@ -105,6 +121,11 @@ export function DataQualityChecksPanel({
                     </p>
                 )}
 
+                {checksLoadError && (
+                    <LemonBanner type="warning" action={{ children: 'Retry', onClick: loadChecks }}>
+                        Could not refresh the checks. Showing the latest available results.
+                    </LemonBanner>
+                )}
                 {isSuiteRunning && (
                     <LemonBanner type="info" icon={<Spinner />}>
                         Running checks...
@@ -126,7 +147,7 @@ export function DataQualityChecksPanel({
                 )}
 
                 {!checksLoading && checks.length === 0 ? (
-                    <NoChecksYet onAddCheck={addCheck} />
+                    <NoChecksYet onAddCheck={addCheck} isMetric={logicProps.subjectType === 'metric'} />
                 ) : (
                     <ChecksTable {...logicProps} columns={columnNames} />
                 )}
@@ -139,12 +160,14 @@ export function DataQualityChecksPanel({
     )
 }
 
-function NoChecksYet({ onAddCheck }: { onAddCheck: () => void }): JSX.Element {
+function NoChecksYet({ onAddCheck, isMetric }: { onAddCheck: () => void; isMetric: boolean }): JSX.Element {
     return (
         <div className="border rounded p-4 flex flex-col items-start gap-2">
             <h4 className="mb-0">No checks yet</h4>
             <p className="mb-0 text-secondary">
-                Checks verify this data automatically after each sync or materialization.
+                {isMetric
+                    ? 'Write a custom SQL check that queries {metric} and returns one row per failure. Checks run daily after you add the first check.'
+                    : 'Checks verify this data automatically after each sync or materialization.'}
             </p>
             <LemonButton type="primary" size="small" onClick={onAddCheck} data-attr="data-quality-first-check">
                 Add your first check

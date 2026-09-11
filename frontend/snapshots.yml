@@ -2284,6 +2284,22 @@ snapshots:
         hash: v1.k794b7964.88c3253cfe129808e538e59d6eb8eb8fa948540042edd8248e9836cccce1a4af.RnBgBRDh8HKCK7PYoGDeuXTEbHHl5vnlNpU9IGLwFyk
     customer-analytics-google-account-backfill--invalid-range--light:
         hash: v1.k794b7964.7eb703bdf24bb2b8adcb1f8d90097dec56b85e0e0b6778e0ea0c68a9c6d9fbb0.W0aCVMrWUlFruWBqwJYpotdaFJ3BfR9P16qCdJn5jBc
+    data-catalog-metric-tests--empty--dark:
+        hash: v1.k794b7964.8fe14df17d4a3e5837c2255d1eb16d95857f38289fdac2f15d74a682dcbc8cd6.b519eu-dIza1oybyK5rxJW21t0E6kQEt6aQnw8pafA0
+    data-catalog-metric-tests--empty--light:
+        hash: v1.k794b7964.d74dc76b316c73f7f72d75cd61f0a48c28d0c2bc1a6c7fe5524f859cb7a145ac.2i7EiZHush8PSRQnaQ5SxS_EVivM4hf9C8iVUsTuEmM
+    data-catalog-metric-tests--narrow--dark:
+        hash: v1.k794b7964.83cced2f751285be7509a372fcf50045b9f2244c3bab693f371692cb26e9f5dd.9H2PApop4UHdsAUHcxTWQy5jmdcWnjSb6Q9rX5lfM8Q
+    data-catalog-metric-tests--narrow--light:
+        hash: v1.k794b7964.725bbde2fc12729e4893395b2d93fbdda17bdd1cb4ef6655619262f1b8af6966.MbCjfi8835Il_PlQE5NrVnRFasRF6EcCc03e7cy0jAA
+    data-catalog-metric-tests--scheduled--dark:
+        hash: v1.k794b7964.804841709a7109edda64e4e931056338dbac27188c3b4151e48c68c40477d072.q0Vhli-a52ta0xBZm3NvVLzFeodhRA7UBoIDmTdvkH0
+    data-catalog-metric-tests--scheduled--light:
+        hash: v1.k794b7964.ad1220ec28b4be7954e8cc19a8a5de0cdbab59808d54dbb91635d2c23de6de33.B0LxaPGKGmZWKok9KVcI2a6So0Friq2eFVENfyLSY7A
+    data-catalog-metric-tests--unsupported--dark:
+        hash: v1.k794b7964.7115929e94c0ba820dac20a4dab696f15e2cb0e612412b58ad690d67d31ba492.SMCtOwtSj6eBt2XXEVskBE-TRKLhc9HHwI9omv89eHs
+    data-catalog-metric-tests--unsupported--light:
+        hash: v1.k794b7964.ad9a5d7d21f92578fdfb8e2a50f1e11f57398eaf5b1b96241fc5d4ac09b22882.v1PBeMuXRe8sB14acADHS32KwpKXYIL0jW1DYk9a5Tw
     data-warehouse-destinationlist--both-selected--dark:
         hash: v1.k794b7964.5da0169833ea8b87e6d903cb4fc0f4d629a1b1db09149c5fb7c450ef312641a0.MH4OyaTjM18a4cpxtpCHPVm1QWWajZL5cz4NlzbJag0
     data-warehouse-destinationlist--both-selected--light:

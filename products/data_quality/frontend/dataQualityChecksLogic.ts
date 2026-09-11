@@ -57,6 +57,8 @@ export interface dataQualityChecksLogicValues {
     activeSuiteRun: DataQualitySuiteRunApi | null
     checkRunsByCheckId: Record<string, DataQualityCheckRunApi[]>
     checks: DataQualityCheckApi[]
+    checksLoadError: string | null
+    checksLoaded: boolean
     checksLoading: boolean
     enabledChecksCount: number
     health: DataQualitySubjectHealthApi | null
@@ -65,6 +67,7 @@ export interface dataQualityChecksLogicValues {
     pendingCheckActions: Record<CheckPendingKind, Record<string, boolean>>
     pollTimedOut: boolean
     runAllInFlight: boolean
+    showSchedule: boolean
     sortedChecks: DataQualityCheckApi[]
     suiteRunCheckRunsBySuiteRunId: Record<string, DataQualityCheckRunApi[]>
     suiteRuns: DataQualitySuiteRunApi[]
@@ -203,6 +206,7 @@ export interface dataQualityChecksLogicActions {
 export interface dataQualityChecksLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        showSchedule: (checks: DataQualityCheckApi[], arg: any) => boolean
         enabledChecksCount: (checks: DataQualityCheckApi[]) => number
         isSuiteRunning: (activeSuiteRun: DataQualitySuiteRunApi | null, pollTimedOut: boolean) => boolean
         sortedChecks: (checks: DataQualityCheckApi[]) => DataQualityCheckApi[]
@@ -263,6 +267,21 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
         ],
     })),
     reducers({
+        checksLoadError: [
+            null as string | null,
+            {
+                loadChecks: () => null,
+                loadChecksFailure: (_, { error }) => error,
+            },
+        ],
+        // A refresh runs after every suite run, so a later failure must not take the last good
+        // list off the screen: the panel keeps it and warns instead.
+        checksLoaded: [
+            false,
+            {
+                loadChecksSuccess: () => true,
+            },
+        ],
         checks: {
             upsertCheck: (state: DataQualityCheckApi[], { check }: { check: DataQualityCheckApi }) =>
                 state.some((existing) => existing.id === check.id)
@@ -329,6 +348,11 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
         ],
     }),
     selectors({
+        showSchedule: [
+            (s) => [s.checks, (_, props) => props.subjectType],
+            (checks: DataQualityCheckApi[], subjectType: DataQualitySubjectType): boolean =>
+                subjectType === 'metric' && checks.length > 0,
+        ],
         enabledChecksCount: [
             (s) => [s.checks],
             (checks: DataQualityCheckApi[]) => checks.filter((check) => check.enabled !== false).length,

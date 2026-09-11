@@ -34,6 +34,7 @@ export function SuiteRunsHistory(props: DataQualityChecksLogicProps): JSX.Elemen
                                 onRowExpand: (suiteRun) => loadSuiteRunCheckRuns(suiteRun.id),
                                 expandedRowRender: (suiteRun) => (
                                     <CheckRunsTable
+                                        subjectType={props.subjectType}
                                         runs={suiteRunCheckRunsBySuiteRunId[suiteRun.id] ?? []}
                                         loading={pendingCheckActions.loadingSuiteRunRuns[suiteRun.id]}
                                         showCheck
