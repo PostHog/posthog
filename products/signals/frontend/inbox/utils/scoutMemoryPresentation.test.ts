@@ -14,10 +14,13 @@ describe('scoutMemoryPresentation', () => {
             expect(linked).not.toContain(`on ${REPORT_ID}`)
         })
 
-        it('truncates an id no report resolves for, rather than wrapping the whole uuid', () => {
-            expect(linkReportIdsInNote(`Dismissed ${OTHER_ID} as noise.`, reports)).toBe(
-                'Dismissed `01a0918c…` as noise.'
-            )
+        // A pipeline note writes report ids and nothing else, so an unresolved one shrinks rather
+        // than wrapping the whole uuid. A uuid in typed prose can name anything, so it stays whole.
+        it.each<[string, { truncateUnmatched?: boolean } | undefined, string]>([
+            ['is truncated in a note the pipeline wrote', undefined, 'Dismissed `01a0918c…` as noise.'],
+            ['stays whole in a note someone typed', { truncateUnmatched: false }, `Dismissed ${OTHER_ID} as noise.`],
+        ])('an id no report resolves for %s', (_name, options, expected) => {
+            expect(linkReportIdsInNote(`Dismissed ${OTHER_ID} as noise.`, reports, options)).toBe(expected)
         })
 
         it('leaves an id that already sits in a link target alone', () => {

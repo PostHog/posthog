@@ -173,7 +173,9 @@ export function ScoutNotesPanel({ skillName }: { skillName: string }): JSX.Eleme
                         <ScoutNoteRow
                             key={note.id}
                             note={note}
-                            content={linkReportIdsInNote(note.content, reportsById)}
+                            content={linkReportIdsInNote(note.content, reportsById, {
+                                truncateUnmatched: !isDirectScoutNote(note),
+                            })}
                             onDelete={() => deleteNote(note.id)}
                         />
                     ))}

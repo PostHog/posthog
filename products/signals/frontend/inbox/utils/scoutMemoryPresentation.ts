@@ -21,15 +21,20 @@ function truncateReportId(id: string): string {
  * markdown link carrying the report's title. Ids that resolve to nothing — an older window, a
  * deleted report — shrink to a truncated code span, because the full uuid wraps to a second line
  * and says no more than its head does.
+ *
+ * Pass `truncateUnmatched: false` for a note a person typed. Only the pipeline guarantees that
+ * every uuid it writes is a report id. In typed prose a uuid can name a session, a trace, or an
+ * error issue, and shortening one would corrupt a value the reader cannot recover from this page.
  */
 export function linkReportIdsInNote(
     content: string,
-    reportsById: Map<string, { id: string; title: string | null }>
+    reportsById: Map<string, { id: string; title: string | null }>,
+    { truncateUnmatched = true }: { truncateUnmatched?: boolean } = {}
 ): string {
     return content.replace(REPORT_ID_IN_NOTE, (id) => {
         const report = reportsById.get(id.toLowerCase())
         if (!report) {
-            return truncateReportId(id)
+            return truncateUnmatched ? truncateReportId(id) : id
         }
         // Brackets in a title would close the link label early, so they go.
         const label = displayConventionalCommitTitle(report.title, 'Untitled report').replace(/[[\]]/g, '')
