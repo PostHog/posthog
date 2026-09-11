@@ -154,8 +154,13 @@ export function NavTabChat({
     // The chat surface can be mounted twice at once (nav tab, kept mounted, plus the side panel),
     // so the search input's id must be per-instance to keep label/htmlFor pairing valid.
     const searchInputId = useId()
-    const { conversationHistory, conversationHistoryLoading, currentConversationId, isPhaiSandboxFlagOn } =
-        useValues(maxGlobalLogic)
+    const {
+        conversationHistory,
+        conversationHistoryLoading,
+        currentConversationId,
+        isPhaiSandboxFlagOn,
+        effectivePhaiView,
+    } = useValues(maxGlobalLogic)
     const { tasks, tasksLoading, tasksError, tasksNext, tasksLoadingMore, searchQuery, taskListParams } =
         useValues(tasksLogic)
     const { loadTasks, loadMoreTasks, setSearchQuery } = useActions(tasksLogic)
@@ -224,7 +229,9 @@ export function NavTabChat({
                             to={urls.ai()}
                             data-attr="nav-chat-new"
                             buttonProps={{ iconOnly: true, variant: 'outline', className: 'text-ai' }}
-                            tooltip={tasksEnabled ? 'New chat or task' : 'New chat'}
+                            // Only the new PostHog AI view puts the task composer behind this link; every
+                            // other cohort lands on the legacy chat, which can only start a conversation.
+                            tooltip={effectivePhaiView === 'new' ? 'New chat or task' : 'New chat'}
                         >
                             <IconPlusSmall className="size-4" />
                         </Link>
