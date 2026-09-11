@@ -333,9 +333,13 @@ def _no_data_event_names(team: Team, limit: int) -> list[str]:
 
 
 def _person_property_names(team: Team, limit: int) -> list[str]:
+    # With `ORDER BY name LIMIT n` behind the project key the planner walks the whole project through the unique
+    # index, because it mis-estimates how many rows have this type; the `team_id` index range plus a sort stays in
+    # milliseconds on the largest projects.
     names = (
-        PropertyDefinition.objects.for_project(team.project_id)
-        .filter(type=PropertyDefinition.Type.PERSON)
+        PropertyDefinition.objects.filter(
+            team_id=team.pk, type=PropertyDefinition.Type.PERSON
+        )  # nosemgrep: taxonomy-scope-uses-project-key
         .order_by("name")
         .values_list("name", flat=True)[:limit]
     )
