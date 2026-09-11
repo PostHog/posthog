@@ -43,7 +43,6 @@ from posthog.hogql.restricted_properties import RESTRICTABLE_JSON_BLOB_COLUMNS, 
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
-from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
@@ -109,7 +108,26 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
 # The remaining values are structural literals of the dynamic-JSON property read, inlined to keep the printed
 # expression stable instead of burning parameters per property read.
 INLINE_SENTINEL_LITERALS = frozenset(
-    {"", "null", "true", "false", '^"|"$', "{}", "DateTime", "Array", "Map", "Tuple", " ", "T", '"'}
+    {
+        "",
+        "null",
+        "true",
+        "false",
+        '^"|"$',
+        "{}",
+        "DateTime",
+        "Dynamic",
+        "Float64",
+        "Int64",
+        "Array(String)",
+        "[]",
+        "Array",
+        "Map",
+        "Tuple",
+        " ",
+        "T",
+        '"',
+    }
 )
 
 # Comparison ops where a datetime string with a timezone may be replaced by a datetime literal.
@@ -555,22 +573,10 @@ class ClickHousePrinter(BasePrinter):
         if not isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES):
             return None
 
-        serialized = f"toJSONString({field_sql})"
-        subcolumns = (
-            EVENTS_PROPERTIES_JSON_SUBCOLUMNS
-            if resolved_field.name == "properties"
-            else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+        serialized = (
+            "concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), "
+            f"arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString({field_sql})))), ','), '}}')"
         )
-        array_keys = [
-            key for key, column_type in subcolumns.items() if parse_sql_runtime_type(column_type).family == "array"
-        ]
-        if array_keys:
-            keys_sql = "[" + ", ".join(escape_clickhouse_string(key) for key in array_keys) + "]"
-            serialized = (
-                "concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), "
-                f"arrayFilter(kv -> kv.2 != '[]' OR NOT has({keys_sql}, kv.1), "
-                f"JSONExtractKeysAndValuesRaw({serialized}))), ','), '}}')"
-            )
         return f"{JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME}({serialized})"
 
     def _serialize_to_json_string_call(self, node: ast.Call) -> str | None:
@@ -578,19 +584,7 @@ class ClickHousePrinter(BasePrinter):
             return None
         arg = node.args[0]
         if isinstance(arg, ast.JsonSubcolumnAccess) and arg.access_type == "sub_object":
-            field_type = resolve_field_type(arg.expr)
-            if isinstance(field_type, ast.FieldType):
-                field = field_type.resolve_database_field(self.context)
-                assert isinstance(field, StringJSONDatabaseField)
-                subcolumns = (
-                    EVENTS_PROPERTIES_JSON_SUBCOLUMNS
-                    if field.name == "properties"
-                    else PERSON_PROPERTIES_JSON_SUBCOLUMNS
-                )
-                if any(path.startswith(".".join(arg.keys) + ".") for path in subcolumns):
-                    # Declared children materialize empty defaults even when the parent object is absent.
-                    return f"{JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME}(toJSONString({self.visit(arg)}))"
-            return None
+            return f"{JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME}(toJSONString({self.visit(arg)}))"
         arg_type = resolve_field_type(arg)
         if not isinstance(arg_type, ast.FieldType):
             return None
@@ -934,7 +928,7 @@ class ClickHousePrinter(BasePrinter):
             type_arg = node.args[1] if len(node.args) > 1 else None
             if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
                 raise QueryError(f"{node.name} requires a constant string type name as its second argument")
-            if parse_sql_runtime_type(type_arg.value).family == "unknown":
+            if type_arg.value != "Dynamic" and parse_sql_runtime_type(type_arg.value).family == "unknown":
                 raise QueryError(f"Unsupported type in {node.name}: '{type_arg.value}'")
 
         return super().visit_call(node)

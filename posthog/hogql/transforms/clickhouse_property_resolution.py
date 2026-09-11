@@ -21,14 +21,16 @@ so it treats both an empty string and the literal text `"null"` as "not set". Th
 exist in the blob" test, but tightening it would change query results.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Literal, cast
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
+from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField
-from posthog.hogql.errors import ImpossibleASTError, QueryError
+from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
@@ -47,11 +49,7 @@ from posthog.hogql.type_system import (
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
-from posthog.clickhouse.events_json import (
-    DISTRIBUTED_EVENTS_JSON_TABLE,
-    EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
-    PERSON_PROPERTIES_JSON_SUBCOLUMNS,
-)
+from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
 from posthog.clickhouse.property_groups import property_groups
 from posthog.clickhouse.workload import Workload
 from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
@@ -178,28 +176,13 @@ def resolve_json_subcolumn_source(
         return None
     if table_name not in ("events", DISTRIBUTED_EVENTS_JSON_TABLE):
         return None
-    json_subcolumns_by_field = {
-        "properties": EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
-        "person_properties": PERSON_PROPERTIES_JSON_SUBCOLUMNS,
-    }
-    if field_name not in json_subcolumns_by_field:
+    if field_name not in ("properties", "person_properties"):
         return None
-    subcolumns = json_subcolumns_by_field[field_name]
-
-    column_type = subcolumns.get(property_name)
-    if column_type is None:
-        return MaterializedPropertySource(
-            kind="json_subcolumn",
-            column=property_name,
-            is_nullable=True,
-            column_type="Dynamic",
-        )
-
     return MaterializedPropertySource(
         kind="json_subcolumn",
         column=property_name,
-        is_nullable=column_type.startswith("Nullable("),
-        column_type=column_type,
+        is_nullable=True,
+        column_type="Dynamic",
     )
 
 
@@ -320,7 +303,7 @@ def _materialized_head_expr(
             field_type,
             [first_key],
             source=source,
-            as_json=not is_single or _is_json_container_column(source),
+            as_json=not is_single,
         )
 
     if source.kind == "property_group":
@@ -360,24 +343,39 @@ def _materialized_head_expr(
 
 def _json_subcolumn_access(
     field_type: ast.FieldType,
-    keys: list[str],
+    keys: Sequence[str | int],
     *,
     source: MaterializedPropertySource,
     is_nullable: bool,
     access_type: Literal["path", "sub_object"] = "path",
-) -> ast.JsonSubcolumnAccess:
-    return ast.JsonSubcolumnAccess(
+) -> ast.Expr:
+    path: list[str] = []
+    for key in keys:
+        if not isinstance(key, str):
+            break
+        path.append(key)
+    value: ast.Expr = ast.JsonSubcolumnAccess(
         expr=ast.Field(chain=[field_type.name], type=field_type),
-        keys=keys,
+        keys=path,
         access_type=access_type,
         type=_column_constant_type_for_read(source, is_nullable=is_nullable),
     )
+    for key in keys[len(path) :]:
+        if isinstance(key, int):
+            value = ast.ArrayAccess(array=value, property=ast.Constant(value=key), type=ast.StringType(nullable=True))
+        else:
+            value = ast.JsonSubcolumnAccess(expr=value, keys=[key], type=ast.StringType(nullable=True))
+    return value
 
 
-def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
+def _json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
     # Inspect the per-row variant only to choose its string format. Every branch casts the
     # whole Dynamic value, so mixed numeric variants are never filtered by a typed projection.
-    dynamic_type = ast.Call(name="dynamicType", args=[clone_expr(value)], type=ast.StringType(nullable=False))
+    dynamic_type = ast.Call(
+        name="dynamicType",
+        args=[ast.Call(name="accurateCast", args=[clone_expr(value), _sentinel("Dynamic")])],
+        type=ast.StringType(nullable=False),
+    )
     datetime_string = ast.Call(
         name="replaceOne",
         args=[
@@ -401,6 +399,11 @@ def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.E
         name="toJSONString",
         args=[clone_expr(value)],
         type=ast.StringType(nullable=False),
+    )
+    json_value = ast.Call(
+        name="nullIf",
+        args=[ast.Call(name="nullIf", args=[json_value, _sentinel("[]")]), _sentinel("{}")],
+        type=ast.StringType(nullable=True),
     )
     scalar_expr: ast.Expr = json_value
     if not as_json:
@@ -440,7 +443,7 @@ def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.E
     )
 
 
-def _dynamic_json_object_string_expr(
+def _json_object_string_expr(
     field_type: ast.FieldType,
     keys: list[str],
     *,
@@ -463,58 +466,35 @@ def _dynamic_json_object_string_expr(
 
 def _json_subcolumn_value_expr(
     field_type: ast.FieldType,
-    keys: list[str],
+    keys: Sequence[str | int],
     *,
     source: MaterializedPropertySource,
     as_json: bool = False,
 ) -> ast.Expr:
-    value: ast.Expr = _json_subcolumn_access(field_type, keys, source=source, is_nullable=source.is_nullable)
-    if _is_dynamic_json_source(source):
-        object_value = _dynamic_json_object_string_expr(field_type, keys, source=source)
-        object_present = _call("notEquals", [clone_expr(object_value), _sentinel("{}")])
-        scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json)
-        scalar_or_null = ast.Call(
-            name="if",
-            args=[
-                ast.Call(name="isNull", args=[clone_expr(value)]),
-                ast.Constant(value=None, type=ast.StringType(nullable=True)),
-                scalar_value,
-            ],
-            type=ast.StringType(nullable=True),
-        )
-        return ast.Call(
-            name="if",
-            args=[
-                object_present,
-                object_value,
-                scalar_or_null,
-            ],
-            type=ast.StringType(nullable=True),
-        )
-    if _is_string_column(source) and not source.is_nullable:
-        # A declared String path stores '' for a missing property. Read '' as NULL, the same as a non-nullable
-        # materialized column, so that IS NULL and is-set filters on the path see the missing value.
-        value = ast.Call(name="nullIf", args=[value, _sentinel("")], type=ast.StringType(nullable=True))
-    if as_json:
-        serialized = ast.Call(
-            name="toJSONString",
-            args=[clone_expr(value)],
-            type=ast.StringType(nullable=source.is_nullable or _is_string_column(source)),
-        )
-        if _is_json_container_column(source) and not source.is_nullable:
-            # Declared arrays and maps cannot distinguish a missing path from an explicitly empty value.
-            # Both are intentionally treated as NULL, matching materialized-column behavior.
-            return ast.Call(
-                name="if",
+    value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=True)
+    scalar_value = _json_scalar_string_expr(value, as_json=as_json)
+    scalar_or_null = ast.Call(
+        name="if",
+        args=[
+            ast.Call(
+                name="isNull",
                 args=[
-                    ast.Call(name="empty", args=[value], type=ast.BooleanType(nullable=False)),
-                    ast.Constant(value=None, type=ast.StringType(nullable=True)),
-                    serialized,
+                    ast.Call(name="nullIf", args=[ast.Call(name="toString", args=[clone_expr(value)]), _sentinel("")])
                 ],
-                type=ast.StringType(nullable=True),
-            )
-        return serialized
-    return value
+            ),
+            ast.Constant(value=None, type=ast.StringType(nullable=True)),
+            scalar_value,
+        ],
+        type=ast.StringType(nullable=True),
+    )
+    if any(isinstance(key, int) for key in keys):
+        return scalar_or_null
+    object_value = _json_object_string_expr(field_type, list(cast(Sequence[str], keys)), source=source)
+    return ast.Call(
+        name="if",
+        args=[_call("notEquals", [clone_expr(object_value), _sentinel("{}")]), object_value, scalar_or_null],
+        type=ast.StringType(nullable=True),
+    )
 
 
 def _map_value_read(blob: ast.Expr, key: str) -> ast.Expr:
@@ -568,38 +548,8 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
 
     _record_property_usage(context, source.kind)
 
-    if source.kind == "json_subcolumn" and deeper_keys:
-        if not _is_dynamic_json_source(source):
-            subcolumn_head = _json_subcolumn_value_expr(
-                field_type,
-                [first_key],
-                source=source,
-                as_json=not _is_string_column(source),
-            )
-            return ast.PropertyAccess(expr=subcolumn_head, keys=deeper_keys, type=ast.StringType(nullable=True))
-
-        subcolumn_keys = [first_key]
-        remaining_keys: list[str | int] = []
-        for index, key in enumerate(deeper_keys):
-            if isinstance(key, str):
-                subcolumn_keys.append(key)
-                continue
-            remaining_keys = deeper_keys[index:]
-            break
-
-        # A dynamic parent can contain declared children with concrete types.
-        source = resolve_materialized_property_source(field_type, ".".join(subcolumn_keys), context)
-        if source is None:
-            return ast.Constant(value=None, type=ast.StringType(nullable=True))
-        subcolumn_head = _json_subcolumn_value_expr(
-            field_type,
-            subcolumn_keys,
-            source=source,
-            as_json=bool(remaining_keys),
-        )
-        if not remaining_keys:
-            return subcolumn_head
-        return ast.PropertyAccess(expr=subcolumn_head, keys=remaining_keys, type=ast.StringType(nullable=True))
+    if source.kind == "json_subcolumn":
+        return _json_subcolumn_value_expr(field_type, node.keys, source=source)
 
     head = _materialized_head_expr(
         source,
@@ -688,10 +638,6 @@ def _is_string_array_column(source: MaterializedPropertySource) -> bool:
     )
 
 
-def _is_json_container_column(source: MaterializedPropertySource) -> bool:
-    return parse_sql_runtime_type(source.column_type or "String").family in ("array", "map", "tuple")
-
-
 def _is_dynamic_json_source(source: MaterializedPropertySource) -> bool:
     return source.kind == "json_subcolumn" and source.column_type == "Dynamic"
 
@@ -754,12 +700,16 @@ class _OptimizableProperty:
         map column for a property group, where a missing key reads as the '' default rather than SQL NULL.
         """
         if self.source.kind == "json_subcolumn":
-            return _json_subcolumn_access(
-                self.field_type,
-                [self.key],
-                source=self.source,
-                is_nullable=False,
-            )
+            value = _json_subcolumn_access(self.field_type, [self.key], source=self.source, is_nullable=False)
+            if _is_string_array_column(self.source):
+                return ast.Call(
+                    name="accurateCast",
+                    args=[
+                        ast.Call(name="ifNull", args=[value, ast.Constant(value=[])]),
+                        _sentinel("Array(String)"),
+                    ],
+                )
+            return value
 
         field = _synthetic_column_field(self.field_type, self.source.column, is_nullable=False)
         assert field is not None  # the source was resolved from this same field_type
@@ -956,6 +906,28 @@ class ClickHousePropertyResolver(CloningVisitor):
             finally:
                 self._index_hint_depth -= 1
 
+        if node.name in ("toFloat", "toInt") and len(node.args) == 1:
+            access = self._lowered_property_operand(node.args[0])
+            if access is not None:
+                field_type = _blob_field_type_of(access)
+                assert field_type is not None
+                source = resolve_materialized_property_source(
+                    field_type,
+                    str(access.keys[0])
+                    if any(isinstance(key, int) for key in access.keys)
+                    else ".".join(cast(list[str], access.keys)),
+                    self.context,
+                )
+                if source is not None and source.kind == "json_subcolumn":
+                    return ast.Call(
+                        name="accurateCastOrNull",
+                        args=[
+                            _json_subcolumn_access(field_type, access.keys, source=source, is_nullable=True),
+                            _sentinel("Float64" if node.name == "toFloat" else "Int64"),
+                        ],
+                        type=node.type,
+                    )
+
         json_string_on_events_json = self._rewrite_to_json_string_on_events_json_subcolumn(node)
         if json_string_on_events_json is not None:
             return json_string_on_events_json
@@ -1027,7 +999,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
 
         requested_type = parse_sql_runtime_type(type_arg.value)
-        if requested_type.family not in ("array", "map", "tuple"):
+        if requested_type.family != "array":
             return None
 
         source_arg = node.args[0]
@@ -1047,40 +1019,11 @@ class ClickHousePropertyResolver(CloningVisitor):
         if source is None or source.kind != "json_subcolumn":
             return None
 
-        source_type = parse_sql_runtime_type(source.column_type or "String")
-        if (
-            source_type.family == "array"
-            and requested_type.family == "array"
-            and source_type.item_type is not None
-            and requested_type.item_type is not None
-            and source_type.item_type.family == requested_type.item_type.family
-        ):
-            return _json_subcolumn_access(field_type, [property_name], source=source, is_nullable=False)
-
-        json_value = _json_subcolumn_value_expr(
-            field_type,
-            [property_name],
-            source=source,
-            as_json=True,
-        )
+        value = _json_subcolumn_access(field_type, [property_name], source=source, is_nullable=True)
         return ast.Call(
-            start=node.start,
-            end=node.end,
+            name="accurateCast",
+            args=[ast.Call(name="ifNull", args=[value, ast.Constant(value=[])]), type_arg],
             type=node.type,
-            name=node.name,
-            args=[
-                ast.Call(
-                    name="ifNull",
-                    args=[json_value, self.visit(source_arg.args[1])],
-                    type=ast.StringType(nullable=False),
-                ),
-                type_arg,
-            ],
-            params=node.params,
-            distinct=node.distinct,
-            within_group=node.within_group,
-            order_by=node.order_by,
-            filter_expr=node.filter_expr,
         )
 
     def _optimize_json_has_on_events_json(self, node: ast.Call) -> ast.Expr | None:
@@ -1149,31 +1092,7 @@ class ClickHousePropertyResolver(CloningVisitor):
                 filter_expr=node.filter_expr,
             )
 
-        subcolumn = _json_subcolumn_access(field_type, [first_key], source=source, is_nullable=source.is_nullable)
-        if _is_dynamic_json_source(source):
-            object_value = _dynamic_json_object_string_expr(field_type, [first_key], source=source)
-            return _call(
-                "or",
-                [
-                    _call("isNotNull", [subcolumn]),
-                    _call("notEquals", [object_value, _sentinel("{}")]),
-                ],
-            )
-        if source.is_nullable:
-            return _call("isNotNull", [subcolumn])
-        # A non-nullable declared path stores its type default when the property is missing, so presence is
-        # "not the default": non-empty for arrays, maps, and tuples, and non-empty text for strings.
-        if _is_json_container_column(source):
-            return _call("notEmpty", [subcolumn])
-        if _is_string_column(source):
-            return ast.Call(
-                name="notEquals",
-                args=[_call("length", [subcolumn]), _const(0)],
-                type=ast.BooleanType(nullable=False),
-            )
-        raise ImpossibleASTError(
-            f"JSONHas has no presence rule for the declared JSON path type {source.column_type!r} ({first_key})"
-        )
+        return _call("isNotNull", [_json_subcolumn_value_expr(field_type, [first_key], source=source)])
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         # Try each skip-index comparison rewrite in order. Each one consumes the property operand and returns the
@@ -1335,12 +1254,19 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         field_type, property_name = single
         source = resolve_materialized_property_source(field_type, property_name, self.context)
-        if source is None or source.kind != "json_subcolumn" or not _is_string_array_column(source):
+        if source is None or source.kind != "json_subcolumn":
+            return None
+        property_info = (
+            self.context.property_metadata.event_properties.get(property_name, {})
+            if self.context.property_metadata
+            else {}
+        )
+        if property_name not in EXCEPTION_STRING_ARRAY_PROPERTIES and property_info.get("type") != "Array":
             return None
         return _OptimizableProperty(
             field_type=field_type,
             key=property_name,
-            source=source,
+            source=replace(source, column_type="Array(String)"),
         )
 
     def _property_group_property(self, expr: ast.Expr) -> _OptimizableProperty | None:
