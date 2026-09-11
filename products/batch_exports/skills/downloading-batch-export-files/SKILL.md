@@ -96,7 +96,7 @@ For single-file exports it usually contains one UUID.
 For split exports, download every UUID unless the user asked for a specific part.
 
 A `Completed` response also carries `records_completed`, the number of rows the run exported.
-Report it to the user, because file downloads are billed per row and the count is otherwise only visible by opening every file.
+Report it to the user, because the count is otherwise only visible by opening every file.
 
 ### 4. Optionally, cancel a running export
 
