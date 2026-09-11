@@ -4,8 +4,8 @@ import { router } from 'kea-router'
 import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
 import { useEffect, useState } from 'react'
 
-import { IconArrowLeft, IconChevronLeft, IconChevronRight, IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconChevronLeft, IconChevronRight } from '@posthog/icons'
+import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { GuidedWizardStep, GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
@@ -14,7 +14,6 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -23,11 +22,11 @@ import { SurveyMatchType, SurveyQuestionBranchingType, SurveyType } from '~/type
 import { HostedSurveyRespondentHint } from '../components/HostedSurveyRespondentHint'
 import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
 import { SurveyPublicContentNotice } from '../components/SurveyPublicContentNotice'
+import { SurveysDisabledLaunchWarning } from '../components/SurveysDisabledLaunchWarning'
 import { NewSurvey } from '../constants'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
 import { surveyLogic } from '../surveyLogic'
-import { openSurveysSettingsDialog } from '../SurveySettings'
 import { surveysLogic } from '../surveysLogic'
 import { getSurveyWithTranslatedContent } from '../surveyTranslationUtils'
 import { canUseSurveyWizard, doesSurveyHaveDisplayConditions, getSurveyAudienceSummaryValue } from '../utils'
@@ -110,7 +109,6 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         },
     })
 
-    const { currentTeam } = useValues(teamLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
     const [previewPageIndex, setPreviewPageIndex] = useState(0)
@@ -255,28 +253,13 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         const hasConditions = !isHostedSurvey && doesSurveyHaveDisplayConditions(survey)
         const conditionsSummary = isHostedSurvey ? [] : getConditionsSummary()
         const hasAudienceConditions = conditionsSummary.length > 0
-        // PostHog hosts and renders these surveys, so they do not depend on the project's surveys_opt_in setting.
-        const surveysAreOff = !currentTeam?.surveys_opt_in && !isHostedSurvey
 
         LemonDialog.open({
             title: 'Launch this survey?',
             content: (
                 <div className="space-y-2">
                     <SdkVersionWarnings warnings={surveyWarnings} />
-                    {surveysAreOff && (
-                        <LemonBanner
-                            type="warning"
-                            action={{
-                                type: 'secondary',
-                                icon: <IconGear />,
-                                onClick: () => openSurveysSettingsDialog(),
-                                children: 'Configure',
-                            }}
-                        >
-                            Surveys are off for this project, so your app will not show this survey automatically.
-                            Launching does not change the setting.
-                        </LemonBanner>
-                    )}
+                    <SurveysDisabledLaunchWarning surveyType={survey.type} />
                     {isHostedSurvey ? (
                         <div className="flex flex-col gap-3">
                             <p className="text-secondary m-0">

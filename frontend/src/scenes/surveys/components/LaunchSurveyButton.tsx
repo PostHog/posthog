@@ -1,30 +1,25 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { HostedSurveyRespondentHint } from 'scenes/surveys/components/HostedSurveyRespondentHint'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyConditionsList } from 'scenes/surveys/components/SurveyConditions'
+import { SurveysDisabledLaunchWarning } from 'scenes/surveys/components/SurveysDisabledLaunchWarning'
 import { getSurveyUrl } from 'scenes/surveys/CopySurveyLink'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { openSurveysSettingsDialog } from 'scenes/surveys/SurveySettings'
 import { getSurveyDisplayConditionsSummary } from 'scenes/surveys/utils'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType, SurveyType } from '~/types'
 
 export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNode }): JSX.Element {
     const { survey, surveyWarnings } = useValues(surveyLogic)
     const { launchSurvey } = useActions(surveyLogic)
-    const { currentTeam } = useValues(teamLogic)
 
     const isHostedSurvey = survey.type === SurveyType.ExternalSurvey
-    // PostHog hosts and renders these surveys, so they do not depend on the project's surveys_opt_in setting.
-    const surveysAreOff = !currentTeam?.surveys_opt_in && !isHostedSurvey
     const conditionsSummary = isHostedSurvey ? [] : getSurveyDisplayConditionsSummary(survey)
 
     return (
@@ -63,20 +58,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                                         This survey will be shown to all users.
                                     </div>
                                 )}
-                                {surveysAreOff && (
-                                    <LemonBanner
-                                        type="warning"
-                                        action={{
-                                            type: 'secondary',
-                                            icon: <IconGear />,
-                                            onClick: () => openSurveysSettingsDialog(),
-                                            children: 'Configure',
-                                        }}
-                                    >
-                                        Surveys are off for this project, so your app will not show this survey
-                                        automatically. Launching does not change the setting.
-                                    </LemonBanner>
-                                )}
+                                <SurveysDisabledLaunchWarning surveyType={survey.type} />
                             </div>
                         ),
                         primaryButton: {
