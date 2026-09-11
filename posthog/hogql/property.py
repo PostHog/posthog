@@ -251,7 +251,7 @@ GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
 GROUP_KEY_PROPERTY = "$group_key"
 
 
-def group_property_chain(group_type_index: int | float | None, key: str) -> list[str | int]:
+def group_property_chain(group_type_index: int | float | None, key: str) -> list[str]:
     """Field chain that reads group property `key` through the events table's `group_N` lazy join.
 
     `$group_key` is the `key` column, `$virt_*` properties are expression fields on the groups table, and

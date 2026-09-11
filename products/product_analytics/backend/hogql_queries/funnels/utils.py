@@ -84,7 +84,7 @@ def get_breakdown_expr(
             and column_chain[0].startswith("group_")
             and column_chain[1] == "properties"
         ):
-            return ast.Field(chain=group_property_chain(int(column_chain[0].removeprefix("group_")), breakdown))
+            return ast.Field(chain=[*group_property_chain(int(column_chain[0].removeprefix("group_")), breakdown)])
         return ast.Field(chain=[*column_chain, breakdown])
 
     # Fail loudly rather than silently skipping cleaning if a caller forgets the team

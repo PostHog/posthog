@@ -39,7 +39,7 @@ def get_properties_chain(
         return ["session", breakdown_field]
 
     if breakdown_type == "group" and group_type_index is not None:
-        return group_property_chain(int(group_type_index), breakdown_field)
+        return [*group_property_chain(int(group_type_index), breakdown_field)]
     elif breakdown_type == "group" and group_type_index is None:
         raise Exception("group_type_index missing from params")
 
