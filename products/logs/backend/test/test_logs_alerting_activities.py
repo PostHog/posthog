@@ -453,6 +453,23 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
         assert alert.next_check_at == snooze_until
         assert not LogsAlertEvent.objects.filter(alert=alert).exists()
 
+    def test_concurrent_rename_does_not_discard_or_overwrite_the_valid_result(self):
+        alert = self._make_alert(next_check_at=datetime(2025, 1, 1, 0, 0, tzinfo=UTC))
+        dispatched = self._make_dispatched(alert)
+        LogsAlertConfiguration.objects.filter(id=alert.id).update(
+            name="Renamed while the check was in flight",
+            updated_at=datetime(2025, 1, 1, 0, 0, 30, tzinfo=UTC),
+        )
+
+        save_outcomes = _save_cohort_outcomes([dispatched], datetime(2025, 1, 1, 0, 1, tzinfo=UTC))
+
+        assert save_outcomes.saved == [dispatched]
+        assert save_outcomes.failed == []
+        assert save_outcomes.stale == []
+        alert.refresh_from_db()
+        assert alert.name == "Renamed while the check was in flight"
+        assert alert.last_checked_at == datetime(2025, 1, 1, 0, 1, tzinfo=UTC)
+
     @patch("products.logs.backend.temporal.activities._dispatch_notification")
     def test_concurrent_snooze_discards_the_stale_result_before_notification(self, dispatch_notification):
         alert = self._make_alert(next_check_at=datetime(2025, 1, 1, 0, 0, tzinfo=UTC))
@@ -2099,6 +2116,10 @@ class TestCohortManifest(unittest.TestCase):
             projection_eligible=True,
             date_to_iso="2026-05-05T10:00:00+00:00",
             alert_ids=["019decab-1234-7000-8000-000000000001", "019decab-1234-7000-8000-000000000002"],
+            updated_at_by_alert_id={
+                "019decab-1234-7000-8000-000000000001": "2026-05-05T09:59:00+00:00",
+                "019decab-1234-7000-8000-000000000002": "2026-05-05T09:59:30+00:00",
+            },
         )
 
         as_dict = dataclasses.asdict(manifest)
@@ -2107,6 +2128,7 @@ class TestCohortManifest(unittest.TestCase):
         assert round_tripped.team_id == 42
         assert round_tripped.alert_ids == manifest.alert_ids
         assert round_tripped.date_to_iso == manifest.date_to_iso
+        assert round_tripped.updated_at_by_alert_id == manifest.updated_at_by_alert_id
 
     def test_manifests_grouped_by_cohort_key(self):
         # Three alerts: two share a key (same team, window, cadence, projection,
@@ -2657,6 +2679,36 @@ class TestCohortFromManifest(unittest.TestCase):
         assert cohort.alerts[1] is alert_b
         assert cohort.date_to == datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
         assert cohort.projection_eligible is True
+
+    def test_excludes_alert_changed_since_discovery_from_the_cohort(self):
+        from products.logs.backend.temporal.activities import CohortManifest, _cohort_from_manifest
+
+        discovered_at = datetime(2026, 5, 5, 9, 59, tzinfo=UTC)
+        stable_alert = MagicMock(id="stable-alert", team_id=7, updated_at=discovered_at)
+        changed_alert = MagicMock(
+            id="changed-alert",
+            team_id=7,
+            updated_at=datetime(2026, 5, 5, 10, 0, tzinfo=UTC),
+            window_minutes=15,
+        )
+        alerts_by_id = cast(
+            dict[str, LogsAlertConfiguration],
+            {"stable-alert": stable_alert, "changed-alert": changed_alert},
+        )
+        manifest = CohortManifest(
+            team_id=7,
+            projection_eligible=True,
+            date_to_iso="2026-05-05T10:00:00+00:00",
+            alert_ids=["stable-alert", "changed-alert"],
+            updated_at_by_alert_id={
+                "stable-alert": discovered_at.isoformat(),
+                "changed-alert": discovered_at.isoformat(),
+            },
+        )
+
+        cohort = _cohort_from_manifest(manifest, alerts_by_id)
+
+        assert cohort.alerts == (stable_alert,)
 
     def test_raises_if_manifest_alert_id_not_loaded(self):
         # Defensive: if the evaluate activity's bulk-load missed an alert
