@@ -42,9 +42,14 @@ export function formatSkillLookupMiss(
     }
 
     if (typeof filePath === 'string' && filePath && apiError.body.includes(FILE_MISSING_DETAIL)) {
+        // A file belongs to one version row, so the manifest worth reading is the
+        // one for the version the caller asked for. An unpinned `skill-get`
+        // returns the latest version's files, and a publish replaces the whole
+        // set, so those paths can be absent at the pinned version.
+        const pinnedVersion = typeof version === 'number' ? `, "version": ${version}` : ''
         return [
             `No file "${filePath}" in the skill "${skillName}".`,
-            `Run \`call skill-get {"skill_name": "${skillName}"}\` to see the skill's file manifest.`,
+            `Run \`call skill-get {"skill_name": "${skillName}"${pinnedVersion}}\` to see the skill's file manifest.`,
         ].join('\n')
     }
 

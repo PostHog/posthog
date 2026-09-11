@@ -906,25 +906,34 @@ describe('exec tool', () => {
             )
         })
 
-        it('names the file when the skill exists but a bundled file does not', async () => {
-            const exec = createExec([
-                makeSkillTool(
-                    'skill-file-get',
-                    '{"detail":"File \'refs/guide.md\' not found in skill \'real-skill\'."}'
-                ),
-            ])
+        // A file belongs to one version row, and a publish replaces the whole set,
+        // so an unpinned recovery command sends an agent working from an older
+        // version to a manifest whose paths it cannot fetch.
+        it.each([
+            ['', '{"skill_name": "real-skill"}'],
+            [',"version":3', '{"skill_name": "real-skill", "version": 3}'],
+        ])(
+            'names the file when the skill exists but a bundled file does not, and keeps "%s" on its own manifest',
+            async (pinnedVersion, expectedArgs) => {
+                const exec = createExec([
+                    makeSkillTool(
+                        'skill-file-get',
+                        '{"detail":"File \'refs/guide.md\' not found in skill \'real-skill\'."}'
+                    ),
+                ])
 
-            const result = await exec.handler(mockContext, {
-                command: 'call skill-file-get {"skill_name":"real-skill","file_path":"refs/guide.md"}',
-            })
+                const result = await exec.handler(mockContext, {
+                    command: `call skill-file-get {"skill_name":"real-skill","file_path":"refs/guide.md"${pinnedVersion}}`,
+                })
 
-            expect(result).toBe(
-                [
-                    'No file "refs/guide.md" in the skill "real-skill".',
-                    'Run `call skill-get {"skill_name": "real-skill"}` to see the skill\'s file manifest.',
-                ].join('\n')
-            )
-        })
+                expect(result).toBe(
+                    [
+                        'No file "refs/guide.md" in the skill "real-skill".',
+                        `Run \`call skill-get ${expectedArgs}\` to see the skill's file manifest.`,
+                    ].join('\n')
+                )
+            }
+        )
 
         it('falls back to the skill message when skill-file-get misses on the skill itself', async () => {
             const exec = createExec([
