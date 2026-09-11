@@ -152,7 +152,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         name="Folklore",
         url="https://api.helena.bio/folklore/v1/mcp",
-        description="Interpret supported GRCh38 germline variants with structured ACMG/AMP evidence and literature.",
+        description="Interpret GRCh38 germline variants, retrieve ClinGen gene-disease evidence and search literature.",
         auth_type="api_key",
         category="data",
         icon_domain="helena.bio",
