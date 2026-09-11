@@ -3,6 +3,10 @@
     "properties": {
         "name": {
             "type": "string"
+        },
+        "version": {
+            "description": "Version number. Defaults to the current version.",
+            "type": "number"
         }
     },
     "required": ["name"],
