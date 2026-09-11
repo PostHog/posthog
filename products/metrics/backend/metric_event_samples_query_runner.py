@@ -33,7 +33,7 @@ from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricFilter
 from products.metrics.backend.facade.enums import MetricType
-from products.metrics.backend.metric_query_runner import series_scope_expr, type_filter_expr
+from products.metrics.backend.metric_query_runner import series_scope_expr, time_range_expr, type_filter_expr
 
 # This runs on the ClickHouse cluster shared with the live logs/traces
 # products, so cap how much one request may read. Same budget the chart
@@ -133,8 +133,7 @@ class MetricEventSamplesQueryRunner:
                         service_name
                     FROM posthog.metrics
                     WHERE ({metric_name} = '' OR metric_name = {metric_name})
-                      AND timestamp >= {date_from}
-                      AND timestamp < {date_to}
+                      AND {time_range}
                       AND ({trace_id} = '' OR trace_id = {trace_id})
                       AND ({span_id} = '' OR span_id = {span_id})
                       AND {type_filter}
@@ -177,8 +176,7 @@ class MetricEventSamplesQueryRunner:
             """,
             placeholders={
                 "metric_name": ast.Constant(value=self.metric_name),
-                "date_from": ast.Constant(value=self.date_from),
-                "date_to": ast.Constant(value=self.date_to),
+                "time_range": time_range_expr(self.date_from, self.date_to),
                 "trace_id": ast.Constant(value=self.trace_id),
                 "span_id": ast.Constant(value=self.span_id),
                 "type_filter": type_filter_expr(self.metric_type.value if self.metric_type else None),

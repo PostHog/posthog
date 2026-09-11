@@ -43,6 +43,7 @@ from products.metrics.backend.metric_query_runner import (
     counter_lookback,
     series_labels_query,
     series_scope_expr,
+    time_range_expr,
     type_filter_expr,
 )
 
@@ -95,8 +96,7 @@ def _raw_samples_query(
                     value
                 FROM posthog.metrics
                 WHERE metric_name = {metric_name}
-                  AND timestamp >= {date_from}
-                  AND timestamp < {date_to}
+                  AND {time_range}
                   AND {series_scope}
                   AND {type_filter}
                 ORDER BY timestamp ASC
@@ -107,8 +107,7 @@ def _raw_samples_query(
         """,
         placeholders={
             "metric_name": ast.Constant(value=metric_name),
-            "date_from": ast.Constant(value=date_from),
-            "date_to": ast.Constant(value=bucket_end),
+            "time_range": time_range_expr(date_from, bucket_end),
             "series_scope": series_scope_expr(metric_name, filters),
             "type_filter": type_filter_expr(metric_type),
             "row_limit": ast.Constant(value=_MAX_ROWS_READ),

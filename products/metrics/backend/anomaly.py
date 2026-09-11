@@ -31,7 +31,12 @@ from products.metrics.backend.facade.contracts import (
     MetricSeries,
 )
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
-from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, MetricQueryRunner, _pick_interval
+from products.metrics.backend.metric_query_runner import (
+    _INTERVAL_LADDER,
+    MetricQueryRunner,
+    _pick_interval,
+    time_range_expr,
+)
 
 # How many label keys to drill into and how many movers to report.
 MAX_CANDIDATE_KEYS = 4
@@ -247,8 +252,7 @@ def _discover_candidate_keys(
                         SELECT DISTINCT series_fingerprint
                         FROM posthog.metrics
                         WHERE metric_name = {metric_name}
-                          AND timestamp >= {date_from}
-                          AND timestamp < {date_to}
+                          AND {time_range}
                       )
                     GROUP BY series_fingerprint
                 )
@@ -259,8 +263,7 @@ def _discover_candidate_keys(
         """,
         placeholders={
             "metric_name": ast.Constant(value=metric_name),
-            "date_from": ast.Constant(value=date_from),
-            "date_to": ast.Constant(value=date_to),
+            "time_range": time_range_expr(date_from, date_to),
             "limit": ast.Constant(value=MAX_CANDIDATE_KEYS),
         },
     )
