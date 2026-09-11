@@ -1090,7 +1090,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                             .uuid()
                             .optional()
                             .describe(
-                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here."
+                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must name a current member of this project, so an entity whose creator has since left resolves to nobody: `scout-members-list` is the roster this is validated against. Must be a concrete UUID; the `@me` alias is not valid here."
                             ),
                         reason: zod
                             .string()
@@ -1101,7 +1101,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe(
-                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nA reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a\nmember with no linked GitHub account routes the report like anyone else. A `user_uuid` that\nisn't an org member of this team is rejected — so a reviewer is never silently dropped."
+                        'One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nA reviewer is a PostHog user, so a `user_uuid` only has to name a member of this project: a\nmember with no linked GitHub account routes the report like anyone else. A `user_uuid` that\nnames no project member is rejected — so a reviewer is never silently dropped.'
                     )
             )
             .max(signalsScoutEditReportBodySuggestedReviewersMax)
@@ -1281,7 +1281,7 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                             .uuid()
                             .optional()
                             .describe(
-                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here."
+                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must name a current member of this project, so an entity whose creator has since left resolves to nobody: `scout-members-list` is the roster this is validated against. Must be a concrete UUID; the `@me` alias is not valid here."
                             ),
                         reason: zod
                             .string()
@@ -1292,7 +1292,7 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe(
-                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nA reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a\nmember with no linked GitHub account routes the report like anyone else. A `user_uuid` that\nisn't an org member of this team is rejected — so a reviewer is never silently dropped."
+                        'One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nA reviewer is a PostHog user, so a `user_uuid` only has to name a member of this project: a\nmember with no linked GitHub account routes the report like anyone else. A `user_uuid` that\nnames no project member is rejected — so a reviewer is never silently dropped.'
                     )
             )
             .max(signalsScoutEmitReportBodySuggestedReviewersMax)

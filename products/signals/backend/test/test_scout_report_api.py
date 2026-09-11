@@ -14,12 +14,14 @@ from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.artefact_schemas import Priority, PriorityAssessment, SuggestedReviewers, TaskRunArtefact
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalSourceConfig
-from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
+from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet, list_project_members
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
     MAX_REPORT_SIGNALS,
@@ -1136,6 +1138,43 @@ class TestScoutReportAPI(APIBaseTest):
         assert report_channel.status_code == status.HTTP_200_OK, report_channel.json()
         assert [entry["email"] for entry in report_channel.json()["owners"]] == [owner.email]
 
+    @parameterized.expand([("emit",), ("edit",)])
+    def test_uuid_from_members_list_routes_on_both_write_paths(self, path: str) -> None:
+        # The contract between the roster tool and the two writes: a uuid `scout-members-list` hands a
+        # scout has to be routable. A member with no linked GitHub account is the case that only the
+        # uuid can route, so a write that reads a narrower roster than the tool leaves them unroutable
+        # and the report surfaces routed to no one.
+        member = User.objects.create_and_join(self.organization, "nogh@posthog.com", None, first_name="Nogh")
+        roster = self.client.get(f"/api/projects/{self.team.id}/signals/scout/members/")
+        assert roster.status_code == status.HTTP_200_OK, roster.json()
+        listed = {row["email"]: row for row in roster.json()}[member.email]
+        assert listed["github_login"] is None
+
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            if path == "emit":
+                response = self.client.post(
+                    self._emit_url(str(run.id)),
+                    data=self._payload(suggested_reviewers=[{"user_uuid": listed["user_uuid"]}]),
+                    format="json",
+                )
+                report_id = response.json().get("report_id")
+            else:
+                report_id = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()[
+                    "report_id"
+                ]
+                response = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={"report_id": report_id, "suggested_reviewers": [{"user_uuid": listed["user_uuid"]}]},
+                    format="json",
+                )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        artefact = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
+        assert artefact is not None
+        assert [(e["user_uuid"], e["github_login"]) for e in json.loads(artefact.content)] == [
+            (listed["user_uuid"], None)
+        ]
+
     def test_edit_report_unresolvable_reviewer_does_not_partially_mutate(self) -> None:
         # A combined edit (title + a bad reviewer) must fail atomically: reviewers resolve before any
         # write, so an unresolvable user_uuid 400s without the title change leaking through.
@@ -1684,6 +1723,29 @@ class TestBuildSuggestedReviewers(APIBaseTest):
     def test_non_member_user_uuid_raises(self) -> None:
         with pytest.raises(InvalidScoutReportError):
             _build_suggested_reviewers(self.team, [ReviewerInput(user_uuid=str(uuid4()))])
+
+    def test_rejects_org_member_without_access_to_a_private_project(self) -> None:
+        # The scope runs the other way too: an org member with no access to a private project never
+        # appears in `scout-members-list`, so routing a report to them by uuid would put it in front
+        # of someone who cannot open it.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        outsider = User.objects.create_and_join(
+            self.organization, "outsider@example.com", None, level=OrganizationMembership.Level.MEMBER
+        )
+        assert str(outsider.uuid) not in {m.user_uuid for m in list_project_members(self.team)}
+        with pytest.raises(InvalidScoutReportError):
+            _build_suggested_reviewers(self.team, [ReviewerInput(user_uuid=str(outsider.uuid))])
 
     def test_member_without_github_identity_is_stored_by_uuid(self) -> None:
         member = User.objects.create(email="nogh@example.com")
