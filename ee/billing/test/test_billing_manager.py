@@ -3,8 +3,10 @@ import json
 import math
 import hashlib
 import datetime
+from email.message import Message
 from types import SimpleNamespace
 from typing import Any, cast
+from urllib.request import Request as UrllibRequest
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -33,6 +35,7 @@ from ee.billing.billing_manager import (
     _get_user_organization_role,
     _parse_funding_status,
     build_billing_token,
+    http_session,
 )
 from ee.billing.billing_types import BillingProvider, BillingStatus, Product
 from ee.models.license import License, LicenseManager
@@ -946,6 +949,22 @@ class TestBillingManager(BaseTest):
             BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
         organization.refresh_from_db()
         assert organization.has_active_subscription is expected
+
+
+class TestBillingSession(SimpleTestCase):
+    def test_the_session_keeps_no_cookies(self):
+        # Every call to billing is server-to-server and carries a bearer token for one
+        # organization. A cookie set on one response must not ride along on the next request,
+        # which would be another organization's.
+        self.addCleanup(http_session.cookies.clear)
+        headers = Message()
+        headers["Set-Cookie"] = "sessionid=abc123; Path=/"
+        response = SimpleNamespace(info=lambda: headers)
+        http_session.cookies.extract_cookies(
+            cast(Any, response), UrllibRequest("https://billing.example/api/v2/billing/subscription/")
+        )
+
+        self.assertEqual(len(http_session.cookies), 0)
 
 
 class TestBillingProviderWebhookSigning(SimpleTestCase):

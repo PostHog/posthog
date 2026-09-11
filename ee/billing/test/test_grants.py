@@ -57,7 +57,10 @@ class TestEffectiveBillingGrants(APIBaseTest):
     def test_owner_session_gets_full_access_for_the_whole_organization(self):
         self._set_level(OWNER)
         grants = self._grants()
-        self.assertEqual(grants.sub, f"user:{self.user.distinct_id}")
+        # The uuid, not the distinct id: it is unique, never null and never edited, so the subject
+        # names the same user for as long as the user exists. The distinct id is its own claim.
+        self.assertEqual(grants.sub, f"user:{self.user.uuid}")
+        self.assertEqual(grants.distinct_id, self.user.distinct_id)
         self.assertEqual(grants.scope, ["billing:read"])
         self.assertEqual(grants.roles, ["owner"])
         self.assertEqual(grants.entitlements, entitlements_for(BillingEntitlement.FULL_ACCESS))
