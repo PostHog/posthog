@@ -23,6 +23,7 @@ from products.customer_analytics.backend.logic.custom_property_values import (
     CustomPropertyValueConflict,
     InvalidCustomPropertyValue,
     set_custom_property_value,
+    set_synced_custom_property_value,
 )
 from products.customer_analytics.backend.models import Account, CustomPropertySource
 
@@ -100,8 +101,6 @@ def sync_custom_property_values(
             if account_id is None:
                 unmatched.add(key)
                 continue
-            if row[value_index] is None:
-                continue
             if _write(team_id=team_id, account_id=account_id, source=source, value=row[value_index], result=result):
                 result.written += 1
     result.unmatched_keys = len(unmatched)
@@ -121,6 +120,10 @@ def _write(*, team_id: int, account_id: Any, source: CustomPropertySource, value
     last_conflict: CustomPropertyValueConflict | None = None
     for _ in range(_WRITE_CONFLICT_RETRIES):
         try:
+            if value is None:
+                return set_synced_custom_property_value(
+                    team_id=team_id, account_id=account_id, definition=source.definition, value=None
+                )
             set_custom_property_value(
                 team_id=team_id, account_id=account_id, definition_id=source.definition_id, value=value
             )
