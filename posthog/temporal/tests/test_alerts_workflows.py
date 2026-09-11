@@ -12,6 +12,7 @@ from django.conf import settings
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from temporalio.client import WorkflowFailureError
+from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -54,10 +55,25 @@ CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [
 ]
 
 
+def test_schedule_due_alert_checks_parses_legacy_schedule_inputs() -> None:
+    inputs = ScheduleDueAlertChecksWorkflow.parse_inputs(['{"max_alerts_per_run": 17}'])
+
+    assert inputs == ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=17)
+
+
+def test_schedule_due_alert_checks_decodes_legacy_temporal_payload() -> None:
+    converter = DataConverter.default.payload_converter
+    payloads = converter.to_payloads([{"max_alerts_per_run": 17}])
+
+    (inputs,) = converter.from_payloads(payloads, [ScheduleDueAlertChecksWorkflowInputs])
+
+    assert inputs == ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=17)
+
+
 @pytest.mark.asyncio
 async def test_schedule_due_alert_checks_passes_configured_limit_to_retrieval() -> None:
     execute_activity = AsyncMock(return_value=[])
-    inputs = ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=17)
+    inputs = ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=17, team_fair_share_per_run=3)
 
     with patch(
         "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
@@ -70,7 +86,32 @@ async def test_schedule_due_alert_checks_passes_configured_limit_to_retrieval() 
 
 
 @pytest.mark.asyncio
-async def test_schedule_due_alert_checks_defaults_to_three_hundred_alerts() -> None:
+async def test_schedule_due_alert_checks_does_not_apply_priority_on_shared_queue() -> None:
+    alert = AlertInfo(
+        alert_id="alert-1",
+        team_id=42,
+        distinct_id="user-1",
+        calculation_interval=AlertCalculationInterval.DAILY.value,
+        insight_id=123,
+    )
+
+    with (
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
+            new=AsyncMock(return_value=[alert]),
+        ),
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.start_child_workflow", new=AsyncMock()
+        ) as start_child,
+    ):
+        await ScheduleDueAlertChecksWorkflow().run()
+
+    assert start_child.await_args is not None
+    assert "priority" not in start_child.await_args.kwargs
+
+
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_defaults_to_four_hundred_alerts() -> None:
     create_schedule = AsyncMock()
 
     with (
@@ -87,7 +128,7 @@ async def test_schedule_due_alert_checks_defaults_to_three_hundred_alerts() -> N
 
     assert create_schedule.await_args is not None
     schedule = create_schedule.await_args.args[2]
-    assert schedule.action.args == [ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=300)]
+    assert schedule.action.args == [ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=400)]
 
 
 @pytest.mark.asyncio

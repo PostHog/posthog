@@ -6,7 +6,8 @@ from posthog.schema import AlertState
 from posthog.dataclasses import frozen
 from posthog.slo.types import SloConfig
 
-DEFAULT_MAX_DUE_ALERTS_PER_SCHEDULE_RUN = 300
+DEFAULT_MAX_DUE_ALERTS_PER_SCHEDULE_RUN = 400
+DEFAULT_DUE_ALERTS_TEAM_FAIR_SHARE_PER_SCHEDULE_RUN = 50
 
 
 class PrepareAction(StrEnum):
@@ -37,6 +38,7 @@ class AlertInfo:
 @frozen
 class ScheduleDueAlertChecksWorkflowInputs:
     max_alerts_per_run: int = DEFAULT_MAX_DUE_ALERTS_PER_SCHEDULE_RUN
+    team_fair_share_per_run: int = DEFAULT_DUE_ALERTS_TEAM_FAIR_SHARE_PER_SCHEDULE_RUN
 
 
 @dataclasses.dataclass(frozen=True)

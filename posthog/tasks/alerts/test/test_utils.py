@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 import time_machine
@@ -44,6 +45,24 @@ class TestAlertUtils:
 
         with time_machine.travel("2026-04-06T14:00:00Z", tick=False):
             assert next_check_time(alert) == datetime(2026, 4, 6, 14, 2, 0, tzinfo=UTC)
+
+    def test_next_check_time_preserves_the_same_default_phase_across_alerts(self) -> None:
+        next_check_times: set[datetime] = set()
+
+        with time_machine.travel("2026-04-06T14:00:00Z", tick=False):
+            for alert_id in (UUID(int=0), UUID(int=1)):
+                alert = MagicMock(spec=AlertConfiguration)
+                alert.id = alert_id
+                alert.calculation_interval = AlertCalculationInterval.HOURLY
+                alert.next_check_at = datetime(2026, 4, 6, 14, 0, 0, tzinfo=UTC)
+                alert.team = MagicMock()
+                alert.team.timezone = "UTC"
+                alert.schedule_start_time = None
+                alert.schedule_restriction = None
+                alert.skip_weekend = False
+                next_check_times.add(next_check_time(alert))
+
+        assert next_check_times == {datetime(2026, 4, 6, 15, 0, 0, tzinfo=UTC)}
 
     @parameterized.expand(
         [
