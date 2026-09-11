@@ -4,7 +4,7 @@
 
 Start with `experiment-metrics-recalculation-latest-retrieve`.
 It takes the experiment ID.
-It returns the most recent completed run, with one entry per metric.
+It returns the most recent terminal run: a completed run, or a failed run that still carries the metrics that succeeded.
 Each entry carries per-variant exposures, counts, means, credible intervals, chance to beat control, and significance.
 The run also carries `query_to`, the data freshness cutoff the numbers were computed against.
 Use `query_to` to tell the user how fresh the results are.
@@ -21,13 +21,27 @@ Call `experiment-get` and map each `metric_uuid` to its metric before you interp
 Without the goal you cannot tell an improvement from a regression.
 A decrease on a `decrease` metric is a win, not a loss.
 
-Read two fields before you report anything:
+Check that the run is complete before you report anything.
+The response can carry partial data, and a missing metric looks the same as a metric the experiment does not have.
 
-- `active_run`: a run is executing now, and the numbers you got come from the previous run.
+- `status`: `failed` means at least one metric failed, and the run still carries the metrics that succeeded.
+- `total_metrics`, `completed_metrics`, `failed_metrics`: compare them.
+  When `completed_metrics` is less than `total_metrics`, some metrics are missing, failed, or still running.
+- `metric_errors`: a map of `metric_uuid` to error detail for the metrics that failed.
+  A failed metric also appears in `results` with `result: null`.
+- `active_run`: a run is executing now.
+  When the results come from an earlier terminal run, they are the previous numbers, not this run's.
+  On the first ever run there is no earlier run, so `status` is `pending` and `results` is empty.
   Poll `active_run.id` with `experiment-metrics-recalculation-retrieve` for progress.
-- `result_source`: `timeseries_fallback` means the experiment never completed a run, and the numbers are a cold-start placeholder.
+- `result_source`: `timeseries_fallback` means the experiment never completed a real run, and the numbers are a cold-start placeholder.
+  It can cover fewer metrics than the experiment has, while still reading `completed`.
   Say so when you report them.
   A real run reads `recalculation`.
+
+Do not report a winner or recommend shipping from a partial run.
+Recommend shipping only when `status` is `completed`, `completed_metrics` equals `total_metrics`, `failed_metrics` is `0`, and `metric_errors` is empty.
+When a metric is missing, failed, or pending, name that metric and do not decide from the metrics that did return.
+For a `timeseries_fallback`, or when `query_to` is old, call `experiment-metrics-recalculation-create` and poll before a ship decision.
 
 This call is a pure read and never starts a calculation, so the numbers can be stale.
 When `query_to` is old, or the user wants fresh numbers, call `experiment-metrics-recalculation-create` and then poll.
