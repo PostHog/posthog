@@ -217,6 +217,96 @@ describe('CyclotronJobQueuePostgresV2', () => {
         })
     })
 
+    describe('startAsConsumer', () => {
+        function createConsumerQueue(): {
+            queue: CyclotronJobQueuePostgresV2
+            deliverBatch: (jobs: any[]) => Promise<unknown>
+        } {
+            const { queue } = createQueue()
+            let onBatch: ((jobs: any[]) => Promise<void>) | undefined
+            ;(queue as any).createWorker = () => ({
+                connect: (cb: (jobs: any[]) => Promise<void>) => {
+                    onBatch = cb
+                    return Promise.resolve()
+                },
+                disconnect: () => Promise.resolve(),
+            })
+
+            return {
+                queue,
+                // Drives one poll the way CyclotronV2Worker's consumer loop does.
+                deliverBatch: (jobs: any[]) => onBatch!(jobs),
+            }
+        }
+
+        it('releases the batch when consuming throws, instead of orphaning it', async () => {
+            const { queue, deliverBatch } = createConsumerQueue()
+            const consumeBatch = jest
+                .fn()
+                .mockRejectedValue(new Error('ConnectError: [unavailable] connect ECONNREFUSED'))
+
+            await queue.startAsConsumer('hog', consumeBatch)
+
+            const jobs = [createDequeuedJob(), createDequeuedJob(), createDequeuedJob()]
+            await expect(deliverBatch(jobs)).rejects.toThrow('ECONNREFUSED')
+
+            expect(consumeBatch).toHaveBeenCalledTimes(1)
+            expect((queue as any).pendingJobs.size).toBe(0)
+            for (const job of jobs) {
+                expect(job.reschedule).toHaveBeenCalledTimes(1)
+                expect(job.fail).not.toHaveBeenCalled()
+                expect(job.ack).not.toHaveBeenCalled()
+            }
+        })
+
+        it('does not accumulate pending jobs across repeated failing polls', async () => {
+            const { queue, deliverBatch } = createConsumerQueue()
+            const consumeBatch = jest.fn().mockRejectedValue(new Error('personhog down'))
+
+            await queue.startAsConsumer('hog', consumeBatch)
+
+            for (let poll = 0; poll < 5; poll++) {
+                await expect(deliverBatch([createDequeuedJob(), createDequeuedJob()])).rejects.toThrow('personhog down')
+            }
+
+            expect((queue as any).pendingJobs.size).toBe(0)
+        })
+
+        it('still drops the batch from pending when releasing it also fails', async () => {
+            const { queue, deliverBatch } = createConsumerQueue()
+            await queue.startAsConsumer('hog', jest.fn().mockRejectedValue(new Error('personhog down')))
+
+            const job = createDequeuedJob({
+                reschedule: jest.fn().mockRejectedValue(new Error('postgres down too')),
+            })
+            await expect(deliverBatch([job])).rejects.toThrow('personhog down')
+
+            expect((queue as any).pendingJobs.size).toBe(0)
+        })
+
+        it('keeps the batch pending while consuming succeeds, so results can ack it', async () => {
+            const { queue, deliverBatch } = createConsumerQueue()
+            const job = createDequeuedJob()
+
+            await queue.startAsConsumer('hog', (invocations) => {
+                expect(invocations).toHaveLength(1)
+                expect((queue as any).pendingJobs.has(job.id)).toBe(true)
+                return Promise.resolve({ backgroundTask: Promise.resolve() })
+            })
+
+            await deliverBatch([job])
+
+            expect((queue as any).pendingJobs.has(job.id)).toBe(true)
+
+            await queue.queueInvocationResults([
+                createResult({ invocation: { ...baseInvocation, id: job.id }, finished: true }),
+            ])
+
+            expect(job.ack).toHaveBeenCalledTimes(1)
+            expect((queue as any).pendingJobs.size).toBe(0)
+        })
+    })
+
     describe('queueInvocationResults', () => {
         it('should call ack on finished jobs', async () => {
             const { queue } = createQueue()
