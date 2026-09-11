@@ -168,44 +168,6 @@ describe("findContinuableImplementationTask", () => {
       prUrl: "https://gh/pr/9",
     });
     expect(findContinuableImplementationTask([entry(withPr)])).toBe(withPr);
-    const linkedPr = {
-      id: "linked",
-      url: "https://github.com/example/app/pull/2",
-      state: "open" as const,
-      merged: false,
-      claim_id: null,
-      attached_at: null,
-      attached_by: {
-        kind: "task" as const,
-        task_id: withPr.id,
-        user: null,
-        agent: null,
-      },
-    };
-    expect(
-      findContinuableImplementationTask([entry(withPr)], {
-        pull_requests: [linkedPr],
-      }),
-    ).toBe(withPr);
-    expect(
-      findContinuableImplementationTask([entry(withPr)], {
-        pull_requests: [{ ...linkedPr, state: "merged", merged: true }],
-      }),
-    ).toBeNull();
-    expect(
-      findContinuableImplementationTask([entry(withPr)], {
-        pull_requests: [
-          {
-            ...linkedPr,
-            attached_by: {
-              ...linkedPr.attached_by,
-              kind: "agent",
-              task_id: null,
-            },
-          },
-        ],
-      }),
-    ).toBeNull();
   });
 
   it("returns a still-running implementation task with no PR yet", () => {

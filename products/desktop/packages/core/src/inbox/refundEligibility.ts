@@ -1,4 +1,3 @@
-import { reportPullRequests } from "@posthog/core/inbox/reportPullRequests";
 import type { SignalReport } from "@posthog/shared/types";
 
 // Copy per backend `refund_ineligibility_reason`. `already_refunded` and
@@ -28,7 +27,7 @@ export function computeRefundEligibility(
 ): RefundEligibility {
   const canRefund =
     flagEnabled &&
-    reportPullRequests(report).length > 0 &&
+    !!report.implementation_pr_url &&
     !report.refund &&
     !report.billing_exempt_reason;
 

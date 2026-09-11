@@ -6,7 +6,6 @@ import {
   inboxStatusLabel,
   parseConventionalCommitTitle,
 } from "@posthog/core/inbox/reportPresentation";
-import { primaryReportPullRequest } from "@posthog/core/inbox/reportPullRequests";
 import {
   DISMISSAL_REASON_OPTIONS,
   SIGNALS_PR_REFUNDS_FLAG,
@@ -518,10 +517,10 @@ export default function ReportDetailScreen() {
             </Text>
           </View>
           <Text className="text-[12px] text-gray-9">Updated {timeDisplay}</Text>
-          {primaryReportPullRequest(report).url ? (
+          {report.implementation_pr_url ? (
             <View className="ml-auto">
               <PrStatusBadge
-                prUrl={primaryReportPullRequest(report).url}
+                prUrl={report.implementation_pr_url}
                 hideWhenUnresolved
                 size="sm"
               />

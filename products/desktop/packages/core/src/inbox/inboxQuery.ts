@@ -1,4 +1,3 @@
-import { reportPullRequests } from "@posthog/core/inbox/reportPullRequests";
 import type {
   SignalReport,
   SignalReportsQueryParams,
@@ -189,7 +188,7 @@ function queryAcceptsReport(
   }
   if (
     params.has_implementation_pr !== undefined &&
-    params.has_implementation_pr !== reportPullRequests(report).length > 0
+    params.has_implementation_pr !== Boolean(report.implementation_pr_url)
   ) {
     return false;
   }

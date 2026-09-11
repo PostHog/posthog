@@ -8,7 +8,6 @@ import {
 } from "@phosphor-icons/react";
 import { canResolveReport } from "@posthog/core/inbox/reportActions";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
-import { primaryReportPullRequest } from "@posthog/core/inbox/reportPullRequests";
 import {
   Button,
   DropdownMenu,
@@ -48,7 +47,7 @@ export function ReportDetailActions({
   // The report's own PR (open or merged) backs the GitHub item, so a merged
   // fix stays reachable from the page even after the banner demotes it to
   // history.
-  const prUrl = prUrlProp ?? primaryReportPullRequest(report).url ?? null;
+  const prUrl = prUrlProp ?? report.implementation_pr_url ?? null;
   // Resolved reports are terminal (their PR already merged), so the work actions
   // drop out; only the read-only overflow menu (copy link, PR link) stays.
   const isResolved = report.status === "resolved";

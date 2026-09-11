@@ -6,7 +6,6 @@ import {
   parseConventionalCommitTitle,
   parsePrUrl,
 } from "@posthog/core/inbox/reportPresentation";
-import { primaryReportPullRequest } from "@posthog/core/inbox/reportPullRequests";
 import { Button } from "@posthog/quill";
 import type {
   SignalReport,
@@ -104,9 +103,9 @@ export function PullRequestCardView({
             sourceProducts={report.source_products}
             className=""
           />
-          {primaryReportPullRequest(report).url && (
+          {report.implementation_pr_url && (
             <PrDiffStats
-              prUrl={primaryReportPullRequest(report).url}
+              prUrl={report.implementation_pr_url}
               hideWhileLoading
             />
           )}
@@ -121,10 +120,10 @@ export function PullRequestCardView({
 
   return (
     <div className={inboxCardClassName({ isSelected })} {...rootProps}>
-      {primaryReportPullRequest(report).url && (
+      {report.implementation_pr_url && (
         <InboxCardTopRight>
           <ReportImplementationPrLink
-            prUrl={primaryReportPullRequest(report).url}
+            prUrl={report.implementation_pr_url}
             size="sm"
           />
         </InboxCardTopRight>
@@ -193,8 +192,8 @@ export function PullRequestCard({
   const { prefetch, pointerHandlers } =
     useInboxReportDetailPrefetch(detailRoute);
   const navigate = useNavigate();
-  const prRef = primaryReportPullRequest(report).url
-    ? parsePrUrl(primaryReportPullRequest(report).url)
+  const prRef = report.implementation_pr_url
+    ? parsePrUrl(report.implementation_pr_url)
     : null;
   const { data: artefactsResp } = useInboxReportArtefacts(report.id, {
     staleTime: 5 * 60 * 1000,

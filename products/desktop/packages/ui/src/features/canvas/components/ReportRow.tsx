@@ -1,7 +1,6 @@
 import { GitPullRequestIcon } from "@phosphor-icons/react";
 import { isDismissedReport } from "@posthog/core/inbox/reportMembership";
 import { humanizeReportTitle } from "@posthog/core/inbox/reportPresentation";
-import { primaryReportPullRequest } from "@posthog/core/inbox/reportPullRequests";
 import type { SignalReport } from "@posthog/shared/types";
 import { ReportRestoreButton } from "@posthog/ui/features/inbox/components/ReportRestoreButton";
 import { ReportStateMonogram } from "@posthog/ui/features/inbox/components/ReportStateMonogram";
@@ -31,7 +30,7 @@ export function ReportRow({
         onClick={() => onOpen(report.id)}
         endContent={
           <span className="flex items-center gap-1">
-            {primaryReportPullRequest(report).url && (
+            {report.implementation_pr_url && (
               <GitPullRequestIcon
                 size={13}
                 className="text-(--gray-9)"

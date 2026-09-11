@@ -1,5 +1,4 @@
 import { reportAgeHours } from "@posthog/core/inbox/engagement";
-import { reportPullRequests } from "@posthog/core/inbox/reportPullRequests";
 import type {
   InboxReportActionSurface,
   InboxReportFeedbackSentiment,
@@ -29,7 +28,7 @@ export function useReportFeedbackTracker(
       report_age_hours: reportAgeHours(report.created_at),
       priority: report.priority ?? null,
       actionability: report.actionability ?? null,
-      has_pr: reportPullRequests(report).length > 0,
+      has_pr: !!report.implementation_pr_url,
       surface,
     }),
     [report, surface],

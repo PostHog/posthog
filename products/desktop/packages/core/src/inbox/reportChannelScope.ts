@@ -1,4 +1,3 @@
-import { reportPullRequests } from "@posthog/core/inbox/reportPullRequests";
 import type { SignalReport, SignalReportPriority } from "@posthog/shared/types";
 
 import {
@@ -52,9 +51,9 @@ function matchesReportStatusFilter(
 ): boolean {
   if (filter === "all") return true;
   if (filter === "archived") return isDismissedReport(report);
-  if (filter === "needs-review") return reportPullRequests(report).length > 0;
+  if (filter === "needs-review") return !!report.implementation_pr_url;
   if (filter === "ready") {
-    return report.status === "ready" && reportPullRequests(report).length === 0;
+    return report.status === "ready" && !report.implementation_pr_url;
   }
   return (
     isQueuedRunReport(report) ||
@@ -150,7 +149,7 @@ const PRIORITY_RANK: Record<SignalReportPriority, number> = {
  */
 function reportNeedsPerson(report: SignalReport): boolean {
   return (
-    reportPullRequests(report).length > 0 ||
+    !!report.implementation_pr_url ||
     report.status === "ready" ||
     report.status === "pending_input" ||
     report.status === "failed"

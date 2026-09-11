@@ -225,8 +225,6 @@ export namespace Schemas {
         time_elapsed: number;
     };
     export type QueryStatus = {
-        budget_remaining_bytes?: (number | null) | undefined;
-        bytes_read?: (number | null) | undefined;
         complete?: (boolean | null) | undefined;
         dashboard_id?: (number | null) | undefined;
         end_time?: (string | null) | undefined;
@@ -4772,24 +4770,6 @@ export namespace Schemas {
         xAxisColumn: string | null;
     }>;
     /**
-     * * `auto` - auto
-     * * `manual` - manual
-     */
-    export type BreakdownColorConfigSourceEnum = "auto" | "manual";
-    export type BreakdownColorConfig = {
-        /**
-         * The breakdown value this color applies to, as it appears in the chart legend.
-         */
-        breakdownValue: string;
-        /**
-         * Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.
-         */
-        colorToken: string | null;
-        breakdownType?: (string | null) | undefined;
-        breakdownProperty?: (string | null) | undefined;
-        source?: (BreakdownColorConfigSourceEnum | NullEnum) | undefined;
-    };
-    /**
      * * `distinct_id` - User ID (default)
      * * `device_id` - Device ID
      */
@@ -4888,16 +4868,6 @@ export namespace Schemas {
         showTicks: boolean | null;
         startAtZero: boolean | null;
     }>;
-    export type Summary = "total" | "average" | "latest";
-    export type MetricChartSettings = Partial<{
-        changeDecreaseColor: string | null;
-        changeIncreaseColor: string | null;
-        colorByDirection: boolean | null;
-        lineDecreaseColor: string | null;
-        lineIncreaseColor: string | null;
-        showChange: boolean | null;
-        summary: Summary | null;
-    }>;
     export type SliceContent = "labels" | "values" | "none";
     export type ValueDisplay = "absolute" | "percentage";
     export type PieChartSettings = Partial<{
@@ -4918,7 +4888,6 @@ export namespace Schemas {
         heatmap: HeatmapSettings | null;
         leftYAxisSettings: YAxisSettings | null;
         legendPosition: LegendPosition | null;
-        metric: MetricChartSettings | null;
         pie: PieChartSettings | null;
         resultCustomizations: Record<string, ResultCustomizationByValue> | null;
         rightYAxisSettings: YAxisSettings | null;
@@ -4939,11 +4908,6 @@ export namespace Schemas {
         yAxis: Array<ChartAxis> | null;
         yAxisAtZero: boolean | null;
     }>;
-    /**
-     * * `posthog-gateway` - posthog-gateway
-     * * `own-subscription` - own-subscription
-     */
-    export type ClaudeModelAccessEnum = "posthog-gateway" | "own-subscription";
     /**
      * * `claude` - claude
      */
@@ -5090,10 +5054,6 @@ export namespace Schemas {
          * Request body for creating a new task run
          */
         benjamin_enabled?: (boolean | null) | undefined;
-        /**
-         * Request body for creating a new task run
-         */
-        claude_model_access?: (ClaudeModelAccessEnum | NullEnum) | undefined;
     };
     /**
      * * `codex` - codex
@@ -5206,10 +5166,6 @@ export namespace Schemas {
          * Request body for creating a new task run
          */
         benjamin_enabled?: (boolean | null) | undefined;
-        /**
-         * Request body for creating a new task run
-         */
-        claude_model_access?: (ClaudeModelAccessEnum | NullEnum) | undefined;
     };
     export type PropertyGroupOperatorEnum = "AND" | "OR";
     export type CohortFilter = {
@@ -5808,7 +5764,7 @@ export namespace Schemas {
         /**
          * Serializer mixin that handles tags for objects.
          */
-        breakdown_colors?: (Array<BreakdownColorConfig> | null) | undefined;
+        breakdown_colors?: unknown | undefined;
         /**
          * Serializer mixin that handles tags for objects.
          */
@@ -6491,6 +6447,32 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
+    export type Response14 = {
+        columns?: (Array<unknown> | null) | undefined;
+        error?: (string | null) | undefined;
+        hasMore?: (boolean | null) | undefined;
+        hogql?: (string | null) | undefined;
+        limit?: (number | null) | undefined;
+        modifiers?: (HogQLQueryModifiers | null) | undefined;
+        offset?: (number | null) | undefined;
+        query_status?: (QueryStatus | null) | undefined;
+        resolved_compare_date_range?:
+            | (ResolvedDateRangeResponse | null)
+            | undefined;
+        resolved_date_range?: (ResolvedDateRangeResponse | null) | undefined;
+        results: Array<Array<MarketingAnalyticsItem>>;
+        samplingRate?: (SamplingRate | null) | undefined;
+        timings?: (Array<QueryTiming> | null) | undefined;
+        types?: (Array<unknown> | null) | undefined;
+        used_data_warehouse_sources?:
+            | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warnings?:
+            | (Array<
+                  DataWarehouseSyncWarning | AccessControlFilterWarning
+              > | null)
+            | undefined;
+    };
     export type VolumeBucket = { label: string; value: number };
     export type ErrorTrackingIssueAggregations = {
         occurrences: number;
@@ -6602,7 +6584,7 @@ export namespace Schemas {
         source?: (string | null) | undefined;
         status: ErrorTrackingIssueStatus;
     };
-    export type Response14 = {
+    export type Response15 = {
         columns?: (Array<string> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -6650,7 +6632,7 @@ export namespace Schemas {
         severity?: (ErrorTrackingQueryIssueSeverity | null) | undefined;
         status: ErrorTrackingIssueStatus;
     };
-    export type Response15 = {
+    export type Response16 = {
         columns?: (Array<string> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -6674,7 +6656,7 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type Response16 = {
+    export type Response17 = {
         credible_intervals: Record<string, Array<number>>;
         expected_loss: number;
         funnels_query?: (FunnelsQuery | null) | undefined;
@@ -6687,7 +6669,7 @@ export namespace Schemas {
         variants: Array<ExperimentVariantFunnelsBaseStats>;
         warnings?: (Array<DataWarehouseSyncWarning> | null) | undefined;
     };
-    export type Response17 = {
+    export type Response18 = {
         count_query?: (TrendsQuery | null) | undefined;
         credible_intervals: Record<string, Array<number>>;
         exposure_query?: (TrendsQuery | null) | undefined;
@@ -6749,7 +6731,7 @@ export namespace Schemas {
         traceName?: (string | null) | undefined;
         webSearchCost?: (number | null) | undefined;
     };
-    export type Response18 = {
+    export type Response19 = {
         columns?: (Array<string> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -6773,7 +6755,7 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type Response20 = {
+    export type Response21 = {
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -6798,7 +6780,7 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type Response21 = {
+    export type Response22 = {
         columns: Array<unknown>;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -6828,7 +6810,7 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type Response22 = {
+    export type Response23 = {
         error?: (string | null) | undefined;
         hasMore: boolean;
         hogql?: (string | null) | undefined;
@@ -7663,7 +7645,6 @@ export namespace Schemas {
         | "content"
         | "term";
     export type IntegrationFilter = Partial<{
-        includeNonIntegrated: boolean | null;
         integrationSourceIds: Array<string> | null;
     }>;
     export type MarketingAnalyticsOrderByEnum = "ASC" | "DESC";
@@ -7789,6 +7770,75 @@ export namespace Schemas {
         >;
         response?:
             | (MarketingAnalyticsAggregatedQueryResponse | null)
+            | undefined;
+        sampling?: (WebAnalyticsSampling | null) | undefined;
+        samplingFactor?: (number | null) | undefined;
+        select?: (Array<string> | null) | undefined;
+        tags?: (QueryLogTags | null) | undefined;
+        useSessionsTable?: (boolean | null) | undefined;
+        version?: (number | null) | undefined;
+    };
+    export type NonIntegratedConversionsTableQueryResponse = {
+        columns?: (Array<unknown> | null) | undefined;
+        error?: (string | null) | undefined;
+        hasMore?: (boolean | null) | undefined;
+        hogql?: (string | null) | undefined;
+        limit?: (number | null) | undefined;
+        modifiers?: (HogQLQueryModifiers | null) | undefined;
+        offset?: (number | null) | undefined;
+        query_status?: (QueryStatus | null) | undefined;
+        resolved_compare_date_range?:
+            | (ResolvedDateRangeResponse | null)
+            | undefined;
+        resolved_date_range?: (ResolvedDateRangeResponse | null) | undefined;
+        results: Array<Array<MarketingAnalyticsItem>>;
+        samplingRate?: (SamplingRate | null) | undefined;
+        timings?: (Array<QueryTiming> | null) | undefined;
+        types?: (Array<unknown> | null) | undefined;
+        used_data_warehouse_sources?:
+            | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warnings?:
+            | (Array<
+                  DataWarehouseSyncWarning | AccessControlFilterWarning
+              > | null)
+            | undefined;
+    };
+    export type NonIntegratedConversionsTableQuery = {
+        aggregation_group_type_index?: (number | null) | undefined;
+        compareFilter?: (CompareFilter | null) | undefined;
+        conversionGoal?:
+            | (ActionConversionGoal | CustomEventConversionGoal | null)
+            | undefined;
+        dataColorTheme?: (number | null) | undefined;
+        dateRange?: (DateRange | null) | undefined;
+        doPathCleaning?: (boolean | null) | undefined;
+        draftConversionGoal?:
+            | (
+                  | ConversionGoalFilter1
+                  | ConversionGoalFilter2
+                  | ConversionGoalFilter3
+                  | null
+              )
+            | undefined;
+        filterTestAccounts?: (boolean | null) | undefined;
+        includeRevenue?: (boolean | null) | undefined;
+        interval?: (IntervalType | null) | undefined;
+        kind?: string | undefined;
+        limit?: (number | null) | undefined;
+        modifiers?: (HogQLQueryModifiers | null) | undefined;
+        offset?: (number | null) | undefined;
+        orderBy?:
+            | (Array<Array<string | MarketingAnalyticsOrderByEnum>> | null)
+            | undefined;
+        properties: Array<
+            | EventPropertyFilter
+            | PersonPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+        >;
+        response?:
+            | (NonIntegratedConversionsTableQueryResponse | null)
             | undefined;
         sampling?: (WebAnalyticsSampling | null) | undefined;
         samplingFactor?: (number | null) | undefined;
@@ -8227,9 +8277,10 @@ export namespace Schemas {
                   | Response16
                   | Response17
                   | Response18
-                  | Response20
+                  | Response19
                   | Response21
                   | Response22
+                  | Response23
                   | null
               )
             | undefined;
@@ -8279,6 +8330,7 @@ export namespace Schemas {
             | SessionsQuery
             | MarketingAnalyticsTableQuery
             | MarketingAnalyticsAggregatedQuery
+            | NonIntegratedConversionsTableQuery
             | ErrorTrackingQuery
             | ErrorTrackingIssueCorrelationQuery
             | ExperimentFunnelsQuery
@@ -14123,7 +14175,7 @@ export namespace Schemas {
          */
         evaluation_contexts?: Array<unknown> | undefined;
         /**
-         * Legacy dashboard of saved usage insights for this flag, or null if it has none. New flags show usage charts inline instead. The dashboard creation endpoint is deprecated and will be removed after September 25, 2026.
+         * Dashboard of saved usage insights for this flag, or null if it has none. Flags do not get one on creation; create it with POST /api/projects/{project_id}/feature_flags/{id}/dashboard/.
          */
         usage_dashboard: number | null;
         /**
@@ -15626,10 +15678,7 @@ export namespace Schemas {
          * When True, in-app callouts inviting members to enable AI training are shown.
          */
         is_ai_training_cta_shown: boolean | null;
-        /**
-         * Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed.
-         */
-        has_signed_baa: boolean;
+        is_hipaa: boolean | null;
         default_experiment_stats_method?:
             | (
                   | OrganizationDefaultExperimentStatsMethodEnum
@@ -17850,7 +17899,7 @@ export namespace Schemas {
         description: string;
         pinned: boolean;
         filters: DashboardFiltersOpenApi;
-        breakdown_colors: Array<BreakdownColorConfig> | null;
+        breakdown_colors: unknown;
         data_color_theme_id: number | null;
         tags: Array<string>;
         restriction_level: RestrictionLevelEnum;
@@ -19451,7 +19500,6 @@ export namespace Schemas {
         error: string;
         type: string;
         code: string;
-        retry_token: string;
         reason: DesktopAccessReasonEnum;
         attr: string;
         missing_artifact_ids: Array<string>;
@@ -20791,7 +20839,7 @@ export namespace Endpoints {
         responses: { 200: Schemas.SurveyStatsResponse };
     };
     /**
-     * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. Pass basic=true for a summary payload that drops the description body from each row; use the search parameter to match description text server-side.
+     * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task.
      */
     export type get_Tasks_list = {
         method: "GET";
@@ -20801,7 +20849,6 @@ export namespace Endpoints {
             query: Partial<{
                 all_team_tasks: boolean;
                 archived: "true" | "false" | "all";
-                basic: boolean;
                 channel: string;
                 ci_status: "passing" | "failing" | "pending" | "none";
                 commented_by: number;
@@ -20862,7 +20909,7 @@ export namespace Endpoints {
         requestFormat: "json";
         parameters: {
             path: { project_id: string };
-            header: Partial<{ "X-PostHog-Warm-Retry": string }>;
+
             body: Schemas.TaskCreate;
         };
         responses: {
@@ -20933,7 +20980,7 @@ export namespace Endpoints {
         requestFormat: "json";
         parameters: {
             path: { id: string; project_id: string };
-            header: Partial<{ "X-PostHog-Warm-Retry": string }>;
+
             body: Schemas.TaskRunCreateRequestSchema;
         };
         responses: {

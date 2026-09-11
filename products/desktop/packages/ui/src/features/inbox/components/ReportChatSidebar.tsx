@@ -78,7 +78,7 @@ export function ReportChatSidebar({
   );
   const taskId =
     findPendingStartedTaskId(reportTasks, startedTaskId) ??
-    findContinuableImplementationTask(reportTasks, report)?.id ??
+    findContinuableImplementationTask(reportTasks)?.id ??
     findLatestDiscussionTask(reportTasks)?.id ??
     null;
   const openTask = useOpenTask();

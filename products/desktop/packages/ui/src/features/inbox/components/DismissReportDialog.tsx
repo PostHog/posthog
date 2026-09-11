@@ -1,5 +1,4 @@
 import { EyeSlashIcon, PauseIcon } from "@phosphor-icons/react";
-import { hasActiveReportPullRequest } from "@posthog/core/inbox/reportPullRequests";
 import {
   Button,
   Dialog,
@@ -96,7 +95,9 @@ function DismissReportDialogBody({
   const pausesReport = reason != null && isDismissalReasonSnooze(reason);
   const reportNoun = selectedCount > 1 ? "reports" : "report";
   const title = report.title?.trim() ? report.title : "Untitled report";
-  const hasOpenPr = hasActiveReportPullRequest(report);
+  const hasOpenPr =
+    Boolean(report.implementation_pr_url) &&
+    report.implementation_pr_merged !== true;
 
   return (
     <>

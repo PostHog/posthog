@@ -3,7 +3,6 @@ import {
   humanizeReportTitle,
   parseConventionalCommitTitle,
 } from "@posthog/core/inbox/reportPresentation";
-import { primaryReportPullRequest } from "@posthog/core/inbox/reportPullRequests";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import { memo } from "react";
 import { Pressable, View } from "react-native";
@@ -104,10 +103,10 @@ function ReportListRowComponent({ report, onPress }: ReportListRowProps) {
         </View>
       </View>
 
-      {primaryReportPullRequest(report).url ? (
+      {report.implementation_pr_url ? (
         <View className="self-center">
           <PrStatusBadge
-            prUrl={primaryReportPullRequest(report).url}
+            prUrl={report.implementation_pr_url}
             hideWhenUnresolved
             size="sm"
           />

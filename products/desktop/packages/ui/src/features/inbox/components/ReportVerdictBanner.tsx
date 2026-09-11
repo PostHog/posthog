@@ -12,10 +12,6 @@ import {
   canResolveReport,
 } from "@posthog/core/inbox/reportActions";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
-import {
-  hasActiveReportPullRequest,
-  primaryReportPullRequest,
-} from "@posthog/core/inbox/reportPullRequests";
 import { deriveReportVerdict } from "@posthog/core/inbox/reportVerdict";
 import {
   Button,
@@ -141,7 +137,7 @@ export function ReportVerdictBanner({
 
   // Structural dedupe guard: re-engaging a report that already has live
   // implementation work (an open PR, or a run still in flight) should continue
-  // that task rather than spin up a duplicate PR. `primaryReportPullRequest(report).url`
+  // that task rather than spin up a duplicate PR. `report.implementation_pr_url`
   // alone is unreliable here — it can be stale or not yet set — so we also look
   // at the linked implementation task's own state.
   const {
@@ -149,10 +145,7 @@ export function ReportVerdictBanner({
     isLoading: reportTasksLoading,
     isError: reportTasksFailed,
   } = useReportTasks(report.id, report.status);
-  const continuableTask = findContinuableImplementationTask(
-    reportTasks,
-    report,
-  );
+  const continuableTask = findContinuableImplementationTask(reportTasks);
   const canCreatePr = canCreateImplementationPr(report, {
     hasLiveImplementationTask: continuableTask !== null,
     // A failed lookup leaves task state unknown, same as a pending one. Reading it
@@ -162,15 +155,14 @@ export function ReportVerdictBanner({
   // A merged PR is history, not live work: the report only still exists
   // because evidence kept arriving after the fix, so it reads by its own
   // state (usually "needs your decision" again) rather than "review the PR".
-  const livePrUrl = hasActiveReportPullRequest(report)
-    ? primaryReportPullRequest(report).url
-    : null;
+  const livePrUrl = report.implementation_pr_merged
+    ? null
+    : report.implementation_pr_url;
   // The merged PR is history, not live work, but history the reader needs
   // visible: it explains why an already-fixed issue is asking for a decision.
   const mergedPr =
-    primaryReportPullRequest(report).merged &&
-    primaryReportPullRequest(report).url
-      ? parsePrUrl(primaryReportPullRequest(report).url)
+    report.implementation_pr_merged && report.implementation_pr_url
+      ? parsePrUrl(report.implementation_pr_url)
       : null;
   const existingPrUrl =
     livePrUrl ?? (continuableTask ? getTaskPrUrl(continuableTask) : null);
@@ -638,9 +630,9 @@ export function ReportVerdictBanner({
       verdict={verdict}
       details={
         mergedPr &&
-        primaryReportPullRequest(report).url && (
+        report.implementation_pr_url && (
           <a
-            href={primaryReportPullRequest(report).url}
+            href={report.implementation_pr_url}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1 text-[13px] text-gray-10 hover:underline"

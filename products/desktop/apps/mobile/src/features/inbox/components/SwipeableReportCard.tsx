@@ -4,7 +4,6 @@ import {
   inboxStatusLabel,
   parseConventionalCommitTitle,
 } from "@posthog/core/inbox/reportPresentation";
-import { primaryReportPullRequest } from "@posthog/core/inbox/reportPullRequests";
 import type {
   SignalReport,
   SignalReportPriority,
@@ -305,10 +304,10 @@ function CardContent({
             </View>
           </>
         )}
-        {primaryReportPullRequest(report).url ? (
+        {report.implementation_pr_url ? (
           <View className="ml-auto">
             <PrStatusBadge
-              prUrl={primaryReportPullRequest(report).url}
+              prUrl={report.implementation_pr_url}
               hideWhenUnresolved
               size="sm"
             />

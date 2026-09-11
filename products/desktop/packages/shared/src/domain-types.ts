@@ -742,29 +742,7 @@ export interface SignalReportChart {
   size?: SignalReportChartSize | null;
 }
 
-export interface SignalReportPullRequest {
-  id: string | null;
-  url: string;
-  state: SignalReportPrState;
-  merged: boolean;
-  claim_id: string | null;
-  attached_at: string | null;
-  attached_by: {
-    kind: "user" | "task" | "agent" | "system";
-    user: {
-      id: number;
-      uuid: string;
-      first_name: string;
-      last_name: string;
-      email: string;
-    } | null;
-    agent: string | null;
-    task_id: string | null;
-  } | null;
-}
-
 export interface SignalReport {
-  pull_requests?: readonly SignalReportPullRequest[];
   id: string;
   title: string | null;
   summary: string | null;

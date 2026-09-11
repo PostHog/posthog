@@ -5,10 +5,6 @@ import {
   inboxScopeTriggerLabel,
 } from "@posthog/core/inbox/reportMembership";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
-import {
-  hasActiveReportPullRequest,
-  primaryReportPullRequest,
-} from "@posthog/core/inbox/reportPullRequests";
 import { Button } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { SignalReport } from "@posthog/shared/types";
@@ -136,10 +132,7 @@ export function ReportTriageFocus({
     isLoading: reportTasksLoading,
     isError: reportTasksFailed,
   } = useReportTasks(reportId ?? "", report?.status ?? "candidate");
-  const continuableTask = findContinuableImplementationTask(
-    reportTasks,
-    report,
-  );
+  const continuableTask = findContinuableImplementationTask(reportTasks);
   const canCreatePr =
     report?.status === "ready" &&
     canCreateImplementationPr(report, {
@@ -147,9 +140,9 @@ export function ReportTriageFocus({
       // A failed lookup leaves task state unknown, same as a pending one.
       isTaskLookupPending: reportTasksLoading || reportTasksFailed,
     });
-  const livePrUrl = hasActiveReportPullRequest(report)
-    ? primaryReportPullRequest(report).url
-    : null;
+  const livePrUrl = report?.implementation_pr_merged
+    ? null
+    : report?.implementation_pr_url;
   const existingPrUrl =
     livePrUrl ?? (continuableTask ? getTaskPrUrl(continuableTask) : null);
   const canOpenPr =

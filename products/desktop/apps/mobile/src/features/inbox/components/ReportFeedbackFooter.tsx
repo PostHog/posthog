@@ -1,5 +1,4 @@
 import { Text } from "@components/text";
-import { reportPullRequests } from "@posthog/core/inbox/reportPullRequests";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
 import { ThumbsDown, ThumbsUp } from "phosphor-react-native";
@@ -46,7 +45,7 @@ export function ReportFeedbackFooter({ report }: { report: SignalReport }) {
         priority: report.priority ?? null,
         actionability: report.actionability ?? null,
         sentiment: next,
-        has_pr: reportPullRequests(report).length > 0,
+        has_pr: !!report.implementation_pr_url,
         surface: "detail_footer",
       });
     },
@@ -62,7 +61,7 @@ export function ReportFeedbackFooter({ report }: { report: SignalReport }) {
       priority: report.priority ?? null,
       actionability: report.actionability ?? null,
       sentiment,
-      has_pr: reportPullRequests(report).length > 0,
+      has_pr: !!report.implementation_pr_url,
       surface: "detail_footer",
       note: trimmed.slice(0, FEEDBACK_NOTE_MAX_LENGTH),
     });

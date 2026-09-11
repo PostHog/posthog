@@ -1,7 +1,3 @@
-import {
-  primaryReportPullRequest,
-  reportPullRequests,
-} from "@posthog/core/inbox/reportPullRequests";
 import type { InboxReviewerScope } from "@posthog/shared/analytics-events";
 import type { SignalReport } from "@posthog/shared/types";
 
@@ -170,7 +166,7 @@ export function inboxScopeApplies(tab: InboxTabKey): boolean {
  * the PostHog Cloud inbox.
  */
 export function isPullRequestReport(report: SignalReport): boolean {
-  return report.status === "ready" && reportPullRequests(report).length > 0;
+  return report.status === "ready" && !!report.implementation_pr_url;
 }
 
 // ── Runs-tab partitioning ─────────────────────────────────────────────────
@@ -268,7 +264,7 @@ export function isReportTabReport(report: SignalReport): boolean {
   // Any report carrying a PR belongs to the Pull requests tab, even once it has
   // been merged/closed (`resolved`) — those just drop out of the inbox here
   // rather than reappearing as a Report.
-  if (primaryReportPullRequest(report).url) return false;
+  if (report.implementation_pr_url) return false;
   if (isAgentRunReport(report)) return false;
   return true;
 }
