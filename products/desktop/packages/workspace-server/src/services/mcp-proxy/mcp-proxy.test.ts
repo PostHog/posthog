@@ -1,6 +1,6 @@
 import type { RootLogger } from "@posthog/di/logger";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { McpProxyService } from "./mcp-proxy";
+import { MCP_PROXY_TOKEN_HEADER, McpProxyService } from "./mcp-proxy";
 import type { McpProxyAuth } from "./ports";
 
 type AuthServiceMock = {
@@ -22,6 +22,12 @@ function createAuthServiceMock(): AuthServiceMock {
     }),
   };
 }
+
+const okJson = () =>
+  new Response('{"ok":true}', {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
 
 describe("McpProxyService", () => {
   let authServiceMock: AuthServiceMock;
@@ -52,11 +58,24 @@ describe("McpProxyService", () => {
     vi.restoreAllMocks();
   });
 
+  /** Fetch with the secret register() handed out, like a real transport. */
+  const authedFetch = (url: string, token: string, init?: RequestInit) =>
+    fetch(url, {
+      ...init,
+      headers: { ...init?.headers, [MCP_PROXY_TOKEN_HEADER]: token },
+    });
+
   describe("lifecycle", () => {
-    it("starts on a loopback port and returns a URL for register()", async () => {
+    it("starts on a loopback port and returns a URL and a secret for register()", async () => {
       await service.start();
-      const url = service.register("alpha", "https://upstream.example/path");
+      const { url, token } = service.register(
+        "alpha",
+        "https://upstream.example/path",
+      );
       expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/alpha$/);
+      expect(token).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      );
     });
 
     it("throws from register() before start()", () => {
@@ -67,7 +86,7 @@ describe("McpProxyService", () => {
 
     it("handles concurrent start() calls without races", async () => {
       await Promise.all([service.start(), service.start(), service.start()]);
-      const url = service.register("alpha", "https://upstream.example");
+      const { url } = service.register("alpha", "https://upstream.example");
       expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/alpha$/);
     });
 
@@ -81,13 +100,72 @@ describe("McpProxyService", () => {
     });
   });
 
+  describe("secret enforcement", () => {
+    it("rejects a request without the secret and never reaches the upstream", async () => {
+      authServiceMock.authenticatedFetch.mockResolvedValue(okJson());
+
+      await service.start();
+      const { url } = service.register("alpha", "https://upstream.example");
+
+      const res = await fetch(url);
+
+      expect(res.status).toBe(401);
+      expect(authServiceMock.authenticatedFetch).not.toHaveBeenCalled();
+    });
+
+    it("rejects a request with the wrong secret, even one from another target", async () => {
+      authServiceMock.authenticatedFetch.mockResolvedValue(okJson());
+
+      await service.start();
+      const alpha = service.register("alpha", "https://upstream.example");
+      const bravo = service.register("bravo", "https://upstream.example");
+
+      const res = await authedFetch(alpha.url, bravo.token);
+
+      expect(res.status).toBe(401);
+      expect(authServiceMock.authenticatedFetch).not.toHaveBeenCalled();
+    });
+
+    it("invalidates the old secret when a target is re-registered", async () => {
+      authServiceMock.authenticatedFetch.mockResolvedValue(okJson());
+
+      await service.start();
+      const first = service.register("alpha", "https://upstream.example");
+      const second = service.register("alpha", "https://upstream.example");
+
+      const rejected = await authedFetch(first.url, first.token);
+      const accepted = await authedFetch(second.url, second.token);
+
+      expect(rejected.status).toBe(401);
+      expect(accepted.status).toBe(200);
+    });
+
+    it("answers the RFC 8414 discovery probe with 404 without a secret", async () => {
+      await service.start();
+      const { url } = service.register("alpha", "https://upstream.example");
+      const port = new URL(url).port;
+
+      const res = await fetch(
+        `http://127.0.0.1:${port}/.well-known/oauth-authorization-server`,
+      );
+
+      expect(res.status).toBe(404);
+      expect(authServiceMock.authenticatedFetch).not.toHaveBeenCalled();
+    });
+  });
+
   describe("request forwarding", () => {
     it("returns 404 for unknown targets", async () => {
       await service.start();
-      const proxyUrl = service.register("alpha", "https://upstream.example");
-      const unknownUrl = proxyUrl.replace("/alpha", "/bravo");
+      const { url, token } = service.register(
+        "alpha",
+        "https://upstream.example",
+      );
+      const unknownUrl = url.replace("/alpha", "/bravo");
 
-      const res = await fetch(unknownUrl);
+      const res = await fetch(unknownUrl, {
+        headers: { [MCP_PROXY_TOKEN_HEADER]: token },
+      });
 
       expect(res.status).toBe(404);
       expect(await res.text()).toBe("Unknown target");
@@ -95,37 +173,33 @@ describe("McpProxyService", () => {
     });
 
     it("forwards GET requests and returns the upstream body and status", async () => {
-      authServiceMock.authenticatedFetch.mockResolvedValue(
-        new Response('{"ok":true}', {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      );
+      authServiceMock.authenticatedFetch.mockResolvedValue(okJson());
 
       await service.start();
-      const proxyUrl = service.register("alpha", "https://upstream.example");
+      const { url, token } = service.register(
+        "alpha",
+        "https://upstream.example",
+      );
 
-      const res = await fetch(proxyUrl);
+      const res = await authedFetch(url, token);
 
       expect(res.status).toBe(200);
       expect(await res.text()).toBe('{"ok":true}');
       expect(authServiceMock.authenticatedFetch).toHaveBeenCalledTimes(1);
-      const [url] = authServiceMock.authenticatedFetch.mock.calls[0];
-      expect(url).toBe("https://upstream.example");
+      const [fetchedUrl] = authServiceMock.authenticatedFetch.mock.calls[0];
+      expect(fetchedUrl).toBe("https://upstream.example");
     });
 
     it("passes a connection-lifetime signal so authenticatedFetch's default timeout does not apply", async () => {
-      authServiceMock.authenticatedFetch.mockResolvedValue(
-        new Response('{"ok":true}', {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      );
+      authServiceMock.authenticatedFetch.mockResolvedValue(okJson());
 
       await service.start();
-      const proxyUrl = service.register("alpha", "https://upstream.example");
+      const { url, token } = service.register(
+        "alpha",
+        "https://upstream.example",
+      );
 
-      await fetch(proxyUrl);
+      await authedFetch(url, token);
 
       const [, options] = authServiceMock.authenticatedFetch.mock.calls[0];
       expect(options.signal).toBeInstanceOf(AbortSignal);
@@ -133,17 +207,15 @@ describe("McpProxyService", () => {
     });
 
     it("forwards POST body bytes to the upstream URL", async () => {
-      authServiceMock.authenticatedFetch.mockResolvedValue(
-        new Response('{"ok":true}', {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      );
+      authServiceMock.authenticatedFetch.mockResolvedValue(okJson());
 
       await service.start();
-      const proxyUrl = service.register("alpha", "https://upstream.example");
+      const { url, token } = service.register(
+        "alpha",
+        "https://upstream.example",
+      );
 
-      await fetch(proxyUrl, {
+      await authedFetch(url, token, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: '{"hello":"world"}',
@@ -163,18 +235,16 @@ describe("McpProxyService", () => {
       expect(forwardedHeaderKeys).not.toContain("transfer-encoding");
     });
 
-    it("strips Authorization and Host headers before forwarding", async () => {
-      authServiceMock.authenticatedFetch.mockResolvedValue(
-        new Response('{"ok":true}', {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      );
+    it("strips Authorization, Host, and the proxy secret before forwarding", async () => {
+      authServiceMock.authenticatedFetch.mockResolvedValue(okJson());
 
       await service.start();
-      const proxyUrl = service.register("alpha", "https://upstream.example");
+      const { url, token } = service.register(
+        "alpha",
+        "https://upstream.example",
+      );
 
-      await fetch(proxyUrl, {
+      await authedFetch(url, token, {
         headers: {
           Authorization: "Bearer leaked",
           "X-Custom": "keep-me",
@@ -188,6 +258,7 @@ describe("McpProxyService", () => {
       expect(forwardedHeaderKeys).not.toContain("authorization");
       expect(forwardedHeaderKeys).not.toContain("host");
       expect(forwardedHeaderKeys).not.toContain("connection");
+      expect(forwardedHeaderKeys).not.toContain(MCP_PROXY_TOKEN_HEADER);
       expect(options.headers["x-custom"]).toBe("keep-me");
     });
 
@@ -200,32 +271,31 @@ describe("McpProxyService", () => {
       );
 
       await service.start();
-      service.register("alpha", "https://upstream.example/inst-2/");
-      const port = new URL(
-        service.register("alpha", "https://upstream.example/inst-2/"),
-      ).port;
+      const { url, token } = service.register(
+        "alpha",
+        "https://upstream.example/inst-2/",
+      );
 
-      await fetch(`http://127.0.0.1:${port}/alpha/tools/list`);
+      await authedFetch(`${url}/tools/list`, token);
 
-      const [url] = authServiceMock.authenticatedFetch.mock.calls.at(-1) ?? [];
-      expect(url).toBe("https://upstream.example/inst-2/tools/list");
+      const [fetchedUrl] =
+        authServiceMock.authenticatedFetch.mock.calls.at(-1) ?? [];
+      expect(fetchedUrl).toBe("https://upstream.example/inst-2/tools/list");
     });
 
     it("preserves the incoming query string on the upstream URL", async () => {
-      authServiceMock.authenticatedFetch.mockResolvedValue(
-        new Response("{}", {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      );
+      authServiceMock.authenticatedFetch.mockResolvedValue(okJson());
 
       await service.start();
-      const proxyUrl = service.register("alpha", "https://upstream.example");
+      const { url, token } = service.register(
+        "alpha",
+        "https://upstream.example",
+      );
 
-      await fetch(`${proxyUrl}?token=abc&foo=bar`);
+      await authedFetch(`${url}?token=abc&foo=bar`, token);
 
-      const [url] = authServiceMock.authenticatedFetch.mock.calls[0];
-      expect(url).toBe("https://upstream.example?token=abc&foo=bar");
+      const [fetchedUrl] = authServiceMock.authenticatedFetch.mock.calls[0];
+      expect(fetchedUrl).toBe("https://upstream.example?token=abc&foo=bar");
     });
   });
 
@@ -238,17 +308,18 @@ describe("McpProxyService", () => {
             { status: 200, headers: { "content-type": "application/json" } },
           ),
         )
-        .mockResolvedValueOnce(
-          new Response('{"ok":true}', {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          }),
-        );
+        .mockResolvedValueOnce(okJson());
 
       await service.start();
-      const proxyUrl = service.register("alpha", "https://upstream.example");
+      const { url, token } = service.register(
+        "alpha",
+        "https://upstream.example",
+      );
 
-      const res = await fetch(proxyUrl, { method: "POST", body: "payload" });
+      const res = await authedFetch(url, token, {
+        method: "POST",
+        body: "payload",
+      });
 
       expect(res.status).toBe(200);
       expect(await res.text()).toBe('{"ok":true}');
@@ -267,13 +338,16 @@ describe("McpProxyService", () => {
       );
 
       await service.start();
-      const proxyUrl = service.register(
+      const { url, token } = service.register(
         "installation-abc",
         "https://app.posthog.com/api/environments/1/mcp_server_installations/abc/proxy/",
         { credentialOwner: "installation" },
       );
 
-      const res = await fetch(proxyUrl, { method: "POST", body: "payload" });
+      const res = await authedFetch(url, token, {
+        method: "POST",
+        body: "payload",
+      });
 
       expect(res.status).toBe(401);
       expect(await res.text()).toBe('{"error":"Authentication failed"}');
@@ -296,9 +370,15 @@ describe("McpProxyService", () => {
       );
 
       await service.start();
-      const proxyUrl = service.register("alpha", "https://upstream.example");
+      const { url, token } = service.register(
+        "alpha",
+        "https://upstream.example",
+      );
 
-      const res = await fetch(proxyUrl, { method: "POST", body: "payload" });
+      const res = await authedFetch(url, token, {
+        method: "POST",
+        body: "payload",
+      });
 
       expect(res.status).toBe(403);
       expect(authServiceMock.refreshAccessToken).not.toHaveBeenCalled();
@@ -316,9 +396,15 @@ describe("McpProxyService", () => {
       );
 
       await service.start();
-      const proxyUrl = service.register("alpha", "https://upstream.example");
+      const { url, token } = service.register(
+        "alpha",
+        "https://upstream.example",
+      );
 
-      const res = await fetch(proxyUrl, { method: "POST", body: "payload" });
+      const res = await authedFetch(url, token, {
+        method: "POST",
+        body: "payload",
+      });
 
       expect(res.status).toBe(403);
       expect(authServiceMock.refreshAccessToken).not.toHaveBeenCalled();
@@ -326,17 +412,15 @@ describe("McpProxyService", () => {
     });
 
     it("does not retry when the body looks healthy", async () => {
-      authServiceMock.authenticatedFetch.mockResolvedValue(
-        new Response('{"ok":true}', {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      );
+      authServiceMock.authenticatedFetch.mockResolvedValue(okJson());
 
       await service.start();
-      const proxyUrl = service.register("alpha", "https://upstream.example");
+      const { url, token } = service.register(
+        "alpha",
+        "https://upstream.example",
+      );
 
-      await fetch(proxyUrl);
+      await authedFetch(url, token);
 
       expect(authServiceMock.refreshAccessToken).not.toHaveBeenCalled();
       expect(authServiceMock.authenticatedFetch).toHaveBeenCalledTimes(1);
@@ -354,9 +438,12 @@ describe("McpProxyService", () => {
       );
 
       await service.start();
-      const proxyUrl = service.register("alpha", "https://upstream.example");
+      const { url, token } = service.register(
+        "alpha",
+        "https://upstream.example",
+      );
 
-      const res = await fetch(proxyUrl);
+      const res = await authedFetch(url, token);
 
       expect(res.headers.get("content-type")).toContain("text/event-stream");
       expect(await res.text()).toBe(sseBody);

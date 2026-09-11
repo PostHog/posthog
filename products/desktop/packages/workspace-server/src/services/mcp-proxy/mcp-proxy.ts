@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import http from "node:http";
 import {
   ROOT_LOGGER,
@@ -26,9 +27,11 @@ function truncateRequestBody(body: RequestInit["body"]): string | undefined {
  * this proxy we would either need to tear the transport down on every token
  * rotation (expensive, racy) or leave it serving stale tokens.
  *
- * The proxy only listens on 127.0.0.1 and strips inbound Authorization headers
- * before forwarding, but any local process can still use it to issue requests
- * on the user's behalf — acceptable for a single-user desktop app.
+ * The proxy only listens on 127.0.0.1, strips inbound Authorization headers
+ * before forwarding, and requires a per-target secret on every request, so a
+ * caller that did not receive the secret from register() (another local
+ * process, or a sandboxed MCP App reaching the loopback port) cannot reach the
+ * upstream with the user's credential attached.
  */
 /**
  * Whose credential an auth failure from a target is about.
@@ -40,9 +43,20 @@ function truncateRequestBody(body: RequestInit["body"]): string | undefined {
  */
 export type McpProxyCredentialOwner = "posthog" | "installation";
 
+export const MCP_PROXY_TOKEN_HEADER = "x-posthog-mcp-proxy-token";
+
+function isTokenMatch(provided: unknown, expected: string): boolean {
+  if (typeof provided !== "string") return false;
+  const providedBuf = Buffer.from(provided, "utf8");
+  const expectedBuf = Buffer.from(expected, "utf8");
+  if (providedBuf.length !== expectedBuf.length) return false;
+  return crypto.timingSafeEqual(providedBuf, expectedBuf);
+}
+
 interface McpProxyTarget {
   url: string;
   credentialOwner: McpProxyCredentialOwner;
+  token: string;
 }
 
 @injectable()
@@ -99,23 +113,29 @@ export class McpProxyService {
   }
 
   /**
-   * Register a target URL under a stable ID. Returns the loopback URL that
-   * should be passed to the MCP transport. Subsequent registrations with the
-   * same ID overwrite the target.
+   * Register a target URL under a stable ID. Returns the loopback URL to pass
+   * to the MCP transport plus the secret that transport must send on every
+   * request. Subsequent registrations with the same ID overwrite the target
+   * and mint a fresh secret, invalidating any old one.
    */
   register(
     id: string,
     targetUrl: string,
     options: { credentialOwner?: McpProxyCredentialOwner } = {},
-  ): string {
+  ): { url: string; token: string } {
     if (!this.port) {
       throw new Error("MCP proxy not started");
     }
+    const token = crypto.randomUUID();
     this.targets.set(id, {
       url: targetUrl,
       credentialOwner: options.credentialOwner ?? "posthog",
+      token,
     });
-    return `http://127.0.0.1:${this.port}/${encodeURIComponent(id)}`;
+    return {
+      url: `http://127.0.0.1:${this.port}/${encodeURIComponent(id)}`,
+      token,
+    };
   }
 
   @preDestroy()
@@ -157,6 +177,17 @@ export class McpProxyService {
       return;
     }
 
+    const providedToken = req.headers[MCP_PROXY_TOKEN_HEADER];
+    if (!isTokenMatch(providedToken, target.token)) {
+      this.log.warn("MCP proxy request rejected without a valid secret", {
+        id,
+        url: req.url,
+      });
+      res.writeHead(401);
+      res.end("Invalid proxy token");
+      return;
+    }
+
     const suffix = rest.join("/");
     const targetBase = target.url.replace(/\/+$/, "");
     const targetUrl =
@@ -165,6 +196,7 @@ export class McpProxyService {
     const strippedHeaders = new Set([
       "authorization",
       "proxy-authorization",
+      MCP_PROXY_TOKEN_HEADER,
       "content-length",
       "transfer-encoding",
     ]);
