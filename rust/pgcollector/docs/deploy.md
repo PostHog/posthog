@@ -27,6 +27,10 @@ Nothing here requires a parameter-group change or a reboot.
   cluster-wide stats from the **maintenance database (`postgres`)**. Run
   `CREATE EXTENSION IF NOT EXISTS pg_stat_statements` there (DDL user) if it
   hasn't been. This is the only step that is genuinely required.
+  A cluster upgraded in place keeps the old extension definition, so also run
+  `ALTER EXTENSION pg_stat_statements UPDATE` there after a major upgrade. The
+  collector reads the columns the installed version has and emits one
+  `pgss_stale` event (plus a warning log) until the extension catches up.
 * `pg_proctab` — optional. Not installed anywhere today; `CREATE EXTENSION
   pg_proctab` in the maintenance database enables `system_cpu`,
   `system_memory`, `system_disk`, `backend_cpu`. Until then those four log one

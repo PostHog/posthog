@@ -22,6 +22,8 @@ pub struct Extra {
     pub known_ids: BTreeSet<i64>,
     pub dealloc: Option<i64>,
     pub warned_missing: bool,
+    #[serde(default)]
+    pub warned_stale: bool,
     /// `FINGERPRINT_VERSION` the known ids were fingerprinted with.
     #[serde(default)]
     pub fingerprint_version: u32,
@@ -200,27 +202,47 @@ pub fn load_extra(prev: Option<&State>) -> Extra {
 }
 
 pub async fn pgss_installed(cx: &CollectCtx<'_>) -> bool {
-    cx.caps.extensions.contains("pg_stat_statements")
+    cx.caps.extensions.contains_key("pg_stat_statements")
 }
 
-/// Column list shared by pg_stat_statements and its Aurora superset, version-gated.
-pub fn pgss_columns(v: u32) -> String {
-    let toplevel = if v >= 140000 {
+pub fn bundled_pgss_version(pg_version: u32) -> (u32, u32) {
+    match pg_version / 10000 {
+        ..=13 => (1, 8),
+        14 => (1, 9),
+        15 | 16 => (1, 10),
+        17 => (1, 11),
+        _ => (1, 12),
+    }
+}
+
+/// Falls back to the server's bundled version when the probe could not read `extversion`.
+pub fn pgss_version(cx: &CollectCtx<'_>) -> (u32, u32) {
+    cx.caps
+        .pgss_version()
+        .unwrap_or_else(|| bundled_pgss_version(cx.pg_version))
+}
+
+/// The view's columns follow the installed extension version, not the server version.
+/// A cluster upgraded in place keeps its old `pg_stat_statements` definition until
+/// `ALTER EXTENSION pg_stat_statements UPDATE` runs, so a PG15 server can still expose
+/// the 1.8 column set.
+pub fn pgss_columns(ext: (u32, u32)) -> String {
+    let toplevel = if ext >= (1, 9) {
         "s.toplevel"
     } else {
         "true AS toplevel"
     };
-    let io_time = if v >= 170000 {
+    let io_time = if ext >= (1, 11) {
         "s.shared_blk_read_time AS blk_read_time, s.shared_blk_write_time AS blk_write_time"
     } else {
         "s.blk_read_time, s.blk_write_time"
     };
-    let temp_io = if v >= 150000 {
+    let temp_io = if ext >= (1, 10) {
         "s.temp_blk_read_time, s.temp_blk_write_time,"
     } else {
         ""
     };
-    let jit = if v >= 150000 {
+    let jit = if ext >= (1, 10) {
         "s.jit_functions, s.jit_generation_time,"
     } else {
         ""
@@ -242,3 +264,61 @@ pub fn pgss_columns(v: u32) -> String {
 pub const AURORA_COLUMNS: &str = "
          s.storage_blks_read, s.storage_blk_read_time, s.orcache_blks_hit, s.orcache_blk_read_time,
          s.total_exec_peakmem, s.max_exec_peakmem, s.total_plan_peakmem, s.max_plan_peakmem,";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pgss_columns_follow_the_extension_version_not_the_server() {
+        type Case = ((u32, u32), &'static [&'static str], &'static [&'static str]);
+        let cases: &[Case] = &[
+            (
+                (1, 8),
+                &["true AS toplevel", "s.blk_read_time"],
+                &["s.toplevel", "s.jit_functions", "s.temp_blk_read_time"],
+            ),
+            (
+                (1, 9),
+                &["s.toplevel", "s.blk_read_time"],
+                &["s.jit_functions", "s.temp_blk_read_time"],
+            ),
+            (
+                (1, 10),
+                &[
+                    "s.toplevel",
+                    "s.jit_functions",
+                    "s.temp_blk_read_time",
+                    "s.blk_read_time",
+                ],
+                &["s.shared_blk_read_time"],
+            ),
+            (
+                (1, 11),
+                &["s.toplevel", "s.jit_functions", "s.shared_blk_read_time"],
+                &["s.blk_read_time,"],
+            ),
+        ];
+        for (ext, present, absent) in cases {
+            let cols = pgss_columns(*ext);
+            for p in *present {
+                assert!(cols.contains(p), "{ext:?} should select {p}");
+            }
+            for a in *absent {
+                assert!(!cols.contains(a), "{ext:?} should not select {a}");
+            }
+        }
+    }
+
+    #[test]
+    fn extversion_minor_compares_numerically() {
+        let mut caps = Capabilities::default();
+        caps.extensions
+            .insert("pg_stat_statements".into(), "1.10".into());
+        assert_eq!(caps.pgss_version(), Some((1, 10)));
+        assert!(caps.pgss_version() > Some((1, 9)));
+        caps.extensions
+            .insert("pg_stat_statements".into(), "".into());
+        assert_eq!(caps.pgss_version(), None);
+    }
+}
