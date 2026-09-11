@@ -249,7 +249,7 @@ Before each page, discovery acquires durable admission permits scoped by schedul
 
 A non-replayed activity reads Temporal task-queue health or a control-plane snapshot before granting permits. Missing or stale health data permits only the baseline page when capacity remains available. Failure of the permit store stops dispatch and alerts rather than bypassing the global bound.
 
-The subscription implementation uses one-page `ALLOW_ALL` with durable claims and permits, so overlapping short coordinators remain safe while a pre-deploy legacy run drains. Other first-wave coordinators stay on one page without permits until they adopt the same ownership model. Multi-page recovery remains disabled until the overlap tests have passed in production; coordinators without durable ownership continue to use `SKIP`.
+The subscription implementation uses one-page `ALLOW_ALL` with durable claims and permits; durable claims and deterministic child IDs keep concurrent coordinators safe while a pre-deploy legacy run drains. Other first-wave coordinators without durable ownership stay on `SKIP` and one page without permits until they adopt the same ownership model. Multi-page recovery remains disabled until the overlap tests have passed in production.
 
 ### Subscription sizing evidence
 
