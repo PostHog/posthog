@@ -63,6 +63,9 @@ describe('groupAiHistory', () => {
 
         expect(items.map((item) => item.key)).toEqual(['task:task-id', 'conversation:conversation-id'])
         expect(items[0].searchableText).toContain('largest conversion drop')
+        // The list is filtered client-side against this text, so a titled task still has to carry
+        // the slug the server matches a `TASK-1`-shaped query by.
+        expect(items[0].searchableText).toContain('TASK-1')
     })
 
     // A task row is rarely edited after creation, so `updated_at` stays near its creation time

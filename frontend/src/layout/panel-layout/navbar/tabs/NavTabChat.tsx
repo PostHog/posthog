@@ -99,7 +99,11 @@ export function groupAiHistory(conversationHistory: Conversation[], tasks: Task[
             kind: 'task',
             key: `task:${task.id}`,
             title,
-            searchableText: `${title} ${task.description}`,
+            // The slug rather than `title`, which only falls back to it for untitled tasks. The server
+            // also matches a task by its number, through a slug-shaped query like `TASK-42`, and the
+            // run header shows that slug for people to type back. Leaving it out of this filter hides
+            // a titled row the server did return.
+            searchableText: `${task.title} ${task.slug} ${task.description}`,
             // A task's row is often never edited after creation, so `updated_at` would bucket a
             // task that ran an hour ago by how long ago it was created.
             updatedAt: task.last_activity_at ?? task.updated_at,
