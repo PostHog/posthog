@@ -451,4 +451,4 @@ If you cannot establish consent for the organizations in a corpus, label the goa
 - [`exploring-mcp-intent-clusters`](../exploring-mcp-intent-clusters/SKILL.md) — per-call intent clusters, tool routing, discoverability
 - [`exploring-mcp-sessions`](../exploring-mcp-sessions/SKILL.md) — the individual sessions behind a cluster
 - [`exploring-mcp-tool-quality`](../exploring-mcp-tool-quality/SKILL.md) — per-tool error rates and latency
-- [`improving-mcp-tools`](../improving-mcp-tools/SKILL.md) — acting on what the taxonomy shows
+- For changes to PostHog MCP source code, use the internal `improving-mcp-tools` skill if you have a PostHog repository checkout.

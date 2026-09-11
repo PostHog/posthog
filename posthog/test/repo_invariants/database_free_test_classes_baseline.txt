@@ -6,6 +6,7 @@ ee/api/agentic_provisioning/test/test_region_proxy.py::TestShouldProxyTokenLooku
 ee/api/test/test_billing.py::TestExportStreaming
 ee/api/test/test_billing.py::TestResolveTeamLabels
 ee/api/test/test_billing.py::TestRewriteCsvLabels
+ee/api/test/test_google_oauth_diagnostics.py::TestGoogleOAuthDiagnostics
 ee/api/vercel/test/test_vercel_connect.py::TestValidateNextUrl
 ee/billing/test/test_billing_consumer.py::TestBillingConsumerUsageSpike
 ee/billing/test/test_billing_manager.py::TestParamSerialization
@@ -130,7 +131,6 @@ posthog/hogql/test/test_escape_sql.py::TestPrintString
 posthog/hogql/test/test_hogqlx.py::TestHogQLX
 posthog/hogql/test/test_log_query_settings.py::TestTooManyBytesError
 posthog/hogql/test/test_parser_cache.py::TestParserCache
-posthog/hogql/test/test_placeholders.py::TestParser
 posthog/hogql/test/test_timings.py::TestHogQLTimings
 posthog/hogql/test/test_utils.py::TestUtils
 posthog/hogql/test/test_visitor.py::TestVisitor

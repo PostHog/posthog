@@ -29,6 +29,10 @@ If it just needs to _answer a question_ given some context you already have, use
 A sandboxed agent runs inside an isolated cloud container (Modal in production, Docker locally).
 The system provisions the sandbox, clones a GitHub repo, starts an agent server, and waits for the agent to finish.
 
+The run thread shows startup state in a progress accordion, with completed steps available in its history.
+Before progress arrives, it shows "Setting up sandbox", including when resuming a finished run.
+The thread hides empty and whitespace-only assistant messages during streaming and history replay.
+
 ```text
 Your product code
     │
@@ -98,6 +102,13 @@ class OriginProduct(models.TextChoices):
 ```
 
 Then create and run a Django migration.
+
+### Starting a task from a deep link
+
+In the new PostHog AI view, `/ai?ask=...` hands the prompt to the task composer once.
+The handoff removes `ask` from the current browser history entry while preserving other query parameters and the hash.
+Changing the panel state or remounting the view therefore does not submit the prompt again.
+Without organization-level AI data-processing consent, the prompt only prefills the composer.
 
 ## Fine-grained access tokens
 
