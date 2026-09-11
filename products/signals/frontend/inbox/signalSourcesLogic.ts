@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { ApiConfig } from 'lib/api'
 import type { PaginatedResponse } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -37,9 +37,12 @@ export type SourceToolEnablement = 'session_replay' | 'error_tracking' | 'conver
 export type SourceToolDataStatus = 'unavailable' | 'loading' | 'error' | 'recent' | 'none'
 
 export interface SourceToolStatus {
-    toolName: string
+    /** The switch the user must find, named as its own settings page names it. */
+    settingName: string
     enabled: boolean | null
     enablement: SourceToolEnablement | null
+    /** Why this user cannot run the enablement recipe, when `product_enablement` refuses them. */
+    enableBlockedReason: string | null
     dataStatus: SourceToolDataStatus
 }
 
@@ -851,6 +854,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 toolDataEventsFailed: boolean
             ): Partial<Record<AgentRosterSource, SourceToolStatus>> => {
                 const team = currentTeam as TeamType | null
+                // `product_enablement` gates admin-only recipes on the same membership level.
+                const isProjectAdmin =
+                    !!team?.effective_membership_level &&
+                    team.effective_membership_level >= OrganizationMembershipLevel.Admin
                 const dataStatus = (...events: string[]): SourceToolDataStatus => {
                     if (toolDataEventsLoading || (toolDataEvents === null && !toolDataEventsFailed)) {
                         return 'loading'
@@ -869,38 +876,45 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                           : null
                 // Both replay sources read recordings, so they stand or fall on the same opt-in.
                 const sessionReplayTool: SourceToolStatus = {
-                    toolName: 'Session Replay',
+                    settingName: 'Record user sessions',
                     enabled: team ? !!team.session_recording_opt_in : null,
                     enablement: 'session_replay',
+                    enableBlockedReason: null,
                     // Recordings never produce event definitions, so there is no cheap signal.
                     dataStatus: 'unavailable',
                 }
                 return {
                     error_tracking: {
-                        toolName: 'Error Tracking',
+                        settingName: 'Exception autocapture',
                         // Server SDKs capture exceptions without the autocapture opt-in, so recent
                         // exception data counts as on.
                         enabled: errorTrackingEnabled,
                         enablement: 'error_tracking',
+                        enableBlockedReason: null,
                         dataStatus: errorTrackingDataStatus,
                     },
                     replay_vision: sessionReplayTool,
                     conversations: {
-                        toolName: 'Support',
+                        settingName: 'Support',
                         enabled: team ? !!team.conversations_enabled : null,
                         enablement: 'conversations',
+                        // `conversations_enabled` is an admin-only Team field, so the endpoint
+                        // refuses this recipe for a plain member.
+                        enableBlockedReason: isProjectAdmin ? null : 'Only project admins can turn it on.',
                         dataStatus: 'unavailable',
                     },
                     llm_analytics: {
-                        toolName: 'AI Observability',
+                        settingName: 'AI Observability',
                         enabled: true,
                         enablement: null,
+                        enableBlockedReason: null,
                         dataStatus: dataStatus('$ai_generation', '$ai_trace'),
                     },
                     analytics: {
-                        toolName: 'Product Analytics',
+                        settingName: 'Product Analytics',
                         enabled: true,
                         enablement: null,
+                        enableBlockedReason: null,
                         dataStatus: dataStatus('$pageview', '$autocapture'),
                     },
                 }

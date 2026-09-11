@@ -112,20 +112,29 @@ function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element |
     return <Icon className={`shrink-0 text-base ${meta.colorClass}`} />
 }
 
+/**
+ * Why an off tool blocks a source. Names the switch in the tool's own settings rather than the row
+ * the user is already looking at, which for Support carries the same name as its tool.
+ */
+function toolOffReason(tool: SourceToolStatus): string {
+    const reason = `${tool.settingName} is off in project settings, so this source has nothing to read.`
+    return tool.enableBlockedReason ? `${reason} ${tool.enableBlockedReason}` : reason
+}
+
 /** The legacy roster's per-row health dot; the redesign relies on the tag alone. */
 function StatusDot({
     status,
     tool,
-    toolOff,
+    toolOffReason: offReason,
 }: {
     status: AgentRosterStatus
     tool?: SourceToolStatus
-    toolOff: boolean
+    toolOffReason?: string
 }): JSX.Element {
     let className = 'bg-border-bold'
     let title = 'Standby'
-    if (toolOff) {
-        title = `${tool?.toolName} is off, so this source has nothing to read`
+    if (offReason) {
+        title = offReason
     } else if (status === 'sync_failed') {
         className = 'bg-danger'
         title = 'Sync failed'
@@ -153,11 +162,12 @@ function StatusDot({
 function notableTag(
     status: AgentRosterStatus,
     armed: boolean,
-    toolOff: boolean,
     tool?: SourceToolStatus
 ): { label: string; type: LemonTagType } | null {
-    if (toolOff) {
-        return { label: 'Tool off', type: 'warning' }
+    if (tool?.enabled === false) {
+        return tool.enableBlockedReason
+            ? { label: 'Admin needed', type: 'warning' }
+            : { label: 'Off in settings', type: 'warning' }
     }
     if (status === 'sync_failed') {
         return { label: 'Sync failed', type: 'danger' }
@@ -309,14 +319,13 @@ function Expansion({
 
             {toolOff && tool ? (
                 <div className="flex items-center gap-2">
-                    <span className="text-xs text-warning">
-                        {tool.toolName} is off, so this source has nothing to read.
-                    </span>
+                    <span className="text-xs text-warning">{toolOffReason(tool)}</span>
                     {tool.enablement && (
                         <LemonButton
                             type="secondary"
                             size="xsmall"
                             loading={enablingTool}
+                            disabledReason={tool.enableBlockedReason ?? undefined}
                             onClick={() => onEnableTool(tool)}
                         >
                             Turn it on
@@ -400,8 +409,8 @@ function Expansion({
                                     disabledReason={
                                         state.loading
                                             ? 'Saving'
-                                            : toolOff && !entity.enabled
-                                              ? `Turn on ${tool?.toolName} first. This source reads its data.`
+                                            : toolOff && tool && !entity.enabled
+                                              ? toolOffReason(tool)
                                               : undefined
                                     }
                                 />
@@ -464,7 +473,8 @@ const AgentRow = memo(function AgentRow({
     const toolOff = tool?.enabled === false
     // An off tool blocks arming (the source would watch nothing), never disarming.
     const armingBlocked = toolOff && !armed
-    const tag = notableTag(status, armed, toolOff, tool)
+    const offReason = tool && toolOff ? toolOffReason(tool) : undefined
+    const tag = notableTag(status, armed, tool)
     // A source whose entities the user creates gets no master switch. Arming it would write to
     // every entity at once, and turning it off and on again would not restore the earlier subset.
     const hasMasterSwitch = !agent.entitiesAreUserCreated
@@ -478,7 +488,7 @@ const AgentRow = memo(function AgentRow({
                     expanded ? 'bg-surface-secondary' : 'hover:bg-surface-secondary'
                 } ${agent.legacy ? 'opacity-60 hover:opacity-100' : ''}`}
             >
-                {!redesign && <StatusDot status={status} tool={tool} toolOff={toolOff} />}
+                {!redesign && <StatusDot status={status} tool={tool} toolOffReason={offReason} />}
                 <AgentIcon source={agent} />
                 <div className="flex min-w-0 flex-1 flex-col">
                     <div className="flex items-center gap-2">
@@ -516,15 +526,23 @@ const AgentRow = memo(function AgentRow({
                         <LemonButton type="secondary" size="xsmall" onClick={() => onToggle(agent.source)}>
                             Connect
                         </LemonButton>
+                    ) : armingBlocked && tool?.enablement ? (
+                        // The remedy sits on the row itself, so the user never has to expand to find it.
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            loading={enablingTool}
+                            disabledReason={tool.enableBlockedReason ?? undefined}
+                            tooltip={offReason}
+                            onClick={() => onEnableTool(tool)}
+                        >
+                            Turn on
+                        </LemonButton>
                     ) : hasMasterSwitch ? (
                         <LemonSwitch
                             checked={armed}
                             onChange={() => onToggle(agent.source)}
-                            disabledReason={
-                                armingBlocked
-                                    ? `Turn on ${tool?.toolName} first. This source reads its data.`
-                                    : undefined
-                            }
+                            disabledReason={armingBlocked ? offReason : undefined}
                             aria-label={`Arm ${agent.label}`}
                         />
                     ) : null}
