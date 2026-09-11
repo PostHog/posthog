@@ -10,6 +10,7 @@ import posthog from 'posthog-js'
 
 import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { NEW_QUERY_STARTED_ERROR_MESSAGE, UNMOUNTING_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 import {
     addProjectIdIfMissing,
     ensureRoutablePathname,
@@ -83,6 +84,13 @@ Write actions whose own logic toasts the duplicate-key 400 (code `unique` on att
 generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlagFailure listener.
 */
 const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
+
+/*
+Reasons a logic passes when it aborts its own request. Matched exactly, and never by substring:
+every failure in the app reaches this handler, so a loose match would drop a real one whose
+server detail happens to mention an abort.
+*/
+const SELF_ABORT_REASONS: string[] = [NEW_QUERY_STARTED_ERROR_MESSAGE, UNMOUNTING_ERROR_MESSAGE]
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -198,14 +206,10 @@ export function initKea({
                         lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
                     }
                 }
-                // Cooperative cancellation (an aborted fetch, or a query superseded via
-                // `abortController.abort('new query started')` as in the logs/tracing data
-                // logics) is expected control flow, not a failure worth logging or reporting.
-                const isCancellation =
-                    error?.name === 'AbortError' ||
-                    error === 'new query started' ||
-                    error?.message === 'new query started'
-                if (isCancellation) {
+                // Cooperative cancellation (an aborted fetch, or a query superseded as in the
+                // logs/tracing data logics) is expected control flow, not a failure worth logging
+                // or reporting. An `AbortError` already returned at the top of this handler.
+                if (SELF_ABORT_REASONS.includes(error) || SELF_ABORT_REASONS.includes(error?.message)) {
                     return
                 }
                 if (!errorsSilenced) {

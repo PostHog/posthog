@@ -7070,17 +7070,23 @@ const api = {
             authHeaders['Authorization'] = `Bearer ${exporterContext.shareToken}`
         }
 
-        return await handleFetch(url, 'GET', async () => {
-            return fetch(url, {
-                signal: options?.signal,
-                headers: {
-                    ...objectClean(options?.headers ?? {}),
-                    ...tracingHeaders({ includeDistinctId: true }),
-                    ...oauthAuthHeaders(url),
-                    ...authHeaders,
-                },
-            })
-        })
+        return await handleFetch(
+            url,
+            'GET',
+            async () => {
+                return fetch(url, {
+                    signal: options?.signal,
+                    headers: {
+                        ...objectClean(options?.headers ?? {}),
+                        ...tracingHeaders({ includeDistinctId: true }),
+                        ...oauthAuthHeaders(url),
+                        ...authHeaders,
+                    },
+                })
+            },
+            false,
+            options?.signal
+        )
     },
 
     async _update<T = any, P = any>(
@@ -7093,20 +7099,26 @@ const api = {
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
-        const response = await handleFetch(url, method, async () => {
-            return await fetch(url, {
-                method: method,
-                headers: {
-                    ...objectClean(options?.headers ?? {}),
-                    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                    'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                    ...tracingHeaders(),
-                    ...oauthAuthHeaders(url),
-                },
-                body: isFormData ? data : JSON.stringify(data),
-                signal: options?.signal,
-            })
-        })
+        const response = await handleFetch(
+            url,
+            method,
+            async () => {
+                return await fetch(url, {
+                    method: method,
+                    headers: {
+                        ...objectClean(options?.headers ?? {}),
+                        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+                        'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                        ...tracingHeaders(),
+                        ...oauthAuthHeaders(url),
+                    },
+                    body: isFormData ? data : JSON.stringify(data),
+                    signal: options?.signal,
+                })
+            },
+            false,
+            options?.signal
+        )
 
         return await getJSONFromSuccessResponse(response, method, url)
     },
@@ -7129,19 +7141,24 @@ const api = {
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
-        return await handleFetch(url, 'POST', async () =>
-            fetch(url, {
-                method: 'POST',
-                headers: {
-                    ...objectClean(options?.headers ?? {}),
-                    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                    'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                    ...tracingHeaders(),
-                    ...oauthAuthHeaders(url),
-                },
-                body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
-                signal: options?.signal,
-            })
+        return await handleFetch(
+            url,
+            'POST',
+            async () =>
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        ...objectClean(options?.headers ?? {}),
+                        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+                        'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                        ...tracingHeaders(),
+                        ...oauthAuthHeaders(url),
+                    },
+                    body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
+                    signal: options?.signal,
+                }),
+            false,
+            options?.signal
         )
     },
 
@@ -7457,7 +7474,8 @@ async function handleFetch(
     url: string,
     method: string,
     fetcher: () => Promise<Response>,
-    isRetry = false
+    isRetry = false,
+    signal?: AbortSignal
 ): Promise<Response> {
     const startTime = new Date().getTime()
 
@@ -7472,7 +7490,10 @@ async function handleFetch(
     apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
 
     if (error || !response) {
-        if (error && (error as any).name === 'AbortError') {
+        // An abort rejects with the reason the caller passed, which need not be an `AbortError`.
+        // Wrapping it in an `ApiError` hides the cancellation from every check downstream, which
+        // then reports a deliberate cancellation as a failure.
+        if (error && (isAbortError(error) || signal?.aborted)) {
             throw error
         }
         // `fetch` rejects with a `TypeError` when the request never reached the server. Classifying it
@@ -7501,7 +7522,7 @@ async function handleFetch(
     if (response.status === 401 && isOAuthMode() && !isRetry) {
         const refreshed = await refreshAccessToken()
         if (refreshed) {
-            return await handleFetch(url, method, fetcher, true)
+            return await handleFetch(url, method, fetcher, true, signal)
         }
     }
 
