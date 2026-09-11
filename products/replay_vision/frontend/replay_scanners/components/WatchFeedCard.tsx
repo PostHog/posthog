@@ -31,6 +31,8 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
             return `Tagged "${reason.tag}", which is uncommon for this scanner lately.`
         case 'novel_summary':
             return "Reads unlike this scanner's other sessions in this window."
+        case 'friction':
+            return 'The session shows signs of friction, like errors, retries, or dead ends.'
         case 'unviewed_recent':
             return 'New since you last looked.'
         case 'recent':
