@@ -95,7 +95,7 @@ Reports reach people via `suggested_reviewers` — the inbox floats a report to 
 
 For a scout you expect to be chatty, expensive, or high-stakes:
 
-1. Create it with **both** `enabled: false` and `emit: false` in the nested config at `posthog:scout-create-prepare` time.
+1. Create it with **both** `enabled: false` and `emit: false` in the nested config at `posthog:scout-create` time.
    `emit: false` (dry-run) makes it log what it _would_ report without touching the inbox; `enabled: false` matters too, because a fresh enabled config has no `last_run_at` and the coordinator treats it as immediately due — it could burn a scheduled run (or 409 your manual one) before your controlled test.
 2. Spend one `posthog:scout-run-now` (it works on a disabled scout), then read the run via `exploring-scouts` to see what it would have written.
    Runs are metered against the project's daily budget — dogfood the queries by hand for iteration and save real runs for end-to-end checks.

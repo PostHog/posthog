@@ -29,6 +29,7 @@ from django.utils.deprecation import MiddlewareMixin
 from django.utils.http import http_date, url_has_allowed_host_and_scheme
 
 import structlog
+import posthoganalytics
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
@@ -1161,6 +1162,66 @@ def csp_report_endpoint(**params: str) -> str:
 # prefix match would also hand the app document this policy and stop it from starting.
 REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
 
+# The app policy names only PostHog origins in `frame-ancestors`. Enforcing it on these paths stops
+# every embedded dashboard, shared link and survey from rendering on a customer's site.
+#
+# The list follows `posthog/urls.py`. The Contour ingress keeps a similar list in
+# `charts/argocd/contour-ingress/values/values.{dev,prod-us,prod-eu}.yaml`, which omits
+# `/interview/` and the bare `/exporter`. Sync to the URL patterns, not to that list.
+EMBEDDABLE_PATH_PREFIXES = (
+    "/shared_dashboard/",
+    "/shared/",
+    "/embedded/",
+    "/interview/",
+    "/exporter/",
+    "/external_surveys/",
+)
+EMBEDDABLE_PATHS = frozenset({"/render_query", "/exporter"})
+
+
+def is_embeddable_document(path: str) -> bool:
+    return path in EMBEDDABLE_PATHS or path.startswith(EMBEDDABLE_PATH_PREFIXES)
+
+
+CSP_ENFORCE_APP_POLICY_FLAG = "csp-enforce-app-policy"
+
+
+def csp_enforcement_enabled(request: HttpRequest) -> bool:
+    user = getattr(request, "user", None)
+    distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
+    if user is None or not distinct_id:
+        # An anonymous page has nobody to bucket, so login, signup and the OAuth pages keep the
+        # report-only header until enforcement covers everyone.
+        return False
+    try:
+        # Local evaluation only. A network call here would sit in the path of every HTML response,
+        # and an unevaluable flag returns None, which leaves the policy report-only.
+        #
+        # Local evaluation holds the flag's conditions but not the person's properties, so a
+        # condition on `email` cannot resolve unless the caller supplies it. Without this the
+        # staff-only rollout every other flag here uses would return None and enforce nothing.
+        return bool(
+            posthoganalytics.feature_enabled(
+                CSP_ENFORCE_APP_POLICY_FLAG,
+                distinct_id,
+                person_properties={"email": user.email} if user.email else {},
+                only_evaluate_locally=True,
+            )
+        )
+    except Exception:
+        # A failed lookup and a deliberate opt-out both leave the policy report-only. The rollout
+        # needs to tell them apart.
+        logger.warning("csp.enforcement_flag_check_failed_defaulting_off", exc_info=True)
+        return False
+
+
+def app_csp_header_name(request: HttpRequest) -> str:
+    if is_embeddable_document(request.path):
+        return "Content-Security-Policy-Report-Only"
+    if csp_enforcement_enabled(request):
+        return "Content-Security-Policy"
+    return "Content-Security-Policy-Report-Only"
+
 
 class CSPMiddleware:
     def __init__(self, get_response):
@@ -1240,7 +1301,12 @@ class CSPMiddleware:
                     f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
                 )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
-        elif getattr(response, "_posthog_canvas_artifact", False) and "Content-Security-Policy" in response.headers:
+        elif "Content-Security-Policy" in response.headers:
+            # The view picked this policy for this document: a canvas artifact runs untrusted code,
+            # and the workflow asset endpoint sandboxes captured email HTML. The app policy would
+            # drop that sandbox and impose a frame-ancestors list the app's own origin does not
+            # match. Adding it report-only is no better, because these documents never aim to
+            # satisfy it, so each load would report a violation of a policy we chose not to apply.
             return response
         else:
             resource_url = "https://*.posthog.com"
@@ -1316,7 +1382,7 @@ class CSPMiddleware:
                 # Browsers only deliver crash reports to the endpoint named `default`; the CSP
                 # `report-to posthog` directive keeps routing violations to `posthog`.
                 response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
-            response.headers["Content-Security-Policy-Report-Only"] = "; ".join(csp_parts)
+            response.headers[app_csp_header_name(request)] = "; ".join(csp_parts)
 
         return response
 

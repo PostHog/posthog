@@ -101,6 +101,75 @@ describe('infiniteListLogic', () => {
         return logicWithProps
     }
 
+    it.each([
+        { state: 'initial request pending', initialCompleted: false, previousSearchPending: false, clear: false },
+        { state: 'initial request completed', initialCompleted: true, previousSearchPending: false, clear: false },
+        { state: 'previous search pending', initialCompleted: true, previousSearchPending: true, clear: false },
+        { state: 'clearing during initial load', initialCompleted: false, previousSearchPending: false, clear: true },
+    ])('debounces each query change with $state', async ({ initialCompleted, previousSearchPending, clear }) => {
+        const searches: string[] = []
+        let completeInitial!: () => void
+        const initialResponse = new Promise<void>((resolve) => {
+            completeInitial = resolve
+        })
+        let completePreviousSearch!: () => void
+        const previousSearchResponse = new Promise<void>((resolve) => {
+            completePreviousSearch = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team/event_definitions': async ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search') ?? ''
+                    searches.push(search)
+                    if (!search) {
+                        await initialResponse
+                    }
+                    if (search === 'prior') {
+                        await previousSearchResponse
+                    }
+                    return [200, { results: [{ name: search || 'initial_event' }], count: 1 }]
+                },
+            },
+        })
+        jest.useFakeTimers()
+        const searchLogic = logicWith({})
+        try {
+            await jest.advanceTimersByTimeAsync(1)
+            expect(searches).toEqual([''])
+            if (initialCompleted) {
+                completeInitial()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(searchLogic.values.remoteItems.first).toBeFalsy()
+            }
+            if (previousSearchPending) {
+                searchLogic.actions.setSearchQuery('prior')
+                await jest.advanceTimersByTimeAsync(500)
+                expect(searches).toEqual(['', 'prior'])
+            }
+            const beforeTyping = [...searches]
+            const queries = clear ? ['e', 'em', 'e', ''] : ['e', 'em', 'ema', 'emai', 'email']
+            const finalQuery = queries[queries.length - 1]
+            for (const query of queries) {
+                searchLogic.actions.setSearchQuery(query)
+                await jest.advanceTimersByTimeAsync(100)
+            }
+            expect(searchLogic.values.searchQuery).toBe(finalQuery)
+            expect(searches).toEqual(beforeTyping)
+            await jest.advanceTimersByTimeAsync(399)
+            expect(searches).toEqual(beforeTyping)
+            await jest.advanceTimersByTimeAsync(1)
+            expect(searches).toEqual([...beforeTyping, finalQuery])
+            completeInitial()
+            completePreviousSearch()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(searchLogic.values.remoteItems.searchQuery).toBe(finalQuery)
+        } finally {
+            completeInitial()
+            completePreviousSearch()
+            jest.useRealTimers()
+        }
+    })
+
     describe('index', () => {
         it('defaults to 0 when whether the first item should be selected is not specified', async () => {
             await expectLogic(logicWith({})).toMatchValues({

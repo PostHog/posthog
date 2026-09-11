@@ -1,10 +1,33 @@
-import { describe, expect, it } from "vitest";
+import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { renderHook } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import {
   isRestorableVisitHref,
   RAIL_PANE_ROOT,
+  railPaneForHref,
   railPaneForPath,
   railPaneHasSidebar,
 } from "./railPane";
+
+const routing = vi.hoisted(() => ({ href: "/inbox", channelsLayout: true }));
+
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
+  useChannelsLayout: () => routing.channelsLayout,
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  useRouterState: ({
+    select,
+  }: {
+    select: (state: {
+      location: { href: string; pathname: string };
+    }) => unknown;
+  }) =>
+    select({
+      location: { href: routing.href, pathname: routing.href.split("?")[0] },
+    }),
+}));
 
 describe("railPaneForPath", () => {
   it.each([
@@ -48,6 +71,18 @@ describe("railPaneForPath", () => {
   });
 });
 
+describe("railPaneForHref", () => {
+  it.each([
+    ["/reports/report-1?from=%2Finbox", "inbox"],
+    ["/reports/report-1?from=%2Finbox%2Ftriage", "inbox"],
+    ["/reports/report-1?from=%2Fspaces%2Fchan-1", "spaces"],
+    ["/reports/report-1", "reports"],
+    ["/inbox?item=1", "inbox"],
+  ] as const)("puts %s on %s", (href, pane) => {
+    expect(railPaneForHref(href)).toBe(pane);
+  });
+});
+
 describe("isRestorableVisitHref", () => {
   it.each([
     ["spaces", "/spaces/chan-1/tasks/task-1"],
@@ -55,6 +90,8 @@ describe("isRestorableVisitHref", () => {
     ["spaces", "/new"],
     ["activity", "/activity?task=task-1"],
     ["inbox", "/inbox/pulls/report-1"],
+    ["inbox", "/inbox/triage"],
+    ["inbox", "/reports/report-1?from=%2Finbox"],
     ["home", "/"],
   ] as const)("lets %s replay %s", (pane, href) => {
     expect(isRestorableVisitHref(pane, href)).toBe(true);
@@ -71,20 +108,55 @@ describe("isRestorableVisitHref", () => {
     ["inbox", "/inbox/agents"],
     ["spaces", "/activity"],
     ["activity", "/spaces/chan-1"],
+    ["activity", "/reports/report-1?from=%2Finbox"],
+    ["reports", "/reports/report-1?from=%2Finbox"],
   ] as const)("does not let %s replay %s", (pane, href) => {
     expect(isRestorableVisitHref(pane, href)).toBe(false);
   });
 });
 
 describe("railPaneHasSidebar", () => {
-  it.each(["home", "inbox", "reports", "command-center", "loops"] as const)(
+  it.each([true, false])(
+    "hides the sidebar only on triage with channels layout %s",
+    (channelsLayout) => {
+      routing.channelsLayout = channelsLayout;
+      routing.href = "/inbox/triage";
+      useSidebarStore.setState({
+        open: true,
+        hasUserSetOpen: true,
+        width: 320,
+      });
+      const { result, rerender } = renderHook(() => useRailSurface());
+      expect(result.current.hasSidebar).toBe(false);
+      expect(result.current.pane).toBe("inbox");
+
+      for (const [href, hasSidebar] of [
+        ["/inbox", true],
+        ["/inbox/triage/", false],
+        ["/reports/report-1?from=%2Finbox%2Ftriage", true],
+        ["/inbox/triage?reportId=report-1", false],
+        ["/inbox/reports", true],
+      ] as const) {
+        routing.href = href;
+        rerender();
+        expect(result.current.hasSidebar).toBe(hasSidebar);
+      }
+      expect(useSidebarStore.getState()).toMatchObject({
+        open: true,
+        hasUserSetOpen: true,
+        width: 320,
+      });
+    },
+  );
+
+  it.each(["home", "reports", "command-center", "loops"] as const)(
     "gives %s the whole screen",
     (pane) => {
       expect(railPaneHasSidebar(pane)).toBe(false);
     },
   );
 
-  it.each(["spaces", "activity", "feeds"] as const)(
+  it.each(["spaces", "activity", "feeds", "inbox"] as const)(
     "gives %s a column",
     (pane) => {
       expect(railPaneHasSidebar(pane)).toBe(true);
