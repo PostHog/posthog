@@ -39,7 +39,8 @@ Replace only the values in angle brackets. Leave out the `notify` step and its e
           "repository": { "value": "<owner/name>" },
           "connectors": { "value": ["<mcp connection id>"] },
           "skills": { "value": ["<skill name>"] },
-          "posthog_mcp_scopes": { "value": "read_only" }
+          "posthog_mcp_scopes": { "value": "read_only" },
+          "non_failure_status_codes": { "value": [409] }
         }
       },
       "output_variable": [{ "key": "task_final_message", "result_path": "final_message" }]
@@ -66,6 +67,8 @@ Include the other inputs only when the loop needs them:
 - `skills`: exact names from `skill-list`, at most 10.
 - `posthog_mcp_scopes`: `read_only` by default. Use `full` only when the user asks for the task to change things in PostHog.
 - `reply_in_slack_thread`: `"{true}"` for a Slack-triggered loop whose result should land back in the thread. That covers the notification, so leave out the `notify` step.
+
+Keep `non_failure_status_codes` exactly as the graph has it, on every loop. The API answers 409 when a run hits a task limit. Without this input the step fails with a generic fetch error and the user never reads the limit message.
 
 The workflow waits at this step until the task finishes. The next step then sees `final_message`, `pr_urls`, and `status` on the step result.
 
