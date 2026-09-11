@@ -3657,7 +3657,7 @@ async def test_reserved_subscription_claim_expires_before_the_next_recovery_tick
 
 @time_machine.travel("2026-09-09T08:25:30Z", tick=False)
 async def test_confirmed_subscription_claim_uses_the_child_absolute_deadline(team, user):
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="claim-deadline", name="Claim deadline")
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="clm-deadline", name="Claim deadline")
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
     await sync_to_async(Subscription.objects.filter(id=subscription.id).update)(
         next_delivery_date=datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
