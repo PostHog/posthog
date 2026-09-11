@@ -85,6 +85,16 @@ CREATE TABLE posthog.billing_usage_records (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_billing_usage_records', cityHash64(team_id));
+CREATE TABLE posthog.billing_usage_records_hourly (
+  hour DateTime('UTC'),
+  team_id Int64,
+  organization_id UUID,
+  producer_id LowCardinality(String),
+  usage_key LowCardinality(String),
+  unit LowCardinality(String),
+  quantity Int64,
+  rolled_up_at DateTime64(6, 'UTC')
+) ENGINE = Distributed('aux', 'posthog', 'sharded_billing_usage_records_hourly', cityHash64(team_id));
 CREATE TABLE posthog.channel_definition (
   domain String,
   kind String,
