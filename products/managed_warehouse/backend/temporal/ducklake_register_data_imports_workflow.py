@@ -20,7 +20,7 @@ from psycopg import sql as psql
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
@@ -167,6 +167,20 @@ async def _record_register_terminal_source_job_state(
             started_at=started_at,
             finished_at=finished_at,
         )
+
+
+def _recorded_failure_message(error: BaseException) -> str:
+    """The failure text to record on the source job.
+
+    Temporal wraps an activity failure in an opaque "Activity task failed" message that explains
+    nothing. The non-retryable ApplicationErrors this workflow raises carry a written message that
+    names the cause, so record that one instead. Every other failure keeps the wrapper, because its
+    own message can hold connection strings and raw provider responses.
+    """
+    cause = error.cause if isinstance(error, ActivityError) else None
+    if isinstance(cause, ApplicationError) and cause.non_retryable:
+        return cause.message
+    return str(error)
 
 
 def _stage_timer(*, stage: str, team_id: int, schema_id: str) -> ExecutionTimeRecorder:
@@ -500,7 +514,21 @@ def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[lis
         landing_copy_paths.append(landing_path)
         landing_paths.append(f"s3://{landing_path}")
 
-    s3.copy(source_copy_paths, landing_copy_paths, batch_size=S3_COPY_BATCH_SIZE)
+    try:
+        s3.copy(source_copy_paths, landing_copy_paths, batch_size=S3_COPY_BATCH_SIZE)
+    except PermissionError as error:
+        # s3fs collapses every S3 auth-failure response code (AccessDenied, ExpiredToken,
+        # InvalidAccessKeyId) into a bare PermissionError whose message carries the worker's
+        # account id and role ARN. The copy writes to the organization's DuckLake bucket with
+        # the worker's own credentials, so a denial here means that bucket policy is missing the
+        # worker role's write grant (see the required permissions in the product README). A retry
+        # cannot recover a missing grant, so name the target prefix and stop. The raw message
+        # stays in the chained cause for the worker logs instead of in the recorded job error.
+        raise ApplicationError(
+            f"Access denied writing prepared Parquet files to s3://{landing_prefix}. "
+            "Grant the managed warehouse worker role write access to this bucket prefix.",
+            non_retryable=True,
+        ) from error
 
     copied_bytes = 0
     if isinstance(found, dict):
@@ -1084,7 +1112,7 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
                     status=ManagedWarehouseSourceJobStatus.FAILED,
                     started_at=workflow_started_at,
                     finished_at=workflow.now(),
-                    latest_error=str(error),
+                    latest_error=_recorded_failure_message(error),
                 )
             raise
         finally:
