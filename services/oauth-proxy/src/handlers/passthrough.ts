@@ -87,18 +87,23 @@ export async function handleJwks(request: Request, _kv: KVNamespace, env: Signin
         regionalKeys(request, 'eu'),
     ])
 
-    const keys = [...proxyKeys, ...regional.flat()]
-    if (keys.length === proxyKeys.length) {
+    if (regional.every((keys) => keys.length === 0)) {
         return new Response(JSON.stringify({ error: 'server_error' }), {
             status: 502,
             headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
         })
     }
 
-    const body = JSON.stringify({ keys: dedupeByKid(keys) })
-    cachedJwks = { body, cachedUntil: Date.now() + JWKS_CACHE_TTL_MS }
+    const body = JSON.stringify({ keys: dedupeByKid([...proxyKeys, ...regional.flat()]) })
 
-    return jwksResponse(body)
+    // A document missing a region's keys leaves tokens from that region unverifiable, so it is
+    // served once but never held: the next request retries the region that failed.
+    const complete = regional.every((keys) => keys.length > 0)
+    if (complete) {
+        cachedJwks = { body, cachedUntil: Date.now() + JWKS_CACHE_TTL_MS }
+    }
+
+    return jwksResponse(body, complete)
 }
 
 /** A region that is unreachable contributes nothing rather than failing the whole document. */
@@ -129,11 +134,11 @@ function dedupeByKid(keys: unknown[]): unknown[] {
     })
 }
 
-function jwksResponse(body: string): Response {
+function jwksResponse(body: string, complete = true): Response {
     return new Response(body, {
         headers: {
             'Content-Type': 'application/json',
-            'Cache-Control': `public, max-age=${JWKS_CACHE_TTL_MS / 1000}`,
+            'Cache-Control': complete ? `public, max-age=${JWKS_CACHE_TTL_MS / 1000}` : 'no-store',
             'Access-Control-Allow-Origin': '*',
         },
     })

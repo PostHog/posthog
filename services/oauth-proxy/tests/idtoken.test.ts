@@ -178,4 +178,32 @@ describe('ID token re-issuance', () => {
             })
         ).rejects.toBeInstanceOf(IdTokenReissueError)
     })
+
+    it('does not cache a JWKS document that is missing a region', async () => {
+        // Caching a partial document leaves tokens from the failed region unverifiable for the
+        // whole TTL, long after it recovers.
+        vi.stubGlobal(
+            'fetch',
+            vi.fn((url: string) =>
+                Promise.resolve(
+                    url.includes('eu.posthog.com')
+                        ? new Response('nope', { status: 500 })
+                        : new Response(JSON.stringify({ keys: [regionalKey.publicJwk] }), { status: 200 })
+                )
+            )
+        )
+
+        // A fresh module instance, because the JWKS cache is module state an earlier test fills.
+        vi.resetModules()
+        const { handleJwks: freshHandleJwks } = await import('@/handlers/passthrough')
+
+        const response = await freshHandleJwks(
+            new Request('https://oauth.posthog.com/.well-known/jwks.json'),
+            createMockKV(),
+            { OIDC_SIGNING_KEY: signingKey }
+        )
+
+        expect(response.status).toBe(200)
+        expect(response.headers.get('cache-control')).toBe('no-store')
+    })
 })
