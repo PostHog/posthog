@@ -454,15 +454,15 @@ tools:
             internal-event triggers, the event MUST be named in the trigger's filters.events (the Slack trigger fires on
             $slack_message_received with Slack properties like channel, channel_type, user, bot_id, app_id, subtype,
             text, ts, thread_ts) and carry no person; copy the event from a past run with workflows-get-invocation
-            (include_globals=event) when one exists, and supply person and groups yourself, because the stored run
-            state does not carry them. The trigger step evaluates event, internal-event, and
-            warehouse-row trigger filters against globals and returns status=skipped when the event name or filters do
-            not match: fix a fabricated payload to match the trigger, but treat a skip on a real, copied payload as a
-            broken trigger filter instead. Other trigger types are not filtered. Async actions (HTTP/email/SMS/push) are
-            mocked by default; set mock_async_functions=false to fire real side effects. Returns the step's execution
-            trace. Set use_draft=true to test a workflow's staged draft instead of its live config — always do this
-            before workflows-publish. use_draft requires a staged draft to exist (workflows-get shows it in 'draft'); on
-            a workflow with nothing staged, omit it.
+            (include_globals=event) when one exists, and supply person and groups yourself, because the stored run state
+            does not carry them. The trigger step evaluates event, internal-event, and warehouse-row trigger filters
+            against globals and returns status=skipped when the event name or filters do not match: fix a fabricated
+            payload to match the trigger, but treat a skip on a real, copied payload as a broken trigger filter instead.
+            Other trigger types are not filtered. Async actions (HTTP/email/SMS/push) are mocked by default; set
+            mock_async_functions=false to fire real side effects. Returns the step's execution trace. Set use_draft=true
+            to test a workflow's staged draft instead of its live config — always do this before workflows-publish.
+            use_draft requires a staged draft to exist (workflows-get shows it in 'draft'); on a workflow with nothing
+            staged, omit it.
         exclude_params:
             - configuration
     workflows-update:
