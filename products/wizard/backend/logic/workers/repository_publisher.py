@@ -8,10 +8,12 @@ from posthog.models.integration import GitHubIntegration, Integration
 from products.tasks.backend.facade.sandbox import SandboxBase, sandbox_repo_path
 from products.wizard.backend.logic.workers.commands import bound_command_output
 from products.wizard.backend.logic.workers.contracts import RepositoryPullRequest, SignedRepositoryCommit
+from products.wizard.backend.logic.workers.publishable_paths import literal_git_pathspec, select_publishable_paths
 
 GIT_COMMAND_TIMEOUT_SECONDS = 60
 GITHUB_MUTATION_TIMEOUT_SECONDS = 60
 MAX_COMMIT_PAYLOAD_BYTES = 35 * 1024 * 1024
+_PRIVATE_KEY_HEADER_PATTERN = "-----BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY-----"
 
 _CREATE_COMMIT_MUTATION = """mutation($input: CreateCommitOnBranchInput!) {
   createCommitOnBranch(input: $input) { commit { oid url } }
@@ -60,7 +62,6 @@ def create_signed_commit(
     repository_name = _repository_parts(repository)
     github = _github_integration(team_id, integration_id, source)
 
-    _stage_all(sandbox, repository_path)
     head_sha = _head_sha(sandbox, repository_path)
 
     repository_id, existing_tip = _repository_and_branch_tip(
@@ -86,8 +87,35 @@ def create_signed_commit(
     return SignedRepositoryCommit(repository=repository, branch=branch, commit_shas=(commit_sha,))
 
 
-def _stage_all(sandbox: SandboxBase, repository_path: str) -> None:
-    _run_git(sandbox, repository_path, "add --all", "staging")
+def stage_publishable_changes(sandbox: SandboxBase, repository_path: str) -> tuple[str, ...]:
+    _run_git(sandbox, repository_path, "reset --quiet HEAD --", "staging reset")
+    tracked = _run_git(sandbox, repository_path, "diff --name-only -z --no-renames HEAD", "changed file detection")
+    untracked = _run_git(sandbox, repository_path, "ls-files --others --exclude-standard -z", "new file detection")
+    paths = select_publishable_paths(tracked.split("\0"), untracked.split("\0"))
+    if paths:
+        _run_git(sandbox, repository_path, f"add --all -- {literal_git_pathspec(paths)}", "staging")
+        private_keys = _staged_private_key_paths(sandbox, repository_path, paths)
+        if private_keys:
+            _run_git(
+                sandbox,
+                repository_path,
+                f"reset --quiet HEAD -- {literal_git_pathspec(sorted(private_keys))}",
+                "private key removal",
+            )
+            paths = tuple(path for path in paths if path not in private_keys)
+    return paths
+
+
+def _staged_private_key_paths(sandbox: SandboxBase, repository_path: str, paths: tuple[str, ...]) -> frozenset[str]:
+    pattern = shlex.quote(_PRIVATE_KEY_HEADER_PATTERN)
+    pathspec = literal_git_pathspec(paths)
+    output = _run_git(
+        sandbox,
+        repository_path,
+        f"grep --cached --name-only -z -I -E -e {pattern} -- {pathspec} || test $? -eq 1",
+        "private key detection",
+    )
+    return frozenset(output.split("\0")) - {""}
 
 
 def _head_sha(sandbox: SandboxBase, repository_path: str) -> str:

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -227,7 +227,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Newly created insight should have created_at being the current time, and same last_modified_at
         # Fields created_by and last_modified_by should be set to the current user
-        with freeze_time("2021-08-23T12:00:00Z"):
+        with time_machine.travel("2021-08-23T12:00:00Z", tick=False):
             response_1 = self.client.post(
                 f"/api/projects/{self.team.id}/insights/",
                 {"name": "test", "query": default_pageview_query()},
@@ -274,7 +274,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Updating fields that don't change the substance of the insight should affect updated_at
         # BUT NOT last_modified_at or last_modified_by
-        with freeze_time("2021-09-20T12:00:00Z"):
+        with time_machine.travel("2021-09-20T12:00:00Z", tick=False):
             response_2 = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
                 {"favorited": True},
@@ -321,7 +321,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Updating fields that DO change the substance of the insight should affect updated_at
         # AND last_modified_at plus last_modified_by
-        with freeze_time("2021-10-21T12:00:00Z"):
+        with time_machine.travel("2021-10-21T12:00:00Z", tick=False):
             response_3 = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
                 {
@@ -341,7 +341,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 }.items(),
                 response_3.json().items(),
             )
-        with freeze_time("2021-12-23T12:00:00Z"):
+        with time_machine.travel("2021-12-23T12:00:00Z", tick=False):
             response_4 = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "XYZ"})
             self.assertEqual(response_4.status_code, status.HTTP_200_OK)
             self.assertLessEqual(
@@ -357,7 +357,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Field last_modified_by is updated when another user makes a material change
         self.client.force_login(alt_user)
-        with freeze_time("2022-01-01T12:00:00Z"):
+        with time_machine.travel("2022-01-01T12:00:00Z", tick=False):
             response_5 = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
                 {"description": "Lorem ipsum."},
@@ -1279,7 +1279,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         matched_insights = [insight["id"] for insight in any_on_dashboard_one.json()["results"]]
         assert sorted(matched_insights) == [insight_one_id]
 
-    @freeze_time("2012-01-14T03:21:34.000Z")
+    @time_machine.travel("2012-01-14T03:21:34.000Z", tick=False)
     def test_create_insight_items(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights",
@@ -1328,7 +1328,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
         )
 
-    @freeze_time("2012-01-14T03:21:34.000Z")
+    @time_machine.travel("2012-01-14T03:21:34.000Z", tick=False)
     def test_create_insight_with_no_names_logs_no_activity(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights",
@@ -1740,7 +1740,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             dashboard_one_id
         ]  # removed dashboard is removed
 
-    @freeze_time("2012-01-14T03:21:34.000Z")
+    @time_machine.travel("2012-01-14T03:21:34.000Z", tick=False)
     def test_create_insight_logs_derived_name_if_there_is_no_name(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights",
@@ -1774,11 +1774,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
     def test_update_insight(self) -> None:
-        with freeze_time("2012-01-14T03:21:34.000Z") as frozen_time:
+        with time_machine.travel("2012-01-14T03:21:34.000Z", tick=False) as frozen_time:
             insight_id, insight = self.dashboard_api.create_insight({"name": "insight name"})
             short_id = insight["short_id"]
 
-            frozen_time.tick(delta=timedelta(minutes=10))
+            frozen_time.shift(timedelta(minutes=10))
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
@@ -1924,7 +1924,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_insight_refreshing_query(self, properties_filter, spy_execute_hogql_query) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
 
-        with freeze_time("2012-01-14T03:21:34.000Z"):
+        with time_machine.travel("2012-01-14T03:21:34.000Z", tick=False):
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -1953,7 +1953,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             properties=properties_filter,
         ).model_dump()
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/insights",
                 data={
@@ -1973,7 +1973,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
             self.assertFalse(response["is_cached"])
 
-        with freeze_time("2012-01-15T05:01:34.000Z"):
+        with time_machine.travel("2012-01-15T05:01:34.000Z", tick=False):
             _create_event(team=self.team, event="$pageview", distinct_id="1")
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
             self.assertNotIn("code", response)
@@ -1983,7 +1983,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
             self.assertFalse(response["is_cached"])
 
-        with freeze_time("2012-01-15T05:17:34.000Z"):
+        with time_machine.travel("2012-01-15T05:17:34.000Z", tick=False):
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/").json()
             self.assertNotIn("code", response)
             self.assertEqual(spy_execute_hogql_query.call_count, 2)
@@ -1992,7 +1992,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
             self.assertTrue(response["is_cached"])
 
-        with freeze_time("2012-01-15T05:17:39.000Z"):
+        with time_machine.travel("2012-01-15T05:17:39.000Z", tick=False):
             # Make sure the /query/ endpoint reuses the same cached result
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query_dict}).json()
             self.assertNotIn("code", response)
@@ -2001,7 +2001,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")  # Using cached result
             self.assertTrue(response["is_cached"])
 
-        with freeze_time("2012-01-16T05:01:34.000Z"):
+        with time_machine.travel("2012-01-16T05:01:34.000Z", tick=False):
             # load it in the context of the dashboard, so has last 14 days as filter
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
@@ -2041,7 +2041,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "date_from": "-14d",
             },
         )
-        with freeze_time("2012-01-16T05:01:34.000Z"):
+        with time_machine.travel("2012-01-16T05:01:34.000Z", tick=False):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
             ).json()
@@ -2093,7 +2093,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_insight_refreshing_query_async(self, properties_filter, spy_execute_hogql_query) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
 
-        with freeze_time("2012-01-14T03:21:34.000Z"):
+        with time_machine.travel("2012-01-14T03:21:34.000Z", tick=False):
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -2122,7 +2122,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             properties=properties_filter,
         ).model_dump()
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/insights",
                 data={
@@ -2142,7 +2142,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
             self.assertFalse(response["is_cached"])
 
-        with freeze_time("2012-01-15T05:17:39.000Z"):
+        with time_machine.travel("2012-01-15T05:17:39.000Z", tick=False):
             # Make sure the /query/ endpoint reuses the same cached result - ASYNC EXECUTION HERE!
             response = self.client.post(
                 f"/api/projects/{self.team.id}/query/", {"query": query_dict, "refresh": "async"}
@@ -2154,7 +2154,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")  # Using cached result
             self.assertTrue(response["is_cached"])
 
-        with freeze_time("2012-01-15T05:17:39.000Z"):
+        with time_machine.travel("2012-01-15T05:17:39.000Z", tick=False):
             # Now with force async requested - cache should be ignored
             response = self.client.post(
                 f"/api/projects/{self.team.id}/query/", {"query": query_dict, "refresh": "force_async"}
@@ -2559,7 +2559,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_correct_token_list.json()["count"], 0)
 
     @parameterized.expand([("single_id", 1), ("bulk_ids", 3)])
-    @freeze_time("2022-03-22T00:00:00.000Z")
+    @time_machine.travel("2022-03-22T00:00:00.000Z", tick=False)
     def test_create_insight_viewed(self, _name: str, count: int) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
         insights = [
@@ -2605,14 +2605,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team=self.team,
             short_id="12345678",
         )
-        with freeze_time("2022-03-22T00:00:00.000Z"):
+        with time_machine.travel("2022-03-22T00:00:00.000Z", tick=False):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/insights/viewed",
                 {"insight_ids": [insight.id]},
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        with freeze_time("2022-03-23T00:00:00.000Z"):
+        with time_machine.travel("2022-03-23T00:00:00.000Z", tick=False):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/insights/viewed",
                 {"insight_ids": [insight.id]},
@@ -2668,14 +2668,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
 
         # Pre-create rows for the first two insights at T1.
-        with freeze_time("2022-03-22T00:00:00.000Z"):
+        with time_machine.travel("2022-03-22T00:00:00.000Z", tick=False):
             self.client.post(
                 f"/api/projects/{self.team.id}/insights/viewed",
                 {"insight_ids": [insights[0].id, insights[1].id]},
             )
 
         # Submit all three at T2 — the first two should be UPDATEd, the third INSERTed.
-        with freeze_time("2022-03-23T00:00:00.000Z"):
+        with time_machine.travel("2022-03-23T00:00:00.000Z", tick=False):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/insights/viewed",
                 {"insight_ids": [insight.id for insight in insights]},

@@ -21,14 +21,14 @@ each is the auditing agent's reasoning and occasionally over-claims, so re-deriv
 
 ## Ably — **thin**
 
-Today (1): `Stats`
+Today (4): `ChannelMessages`, `Channels`, `Presence`, `Stats`
 
 Diffed against: <https://raw.githubusercontent.com/ably/open-specs/main/definitions/platform-v1.yaml>
 
 - [ ] `apps (Control API GET /accounts/{account_id}/apps)` — lookup table resolving the app IDs every Stats row is scoped to (high)
-- [ ] `channels (GET /channels)` — channel enumeration with per-channel occupancy/connection/publisher counts (high)
-- [ ] `channel messages history (GET /channels/{channel_id}/messages)` — the actual message event stream, not just aggregated stats (high)
-- [ ] `presence (GET /channels/{channel_id}/presence)` — current members per channel for concurrency analysis (medium)
+- [x] `channels (GET /channels)` — channel enumeration with per-channel occupancy/connection/publisher counts (high)
+- [x] `channel messages history (GET /channels/{channel_id}/messages)` — the actual message event stream, not just aggregated stats (high)
+- [x] `presence (GET /channels/{channel_id}/presence)` — current members per channel for concurrency analysis (medium)
 - [ ] `presence history (GET /channels/{channel_id}/presence/history)` — enter/leave transition history per channel (medium)
 - [ ] `push device registrations (GET /push/deviceRegistrations)` — device inventory backing push delivery stats (medium)
 - [ ] `push channel subscriptions (GET /push/channelSubscriptions)` — membership table linking devices to channels (medium)
@@ -64,16 +64,16 @@ ActiveCampaign adds a collection route.
 
 Note: deal_groups/deal_stages already cover the pipelines and stages lookups. The reference sidebar also exposes campaign messages, campaign link stats, scores, bounce logs, custom object records, conversations, SMS broadcast metrics and the separate e-commerce GraphQL API — all plausible but lower value than the 12 above.
 
-## AdRoll — **thin**
+## AdRoll — gaps
 
-Today (3): `ads`, `advertisables`, `campaigns`
+Today (10): `accounts`, `ad_reports`, `adgroups`, `ads`, `advertisable_reports`, `advertisables`, `campaign_reports`, `campaigns`, `organization`, `segments`
 
 Diffed against: <https://apidocs.nextroll.com/crud-api/reference.html>
 
-- [ ] `adgroups (GET /api/v1/advertisable/get_adgroups, /api/v1/campaign/get_adgroups)` — the missing middle level of the campaign -> adgroup -> ad hierarchy we already half-sync (high)
-- [ ] `report/campaign, report/adgroup, report/ad, report/advertisable` — delivery and attribution metrics - impressions, clicks, spend, conversions; the whole point of an ads connector (high)
-- [ ] `segments (GET /api/v1/advertisable/get_segments, /api/v1/segment/get)` — audience segments targeted by adgroups, with sizes (high)
-- [ ] `organization (GET /api/v1/organization/get, get_advertisables, get_accounts)` — lookup resolving the org/account EIDs that advertisables hang off (medium)
+- [x] `adgroups (GET /api/v1/advertisable/get_adgroups, /api/v1/campaign/get_adgroups)` — the missing middle level of the campaign -> adgroup -> ad hierarchy we already half-sync (high)
+- [x] `report/campaign, report/ad, report/advertisable` — delivery metrics - impressions, clicks, spend; the whole point of an ads connector (high). `report/adgroup` does not exist on the CRUD API.
+- [x] `segments (GET /api/v1/advertisable/get_segments)` — audience segments targeted by adgroups (high). `segment/get` is a single-segment lookup, covered by the list endpoint's `get` representation.
+- [x] `organization (GET /api/v1/organization/get, get_accounts)` — lookup resolving the org/account EIDs that advertisables hang off (medium). `get_advertisables` already backs the `advertisables` table.
 - [ ] `pixel (GET /api/v1/advertisable/get_pixel, /api/v1/pixel/get)` — conversion tracking pixel per advertisable (medium)
 - [ ] `rules (GET /api/v1/pixel/get_rules, /api/v1/rule/get)` — conversion and retargeting rule definitions that decode segment membership (medium)
 - [ ] `invoice (GET /api/v1/invoice/get)` — billed spend reconciliation against reported campaign spend (medium)
@@ -83,7 +83,7 @@ Diffed against: <https://apidocs.nextroll.com/crud-api/reference.html>
 - [ ] `contextual_categories` — lookup decoding contextual targeting categories on adgroups (low)
 - [ ] `dynamic_template/get_all_for_advertisable` — creative template lookup for dynamic ads (low)
 
-Note: NextRoll splits reporting into a separate GraphQL Reporting API (https://apidocs.nextroll.com/graphql-reporting-api/index.html) that supersedes the legacy CRUD /api/v1/report/\* endpoints - delivery and attribution metrics by advertisable, campaign, adgroup, ad, plus granular conversions. The developers.nextroll.com URL in the payload is an Angular shell with no content; the real reference is apidocs.nextroll.com.
+Note: NextRoll splits reporting into a separate GraphQL Reporting API (https://apidocs.nextroll.com/graphql-reporting-api/index.html) that supersedes the legacy CRUD /api/v1/report/\* endpoints - delivery and attribution metrics by advertisable, campaign, adgroup, ad, plus granular conversions. The synced report tables use the CRUD API's `entity` data format, the only shape that reference documents: one row per entity with its delivery metrics. Per-day breakdowns and attribution remain a GraphQL Reporting API follow-up. The developers.nextroll.com URL in the payload is an Angular shell with no content; the real reference is apidocs.nextroll.com.
 
 ## AgileCRM — gaps
 
@@ -175,14 +175,14 @@ Note: AirOps has repositioned around AI search visibility; the entire brand-kit 
 
 ## Aiven — gaps
 
-Today (9): `billing_groups`, `clouds`, `invoice_lines`, `invoices`, `organization_users`, `organizations`, `projects`, `services`, `user_groups`
+Today (13): `billing_group_projects`, `billing_groups`, `clouds`, `invoice_lines`, `invoices`, `organization_users`, `organizations`, `project_events`, `project_users`, `projects`, `services`, `user_group_members`, `user_groups`
 
 Diffed against: <https://api.aiven.io/doc/openapi.json>
 
-- [ ] `GET /project/{project}/users` — project membership join - who can access each project we already sync (high)
-- [ ] `GET /organization/{organization_id}/user-groups/{user_group_id}/members` — membership rows for the user_groups table already synced (high)
-- [ ] `GET /billing-group/{billing_group_id}/projects` — lookup mapping projects to billing groups, needed to attribute invoice_lines to projects (high)
-- [ ] `GET /project/{project}/events` — project/service audit and state-change history (high)
+- [x] `GET /project/{project}/users` — project membership join - who can access each project we already sync (high)
+- [x] `GET /organization/{organization_id}/user-groups/{user_group_id}/members` — membership rows for the user_groups table already synced (high)
+- [x] `GET /billing-group/{billing_group_id}/projects` — lookup mapping projects to billing groups, needed to attribute invoice_lines to projects (high)
+- [x] `GET /project/{project}/events` — project/service audit and state-change history (high)
 - [ ] `GET /billing-group/{billing_group_id}/credits` — credit transactions that offset the invoices already synced (medium)
 - [ ] `GET /project/{project}/service-types and /project/{project}/service-types/{service_type}/plans` — lookup resolving the service_type/plan identifiers carried on services (medium)
 - [ ] `GET /project/{project}/service/{service_name}/tags and /project/{project}/tags` — tag dimensions used for cost and ownership attribution (medium)
@@ -217,14 +217,14 @@ Note: Static schema list, no dynamic index discovery. The headline Analytics tab
 
 ## Alguna — gaps
 
-Today (8): `billable_metrics`, `customers`, `invoices`, `payments`, `plans`, `products`, `refunds`, `subscriptions`
+Today (12): `billable_metrics`, `credit_notes`, `customers`, `invoices`, `payments`, `plans`, `products`, `refunds`, `subscription_versions`, `subscriptions`, `wallet_grants`, `wallets`
 
 Diffed against: <https://alguna.com/docs/api-reference/v2/specs/2026-04-01.json>
 
-- [ ] `GET /subscriptions/{id}/versions (and /versions/current)` — subscription change history - the state-transition table behind MRR movement (high)
-- [ ] `GET /credit-notes` — credit-note transactions that offset the invoices already synced (high)
-- [ ] `GET /wallets and /wallets/{id}/balance` — prepaid wallet balances per customer (high)
-- [ ] `GET /wallet-grants and /wallets/{id}/grants` — credit grant ledger - drawdown and expiry analysis (high)
+- [x] `GET /subscriptions/{id}/versions (and /versions/current)` — subscription change history - the state-transition table behind MRR movement (high). Added as `subscription_versions` (fan-out over `subscriptions`). `/versions/current` skipped: it returns one version already present in the list.
+- [x] `GET /credit-notes` — credit-note transactions that offset the invoices already synced (high). Added as `credit_notes` (fan-out over `customers`, since `customer_id` is a required query param).
+- [x] `GET /wallets and /wallets/{id}/balance` — prepaid wallet balances per customer (high). Added as `wallets`. `/wallets/{id}/balance` skipped: the wallet list row already carries `current_balance`.
+- [x] `GET /wallet-grants and /wallets/{id}/grants` — credit grant ledger - drawdown and expiry analysis (high). Added as `wallet_grants` (the global `/wallet-grants` list). `/wallets/{id}/grants` skipped: it returns the same rows filtered per wallet.
 - [ ] `GET /bundles` — product bundle lookup resolving bundle IDs carried on plans and subscription items (medium)
 - [ ] `GET /customers/{id}/entitlements and /subscriptions/{id}/entitlements` — what each customer is currently entitled to, for feature-usage joins (medium)
 - [ ] `GET /revenue-schedules (plus /customer/{id}, /subscription/{id}, /legal-entity/{id})` — revenue recognition schedule rows for rev-rec reporting (medium)

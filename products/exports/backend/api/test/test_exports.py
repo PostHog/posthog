@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Literal, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import ANY, AsyncMock, patch
 
@@ -354,7 +354,7 @@ class TestExports(APIBaseTest):
 
     @patch("products.exports.backend.tasks.image_exporter._export_to_png")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_can_create_new_valid_export_insight(self, mock_exporter_task, mock_export_to_png) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
@@ -840,7 +840,7 @@ class TestExports(APIBaseTest):
         self.assertIn(ordinary_export.id, {result["id"] for result in list_response.json()["results"]})
 
     def test_list_shows_stuck_exports_as_failed_in_response(self) -> None:
-        with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
+        with time_machine.travel(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME), tick=False):
             # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME
             stuck_export = ExportedAsset.objects.create(
                 team=self.team,
@@ -969,7 +969,7 @@ class TestExports(APIBaseTest):
         age: timedelta,
         expected_failed: bool,
     ) -> None:
-        with freeze_time(now() - age):
+        with time_machine.travel(now() - age, tick=False):
             export = ExportedAsset.objects.create(
                 team=self.team,
                 export_format=export_format,
@@ -990,7 +990,7 @@ class TestExports(APIBaseTest):
         stays incomplete, so the count reflects how often clients poll rather than how many exports
         failed.
         """
-        with freeze_time(now() - RASTERIZE_WORKFLOW_TIMEOUT - timedelta(minutes=1)):
+        with time_machine.travel(now() - RASTERIZE_WORKFLOW_TIMEOUT - timedelta(minutes=1), tick=False):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format=ExportedAsset.ExportFormat.MP4,
@@ -1005,7 +1005,7 @@ class TestExports(APIBaseTest):
         self.assertEqual([call for call in mock_capture.call_args_list if "export" in str(call)], [])
 
     def test_retrieve_shows_stuck_export_as_failed_in_response(self) -> None:
-        with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
+        with time_machine.travel(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME), tick=False):
             # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME
             stuck_export = ExportedAsset.objects.create(
                 team=self.team,
@@ -1630,7 +1630,7 @@ class TestExports(APIBaseTest):
 
     @patch("products.exports.backend.api.exports.async_to_sync")
     @patch("products.exports.backend.api.exports.async_connect")
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_video_export_limit_resets_monthly(self, mock_async_connect, mock_async_to_sync) -> None:
         """Test that the video export limit resets at the beginning of each month"""
 
@@ -1656,7 +1656,7 @@ class TestExports(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # Move to February 1st
-        with freeze_time("2024-02-01T12:00:00Z"):
+        with time_machine.travel("2024-02-01T12:00:00Z", tick=False):
             # Should succeed in February (limit reset)
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports",

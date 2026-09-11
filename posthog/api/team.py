@@ -125,7 +125,9 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     MAX_CUSTOM_BOT_DEFINITIONS,
     assert_patterns_compile as assert_custom_bot_patterns_compile,
     compiled_patterns as compiled_custom_bot_patterns,
-    validate_definition as validate_custom_bot_definition,
+    parse_rules as parse_custom_bot_rules,
+    validate_rule as validate_custom_bot_rule,
+    validate_rule_set as validate_custom_bot_rule_set,
 )
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
@@ -801,7 +803,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
             internal_value["_campaign_field_preferences"] = internal_value["campaign_field_preferences"]
         return internal_value
 
+    @transaction.atomic
     def update(self, instance, validated_data):
+        instance.refresh_from_db(from_queryset=TeamMarketingAnalyticsConfig.objects.select_for_update())
         # Handle sources_map with partial updates
         if "sources_map" in validated_data:
             new_sources_map = validated_data["sources_map"]
@@ -1883,26 +1887,44 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                         {"bounceRateDurationSeconds": "Must be between 1 and 120 seconds."}
                     )
 
+        if "customBotDefinitions" in value and isinstance(value["customBotDefinitions"], list):
+            # Cap before parsing, so an oversized list is rejected without instantiating a model
+            # per entry.
+            if len(value["customBotDefinitions"]) > MAX_CUSTOM_BOT_DEFINITIONS:
+                raise exceptions.ValidationError(
+                    {"customBotDefinitions": f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots."}
+                )
+            # Strict, so a malformed rule is rejected with a specific error rather than the
+            # generic "Invalid modifier key.", and the stored list is normalized.
+            try:
+                parsed = parse_custom_bot_rules(value["customBotDefinitions"], strict=True)
+            except ValueError as error:
+                raise exceptions.ValidationError({"customBotDefinitions": str(error)})
+            value = {**value, "customBotDefinitions": [rule.model_dump(exclude_none=True) for rule in parsed]}
+
         try:
             modifiers = HogQLQueryModifiers(**value)
         except Exception:
             raise exceptions.ValidationError(f"Invalid modifier key.")
 
         if "customBotDefinitions" in value:
-            definitions = modifiers.customBotDefinitions or []
-            if len(definitions) > MAX_CUSTOM_BOT_DEFINITIONS:
+            rules = modifiers.customBotDefinitions or []
+            if len(rules) > MAX_CUSTOM_BOT_DEFINITIONS:
                 raise exceptions.ValidationError(
                     {"customBotDefinitions": f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots."}
                 )
-            for definition in definitions:
+            for rule in rules:
                 # An unusable pattern would break every query that reads $virt_is_bot for this
                 # project, so it is rejected here rather than dropped silently at query time.
                 try:
-                    validate_custom_bot_definition(definition)
+                    validate_custom_bot_rule(rule)
                 except ValueError as error:
-                    raise exceptions.ValidationError({"customBotDefinitions": f"{definition.name}: {error}"})
+                    # An empty name would render as an orphaned leading colon.
+                    message = f"{rule.name}: {error}" if rule.name else str(error)
+                    raise exceptions.ValidationError({"customBotDefinitions": message})
             try:
-                assert_custom_bot_patterns_compile(compiled_custom_bot_patterns(definitions))
+                validate_custom_bot_rule_set(rules)
+                assert_custom_bot_patterns_compile(compiled_custom_bot_patterns(rules))
             except ValueError as error:
                 raise exceptions.ValidationError({"customBotDefinitions": str(error)})
 

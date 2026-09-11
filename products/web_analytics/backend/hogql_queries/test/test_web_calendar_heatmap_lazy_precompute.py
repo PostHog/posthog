@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
@@ -93,7 +93,7 @@ class TestWebCalendarHeatmapLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         cols = {(c.column, c.value) for c in structured.columnAggregations}
         return cells, rows, cols, structured.allAggregations
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_unique_tab_matches_live_calendar_heatmap(self) -> None:
         self._seed()
         query = self._build_query(unique_tab=True)
@@ -109,7 +109,7 @@ class TestWebCalendarHeatmapLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert self._heatmap_as_dicts(pre_hm) == self._heatmap_as_dicts(live_hm)
         assert precomputed.results[0]["count"] == live.results[0]["count"]
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_total_events_tab_falls_back(self) -> None:
         # The total tab buckets by raw event timestamp; the session-start-keyed
         # buckets can't reproduce that, so serving it would shift midnight- and
@@ -130,7 +130,7 @@ class TestWebCalendarHeatmapLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     )
     def test_falls_back_when_buckets_cannot_reproduce_live_semantics(self, case: str) -> None:
         with ExitStack() as stack:
-            stack.enter_context(freeze_time("2024-01-15T12:00:00Z"))
+            stack.enter_context(time_machine.travel("2024-01-15T12:00:00Z", tick=False))
             self._seed()
             query = self._build_query()
             if case == "distinct_id_aggregation":

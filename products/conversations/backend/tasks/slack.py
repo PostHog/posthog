@@ -1,16 +1,18 @@
 """Slack inbound events, interactivity, and outbound replies."""
 
 import json
-from typing import Any, cast, get_args
+from typing import Any, Literal, cast, get_args
 from urllib.parse import urlparse
 from uuid import UUID
 
 from django.core.cache import cache
+from django.utils import timezone
 
 import requests
 import structlog
 from celery import shared_task
-from celery.exceptions import MaxRetriesExceededError, Retry
+from celery.exceptions import MaxRetriesExceededError
+from slack_sdk.errors import SlackApiError
 
 from posthog.comment.formatting import extract_images_from_rich_content, rich_content_to_slack_payload
 from posthog.helpers.slack_identity import resolve_slack_avatar_by_email
@@ -20,14 +22,35 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage import object_storage
 
 from products.conversations.backend.cache import NUDGE_DISMISS_TTL, suppress_nudge
-from products.conversations.backend.models import TeamConversationsSlackConfig
+from products.conversations.backend.models import (
+    ConversationInboundEvent,
+    ConversationInboundEventSource,
+    TeamConversationsSlackConfig,
+)
+from products.conversations.backend.models.inbound_event import INBOUND_ERROR_MAX_LENGTH
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
+from products.conversations.backend.services.inbound_events import (
+    INBOUND_SWEEP_BATCH_SIZE,
+    InboundClaim,
+    TransientInboundError,
+    claim_inbound_event,
+    cleanup_inbound_payloads,
+    complete_inbound_event,
+    delete_inbound_tombstones,
+    drain_inbound_retention,
+    due_inbound_event_ids,
+    fail_inbound_event,
+    inbound_event_payload_event,
+    record_inbound_queue_metrics,
+    schedule_inbound_retry,
+)
 from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
     NudgeClassifierVerdict,
     NudgeFunnelVerdict,
+    SlackConfirmationNeedsRetry,
     capture_nudge_event,
     create_ticket_from_confirmation,
     get_bot_user_id,
@@ -47,11 +70,129 @@ from ..support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, supporthog_miss
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:slack:event:"
+PromptUpdateResult = Literal["updated", "missing", "transient", "permanent"]
+_PERMANENT_PROMPT_UPDATE_ERROR_CODES = frozenset(
+    {
+        "account_inactive",
+        "cannot_update_message",
+        "cant_update_message",
+        "channel_not_found",
+        "invalid_auth",
+        "is_archived",
+        "message_not_found",
+        "msg_too_long",
+        "not_in_channel",
+        "token_revoked",
+    }
+)
 
 
 def _is_duplicate_supporthog_event(event_id: str) -> bool:
     key = f"{SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX}{event_id}"
     return not cache.add(key, True, timeout=SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS)
+
+
+def _slack_config_for_workspace(
+    slack_team_id: str, *, receipt_team_id: int | None = None
+) -> TeamConversationsSlackConfig | None:
+    config = (
+        TeamConversationsSlackConfig.objects.filter(
+            slack_team_id=slack_team_id,
+            slack_bot_token__isnull=False,
+        )
+        .select_related("team")
+        .first()
+    )
+    if config is None or receipt_team_id is None:
+        return config
+    config_root_team_id = config.team.parent_team_id or config.team_id
+    return config if config_root_team_id == receipt_team_id else None
+
+
+def _handle_supporthog_event(event: dict[str, Any], team: Team, slack_team_id: str) -> None:
+    event_type = event.get("type")
+    if event_type == "message":
+        handle_support_message(event, team, slack_team_id)
+    elif event_type == "app_mention":
+        handle_support_mention(event, team, slack_team_id)
+    elif event_type == "reaction_added":
+        handle_support_reaction(event, team, slack_team_id)
+    elif event_type == "member_joined_channel":
+        handle_member_joined_channel(event, team, slack_team_id)
+    elif event_type == "member_left_channel":
+        handle_member_left_channel(event, team, slack_team_id)
+
+
+def wake_inbound_event(row: ConversationInboundEvent, *, countdown: int | None = None) -> bool:
+    task = (
+        process_supporthog_event_receipt
+        if row.source == ConversationInboundEventSource.SLACK_EVENTS
+        else process_supporthog_interactivity_receipt
+    )
+    kwargs = {"inbound_event_id": str(row.id)}
+    try:
+        # retry=False: the receipt is already committed, so a hung broker must not
+        # stall the Slack ack. The minute sweeper re-drives pending rows.
+        apply_kwargs: dict[str, Any] = {"kwargs": kwargs, "retry": False}
+        if countdown is not None:
+            apply_kwargs["countdown"] = countdown
+        cast(Any, task).apply_async(**apply_kwargs)
+    except Exception:
+        logger.exception("inbound_event_redrive_failed", inbound_event_id=str(row.id), source=row.source)
+        return False
+    return True
+
+
+def _retry_inbound_claim(claim: InboundClaim, *, error_code: str, error: str) -> None:
+    if not claim.allow_retry:
+        fail_inbound_event(claim, error_code=error_code, error=error)
+        return
+    delay = schedule_inbound_retry(claim, error_code=error_code, error=error)
+    if delay is not None:
+        wake_inbound_event(claim.event, countdown=delay)
+
+
+def _process_event_from_receipt(inbound_event_id: str) -> None:
+    claim = claim_inbound_event(inbound_event_id)
+    if claim is None:
+        return
+    event = inbound_event_payload_event(claim.event)
+    if event is None:
+        fail_inbound_event(
+            claim, error_code="poison_payload", error="inbound event payload is missing or not an object"
+        )
+        return
+    config = _slack_config_for_workspace(
+        claim.event.provider_account_id,
+        receipt_team_id=claim.event.team_id,
+    )
+    if not config:
+        _retry_inbound_claim(claim, error_code="no_team", error="slack workspace is not connected")
+        return
+    team = config.team
+    if not (team.conversations_settings or {}).get("slack_enabled"):
+        complete_inbound_event(claim)
+        return
+    try:
+        _handle_supporthog_event(event, team, claim.event.provider_account_id)
+        complete_inbound_event(claim)
+    except Exception as exc:
+        logger.exception(
+            "supporthog_event_handler_failed",
+            event_type=event.get("type"),
+            inbound_event_id=inbound_event_id,
+            error=str(exc),
+        )
+        _retry_inbound_claim(claim, error_code="handler_failed", error=str(exc)[:INBOUND_ERROR_MAX_LENGTH])
+
+
+@shared_task(
+    name="products.conversations.backend.tasks.process_supporthog_event_receipt",
+    ignore_result=True,
+)
+@skip_team_scope_audit
+def process_supporthog_event_receipt(inbound_event_id: str) -> None:
+    _process_event_from_receipt(inbound_event_id)
 
 
 @shared_task(
@@ -61,16 +202,18 @@ def _is_duplicate_supporthog_event(event_id: str) -> bool:
     default_retry_delay=5,
 )
 @skip_team_scope_audit
-def process_supporthog_event(event: dict[str, Any], slack_team_id: str, event_id: str | None = None) -> None:
+def process_supporthog_event(
+    event: dict[str, Any] | None = None,
+    slack_team_id: str = "",
+    event_id: str | None = None,
+) -> None:
+    if not event:
+        return
     if event_id and _is_duplicate_supporthog_event(event_id):
         logger.info("supporthog_event_duplicate_skipped", event_id=event_id)
         return
 
-    config = (
-        TeamConversationsSlackConfig.objects.filter(slack_team_id=slack_team_id, slack_bot_token__isnull=False)
-        .select_related("team")
-        .first()
-    )
+    config = _slack_config_for_workspace(slack_team_id)
     if not config:
         logger.warning("supporthog_no_team", slack_team_id=slack_team_id)
         return
@@ -85,22 +228,12 @@ def process_supporthog_event(event: dict[str, Any], slack_team_id: str, event_id
         )
         return
 
-    event_type = event.get("type")
     try:
-        if event_type == "message":
-            handle_support_message(event, team, slack_team_id)
-        elif event_type == "app_mention":
-            handle_support_mention(event, team, slack_team_id)
-        elif event_type == "reaction_added":
-            handle_support_reaction(event, team, slack_team_id)
-        elif event_type == "member_joined_channel":
-            handle_member_joined_channel(event, team, slack_team_id)
-        elif event_type == "member_left_channel":
-            handle_member_left_channel(event, team, slack_team_id)
+        _handle_supporthog_event(event, team, slack_team_id)
     except Exception as e:
         logger.exception(
             "supporthog_event_handler_failed",
-            event_type=event_type,
+            event_type=event.get("type"),
             error=str(e),
         )
         raise cast(Any, process_supporthog_event).retry(exc=e)
@@ -119,15 +252,21 @@ def _delete_supporthog_prompt(team: Team, channel: str, message_ts: str) -> None
         logger.warning("supporthog_interactivity_prompt_delete_failed", exc_info=True)
 
 
-def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: str) -> bool:
+def _slack_api_error_code(exc: Exception) -> str | None:
+    if not isinstance(exc, SlackApiError) or exc.response is None:
+        return None
+    error = exc.response.get("error")
+    return error if isinstance(error, str) else None
+
+
+def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: str) -> PromptUpdateResult:
     """Replace the "open a ticket?" prompt in place with a new status line (buttons removed).
 
-    Never raises — a failure here must not block the ticket creation that already ran —
-    but reports success so callers can retry updates that must not be lost (the final
-    confirmation/error state, as opposed to the best-effort progress placeholder).
+    Never raises. Callers retry only a ``transient`` result. A missing or deleted prompt
+    cannot recover, so those must not sit in the inbound retry queue.
     """
     if not channel or not message_ts:
-        return False
+        return "missing"
     try:
         get_slack_client(team).chat_update(
             channel=channel,
@@ -135,10 +274,13 @@ def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: s
             text=text,
             blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
         )
-        return True
-    except Exception:
+        return "updated"
+    except Exception as exc:
         logger.warning("supporthog_interactivity_prompt_update_failed", exc_info=True)
-        return False
+        error_code = _slack_api_error_code(exc)
+        if error_code in _PERMANENT_PROMPT_UPDATE_ERROR_CODES:
+            return "permanent"
+        return "transient"
 
 
 def _post_dismiss_acknowledgment(team: Team, channel: str, user: str, thread_ts: str) -> None:
@@ -163,31 +305,32 @@ def _post_dismiss_acknowledgment(team: Team, channel: str, user: str, thread_ts:
         logger.warning("supporthog_interactivity_dismiss_ack_failed", exc_info=True)
 
 
-@shared_task(
-    name="products.conversations.backend.tasks.process_supporthog_interactivity",
-    ignore_result=True,
-    max_retries=3,
-    default_retry_delay=5,
-)
-@skip_team_scope_audit
-def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str) -> None:
+def _raise_if_retry_allowed(allow_retry: bool) -> None:
+    if allow_retry:
+        raise TransientInboundError
+
+
+def _handle_supporthog_interactivity(
+    payload: dict[str, Any],
+    slack_team_id: str,
+    *,
+    is_retry: bool,
+    allow_retry: bool,
+    receipt_team_id: int | None = None,
+) -> bool:
     """Handle a button click from the opt-in "open a ticket?" confirmation prompt."""
-    config = (
-        TeamConversationsSlackConfig.objects.filter(slack_team_id=slack_team_id, slack_bot_token__isnull=False)
-        .select_related("team")
-        .first()
-    )
+    config = _slack_config_for_workspace(slack_team_id, receipt_team_id=receipt_team_id)
     if not config:
         logger.warning("supporthog_interactivity_no_team", slack_team_id=slack_team_id)
-        return
+        return receipt_team_id is None
 
     team = config.team
     support_settings = team.conversations_settings or {}
     if not support_settings.get("slack_enabled"):
-        return
+        return True
 
     if payload.get("type") != "block_actions":
-        return
+        return True
 
     # The prompt message to delete: where the button was clicked.
     container = payload.get("container") or {}
@@ -222,7 +365,7 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
             if clicker:
                 suppress_nudge(team.pk, prompt_channel, clicker, NUDGE_DISMISS_TTL)
             capture_nudge_event(team, "support nudge dismissed", click_properties)
-            return
+            return True
         if action_id == TICKET_CONFIRM_ACTION_OPEN:
             ticket = None
             if source_channel and source_message_ts:
@@ -231,7 +374,6 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
                 # a progress line right away so the click visibly landed and repeat clicks
                 # stop. First attempt only, and only while no sibling delivery has already
                 # resolved the prompt (a stale placeholder must not overwrite a confirmation).
-                is_retry = bool(getattr(cast(Any, process_supporthog_interactivity).request, "retries", 0))
                 ticket_already_open = Ticket.objects.filter(
                     team=team, slack_channel_id=source_channel, slack_thread_ts=source_message_ts
                 ).exists()
@@ -246,28 +388,15 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
                         slack_channel_id=source_channel,
                         message_ts=source_message_ts,
                     )
-                    if ticket is None:
-                        # A duplicate delivery (double click or webhook retry) can lose the
-                        # per-thread create lock to a concurrent sibling and see None while
-                        # the sibling's ticket is mid-create. Retry instead of reporting a
-                        # false failure — the re-run resolves to the committed ticket via
-                        # the existing-ticket check in create_ticket_from_confirmation.
-                        # Genuine failures exhaust retries into the error update below.
-                        raise cast(Any, process_supporthog_interactivity).retry()
-                except Retry:
-                    raise
-                except MaxRetriesExceededError:
-                    pass
+                except SlackConfirmationNeedsRetry:
+                    _raise_if_retry_allowed(allow_retry)
                 except Exception as e:
                     logger.exception("supporthog_interactivity_create_failed", error=str(e))
-                    # Retry transient failures — the retried run redoes the whole handler,
+                    # Retry transient failures. The retried run redoes the whole handler,
                     # so the prompt still resolves on eventual success. Once retries are
                     # exhausted, fall through to the error update below rather than leaving
                     # the user staring at live buttons forever.
-                    try:
-                        raise cast(Any, process_supporthog_interactivity).retry(exc=e)
-                    except MaxRetriesExceededError:
-                        pass
+                    _raise_if_retry_allowed(allow_retry)
             # Replace the prompt in place: a confirmation when we have a ticket (created or
             # already open), or an explicit error so a failed open never reads as success.
             # post_confirmation=False above means no separate confirmation was posted.
@@ -276,16 +405,12 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
             else:
                 emoji = get_safe_ticket_emoji(support_settings)
                 text = f":warning: Couldn't open a ticket — react with :{emoji}: or @mention us to try again."
-            final_update_ok = _update_supporthog_prompt(team, prompt_channel, prompt_ts, text)
-            if not final_update_ok and prompt_channel and prompt_ts:
-                # The progress placeholder must never be the prompt's last word — if the
-                # final update fails transiently, retry the task (creation is idempotent,
-                # the re-run re-attempts just this update). Once retries are exhausted,
-                # fall through so the funnel event still records the outcome.
-                try:
-                    raise cast(Any, process_supporthog_interactivity).retry()
-                except MaxRetriesExceededError:
-                    pass
+            final_update = _update_supporthog_prompt(team, prompt_channel, prompt_ts, text)
+            prompt_can_be_updated = bool(prompt_channel and prompt_ts)
+            if final_update == "transient" and prompt_can_be_updated:
+                # The progress placeholder must never be the prompt's last word. Retry a
+                # transient Slack failure. A deleted or unauthorized prompt cannot recover.
+                _raise_if_retry_allowed(allow_retry)
             # Captured after all retry exits (each retry re-raise leaves the task first),
             # so the event fires once with the final outcome.
             capture_nudge_event(
@@ -297,7 +422,115 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
                     "ticket_id": str(ticket.id) if ticket else None,
                 },
             )
-            return
+            return ticket is not None
+    return True
+
+
+def _process_interactivity_from_receipt(inbound_event_id: str) -> None:
+    claim = claim_inbound_event(inbound_event_id)
+    if claim is None:
+        return
+    payload = claim.event.payload
+    if not isinstance(payload, dict):
+        fail_inbound_event(
+            claim, error_code="poison_payload", error="inbound interactivity payload is missing or not an object"
+        )
+        return
+    config = _slack_config_for_workspace(
+        claim.event.provider_account_id,
+        receipt_team_id=claim.event.team_id,
+    )
+    if not config:
+        _retry_inbound_claim(claim, error_code="no_team", error="slack workspace is not connected")
+        return
+    try:
+        resolved = _handle_supporthog_interactivity(
+            payload,
+            claim.event.provider_account_id,
+            is_retry=claim.event.attempts > 1,
+            allow_retry=claim.allow_retry,
+            receipt_team_id=claim.event.team_id,
+        )
+        if resolved:
+            complete_inbound_event(claim)
+        else:
+            fail_inbound_event(
+                claim,
+                error_code="interactivity_failed",
+                error="Slack interactivity could not be completed",
+            )
+    except TransientInboundError:
+        _retry_inbound_claim(claim, error_code="transient", error="interactivity work needs another attempt")
+    except Exception as exc:
+        logger.exception("supporthog_interactivity_handler_failed", inbound_event_id=inbound_event_id, error=str(exc))
+        _retry_inbound_claim(claim, error_code="handler_failed", error=str(exc)[:INBOUND_ERROR_MAX_LENGTH])
+
+
+@shared_task(
+    name="products.conversations.backend.tasks.process_supporthog_interactivity_receipt",
+    ignore_result=True,
+)
+@skip_team_scope_audit
+def process_supporthog_interactivity_receipt(inbound_event_id: str) -> None:
+    _process_interactivity_from_receipt(inbound_event_id)
+
+
+@shared_task(
+    name="products.conversations.backend.tasks.process_supporthog_interactivity",
+    ignore_result=True,
+    max_retries=3,
+    default_retry_delay=5,
+)
+@skip_team_scope_audit
+def process_supporthog_interactivity(
+    payload: dict[str, Any] | None = None,
+    slack_team_id: str = "",
+) -> None:
+    """Handle a button click from the opt-in "open a ticket?" confirmation prompt."""
+    if not payload:
+        return
+    celery_retries = int(getattr(cast(Any, process_supporthog_interactivity).request, "retries", 0) or 0)
+    try:
+        _handle_supporthog_interactivity(
+            payload,
+            slack_team_id,
+            is_retry=celery_retries > 0,
+            allow_retry=True,
+        )
+    except TransientInboundError as exc:
+        try:
+            raise cast(Any, process_supporthog_interactivity).retry() from exc
+        except MaxRetriesExceededError:
+            _handle_supporthog_interactivity(payload, slack_team_id, is_retry=True, allow_retry=False)
+
+
+@shared_task(
+    name="products.conversations.backend.tasks.sweep_inbound_events",
+    ignore_result=True,
+)
+@skip_team_scope_audit
+def sweep_inbound_events() -> None:
+    """Re-drive due Slack receipts and expire payloads. Celery is only a wake-up hint."""
+    now = timezone.now()
+    due_rows = due_inbound_event_ids(limit=INBOUND_SWEEP_BATCH_SIZE, now=now)
+    dispatched = 0
+    for inbound_event_id, source in due_rows:
+        if wake_inbound_event(ConversationInboundEvent(id=inbound_event_id, source=source)):
+            dispatched += 1
+
+    payload_gc_count = drain_inbound_retention(cleanup_inbound_payloads, now)
+    tombstone_delete_count = drain_inbound_retention(delete_inbound_tombstones, now)
+    queue_metrics = record_inbound_queue_metrics(now)
+    if dispatched or payload_gc_count or tombstone_delete_count:
+        logger.info(
+            "sweep_inbound_events_completed",
+            dispatched=dispatched,
+            payload_gc_count=payload_gc_count,
+            tombstone_delete_count=tombstone_delete_count,
+            pending_count=queue_metrics.pending_count,
+            processing_count=queue_metrics.processing_count,
+            oldest_ready_age_seconds=queue_metrics.oldest_ready_age_seconds,
+        )
 
 
 @shared_task(
