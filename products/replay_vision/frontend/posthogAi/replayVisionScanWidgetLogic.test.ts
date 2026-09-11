@@ -3,11 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type {
-    ObservationStatusEnumApi,
-    ReplayObservationApi,
-} from 'products/replay_vision/frontend/generated/api.schemas'
-
+import type { ObservationStatusEnumApi, ReplayObservationApi } from '../generated/api.schemas'
 import { replayVisionScanWidgetLogic } from './replayVisionScanWidgetLogic'
 
 const SCAN_ID = 'scanner-1'
