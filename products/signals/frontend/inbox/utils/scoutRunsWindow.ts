@@ -354,6 +354,79 @@ export function scoutRunOutcomeLabel(run: SignalScoutRunSummary, now: Date): str
     }
 }
 
+/**
+ * How a run touched reports, in the words the page uses everywhere else: "Filed 1 report",
+ * "Filed 1 · added to 4", "Added to 2 reports". Returns null when the run touched no report.
+ *
+ * A report the run both filed and later edited counts once, as filed — the same derivation the
+ * header health strip uses, so a row and the strip never disagree.
+ */
+export function scoutRunReportLabel(run: SignalScoutRunSummary): string | null {
+    const { authored, edited } = runReportActivity(run)
+    const authoredIds = new Set(authored)
+    const addedTo = edited.filter((id) => !authoredIds.has(id))
+    if (authoredIds.size === 0) {
+        return addedTo.length > 0 ? `Added to ${pluralize(addedTo.length, 'report')}` : null
+    }
+    if (addedTo.length === 0) {
+        return `Filed ${pluralize(authoredIds.size, 'report')}`
+    }
+    return `Filed ${authoredIds.size} · added to ${addedTo.length}`
+}
+
+/**
+ * The first sentence of a run's close-out, for a folded failure group where a full markdown preview
+ * per run would bury the group. Falls back to the run's duration when it never wrote one.
+ */
+export function scoutRunFailureLine(run: SignalScoutRunSummary, now: Date): string {
+    const summary = run.summary?.trim()
+    if (summary) {
+        // Markdown headings and list bullets read as punctuation in a one-line preview, so drop them.
+        const firstLine =
+            summary
+                .split('\n')
+                .find((line) => line.trim().length > 0)
+                ?.replace(/^[#>\-*\s]+/, '') ?? ''
+        const firstSentence = firstLine.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? firstLine
+        if (firstSentence.trim()) {
+            return firstSentence.trim()
+        }
+    }
+    const duration = formatRunDuration(runDurationSeconds(run, now))
+    return duration ? `Ended after ${duration} without a close-out.` : 'Ended without a close-out.'
+}
+
+/**
+ * A run list folded for reading: a productive or in-flight run stays its own row, while consecutive
+ * quiet runs and consecutive failures each collapse into one group. A scout's history is mostly
+ * quiet, so a flat list spends its first screen on runs that found nothing and pushes the failures
+ * — the reason anyone opens the list — out of sight.
+ *
+ * Order is preserved, so the caller decides newest-first or oldest-first.
+ */
+export type ScoutRunGroup =
+    | { kind: 'run'; run: SignalScoutRunSummary }
+    | { kind: 'quiet'; runs: SignalScoutRunSummary[] }
+    | { kind: 'failed'; runs: SignalScoutRunSummary[] }
+
+export function groupScoutRuns(runs: SignalScoutRunSummary[]): ScoutRunGroup[] {
+    const groups: ScoutRunGroup[] = []
+    for (const run of runs) {
+        const foldKind = runMatchesFilter(run, 'quiet') ? 'quiet' : runMatchesFilter(run, 'failed') ? 'failed' : null
+        if (!foldKind) {
+            groups.push({ kind: 'run', run })
+            continue
+        }
+        const last = groups[groups.length - 1]
+        if (last && last.kind === foldKind) {
+            last.runs.push(run)
+            continue
+        }
+        groups.push({ kind: foldKind, runs: [run] })
+    }
+    return groups
+}
+
 // ── Per-scout rollups ────────────────────────────────────────────────────────
 
 export interface ScoutRollup {

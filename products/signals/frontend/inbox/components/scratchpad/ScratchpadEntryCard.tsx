@@ -11,6 +11,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { scratchpadLogic } from '../../logics/scratchpadLogic'
+import { scratchpadEntryBody, scratchpadEntryTitle } from '../../utils/scoutMemoryPresentation'
 import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
 
 type LemonTagType = ComponentProps<typeof LemonTag>['type']
@@ -44,8 +45,18 @@ function splitKey(key: string): { kind: string | null; body: string } {
  *
  * The list only carries previews, so a long entry's tail arrives on expand — until it lands, the
  * preview stays on screen with a skeleton under it rather than the card going blank.
+ *
+ * On a single scout's page pass `titled`: the entry's own opening heading leads in regular type and
+ * the storage key drops out. Every entry there belongs to that scout, so a truncated key says less
+ * than the name the scout gave the learning.
  */
-export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): JSX.Element {
+export function ScratchpadEntryCard({
+    entry,
+    titled = false,
+}: {
+    entry: ScratchpadEntryApi
+    titled?: boolean
+}): JSX.Element {
     const { expandedKeys, fullContentByKey, loadingContentKeys } = useValues(scratchpadLogic)
     const { toggleEntry } = useActions(scratchpadLogic)
 
@@ -56,6 +67,9 @@ export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): J
 
     const { kind, body } = splitKey(entry.key)
     const scoutName = entry.created_by_skill ? stripScoutPrefix(entry.created_by_skill) : null
+    // Collapsed, a titled card previews the body under its own heading, so the heading isn't said
+    // twice. Expanded, the entry reads as written.
+    const preview = titled && !expanded ? scratchpadEntryBody(content) : content
 
     // How long the note has been carried forward: a fresh creation reads ~0 days; a large gap
     // means the fleet has re-touched this learning across many runs — the "gets sharper" signal.
@@ -78,7 +92,13 @@ export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): J
                         {kind}
                     </LemonTag>
                 )}
-                <span className="truncate font-mono text-xs text-primary">{body}</span>
+                {titled ? (
+                    <span className="truncate text-xs font-medium text-default">
+                        {scratchpadEntryTitle(content, body)}
+                    </span>
+                ) : (
+                    <span className="truncate font-mono text-xs text-primary">{body}</span>
+                )}
                 <span className="flex-1" />
                 {entry.updated_at && (
                     <span className="flex items-center gap-1 whitespace-nowrap text-[11px] text-muted">
@@ -89,11 +109,13 @@ export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): J
             </button>
 
             <div className="px-3 pb-2 pl-9">
-                {content ? (
+                {preview ? (
                     <pre
-                        className={`m-0 whitespace-pre-wrap break-words font-mono text-xs text-primary ${expanded ? '' : 'line-clamp-2'}`}
+                        className={`m-0 whitespace-pre-wrap break-words font-mono text-xs text-primary ${
+                            expanded ? '' : titled ? 'line-clamp-1' : 'line-clamp-2'
+                        }`}
                     >
-                        {content}
+                        {preview}
                     </pre>
                 ) : (
                     <span className="text-xs italic text-muted">No content.</span>

@@ -137,6 +137,32 @@ export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks:
     )
 }
 
+/**
+ * Which pane of the scout detail page is open. The main column holds Reports, Runs and Signals; the
+ * rail holds Told and Learned. One value covers both, because below the detail page's container
+ * breakpoint the rail's tabs join the main tab bar and only one pane shows at a time.
+ *
+ * `null` means nobody has chosen: the page picks Reports when the scout has any, else Runs.
+ */
+export const SCOUT_DETAIL_TABS = ['reports', 'runs', 'signals', 'told', 'learned'] as const
+export type ScoutDetailTab = (typeof SCOUT_DETAIL_TABS)[number]
+
+function asScoutDetailTab(value: string | undefined): ScoutDetailTab | null {
+    return value !== undefined && (SCOUT_DETAIL_TABS as readonly string[]).includes(value)
+        ? (value as ScoutDetailTab)
+        : null
+}
+
+/**
+ * The search params a scout-page navigation should carry: whatever is on the URL now, with `tab`
+ * set to the open pane, or dropped when the page is on its default pane so the plain scout URL
+ * stays clean.
+ */
+function scoutTabSearchParams(tab: ScoutDetailTab | null): Record<string, any> {
+    const { tab: _ignored, ...rest } = router.values.searchParams
+    return tab ? { ...rest, tab } : rest
+}
+
 /** Whether a URL segment is one of the current layout's page tabs. */
 function isInboxTabKey(value: string | undefined, redesign: boolean): value is InboxTabKey {
     const tabKeys = (redesign ? INBOX_TAB_KEYS : INBOX_LEGACY_TAB_KEYS) as string[]
@@ -329,6 +355,7 @@ export interface inboxSceneLogicValues {
     isScratchpadOpen: boolean
     isStaff: boolean
     isTriageOpen: boolean
+    scoutDetailTab: ScoutDetailTab | null
     scoutTemplateDraft: ScoutCreateInitialValues | null
     selectedReport: SignalReport | null
     selectedReportId: string | null
@@ -417,6 +444,9 @@ export interface inboxSceneLogicActions {
         id: string | null
         openMethod: InboxReportOpenMethod
     }
+    setScoutDetailTab: (tab: ScoutDetailTab | null) => {
+        tab: ScoutDetailTab | null
+    }
     setSelectedScoutSkillName: (
         skillName: string | null,
         findingId?: string | null
@@ -485,6 +515,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             skillName,
             findingId,
         }),
+        // Which pane of the open scout's page is showing. Carried in the URL so a link to a scout's
+        // runs survives a reload.
+        setScoutDetailTab: (tab: ScoutDetailTab | null) => ({ tab }),
         // Scout fleet-memory (scratchpad) surface: a full-width browse/search view over the list,
         // mutually exclusive with the report and scout-detail views. Reached from the fleet-memory callout.
         setScratchpadOpen: (open: boolean) => ({ open }),
@@ -654,6 +687,14 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             null as string | null,
             {
                 setSelectedScoutSkillName: (_, { findingId }) => findingId,
+            },
+        ],
+        scoutDetailTab: [
+            null as ScoutDetailTab | null,
+            {
+                setScoutDetailTab: (_, { tab }) => tab,
+                // A finding deep-link is asking for that finding, which lives on Signals.
+                setSelectedScoutSkillName: (_, { findingId }) => (findingId ? 'signals' : null),
             },
         ],
     }),
@@ -1001,9 +1042,16 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         ],
         setSelectedScoutSkillName: () => [
             inboxSurfaceUrl(values),
-            router.values.searchParams,
+            scoutTabSearchParams(values.scoutDetailTab),
             router.values.hashParams,
             { replace: false },
+        ],
+        setScoutDetailTab: () => [
+            inboxSurfaceUrl(values),
+            scoutTabSearchParams(values.scoutDetailTab),
+            router.values.hashParams,
+            // A tab switch is not a navigation step — Back should leave the scout, not walk its tabs.
+            { replace: true },
         ],
         setScratchpadOpen: () => [
             inboxSurfaceUrl(values),
@@ -1132,7 +1180,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 }
                 closeAllSurfaces()
             },
-            [urls.inboxScout(':skillName')]: ({ skillName }: { skillName?: string }) => {
+            [urls.inboxScout(':skillName')]: (
+                { skillName }: { skillName?: string },
+                searchParams: Record<string, string | undefined>
+            ) => {
                 // `/inbox/scouts/scratchpad`, `/inbox/scouts/findings`, and `/inbox/scouts/runs` also match
                 // this pattern; their own handlers own those paths (no real scout skill_name collides —
                 // they're `signals-scout-*`).
@@ -1143,6 +1194,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 // Also reset the finding when landing on the bare scout URL after a finding deep-link.
                 if (values.selectedScoutSkillName !== name || values.selectedScoutFindingId !== null) {
                     actions.setSelectedScoutSkillName(name)
+                }
+                // After selecting the scout, which resets the tab — otherwise the reset would
+                // discard the tab the URL asked for.
+                const tab = asScoutDetailTab(searchParams.tab)
+                if (values.scoutDetailTab !== tab) {
+                    actions.setScoutDetailTab(tab)
                 }
             },
             [urls.inboxScout(':skillName', ':findingId')]: ({

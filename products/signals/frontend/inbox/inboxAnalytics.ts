@@ -197,6 +197,8 @@ export type ScoutActionType =
     | 'filter_enabled'
     | 'filter_owner'
     | 'search_scouts'
+    | 'switch_tab'
+    | 'expand_run_group'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
