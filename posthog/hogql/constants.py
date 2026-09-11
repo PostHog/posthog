@@ -153,6 +153,7 @@ class HogQLQuerySettings(BaseModel):
     force_data_skipping_indices: Optional[list[str]] = None
     load_balancing: Optional[str] = None
     format_csv_allow_double_quotes: Optional[bool] = None
+    allow_experimental_json_type: Optional[bool] = None
     optimize_skip_unused_shards: Optional[bool] = None
     read_overflow_mode: Optional[str] = None
     max_bytes_to_read: Optional[int] = None

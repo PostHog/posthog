@@ -556,6 +556,23 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self.columns = columns
         self.column_order = list(columns.keys())
 
+    def _nested_object_column_type(self, described_type: str) -> str:
+        """The type to store for a described column, as JSON where a key list would go stale.
+
+        Inference describes a JSON object as a named Tuple of the keys its sample held, and that Tuple becomes the
+        `structure` of every read, so a key outside the sample is unreadable. The JSON type carries no key list.
+        An array of objects and a Parquet-backed format keep the Tuple, which reads correctly and types each field.
+        """
+        if self.format != DataWarehouseTableFormat.JSON or clean_type(described_type) != "Tuple":
+            return described_type
+        return "JSON"
+
+    def _has_native_json_columns(self) -> bool:
+        return any(
+            clean_type(type if isinstance(type, str) else type.get("clickhouse", "")) == "JSON"
+            for type in (self.columns or {}).values()
+        )
+
     def _describe_settings(self) -> dict[str, str | int]:
         settings: dict[str, str | int] = {**DISABLE_HIVE_PARTITIONING_SETTINGS}
         if self._is_csv_format() and self.csv_allow_double_quotes is not None:
@@ -640,9 +657,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     f"PostHog can't use the column name {column_name!r}. Column names can't contain "
                     "backticks, backslashes, line breaks, or null bytes. Rename the column, then try again."
                 )
+            clickhouse_type = self._nested_object_column_type(str(item[1]))
             columns[column_name] = DataWarehouseTableIntrospectedColumn(
-                hogql=CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                clickhouse=item[1],
+                hogql=CLICKHOUSE_HOGQL_MAPPING[clean_type(clickhouse_type)].__name__,
+                clickhouse=clickhouse_type,
                 valid=True,
             )
 
@@ -1053,11 +1071,17 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             source_type=self.external_data_source.source_type if self.external_data_source else None,
         )
 
+        query_settings: dict[str, Any] = {}
         if self._is_csv_format():
-            effective = self.csv_allow_double_quotes if self.csv_allow_double_quotes is not None else False
-            table_def.top_level_settings = HogQLQuerySettings(
-                format_csv_allow_double_quotes=effective,
+            query_settings["format_csv_allow_double_quotes"] = (
+                self.csv_allow_double_quotes if self.csv_allow_double_quotes is not None else False
             )
+        if self._has_native_json_columns():
+            # The structure declares a JSON column, which ClickHouse refuses to create unless the setting is on. It is
+            # on by default on the cluster, and asking for it here keeps the table readable if that default changes.
+            query_settings["allow_experimental_json_type"] = True
+        if query_settings:
+            table_def.top_level_settings = HogQLQuerySettings(**query_settings)
 
         return table_def
 
