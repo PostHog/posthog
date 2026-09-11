@@ -1349,7 +1349,11 @@ class CSPMiddleware:
                 "worker-src 'self' blob:",
                 "child-src 'none'",
                 "object-src 'none'",
-                "media-src https://res.cloudinary.com",
+                # `'self'` carries the PostHog AI onboarding videos under /static/. Max hands-free
+                # needs the other two: it primes playback with a silent `data:` clip, then plays
+                # the TTS response from a blob URL. None of the three can execute, because
+                # media-src governs <audio> and <video> only.
+                "media-src 'self' data: blob: https://res.cloudinary.com",
                 # `https:` is here for the OAuth authorize page, which renders an application's icon
                 # from a URL its registrant supplied. There is no allowlist that covers those, so
                 # until we serve them ourselves the directive has to accept any host.
