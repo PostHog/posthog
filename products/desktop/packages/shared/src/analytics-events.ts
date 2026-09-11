@@ -172,6 +172,27 @@ export interface PromptSentProperties {
   prompt_length_chars: number;
 }
 
+/** Which composer refused a send. */
+export type PromptComposerSurface =
+  | "new_task"
+  | "session"
+  | "pi_session"
+  | "channel_home"
+  | "unknown";
+
+/**
+ * A send the composer refused while the person had already typed something.
+ * Carries the prompt length, never the prompt. `reason` is null when the
+ * composer had nothing to say beyond the empty-editor hint, which is the gap
+ * this event exists to measure.
+ */
+export interface PromptSubmitBlockedProperties {
+  surface: PromptComposerSurface;
+  trigger: "click" | "keyboard";
+  reason: string | null;
+  prompt_length_chars: number;
+}
+
 /** Sentiment captured by the thumbs under an agent turn. */
 export type AgentTurnFeedbackSentiment = "positive" | "negative";
 
@@ -1544,6 +1565,7 @@ export const ANALYTICS_EVENTS = {
   TASK_RUN_CANCELLED: "Task run cancelled",
   TASK_RUN_STOPPED: "Task run stopped",
   PROMPT_SENT: "Prompt sent",
+  PROMPT_SUBMIT_BLOCKED: "Prompt submit blocked",
   AGENT_TURN_FEEDBACK: "Agent turn feedback",
 
   // Claude Code session import
@@ -1760,6 +1782,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.TASK_RUN_CANCELLED]: TaskRunCancelledProperties;
   [ANALYTICS_EVENTS.TASK_RUN_STOPPED]: TaskRunStoppedProperties;
   [ANALYTICS_EVENTS.PROMPT_SENT]: PromptSentProperties;
+  [ANALYTICS_EVENTS.PROMPT_SUBMIT_BLOCKED]: PromptSubmitBlockedProperties;
   [ANALYTICS_EVENTS.AGENT_TURN_FEEDBACK]: AgentTurnFeedbackProperties;
 
   // Claude Code session import

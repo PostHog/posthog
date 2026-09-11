@@ -719,16 +719,21 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
               isAuthRestoring ||
               spendStop !== null
             }
-            submitTooltipOverride={
-              !isOnline
-                ? "No internet connection"
-                : isAuthRestoring
-                  ? "Restoring authentication"
-                  : hasQueuedMessage
-                    ? "A message is already queued"
-                    : spendStop
-                      ? spendStopMessage(spendStop)
-                      : undefined
+            surface="pi_session"
+            submitDisabledReason={
+              isCompacting
+                ? "Compacting the conversation"
+                : !sessionAvailable || !status
+                  ? "Connecting to the session"
+                  : !isOnline
+                    ? "No internet connection"
+                    : isAuthRestoring
+                      ? "Restoring authentication"
+                      : hasQueuedMessage
+                        ? "A message is already queued"
+                        : spendStop
+                          ? spendStopMessage(spendStop)
+                          : undefined
             }
             enableBashMode
             enableCommands

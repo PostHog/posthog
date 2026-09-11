@@ -165,6 +165,31 @@ function renderTaskCreation(
   );
 }
 
+describe("useTaskCreation blocked reason", () => {
+  it.each([
+    ["cloud", "Pick a repository first"],
+    ["local", "Pick a folder first"],
+  ] as const)(
+    "names the missing %s target rather than leaving the composer to guess",
+    (workspaceMode, expected) => {
+      const { result } = renderHook(
+        () =>
+          useTaskCreation({
+            editorRef: editorHandle(textToContent("ship it")),
+            sessionId: "session-1",
+            selectedDirectory: "",
+            workspaceMode,
+            adapter: "claude",
+            editorIsEmpty: false,
+          }),
+        { wrapper },
+      );
+
+      expect(result.current.submitBlockedReason).toBe(expected);
+    },
+  );
+});
+
 describe("useTaskCreation prompt records", () => {
   beforeEach(() => {
     vi.clearAllMocks();
