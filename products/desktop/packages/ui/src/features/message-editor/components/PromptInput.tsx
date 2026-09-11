@@ -8,10 +8,15 @@ import {
   InputGroupAddon,
   TooltipProvider,
 } from "@posthog/quill";
+import {
+  ANALYTICS_EVENTS,
+  type PromptComposerSurface,
+} from "@posthog/shared/analytics-events";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { cycleModeOption } from "@posthog/ui/features/sessions/sessionStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { track } from "@posthog/ui/shell/analytics";
 import { hasOpenOverlay } from "@posthog/ui/utils/overlay";
 import { Flex, Text, Tooltip } from "@radix-ui/themes";
 import { EditorContent } from "@tiptap/react";
@@ -128,7 +133,16 @@ interface PromptInputProps {
   onBlur?: () => void;
   // manual submit override (for flows like new-task that submit outside the editor hook)
   onSubmitClick?: () => unknown;
-  submitTooltipOverride?: string;
+  /**
+   * Why this surface refuses to send right now, in the person's words ("Pick
+   * a repository first"). Shown on the send button instead of the
+   * empty-composer hint, which otherwise tells someone who has typed a whole
+   * prompt to type one. Leave unset only when the editor being empty is the
+   * one thing that can block a send.
+   */
+  submitDisabledReason?: string;
+  /** Names this composer in the blocked-send event. */
+  surface?: PromptComposerSurface;
   editorHeight?: "default" | "large";
   tourTarget?: string;
 }
@@ -178,7 +192,8 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       onFocus,
       onBlur,
       onSubmitClick,
-      submitTooltipOverride,
+      submitDisabledReason,
+      surface = "unknown",
       editorHeight = "default",
       tourTarget,
     },
@@ -233,6 +248,8 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       placeholder,
       disabled,
       submitDisabled: submitDisabledExternal,
+      onSubmitBlocked: (promptLengthChars) =>
+        reportBlockedSubmit("keyboard", promptLengthChars),
       isLoading,
       autoFocus,
       clearOnSubmit,
@@ -435,10 +452,37 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     // is loading but still typeable is mid-turn and accepting queued messages,
     // where send has to stay live.
     const submitBusy = pressedSubmit || (disabled && isLoading);
+    // An empty composer is the only block the person can clear without being
+    // told anything else. Every other one needs the surface to say what it is,
+    // or the button tells someone who has typed a prompt to type one.
     const submitTooltip = submitBusy
       ? "Sending"
-      : (submitTooltipOverride ??
-        (submitBlocked ? "Enter a message" : "Send message"));
+      : submitBlocked
+        ? (submitDisabledReason ?? "Enter a message")
+        : "Send message";
+
+    // The send button carries aria-disabled rather than the native attribute,
+    // so a refused press still reaches the DOM. Record it: a dead click on a
+    // composer that already holds a prompt is the symptom, and nothing else
+    // measures it. An empty composer is not an attempt.
+    function reportBlockedSubmit(
+      trigger: "click" | "keyboard",
+      promptLengthChars: number,
+    ): void {
+      if (!promptLengthChars) return;
+      track(ANALYTICS_EVENTS.PROMPT_SUBMIT_BLOCKED, {
+        surface,
+        trigger,
+        reason: submitDisabledReason ?? null,
+        prompt_length_chars: promptLengthChars,
+      });
+    }
+
+    const handleSubmitClickCapture = () => {
+      if (submitBlocked && !submitBusy) {
+        reportBlockedSubmit("click", getText().trim().length);
+      }
+    };
 
     // Stop takes priority over everything: you cancel a run, you don't gamble
     // on it. With slot machine mode on, the send affordance moves out to the
@@ -465,6 +509,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
           variant="primary"
           size="icon"
           onClick={handleSubmitClick}
+          onClickCapture={handleSubmitClickCapture}
           disabled={submitBlocked || submitBusy}
           loading={submitBusy}
           aria-label="Send message"
@@ -603,6 +648,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
         {slotMachineMode && !inStopMode && (
           <SlotMachineSubmit
             disabled={submitBlocked || submitBusy}
+            blockedReason={submitDisabledReason}
             onSubmit={doSubmit}
             tourTarget={tourTarget}
           />

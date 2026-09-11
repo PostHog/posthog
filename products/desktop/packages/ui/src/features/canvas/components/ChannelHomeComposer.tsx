@@ -26,7 +26,7 @@ import {
 } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
 import { toast } from "../../../primitives/toast";
-import { spendStopMessage, useSpendStop } from "../../billing/useSpendStop";
+import { useSpendStop } from "../../billing/useSpendStop";
 import { useChannelWikiContext } from "../../context-wiki/hooks/useContextWiki";
 import { useContextLayerFlag } from "../../feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
@@ -47,6 +47,7 @@ import {
 } from "../../settings/settingsStore";
 import { cloudTargetIds } from "../../task-detail/cloudTargets";
 import { WorkspaceModeSelect } from "../../task-detail/components/WorkspaceModeSelect";
+import { taskComposerBlockedReason } from "../../task-detail/hooks/taskComposerBlockedReason";
 import { useCloudTargetSelection } from "../../task-detail/hooks/useCloudTarget";
 import { usePreviewConfig } from "../../task-detail/hooks/usePreviewConfig";
 import { useResolvedWorkspaceMode } from "../../task-detail/hooks/useResolvedWorkspaceMode";
@@ -269,35 +270,36 @@ export const ChannelHomeComposer = forwardRef<
     [onTaskCreated, onPendingEnd],
   );
 
-  const { isCreatingTask, canSubmit, handleSubmit } = useTaskCreation({
-    editorRef,
-    sessionId,
-    selectedDirectory: taskFolder,
-    repositories: workspaceMode === "cloud" ? taskRepositories : undefined,
-    githubIntegrationId:
-      workspaceMode === "cloud"
-        ? (taskGithubIntegration ?? undefined)
-        : undefined,
-    workspaceMode,
-    sandboxEnvironmentId: cloudIds.sandboxEnvironmentId,
-    customImageId: cloudIds.customImageId,
-    editorIsEmpty,
-    adapter,
-    runtime,
-    executionMode: runtime === "pi" ? undefined : currentExecutionMode,
-    model: taskModel,
-    reasoningLevel: taskReasoningLevel,
-    contextWindow: runtime === "pi" ? undefined : currentContextWindow,
-    fastMode: runtime === "pi" ? undefined : currentFastMode,
-    allowNoRepo: true,
-    channelContext: effectiveChannelContext,
-    channelContextPath: wiki.path,
-    submissionBlocked: wiki.blocked || !isWorkspaceModeResolved,
-    channelName,
-    channelId,
-    channelContextId: channelId,
-    onTaskCreated: handleTaskCreated,
-  });
+  const { isCreatingTask, canSubmit, submitBlockedReason, handleSubmit } =
+    useTaskCreation({
+      editorRef,
+      sessionId,
+      selectedDirectory: taskFolder,
+      repositories: workspaceMode === "cloud" ? taskRepositories : undefined,
+      githubIntegrationId:
+        workspaceMode === "cloud"
+          ? (taskGithubIntegration ?? undefined)
+          : undefined,
+      workspaceMode,
+      sandboxEnvironmentId: cloudIds.sandboxEnvironmentId,
+      customImageId: cloudIds.customImageId,
+      editorIsEmpty,
+      adapter,
+      runtime,
+      executionMode: runtime === "pi" ? undefined : currentExecutionMode,
+      model: taskModel,
+      reasoningLevel: taskReasoningLevel,
+      contextWindow: runtime === "pi" ? undefined : currentContextWindow,
+      fastMode: runtime === "pi" ? undefined : currentFastMode,
+      allowNoRepo: true,
+      channelContext: effectiveChannelContext,
+      channelContextPath: wiki.path,
+      submissionBlocked: wiki.blocked || !isWorkspaceModeResolved,
+      channelName,
+      channelId,
+      channelContextId: channelId,
+      onTaskCreated: handleTaskCreated,
+    });
 
   // Own the submit so the composer clears the instant a keystroke is accepted
   // (not after the create round trip), which is what stops the "looks like it
@@ -454,6 +456,15 @@ export const ChannelHomeComposer = forwardRef<
   const isBusy = isCreatingTask;
   const spendStop = useSpendStop();
 
+  const composerBlockedReason = taskComposerBlockedReason({
+    spendStop,
+    creationBlockedReason: submitBlockedReason,
+    contextBlocked: wiki.blocked,
+    workspaceModeResolved: isWorkspaceModeResolved,
+    configLoading: runtime === "pi" ? isPiConfigLoading : isLoading,
+    modelMissing: runtime === "pi" && !currentPiModel,
+  });
+
   return (
     <div className="relative flex w-full flex-col">
       {/* The row sits in normal flow above the input, mirroring the new-task
@@ -527,9 +538,8 @@ export const ChannelHomeComposer = forwardRef<
           (runtime === "pi" && !currentPiModel) ||
           spendStop !== null
         }
-        submitTooltipOverride={
-          spendStop ? spendStopMessage(spendStop) : undefined
-        }
+        surface="channel_home"
+        submitDisabledReason={composerBlockedReason}
         modeOption={runtime === "pi" ? undefined : modeOption}
         onModeChange={runtime === "pi" ? undefined : handleModeChange}
         allowBypassPermissions={allowBypassPermissions}
