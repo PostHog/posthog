@@ -69,18 +69,25 @@ class TestDeletionCoverage(ClickhouseTestMixin, BaseTest):
         # The squash rewrites person_id with ALTER UPDATE, and ClickHouse refuses one on a sort key
         # column whatever the column's kind. A target marked accepts_person_id_rewrite whose key
         # includes person_id fails on the weekly job rather than here.
+        expected = {target.data_table for target in SQUASH_TARGETS}
         rows = sync_execute(
             """
             SELECT name, sorting_key
             FROM system.tables
             WHERE database = %(database)s AND name IN %(tables)s
             """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "tables": [target.data_table for target in SQUASH_TARGETS],
-            },
+            {"database": settings.CLICKHOUSE_DATABASE, "tables": sorted(expected)},
         )
-        assert rows, "expected at least the events storage table to exist"
+
+        # A target with no table here returns no row, so the sort-key check below skips it while
+        # still passing. Every squash target except the events one is optional, which makes that
+        # absence an ordinary state rather than a broken schema.
+        unchecked = sorted(expected - {name for name, _ in rows})
+        assert not unchecked, (
+            f"{unchecked} are squash targets with no storage table in this database, so nothing "
+            "checked their sort key. Register the table in CREATE_MERGETREE_TABLE_QUERIES "
+            "(posthog/clickhouse/schema.py) so the invariant covers it."
+        )
 
         offenders = sorted(name for name, sorting_key in rows if "person_id" in sorting_key)
         assert not offenders, (
