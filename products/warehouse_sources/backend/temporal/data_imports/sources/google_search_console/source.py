@@ -299,6 +299,11 @@ class GoogleSearchConsoleSource(
 
         normalized = {url: site.get("permissionLevel") for site in sites if (url := site.get("siteUrl")) is not None}
         site_url = normalize_site_url(config.site_url)
+        if not normalized:
+            # The account owns no property at all, so no value can ever validate. The "not visible"
+            # message below sends the user back to re-checking the URL format they got right, which
+            # is the loop we keep seeing. Same failure the 403 listing path names, so same wording.
+            return False, _PROPERTY_LIST_ACCESS_ERROR
         if site_url not in normalized:
             suggestion = suggest_registered_site(site_url, normalized.keys())
             if suggestion is not None:

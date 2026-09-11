@@ -4,6 +4,9 @@ Applies only inside a PostHog Tasks cloud run, on the prebaked `posthog-dev-stac
 Local developers and CI are unaffected by everything on this page.
 `POSTHOG_TASK_RUN_ID` is set in that environment.
 
+Sandboxes using this image receive at least 32 GiB of RAM, including when automatic preview startup is disabled.
+Memory overrides above 32 GiB are preserved; lower overrides are raised to 32 GiB.
+
 ## Booting the stack
 
 Run `bootstrap-dev-stack` first — it restores the compose host aliases and starts dockerd.

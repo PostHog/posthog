@@ -43,6 +43,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
     DEV_STACK_CPU_REQUEST_CORES,
+    DEV_STACK_MEMORY_GB,
     SANDBOX_TTL_SECONDS,
     VM_SANDBOX_CPU_CORES,
 )
@@ -204,6 +205,12 @@ class SandboxConfig(BaseModel):
         if self.dev_stack_present is not None:
             return self.dev_stack_present
         return self.custom_image_name == DEV_STACK_IMAGE_NAME
+
+    @model_validator(mode="after")
+    def _enforce_dev_stack_memory_floor(self) -> Self:
+        if self.is_dev_stack_image:
+            self.memory_gb = max(self.memory_gb, DEV_STACK_MEMORY_GB)
+        return self
 
     @property
     def effective_cpu_request_cores(self) -> float:
