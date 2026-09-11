@@ -19,12 +19,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
     ClaudeCodeDayPaginator,
     _analytics_windows,
     _claude_code_start_day,
+    _flatten_analytics_entity_usage,
     _flatten_analytics_user_activity,
     _flatten_analytics_user_cost,
     _flatten_analytics_user_usage,
     _flatten_claude_code_core,
     _flatten_claude_code_models,
     _flatten_cost_result,
+    _flatten_rbac_role_permission,
     _flatten_usage_result,
     _row_id,
     anthropic_source,
@@ -38,6 +40,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
     ANALYTICS_REPORT_MAX_HISTORY_DAYS,
     ANTHROPIC_ENDPOINTS,
     COST_REPORT_PAGE_BUCKETS,
+    RBAC_GROUPS_PATH,
+    RBAC_ROLES_PATH,
     USAGE_GROUP_BY_FALLBACKS,
     USAGE_REPORT_PAGE_BUCKETS,
 )
@@ -1211,3 +1215,348 @@ class TestAnalyticsNonRetryableError:
         matched = [message for pattern, message in errors.items() if error_message_matches(observed, [pattern])]
         assert len(matched) == 2
         assert "read:analytics" in (matched[0] or "")
+
+
+def _token_page(items: list[dict[str, Any]], *, has_more: bool, next_page: str | None) -> Response:
+    # The RBAC group and role lists page with an opaque `page`/`next_page` token, not an after_id.
+    return _response({"data": items, "has_more": has_more, "next_page": next_page})
+
+
+class TestRbacListPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_pages_with_the_page_token_not_an_after_id_cursor(self, MockSession) -> None:
+        # These endpoints send no `last_id`, so paging them with the entity cursor would stop after
+        # the first page and silently drop every group past it.
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _token_page([{"id": "rbac_group_1"}], has_more=True, next_page="P2"),
+                _token_page([{"id": "rbac_group_2"}], has_more=False, next_page=None),
+            ],
+        )
+
+        rows = _rows(_source("rbac_groups", _make_manager()))
+
+        assert [r["id"] for r in rows] == ["rbac_group_1", "rbac_group_2"]
+        assert "page" not in params[0]["params"]
+        assert "after_id" not in params[1]["params"]
+        assert params[1]["params"]["page"] == "P2"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_the_saved_page_token(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_token_page([{"id": "rbac_role_2"}], has_more=False, next_page=None)])
+
+        _rows(_source("rbac_roles", _make_manager(AnthropicResumeConfig(cursor="P2"))))
+
+        assert params[0]["params"]["page"] == "P2"
+
+
+class TestRbacFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_group_members_carry_the_group_id_from_the_parent(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _token_page([{"id": "rbac_group_1"}, {"id": "rbac_group_2"}], has_more=False, next_page=None),
+                _token_page(
+                    [{"type": "rbac_group_member", "user_id": "u1", "group_id": "rbac_group_1"}],
+                    has_more=False,
+                    next_page=None,
+                ),
+                # The API always sends group_id, but stamp it from the parent defensively so the
+                # composite primary key is populated even if it goes missing.
+                _token_page([{"type": "rbac_group_member", "user_id": "u2"}], has_more=False, next_page=None),
+            ],
+        )
+
+        rows = _rows(_source("rbac_group_members", _make_manager()))
+
+        assert [(r["group_id"], r["user_id"]) for r in rows] == [("rbac_group_1", "u1"), ("rbac_group_2", "u2")]
+        assert all("_rbac_groups_id" not in r for r in rows)
+        assert params[0]["url"].endswith("/v1/organizations/rbac_groups")
+        assert params[1]["url"].endswith("/v1/organizations/rbac_groups/rbac_group_1/members")
+        assert params[2]["url"].endswith("/v1/organizations/rbac_groups/rbac_group_2/members")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_permissions_take_their_role_id_from_the_parent(self, MockSession) -> None:
+        # A permission object carries no role id at all, so without the parent stamp every row would
+        # land with a null role_id and collide on the synthesized key.
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _token_page([{"id": "rbac_role_1"}, {"id": "rbac_role_2"}], has_more=False, next_page=None),
+                _token_page(
+                    [{"type": "rbac_role_permission", "action": "chat", "resource": {"type": "organization"}}],
+                    has_more=False,
+                    next_page=None,
+                ),
+                _token_page(
+                    [{"type": "rbac_role_permission", "action": "chat", "resource": {"type": "organization"}}],
+                    has_more=False,
+                    next_page=None,
+                ),
+            ],
+        )
+
+        rows = _rows(_source("rbac_role_permissions", _make_manager()))
+
+        assert [r["role_id"] for r in rows] == ["rbac_role_1", "rbac_role_2"]
+        # The same grant under two roles must not share a key, or merge would keep only one row.
+        assert rows[0]["id"] != rows[1]["id"]
+        assert params[1]["url"].endswith("/v1/organizations/rbac_roles/rbac_role_1/permissions")
+        assert params[2]["url"].endswith("/v1/organizations/rbac_roles/rbac_role_2/permissions")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_a_role_that_belongs_to_another_organization_is_skipped(self, MockSession) -> None:
+        # Groups span the enterprise while the role catalog is per-organization, so a role the key
+        # cannot read answers 404. Skip that role rather than failing the whole schema.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _token_page([{"id": "rbac_role_1"}, {"id": "rbac_role_2"}], has_more=False, next_page=None),
+                _response({"error": "not_found"}, status=404),
+                _token_page(
+                    [{"type": "rbac_role_permission", "action": "chat", "resource": {"type": "organization"}}],
+                    has_more=False,
+                    next_page=None,
+                ),
+            ],
+        )
+
+        rows = _rows(_source("rbac_role_permissions", _make_manager()))
+
+        assert [r["role_id"] for r in rows] == ["rbac_role_2"]
+
+
+class TestFlattenRbacRolePermission:
+    @parameterized.expand(
+        [
+            (
+                "organization",
+                {"type": "organization", "organization_id": "org-uuid"},
+                {"organization_id": "org-uuid", "connector_id": None, "tool_name": None, "scope": None},
+            ),
+            (
+                "connector_tool",
+                {"type": "connector_tool", "connector_id": "mcpsrv_1", "tool_name": "search_tickets"},
+                {
+                    "organization_id": None,
+                    "connector_id": "mcpsrv_1",
+                    "tool_name": "search_tickets",
+                    "scope": None,
+                },
+            ),
+            (
+                "connector_scope",
+                {"type": "connector_scope", "connector_id": "mcpsrv_1", "scope": "read_scope_deadbeef"},
+                {
+                    "organization_id": None,
+                    "connector_id": "mcpsrv_1",
+                    "tool_name": None,
+                    "scope": "read_scope_deadbeef",
+                },
+            ),
+            (
+                "all_connectors",
+                {"type": "all_connectors"},
+                {"organization_id": None, "connector_id": None, "tool_name": None, "scope": None},
+            ),
+        ]
+    )
+    def test_each_resource_tag_fills_only_its_own_identifiers(
+        self, _name: str, resource: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
+        row = _flatten_rbac_role_permission({"role_id": "rbac_role_1", "action": "use", "resource": resource})
+        assert row["resource_type"] == resource["type"]
+        assert {key: row[key] for key in expected} == expected
+
+    def test_two_grants_on_one_role_get_distinct_ids(self) -> None:
+        base = {"role_id": "rbac_role_1", "resource": {"type": "all_connectors"}}
+        use = _flatten_rbac_role_permission({**base, "action": "use"})
+        always = _flatten_rbac_role_permission({**base, "action": "always_allow"})
+        assert use["id"] != always["id"]
+
+    def test_missing_resource_object_does_not_crash(self) -> None:
+        row = _flatten_rbac_role_permission({"role_id": "rbac_role_1", "action": "chat"})
+        assert row["resource_type"] is None
+        assert row["id"]
+
+
+def _usage_breakdown_page(rows: list[dict[str, Any]], *, next_page: str | None) -> Response:
+    # The connector/plugin/skill breakdowns send no `has_more`: a null `next_page` is the last page.
+    return _response({"data": rows, "next_page": next_page})
+
+
+def _summaries_page(rows: list[dict[str, Any]]) -> Response:
+    # The summaries endpoint answers a whole range in one response, under `summaries`, with no cursor.
+    return _response({"summaries": rows})
+
+
+def _summary_row(starting_at: str = "2026-03-04T00:00:00Z") -> dict[str, Any]:
+    return {
+        "starting_at": starting_at,
+        "ending_at": "2026-03-05T00:00:00Z",
+        "assigned_seat_count": 120,
+        "pending_invite_count": 3,
+        "daily_active_user_count": 84,
+        "weekly_active_user_count": 101,
+        "monthly_active_user_count": 112,
+        "daily_adoption_rate": 70,
+        "cowork_daily_active_user_count": 12,
+        "cowork_weekly_active_user_count": 20,
+        "cowork_monthly_active_user_count": 25,
+    }
+
+
+class TestFlattenAnalyticsEntityUsage:
+    _SKILL_ROW = {
+        "skill_name": "writing-tests",
+        "skill_display_name": "Writing tests",
+        "distinct_user_count": 9,
+        "invocation_count": 31,
+        "chat_metrics": {"distinct_conversation_skill_used_count": 4},
+        "office_metrics": {"excel": {"distinct_session_skill_used_count": 2}},
+    }
+
+    def test_stamps_the_requested_day_and_flattens_the_product_blocks(self) -> None:
+        row = _flatten_analytics_entity_usage("skill_name", date(2026, 3, 4), self._SKILL_ROW)
+        assert row["date"] == "2026-03-04T00:00:00Z"
+        assert row["skill_name"] == "writing-tests"
+        assert row["distinct_user_count"] == 9
+        assert row["chat_distinct_conversation_skill_used_count"] == 4
+        assert row["office_excel_distinct_session_skill_used_count"] == 2
+        # The nested blocks must not survive as columns of their own.
+        assert "chat_metrics" not in row and "office_metrics" not in row
+
+    def test_id_is_stable_across_metric_changes(self) -> None:
+        revised = {**self._SKILL_ROW, "distinct_user_count": 11, "invocation_count": 40}
+        assert (
+            _flatten_analytics_entity_usage("skill_name", date(2026, 3, 4), self._SKILL_ROW)["id"]
+            == _flatten_analytics_entity_usage("skill_name", date(2026, 3, 4), revised)["id"]
+        )
+
+    def test_id_differs_by_day_and_by_entity(self) -> None:
+        same_day = _flatten_analytics_entity_usage("skill_name", date(2026, 3, 4), self._SKILL_ROW)
+        next_day = _flatten_analytics_entity_usage("skill_name", date(2026, 3, 5), self._SKILL_ROW)
+        other_skill = _flatten_analytics_entity_usage(
+            "skill_name", date(2026, 3, 4), {**self._SKILL_ROW, "skill_name": "writing-skills"}
+        )
+        assert len({same_day["id"], next_day["id"], other_skill["id"]}) == 3
+
+
+class TestAnalyticsBreakdownFanOut:
+    @parameterized.expand(
+        [
+            ("analytics_connector_usage", "connector_name", "atlassian"),
+            ("analytics_plugin_usage", "plugin_name", "serena"),
+            ("analytics_skill_usage", "skill_name", "writing-tests"),
+        ]
+    )
+    @mock.patch(ANTHROPIC_SESSION_PATCH)
+    def test_fans_out_one_dated_request_per_day(self, endpoint: str, name_field: str, name: str, MockSession) -> None:
+        session = MockSession.return_value
+        today = datetime.now(UTC).date()
+        watermark = _midnight(today - timedelta(days=ANALYTICS_ENGAGEMENT_LAG_DAYS + 1))
+        params = _wire(session, [_usage_breakdown_page([{name_field: name}], next_page=None) for _ in range(2)])
+
+        rows = _rows(_source(endpoint, _make_manager(), last_value=watermark))
+
+        assert [p["params"]["date"] for p in params] == [
+            (watermark.date() + timedelta(days=i)).isoformat() for i in range(2)
+        ]
+        assert [r["date"] for r in rows] == [
+            f"{(watermark.date() + timedelta(days=i)).isoformat()}T00:00:00Z" for i in range(2)
+        ]
+        assert [r[name_field] for r in rows] == [name, name]
+        # A row's day comes from the request, so the request must never carry a range.
+        assert "starting_at" not in params[0]["params"]
+
+    @mock.patch(ANTHROPIC_SESSION_PATCH)
+    def test_paginates_within_a_day_on_next_page_alone(self, MockSession) -> None:
+        session = MockSession.return_value
+        today = datetime.now(UTC).date()
+        params = _wire(
+            session,
+            [
+                _usage_breakdown_page([{"connector_name": "atlassian"}], next_page="P2"),
+                _usage_breakdown_page([{"connector_name": "github"}], next_page=None),
+            ],
+        )
+
+        rows = _rows(_source("analytics_connector_usage", _make_manager(), last_value=_midnight(today)))
+
+        assert {r["connector_name"] for r in rows} == {"atlassian", "github"}
+        assert params[1]["params"]["page"] == "P2"
+        assert params[1]["params"]["date"] == params[0]["params"]["date"]
+
+
+class TestAnalyticsSummaries:
+    @mock.patch(ANTHROPIC_SESSION_PATCH)
+    def test_requests_a_single_day_as_calendar_dates_with_no_pagination_params(self, MockSession) -> None:
+        session = MockSession.return_value
+        today = datetime.now(UTC).date()
+        params = _wire(session, [_summaries_page([_summary_row()])])
+
+        _rows(_source("analytics_summaries", _make_manager(), last_value=_midnight(today)))
+
+        last_day = today - timedelta(days=ANALYTICS_ENGAGEMENT_LAG_DAYS)
+        assert params[0]["params"]["starting_date"] == last_day.isoformat()
+        # `ending_date` is exclusive, and the endpoint rejects `limit` and `bucket_width`.
+        assert params[0]["params"]["ending_date"] == (last_day + timedelta(days=1)).isoformat()
+        assert "limit" not in params[0]["params"]
+        assert "bucket_width" not in params[0]["params"]
+        assert "starting_at" not in params[0]["params"]
+
+    @mock.patch(ANTHROPIC_SESSION_PATCH)
+    def test_rows_come_from_the_summaries_key_and_keep_their_own_day(self, MockSession) -> None:
+        session = MockSession.return_value
+        today = datetime.now(UTC).date()
+        _wire(session, [_summaries_page([_summary_row("2026-03-04T00:00:00Z")])])
+
+        rows = _rows(_source("analytics_summaries", _make_manager(), last_value=_midnight(today)))
+
+        # The row's own `starting_at` is the primary key, so nothing may overwrite or synthesize it.
+        assert [r["starting_at"] for r in rows] == ["2026-03-04T00:00:00Z"]
+        assert rows[0]["daily_active_user_count"] == 84
+        assert rows[0]["cowork_weekly_active_user_count"] == 20
+        assert "id" not in rows[0]
+
+    @mock.patch(ANTHROPIC_SESSION_PATCH)
+    def test_a_day_ends_after_one_request(self, MockSession) -> None:
+        # The response carries neither `has_more` nor `next_page`, so a paginator that treated a
+        # missing token as "keep going" would re-request the same day forever.
+        session = MockSession.return_value
+        today = datetime.now(UTC).date()
+        _wire(session, [_summaries_page([_summary_row()])])
+
+        _rows(_source("analytics_summaries", _make_manager(), last_value=_midnight(today)))
+
+        assert session.send.call_count == 1
+
+
+class TestRbacNonRetryableErrors:
+    @parameterized.expand(
+        [
+            ("groups_forbidden", 403, "Forbidden", RBAC_GROUPS_PATH, "read:rbac_groups"),
+            # A Claude Console organization does not serve these routes at all.
+            ("groups_absent", 404, "Not Found", f"{RBAC_GROUPS_PATH}/rbac_group_1/members", "read:rbac_groups"),
+            ("roles_forbidden", 403, "Forbidden", RBAC_ROLES_PATH, "read:members"),
+            ("roles_absent", 404, "Not Found", f"{RBAC_ROLES_PATH}/rbac_role_1/permissions", "read:members"),
+        ]
+    )
+    def test_denial_names_the_scope_not_admin_access(
+        self, _name: str, status: int, reason: str, path: str, expected_scope: str
+    ) -> None:
+        # The generic api.anthropic.com 403 also matches a group or role denial, and the first
+        # matching entry supplies the message the customer reads. If it wins, the customer is told to
+        # swap their key for a Console Admin API key when the real problem is a missing scope.
+        errors = AnthropicSource().get_non_retryable_errors()
+        observed = f"{status} Client Error: {reason} for url: https://api.anthropic.com{path}"
+        matched = [message for pattern, message in errors.items() if error_message_matches(observed, [pattern])]
+        assert matched, "a group or role denial must be non-retryable"
+        assert expected_scope in (matched[0] or "")
