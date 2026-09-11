@@ -25,6 +25,7 @@ use personhog_common::grpc::semantic_refusal;
 use personhog_identity::lifecycle::engine::{
     advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, STEP_COMPLETED,
 };
+use personhog_identity::pools::IdentityPools;
 
 /// Two-step dummy op: `started → half → completed`. Counts step executions
 /// so tests can prove what did (or did not) re-run.
@@ -50,9 +51,9 @@ impl OpDriver for DummyDriver {
         "started"
     }
 
-    async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
         self.steps_run.fetch_add(1, Ordering::SeqCst);
-        let mut tx = pool.begin().await.map_err(SagaError::Db)?;
+        let mut tx = pools.heavy().begin().await.map_err(SagaError::Db)?;
         let advanced = match op.step.as_str() {
             "started" => advance_step_in_tx(&mut tx, op.op_id, "started", "half").await?,
             "half" => {
@@ -298,7 +299,7 @@ async fn a_live_lease_blocks_a_second_driver_until_it_lapses() {
     .expect("insert leased op");
 
     let short_engine = personhog_identity::lifecycle::engine::Engine::new(
-        ctx.pool.clone(),
+        ctx.pools.clone(),
         personhog_identity::lifecycle::engine::EngineConfig {
             lease: std::time::Duration::from_secs(5),
             execute_timeout: std::time::Duration::from_millis(200),
@@ -335,7 +336,7 @@ impl OpDriver for SlowDriver {
         "started"
     }
 
-    async fn run_step(&self, _pool: &PgPool, _op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(&self, _pools: &IdentityPools, _op: &OpRow) -> Result<(), SagaError> {
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
         Ok(())
     }
@@ -347,7 +348,7 @@ async fn a_drive_that_runs_out_its_own_deadline_says_so_and_releases_the_lease()
     let op_id = Uuid::now_v7();
 
     let short_engine = personhog_identity::lifecycle::engine::Engine::new(
-        ctx.pool.clone(),
+        ctx.pools.clone(),
         personhog_identity::lifecycle::engine::EngineConfig {
             lease: std::time::Duration::from_secs(5),
             execute_timeout: std::time::Duration::from_millis(200),
@@ -454,9 +455,9 @@ impl OpDriver for StolenLeaseDriver {
         "started"
     }
 
-    async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
         self.steps_run.fetch_add(1, Ordering::SeqCst);
-        steal_lease(pool, op.op_id).await;
+        steal_lease(pools.fast(), op.op_id).await;
         if self.fail_after_steal {
             Err(SagaError::CorruptState("simulated step failure".into()))
         } else {
@@ -475,7 +476,7 @@ async fn a_driver_whose_lease_was_stolen_stops_running_steps_instead_of_renewing
     let op_id = Uuid::now_v7();
 
     let short_engine = personhog_identity::lifecycle::engine::Engine::new(
-        ctx.pool.clone(),
+        ctx.pools.clone(),
         personhog_identity::lifecycle::engine::EngineConfig {
             lease: std::time::Duration::from_secs(5),
             execute_timeout: std::time::Duration::from_millis(200),
@@ -554,7 +555,7 @@ impl OpDriver for RefusingDriver {
         "started"
     }
 
-    async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
         self.steps_run.fetch_add(1, Ordering::SeqCst);
         if self
             .refusals_left
@@ -566,7 +567,7 @@ impl OpDriver for RefusingDriver {
                 "test-refusal",
             )));
         }
-        let mut tx = pool.begin().await.map_err(SagaError::Db)?;
+        let mut tx = pools.heavy().begin().await.map_err(SagaError::Db)?;
         let advanced =
             complete_op_in_tx(&mut tx, op.op_id, "started", STEP_COMPLETED, &json!({})).await?;
         if !advanced {
@@ -647,8 +648,8 @@ impl OpDriver for StolenLeaseRefusingDriver {
         "started"
     }
 
-    async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
-        steal_lease(pool, op.op_id).await;
+    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+        steal_lease(pools.fast(), op.op_id).await;
         Err(SagaError::leader(semantic_refusal(
             "injected refusal",
             "test-refusal",
@@ -813,11 +814,11 @@ impl OpDriver for DeadlockingDriver {
         "started"
     }
 
-    async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
         if self.attempts.fetch_add(1, Ordering::SeqCst) < self.fail_first {
             return Err(db_error("40P01"));
         }
-        self.inner.run_step(pool, op).await
+        self.inner.run_step(pools, op).await
     }
 }
 

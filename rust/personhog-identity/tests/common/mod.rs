@@ -10,6 +10,7 @@ use rand::Rng;
 use sqlx::postgres::PgPool;
 
 use personhog_identity::config::IdentityTables;
+use personhog_identity::pools::IdentityPools;
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
 
 /// The production table set. Most tests run here; the raw-SQL assertion
@@ -25,6 +26,7 @@ pub fn tmp_tables() -> IdentityTables {
 
 pub struct TestContext {
     pub pool: PgPool,
+    pub pools: IdentityPools,
     pub storage: Arc<PostgresIdentityStorage>,
     pub team_id: i64,
     pub tables: IdentityTables,
@@ -42,10 +44,12 @@ impl TestContext {
         let pool = PgPool::connect(&database_url)
             .await
             .expect("Failed to connect to test database");
-        let storage = Arc::new(PostgresIdentityStorage::new(pool.clone(), tables.clone()));
+        let pools = IdentityPools::shared(pool.clone());
+        let storage = Arc::new(PostgresIdentityStorage::new(pools.clone(), tables.clone()));
         let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         Self {
             pool,
+            pools,
             storage,
             team_id,
             tables,
@@ -97,7 +101,7 @@ impl TestContext {
     /// explicit lease_expires_at values instead of waiting this out.
     pub fn engine(&self) -> personhog_identity::lifecycle::engine::Engine {
         personhog_identity::lifecycle::engine::Engine::new(
-            self.pool.clone(),
+            self.pools.clone(),
             personhog_identity::lifecycle::engine::EngineConfig {
                 lease: std::time::Duration::from_secs(300),
                 execute_timeout: std::time::Duration::from_secs(10),
