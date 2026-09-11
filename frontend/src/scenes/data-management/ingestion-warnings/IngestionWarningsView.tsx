@@ -41,6 +41,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     schema_validation_failed: 'Event rejected due to schema validation failure',
     invalid_heatmap_data: 'Invalid heatmap data',
     invalid_group_set: 'Discarded a $groupidentify event whose $group_set is not an object',
+    cookieless_team_disabled: 'Discarded a cookieless event because cookieless tracking is disabled for this project',
     // Emitted by the capture service when it drops events at validation time
     missing_event_name: 'Discarded event with no event name',
     event_name_too_long: 'Discarded event whose name exceeds the length limit',
@@ -338,6 +339,24 @@ export const WARNING_TYPE_RENDERER = {
                 {' '}
                 Exception {details.event_uuid} contained $set or $set_once properties, which are ignored on exception
                 events
+            </>
+        )
+    },
+    cookieless_team_disabled: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+            event: string
+            distinctId: string
+        }
+        return (
+            <>
+                Discarded a <code>{details.event}</code> event sent in cookieless mode (event uuid:{' '}
+                <code>{details.eventUuid}</code>) because cookieless tracking is disabled for this project. Enable it
+                under{' '}
+                <Link to={urls.settings('environment-web-analytics', 'cookieless-server-hash-mode')}>
+                    Settings → Web analytics → Cookieless tracking
+                </Link>
+                , or remove <code>cookieless_mode</code> from your posthog-js config.
             </>
         )
     },
