@@ -551,12 +551,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
-        user_access_control = self.context["view"].user_access_control
-        turning_off = attrs.get("deleted") is True or attrs.get("enabled") is False
-        for field in ("dashboard", "insight"):
-            target = attrs.get(field) or getattr(existing, field, None)
-            if target is not None and not (target.deleted and turning_off):
-                _require_viewer_access(user_access_control, target, field)
+        self._validate_target_access(attrs, existing)
 
         if existing is None:
             # Create: a subscription must export an insight, a dashboard, or an AI prompt.
@@ -597,7 +592,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
         validate_for_resource_type(attrs, existing)
 
-        self._validate_dashboard_export_subscription(attrs)
+        self._validate_dashboard_export_subscription(attrs, existing)
 
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
         if (
@@ -806,8 +801,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             # Telemetry must never poison the validation path.
             pass
 
-    def _validate_dashboard_export_subscription(self, attrs):
-        dashboard = attrs.get("dashboard") or (self.instance.dashboard if self.instance else None)
+    def _validate_target_access(self, attrs: dict, existing: Subscription | None) -> None:
+        user_access_control = self.context["view"].user_access_control
+        turning_off = attrs.get("deleted") is True or attrs.get("enabled") is False
+        for field in ("dashboard", "insight"):
+            target = attrs.get(field) or getattr(existing, field, None)
+            if target is not None and not (target.deleted and turning_off):
+                _require_viewer_access(user_access_control, target, field)
+
+    def _validate_dashboard_export_subscription(self, attrs: dict, existing: Subscription | None) -> None:
+        dashboard = attrs.get("dashboard") or (existing.dashboard if existing else None)
         if dashboard is None:
             # Reject dashboard_export_insights on non dashboard subscriptions
             if attrs.get("dashboard_export_insights"):
@@ -820,7 +823,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         dashboard_export_insights_provided = "dashboard_export_insights" in attrs
         dashboard_export_insights = attrs.get("dashboard_export_insights", [])
 
-        is_create = self.instance is None
+        is_create = existing is None
         if (
             # For new dashboard subscriptions, require at least one insight to be selected
             (is_create and not dashboard_export_insights)
@@ -872,13 +875,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
             return
 
-        if self._keeps_its_own_selection():
+        if self._keeps_its_own_selection(existing):
             return
 
         self._require_viewer_access_to_every_live_tile(dashboard)
 
-    def _keeps_its_own_selection(self) -> bool:
-        return self.instance is not None and self.instance.dashboard_export_insights.exists()
+    def _keeps_its_own_selection(self, existing: Subscription | None) -> bool:
+        return existing is not None and existing.dashboard_export_insights.exists()
 
     def _require_viewer_access_to_every_live_tile(self, dashboard: Dashboard) -> None:
         live_tile_insights = Insight.objects.filter(
@@ -992,7 +995,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # Track payload PRESENCE, not truthiness: an empty list (clearing all exports) is delivery-relevant
         # too, so `bool(ids)` would miss it. Pop loses presence, so capture it first.
         export_insights_in_payload = "dashboard_export_insights" in validated_data
-        dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+        dashboard_export_insight_ids = validated_data.get("dashboard_export_insights", [])
         analytics_props = get_request_analytics_properties(request)
 
         # The view can have loaded `instance` before the scheduler advanced next_delivery_date.
@@ -1000,6 +1003,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # stale occurrence and leave a completed durable claim blocking future deliveries.
         with transaction.atomic():
             instance = Subscription.objects.select_for_update().get(pk=instance.pk)
+            # Validation originally ran against the view's pre-lock instance. Re-check
+            # the effective target and export selection now that the row is locked so a
+            # concurrent repoint cannot turn this update into delivery of restricted data.
+            self._validate_target_access(validated_data, instance)
+            self._validate_dashboard_export_subscription(validated_data, instance)
+            validated_data.pop("dashboard_export_insights", None)
             previous_target_value = instance.target_value
             was_disabled = instance.enabled is False
             is_delete = not instance.deleted and validated_data.get("deleted") is True
