@@ -4,7 +4,6 @@ import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTyp
 
 import {
     extractDashboard,
-    extractErrorTrackingResponse,
     extractQueryResult,
     extractRecordingFilters,
     extractVisualizationArtifact,
@@ -42,19 +41,12 @@ describe('mcp tool adapter extractors', () => {
                     isError: false,
                 },
             ],
-            ['MCP JSON text', { content: [{ type: 'text', text: JSON.stringify(savedInsight) }], isError: false }],
             [
-                'MCP JSON text without optional fields',
-                { content: [{ type: 'text', text: JSON.stringify(savedInsight) }] },
-            ],
-            [
-                'MCP TOON text with no structured content',
+                'MCP metadata takes precedence over formatted and structured content',
                 {
-                    structuredContent: null,
-                    content: [
-                        { type: 'image', data: 'unused', mimeType: 'image/png' },
-                        { type: 'text', text: 'short_id: abc12345\nname: Signups\nquery:\n  kind: TrendsQuery' },
-                    ],
+                    _meta: { 'com.posthog.mcp/app_data': savedInsight },
+                    structuredContent: { query: { kind: 'FunnelsQuery' } },
+                    content: [{ type: 'text', text: 'query: {\n  "kind": "TrendsQuery"\n}' }],
                     isError: false,
                 },
             ],
@@ -79,6 +71,10 @@ describe('mcp tool adapter extractors', () => {
             { content: [null, { type: 'image', data: 'unused', mimeType: 'image/png' }] },
             { content: [{ type: 'text', text: 'No insight found' }] },
             { structuredContent: savedInsight, isError: true },
+            { _meta: { 'com.posthog.mcp/app_data': savedInsight }, isError: true },
+            { _meta: { 'com.posthog.mcp/app_data': [] } },
+            { content: [{ type: 'text', text: JSON.stringify(savedInsight) }] },
+            { content: [{ type: 'text', text: 'query: {\n  "kind": "TrendsQuery"\n}' }] },
         ])('returns null for missing, malformed, or failed insight output: %j', (rawOutput) => {
             expect(extractVisualizationArtifact(toolMessage(rawOutput))).toBeNull()
         })
@@ -103,8 +99,6 @@ describe('mcp tool adapter extractors', () => {
             expect(dashboard).toEqual({ id: '7', name: 'From input', url: '/dashboard/7' })
         })
 
-        // String rawOutput goes through the best-effort JSON/TOON parse — exec `call`s respond with
-        // JSON when `--json` was passed and TOON otherwise, and the off-order format is a fallback.
         test.each([
             [
                 'JSON output when the command carried --json',
@@ -113,10 +107,9 @@ describe('mcp tool adapter extractors', () => {
             ],
             ['TOON output when the command had no flag', 'call dashboard-create {}', 'id: 7\nname: Growth'],
             ['JSON output even without the flag', 'call dashboard-create {}', '{"id": 7, "name": "Growth"}'],
-        ])('parses %s', (_name, command, rawOutput) => {
+        ])('leaves legacy %s to the generic card', (_name, command, rawOutput) => {
             const dashboard = extractDashboard({ ...toolMessage(rawOutput), rawInput: { command } })
-            expect(dashboard?.id).toBe(7)
-            expect(dashboard?.name).toBe('Growth')
+            expect(dashboard).toBeNull()
         })
 
         it('extracts nothing when a string output parses as neither JSON nor TOON', () => {
@@ -168,19 +161,41 @@ describe('mcp tool adapter extractors', () => {
         })
     })
 
-    describe('extractErrorTrackingResponse', () => {
-        it('accepts outputs carrying known search-response fields', () => {
-            const response = { status: 'active', search_query: 'TypeError', issues: [] }
-            expect(extractErrorTrackingResponse(toolMessage(response))).toBe(response)
-        })
-
-        it('rejects outputs without any known field', () => {
-            expect(extractErrorTrackingResponse(toolMessage({ results: [{ id: 'issue-1' }] }))).toBeNull()
-            expect(extractErrorTrackingResponse(toolMessage(undefined))).toBeNull()
-        })
-    })
-
     describe('extractQueryResult', () => {
+        it.each([
+            { kind: 'TrendsQuery', series: [] },
+            { kind: 'HogQLQuery', query: 'SELECT 1' },
+            { kind: 'InsightVizNode', source: { kind: 'StickinessQuery', series: [] } },
+            { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'SELECT 1' } },
+            { kind: 'DataTableNode', source: { kind: 'EventsQuery', select: ['*'] } },
+        ])('preserves a saved insight query ($kind) and its overridden link', (query) => {
+            const url = '/project/1/insights/example?variables_override=%7B%7D'
+            const result = extractQueryResult(
+                toolMessage(
+                    {
+                        content: [{ type: 'text', text: 'Date|count\n2026-01-01|3' }],
+                        _meta: {
+                            'com.posthog.mcp/app_data': {
+                                query,
+                                results: [],
+                                insight: {
+                                    name: 'Synthetic insight',
+                                    description: 'Saved query',
+                                    url: '/insights/example',
+                                },
+                                _posthogUrl: url,
+                            },
+                        },
+                    },
+                    { insightId: 'example' },
+                    'insight-query'
+                )
+            )
+            expect(result?.content.query).toEqual(query)
+            expect(result?.content.name).toEqual('Synthetic insight')
+            expect(result?.url).toEqual(url)
+        })
+
         it.each(['TrendsQuery', 'FunnelsQuery', 'RetentionQuery', 'StickinessQuery', 'PathsQuery', 'LifecycleQuery'])(
             'passes a bare %s through for InsightVizNode wrapping downstream',
             (kind) => {
@@ -202,18 +217,12 @@ describe('mcp tool adapter extractors', () => {
             expect(result?.url).toBeNull()
         })
 
-        it('uses the tool input when optimized streamed results omit structured raw output', () => {
-            const result = extractQueryResult(
-                toolMessage(undefined, { kind: 'TrendsQuery', series: [], output_format: 'optimized' }, 'query-trends')
-            )
-            expect(result?.content.query).toEqual({ kind: 'TrendsQuery', series: [] })
-            expect(result?.url).toBeNull()
-        })
-
-        it('infers the query kind from the wrapper tool key when the input omits kind', () => {
-            const result = extractQueryResult(toolMessage(undefined, { series: [] }, 'query-trends'))
-            expect(result?.content.query).toEqual({ kind: 'TrendsQuery', series: [] })
-        })
+        it.each([{ kind: 'TrendsQuery', series: [] }, { series: [] }])(
+            'falls back when the executed query is absent, even if input could supply it: %j',
+            (input) => {
+                expect(extractQueryResult(toolMessage(undefined, input, 'query-trends'))).toBeNull()
+            }
+        )
 
         it('wraps the actors wrapper output (ActorsQuery envelope) untouched in a DataTableNode', () => {
             const actorsQuery = {
@@ -241,6 +250,10 @@ describe('mcp tool adapter extractors', () => {
             expect(extractQueryResult(toolMessage({ results: [] }))).toBeNull()
             expect(extractQueryResult(toolMessage({ query: 'not-an-object' }))).toBeNull()
             expect(extractQueryResult(toolMessage(undefined))).toBeNull()
+            expect(extractQueryResult(toolMessage(undefined, { insightId: 'example' }, 'insight-query'))).toBeNull()
+            expect(extractQueryResult(toolMessage({ query: { kind: 'InsightVizNode' } }))).toBeNull()
+            expect(extractQueryResult(toolMessage({ query: { kind: 'DataVisualizationNode' } }))).toBeNull()
+            expect(extractQueryResult(toolMessage({ query: { kind: 'DataTableNode' } }))).toBeNull()
         })
     })
 })
