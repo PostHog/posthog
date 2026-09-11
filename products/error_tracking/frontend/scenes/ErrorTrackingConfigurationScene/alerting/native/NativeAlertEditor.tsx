@@ -9,6 +9,7 @@ import {
     LemonLabel,
     LemonModal,
     LemonSelect,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -18,15 +19,32 @@ import { SlackDestinationPicker } from 'scenes/comments/SlackDestinationPicker'
 import { AnyPropertyFilter } from '~/types'
 
 import { AlertPreview } from './AlertPreview'
-import { THROTTLE_OPTIONS, TRIGGER_OPTIONS, nativeAlertEditorLogic, splitChannel } from './nativeAlertEditorLogic'
+import {
+    THROTTLE_OPTIONS,
+    TRIGGER_OPTIONS,
+    nativeAlertEditorLogic,
+    splitChannel,
+    triggerSentence,
+} from './nativeAlertEditorLogic'
 
 export function NativeAlertEditor({ inline = false }: { inline?: boolean }): JSX.Element {
-    const { isOpen, draft, preview, previewLoading, previewError, savingLoading, deletingLoading, saveDisabledReason } =
-        useValues(nativeAlertEditorLogic)
+    const {
+        isOpen,
+        draft,
+        preview,
+        previewLoading,
+        previewError,
+        savingLoading,
+        deletingLoading,
+        saveDisabledReason,
+        triggersCustomized,
+    } = useValues(nativeAlertEditorLogic)
     const {
         closeEditor,
         setDraft,
         setTriggerEnabled,
+        customizeTriggers,
+        resetTriggers,
         addDestination,
         updateDestination,
         removeDestination,
@@ -42,7 +60,7 @@ export function NativeAlertEditor({ inline = false }: { inline?: boolean }): JSX
             title={draft.id ? 'Edit alert' : 'New alert'}
             description={
                 <span className="text-secondary">
-                    Open a Slack thread when an issue matches, then keep the thread updated as the issue changes.
+                    One Slack thread per issue, kept up to date as the issue changes.
                 </span>
             }
             isOpen={isOpen}
@@ -107,29 +125,35 @@ export function NativeAlertEditor({ inline = false }: { inline?: boolean }): JSX
                         </div>
 
                         <div className="flex flex-col gap-2">
-                            <LemonLabel>Open a thread when</LemonLabel>
-                            <div className="flex flex-col gap-1.5">
-                                {TRIGGER_OPTIONS.map((option) => (
-                                    <LemonCheckbox
-                                        key={option.value}
-                                        checked={draft.triggers.includes(option.value)}
-                                        onChange={(checked) => setTriggerEnabled(option.value, checked)}
-                                        label={
-                                            <span>
-                                                <span className="font-medium">{option.label}</span>
-                                                <span className="text-secondary text-xs ml-2">
-                                                    {option.description}
-                                                </span>
-                                            </span>
-                                        }
-                                    />
-                                ))}
+                            <div className="flex items-center justify-between gap-3">
+                                <span className="text-sm">{triggerSentence(draft.triggers)}</span>
+                                {triggersCustomized ? (
+                                    <LemonButton size="xsmall" type="tertiary" onClick={resetTriggers}>
+                                        Reset
+                                    </LemonButton>
+                                ) : (
+                                    <LemonButton size="xsmall" type="secondary" onClick={customizeTriggers}>
+                                        Customize
+                                    </LemonButton>
+                                )}
                             </div>
+                            {triggersCustomized && (
+                                <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                                    {TRIGGER_OPTIONS.map((option) => (
+                                        <LemonCheckbox
+                                            key={option.value}
+                                            checked={draft.triggers.includes(option.value)}
+                                            onChange={(checked) => setTriggerEnabled(option.value, checked)}
+                                            label={<Tooltip title={option.description}>{option.label}</Tooltip>}
+                                        />
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex flex-col gap-1">
-                            <LemonLabel info="Filters are checked against the exception that triggers the thread. Later updates to the issue are always posted into an open thread.">
-                                Only if the exception matches
+                            <LemonLabel info="Checked against the exception when a thread would open. Later updates to the issue always post into the open thread.">
+                                Only for issues matching
                             </LemonLabel>
                             <PropertyFilters
                                 editable
