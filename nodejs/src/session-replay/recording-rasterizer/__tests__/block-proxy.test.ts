@@ -7,6 +7,12 @@ jest.mock('~/common/utils/request', () => ({
     internalFetch: (...args: any[]) => mockInternalFetch(...args),
 }))
 
+// The retry backoff is real time the tests do not need to spend.
+jest.mock('~/common/utils/utils', () => ({
+    ...jest.requireActual('~/common/utils/utils'),
+    sleep: jest.fn().mockResolvedValue(undefined),
+}))
+
 function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeRecordingInput {
     return {
         session_id: 'test-session-123',
@@ -21,6 +27,8 @@ const testCfg = {
     recordingApiBaseUrl: 'http://localhost:6738',
     recordingApiSecret: 'test-secret',
     blockListingTimeoutMs: 30_000,
+    // Most cases assert the outcome of a single attempt; the retry block below sets its own.
+    blockListingAttempts: 1,
 }
 
 const mockLog = {
@@ -123,6 +131,41 @@ describe('BlockProxy', () => {
             await expect(proxy.fetchBlocks(baseInput())).rejects.toThrow('Invalid block listing response')
             // The rethrow that lets timeouts through as retryable must not flip this.
             await expect(proxy.fetchBlocks(baseInput())).rejects.toMatchObject({ retryable: false })
+        })
+
+        it('retries a transient failure and returns the listing the retry answers', async () => {
+            mockInternalFetch
+                .mockResolvedValueOnce({ status: 503, text: jest.fn().mockResolvedValue('upstream busy') })
+                .mockResolvedValueOnce({
+                    status: 200,
+                    json: jest.fn().mockResolvedValue({ blocks: [{ key: 'b0', start_byte: 0, end_byte: 9 }] }),
+                })
+
+            const proxy = new BlockProxy({ ...testCfg, blockListingAttempts: 3 }, mockLog)
+
+            await expect(proxy.fetchBlocks(baseInput())).resolves.toBe(1)
+            expect(mockInternalFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('stops retrying a failure that cannot heal', async () => {
+            mockInternalFetch.mockResolvedValue({ status: 403, text: jest.fn().mockResolvedValue('denied') })
+
+            const proxy = new BlockProxy({ ...testCfg, blockListingAttempts: 3 }, mockLog)
+
+            await expect(proxy.fetchBlocks(baseInput())).rejects.toMatchObject({ retryable: false })
+            expect(mockInternalFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it('gives up after the configured attempts and keeps the last error', async () => {
+            mockInternalFetch.mockResolvedValue({ status: 503, text: jest.fn().mockResolvedValue('upstream busy') })
+
+            const proxy = new BlockProxy({ ...testCfg, blockListingAttempts: 3 }, mockLog)
+
+            await expect(proxy.fetchBlocks(baseInput())).rejects.toMatchObject({
+                retryable: true,
+                code: 'BLOCK_LISTING_FAILED',
+            })
+            expect(mockInternalFetch).toHaveBeenCalledTimes(3)
         })
 
         it('marks a body read that aborts as retryable', async () => {

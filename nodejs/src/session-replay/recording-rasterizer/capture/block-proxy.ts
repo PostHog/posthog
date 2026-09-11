@@ -3,6 +3,7 @@ import { HTTPRequest } from 'puppeteer'
 import { BLOCK_REQUEST_PREFIX } from '@posthog/replay-headless/protocol'
 
 import { internalFetch } from '~/common/utils/request'
+import { sleep } from '~/common/utils/utils'
 import { type RecordingBlock as FullRecordingBlock } from '~/session-replay/recording-api/types'
 import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
@@ -11,6 +12,9 @@ import { RasterizeRecordingInput } from '~/session-replay/recording-rasterizer/t
 type RecordingBlock = Pick<FullRecordingBlock, 'key' | 'start_byte' | 'end_byte'>
 
 export { BLOCK_REQUEST_PREFIX }
+
+// Backoff between block listing attempts, multiplied by the attempt number.
+const BLOCK_LISTING_RETRY_BASE_MS = 500
 
 export class BlockProxy {
     private blocks: RecordingBlock[] = []
@@ -23,6 +27,7 @@ export class BlockProxy {
             recordingApiBaseUrl: string
             recordingApiSecret: string
             blockListingTimeoutMs: number
+            blockListingAttempts: number
         },
         private log: Logger = createLogger()
     ) {}
@@ -50,6 +55,9 @@ export class BlockProxy {
         return headers
     }
 
+    // The listing reads ClickHouse through recording-api, so a timeout or a 5xx is usually a blip
+    // rather than a broken recording. Retry here: the workflow's own retry relaunches Chromium and
+    // redoes the whole render for what a second request often answers.
     async fetchBlocks(input: RasterizeRecordingInput): Promise<number> {
         this.teamId = input.team_id
         this.sessionId = input.session_id
@@ -60,6 +68,23 @@ export class BlockProxy {
         const url = `${this.cfg.recordingApiBaseUrl}/api/projects/${input.team_id}/recordings/${encodeURIComponent(
             input.session_id
         )}/blocks`
+        const attempts = this.cfg.blockListingAttempts
+        for (let attempt = 1; ; attempt++) {
+            try {
+                this.blocks = await this.fetchBlockListing(url)
+                return this.blocks.length
+            } catch (err) {
+                const retryable = err instanceof RasterizationError && err.retryable
+                if (!retryable || attempt >= attempts) {
+                    throw err
+                }
+                this.log.warn({ attempt, attempts, err }, 'block listing fetch failed, retrying')
+                await sleep(BLOCK_LISTING_RETRY_BASE_MS * attempt)
+            }
+        }
+    }
+
+    private async fetchBlockListing(url: string): Promise<RecordingBlock[]> {
         try {
             const resp = await internalFetch(url, {
                 headers: this.authHeaders(),
@@ -85,8 +110,7 @@ export class BlockProxy {
                     'BLOCK_LISTING_FAILED'
                 )
             }
-            this.blocks = data.blocks as RecordingBlock[]
-            return this.blocks.length
+            return data.blocks as RecordingBlock[]
         } catch (err) {
             if (err instanceof RasterizationError) {
                 throw err

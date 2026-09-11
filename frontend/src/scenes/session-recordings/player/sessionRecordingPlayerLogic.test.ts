@@ -1,5 +1,5 @@
 import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
+import { delay, expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
@@ -1704,6 +1704,12 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('exportRecording', () => {
+        // Earlier blocks in this file install fake timers and never restore them, and the wait for
+        // rrweb's frame runs on real ones.
+        beforeEach(() => {
+            jest.useRealTimers()
+        })
+
         it('uses the player skip-inactivity setting', () => {
             // setRootFrame clears innerHTML, so append the iframe after it runs
             const rootFrame = document.createElement('div')
@@ -1718,6 +1724,50 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(startReplayExportSpy).toHaveBeenCalledTimes(1)
             expect(startReplayExportSpy.mock.calls[0]?.[5]?.skip_inactivity).toBe(false)
             startReplayExportSpy.mockRestore()
+        })
+
+        // No root frame is the state the player is in before rrweb can build its replay iframe.
+        const withoutPlayerFrame = (): void => {
+            logic.actions.setRootFrame(null as unknown as HTMLDivElement)
+        }
+
+        it('exports once rrweb builds its frame, rather than failing the early click', async () => {
+            withoutPlayerFrame()
+
+            const startReplayExportSpy = jest.spyOn(logic.actions, 'startReplayExport')
+            logic.actions.exportRecording(ExporterFormat.PNG, 0, SessionRecordingPlayerMode.Screenshot)
+            expect(startReplayExportSpy).not.toHaveBeenCalled()
+
+            // Stands in for rrweb finishing its build: only the iframe matters to the export.
+            const replayerStub = new Proxy(
+                {
+                    iframe: document.createElement('iframe'),
+                    service: { state: { context: { events: [] } } },
+                } as Record<string, any>,
+                { get: (target, key) => (key in target ? target[key as string] : () => undefined) }
+            )
+            logic.actions.setPlayer({ replayer: replayerStub, windowId: '1' } as any)
+            await delay(150)
+
+            expect(startReplayExportSpy).toHaveBeenCalledTimes(1)
+            startReplayExportSpy.mockRestore()
+        })
+
+        it('reports the blocked branch instead of exporting when no frame ever arrives', async () => {
+            withoutPlayerFrame()
+
+            const startReplayExportSpy = jest.spyOn(logic.actions, 'startReplayExport')
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            logic.actions.exportRecording(ExporterFormat.PNG, 0, SessionRecordingPlayerMode.Screenshot)
+            await delay(300)
+
+            expect(startReplayExportSpy).not.toHaveBeenCalled()
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay export blocked',
+                expect.objectContaining({ format: ExporterFormat.PNG, mode: SessionRecordingPlayerMode.Screenshot })
+            )
+            startReplayExportSpy.mockRestore()
+            captureSpy.mockRestore()
         })
     })
 })
