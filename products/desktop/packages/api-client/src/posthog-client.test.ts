@@ -2204,10 +2204,10 @@ describe("PostHogAPIClient", () => {
       return client;
     }
 
-    function page(results: object[], next: string | null = null) {
+    function page(results: object[], count: number = results.length) {
       return {
         ok: true,
-        json: async () => ({ count: 0, previous: null, next, results }),
+        json: async () => ({ count, previous: null, next: null, results }),
       };
     }
 
@@ -2225,46 +2225,34 @@ describe("PostHogAPIClient", () => {
       expect(fetch).not.toHaveBeenCalled();
     });
 
-    it("returns single-page results without further requests", async () => {
+    it("requests the max page size and stops when one page covers the count", async () => {
       const fetch = buildFetchForPages(page([{ id: "a" }]));
       await expect(buildClient(fetch).getTaskSummaries(["a"])).resolves.toEqual(
         [{ id: "a" }],
       );
       expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch.mock.calls[0][0]).toMatchObject({
+        method: "post",
+        path: `${SUMMARIES_PATH}?limit=100&offset=0`,
+      });
     });
 
-    it.each([
-      {
-        name: "same-host next URL",
-        nextUrl: `http://localhost:8000${SUMMARIES_PATH}?limit=2&offset=2`,
-        expectedSecondPath: `${SUMMARIES_PATH}?limit=2&offset=2`,
-      },
-      {
-        name: "cross-host next URL (proxy variance)",
-        nextUrl: `https://internal.posthog.example${SUMMARIES_PATH}?limit=1&offset=1`,
-        expectedSecondPath: `${SUMMARIES_PATH}?limit=1&offset=1`,
-      },
-    ])(
-      "follows the next cursor across pages and merges results: $name",
-      async ({ nextUrl, expectedSecondPath }) => {
-        const fetch = buildFetchForPages(
-          page([{ id: "a" }, { id: "b" }], nextUrl),
-          page([{ id: "c" }]),
-        );
-        await expect(
-          buildClient(fetch).getTaskSummaries(["a", "b", "c"]),
-        ).resolves.toEqual([{ id: "a" }, { id: "b" }, { id: "c" }]);
-        expect(fetch).toHaveBeenCalledTimes(2);
-        expect(fetch.mock.calls[0][0]).toMatchObject({
-          method: "post",
-          path: SUMMARIES_PATH,
-        });
-        expect(fetch.mock.calls[1][0]).toMatchObject({
-          method: "post",
-          path: expectedSecondPath,
-        });
-      },
-    );
+    it("fetches remaining pages by offset from count, not by walking next", async () => {
+      const fetch = buildFetchForPages(
+        page([{ id: "a" }], 250),
+        page([{ id: "b" }]),
+        page([{ id: "c" }]),
+      );
+      await expect(
+        buildClient(fetch).getTaskSummaries(["a", "b", "c"]),
+      ).resolves.toEqual([{ id: "a" }, { id: "b" }, { id: "c" }]);
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(fetch.mock.calls.map((call) => call[0].path)).toEqual([
+        `${SUMMARIES_PATH}?limit=100&offset=0`,
+        `${SUMMARIES_PATH}?limit=100&offset=100`,
+        `${SUMMARIES_PATH}?limit=100&offset=200`,
+      ]);
+    });
 
     it("throws when the server responds non-OK", async () => {
       const fetch = vi
@@ -2275,18 +2263,27 @@ describe("PostHogAPIClient", () => {
       );
     });
 
-    it("returns partial results when MAX_PAGES is exceeded", async () => {
-      const fetch = vi
-        .fn()
-        .mockResolvedValue(
-          page(
-            [{ id: "x" }],
-            `http://localhost:8000${SUMMARIES_PATH}?offset=1`,
-          ),
-        );
+    it("caps at MAX_PAGES when the count is unbounded", async () => {
+      const fetch = vi.fn().mockResolvedValue(page([{ id: "x" }], 1_000_000));
       const result = await buildClient(fetch).getTaskSummaries(["a"]);
       expect(fetch).toHaveBeenCalledTimes(50);
       expect(result.length).toBe(50);
+    });
+
+    it("caps how many page fetches are in flight at once", async () => {
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const fetch = vi.fn().mockImplementation(async () => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await Promise.resolve();
+        inFlight--;
+        return page([{ id: "x" }], 2000);
+      });
+      await buildClient(fetch).getTaskSummaries(["a"]);
+      // 20 pages (count 2000 / 100), fetched in bounded batches, never all at once.
+      expect(fetch).toHaveBeenCalledTimes(20);
+      expect(maxInFlight).toBeLessThanOrEqual(6);
     });
   });
 

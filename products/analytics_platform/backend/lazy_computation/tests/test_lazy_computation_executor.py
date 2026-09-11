@@ -2,7 +2,7 @@ import time as time_mod
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
@@ -2204,7 +2204,7 @@ class TestComputationExecutorExecute(BaseTest):
         schedule = TtlSchedule(rules=[], default_ttl_seconds=3600, default_ttl_jitter_seconds=14 * 24 * 60 * 60)
         executor = LazyComputationExecutor(ttl_schedule=schedule)
 
-        with freeze_time("2026-01-15T12:00:00Z") as frozen:
+        with time_machine.travel("2026-01-15T12:00:00Z", tick=False) as frozen:
             start = datetime(2026, 1, 5, tzinfo=UTC)
             end = datetime(2026, 1, 6, tzinfo=UTC)
             result = executor.execute(
@@ -2217,7 +2217,7 @@ class TestComputationExecutorExecute(BaseTest):
             # This window's deterministic offset is nonzero, so the job outlives the base TTL
             assert jittered_ttl > 3600
 
-            frozen.tick(timedelta(seconds=(3600 + jittered_ttl) / 2))
+            frozen.shift(timedelta(seconds=(3600 + jittered_ttl) / 2))
             result = executor.execute(
                 team=self.team, query_info=query_info, start=start, end=end, run_insert=lambda t, j: None
             )

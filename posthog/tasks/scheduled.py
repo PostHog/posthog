@@ -9,6 +9,7 @@ from celery.schedules import crontab
 
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs, publish_cohort_backfill_run_gauges
@@ -78,6 +79,7 @@ from products.approvals.backend.tasks import expire_old_change_requests, validat
 from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
+from products.conversations.backend.tasks.slack import sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import (
@@ -819,19 +821,23 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="mark stale pulse briefs failed",
     )
 
-    if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
-        sender.add_periodic_task(
-            clear_clickhouse_crontab,
-            clickhouse_clear_removed_data.s(),
-            name="clickhouse clear removed data",
-        )
+    # Self-hosted only; cloud runs clickhouse_deletion_sweep_job instead.
+    if celery_sweeps_enabled():
+        if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
+            sender.add_periodic_task(
+                clear_clickhouse_crontab,
+                clickhouse_clear_removed_data.s(),
+                name="clickhouse clear removed data",
+            )
 
-    if clear_clickhouse_deleted_person_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON):
-        sender.add_periodic_task(
-            clear_clickhouse_deleted_person_crontab,
-            clear_clickhouse_deleted_person.s(),
-            name="clickhouse clear deleted person data",
-        )
+        if clear_clickhouse_deleted_person_crontab := get_crontab(
+            settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON
+        ):
+            sender.add_periodic_task(
+                clear_clickhouse_deleted_person_crontab,
+                clear_clickhouse_deleted_person.s(),
+                name="clickhouse clear deleted person data",
+            )
 
     sender.add_periodic_task(
         crontab(hour="*", minute="0"),
@@ -1002,6 +1008,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         flush_pending_email_replies.s(),
         name="flush pending conversation email replies",
+    )
+
+    # Re-drive due Slack ingress receipts. Celery on_commit is only a wake-up hint.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        sweep_inbound_events.s(),
+        name="sweep conversation inbound events",
     )
 
     # Pull ambient messages from MS Teams shared channels (which never push them

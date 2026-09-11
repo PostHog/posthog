@@ -18,7 +18,18 @@ interface GithubRefChipLinkProps
   /** Names the icon for screen readers. Omit when the icon says nothing extra. */
   iconLabel?: string;
   toneClass?: string;
+  /** Keeps a trailing `#number` visible when the label truncates. */
+  preservePrNumber?: boolean;
   children: ReactNode;
+}
+
+/**
+ * Truncation removes the end of a label, which for `owner/repo#number` is the
+ * number that tells two pull requests apart. Only labels that end in a number
+ * qualify: `#12 - Title` already keeps its number at the front.
+ */
+function endsWithRefNumber(label: ReactNode): boolean {
+  return typeof label === "string" && /#\d+$/.test(label);
 }
 
 /**
@@ -32,9 +43,22 @@ export const GithubRefChipLink = forwardRef<
   HTMLButtonElement,
   GithubRefChipLinkProps
 >(function GithubRefChipLink(
-  { href, icon: RefIcon, iconLabel, toneClass, children, ...buttonProps },
+  {
+    href,
+    icon: RefIcon,
+    iconLabel,
+    toneClass,
+    preservePrNumber,
+    children,
+    ...buttonProps
+  },
   ref,
 ) {
+  // A right-to-left box puts the ellipsis at the start, so the trailing number
+  // survives truncation. The inner isolate keeps the text itself left-to-right.
+  // The label stays one text node on purpose: a number in its own flex item
+  // puts a line break into copied text.
+  const ellipsisAtStart = preservePrNumber && endsWithRefNumber(children);
   return (
     <Button
       ref={ref}
@@ -73,8 +97,9 @@ export const GithubRefChipLink = forwardRef<
           "inline-block max-w-[min(16rem,calc(100%-1rem))] truncate align-top",
           toneClass,
         )}
+        dir={ellipsisAtStart ? "rtl" : undefined}
       >
-        {children}
+        {ellipsisAtStart ? <span dir="ltr">{children}</span> : children}
       </span>
     </Button>
   );
@@ -98,6 +123,7 @@ export function GithubRefChip({
     <GithubRefChipLink
       href={href}
       icon={kind === "pr" ? GitPullRequestIcon : GithubLogoIcon}
+      preservePrNumber={kind === "pr"}
     >
       {children}
     </GithubRefChipLink>

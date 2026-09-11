@@ -26,6 +26,7 @@ from products.feature_flags.backend.facade.api import (
     ship_variant,
     update_flag,
 )
+from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import (
     group_cohort_restriction_blocker,
     groups_carry_restriction_marker,
@@ -763,6 +764,20 @@ class TestExperimentRuleFromFilters:
                 ),
             ),
             (
+                "explicit_version_1",
+                {
+                    "version": 1,
+                    "groups": [{"properties": [], "rollout_percentage": 40}],
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                },
+                ExperimentRuleConfig(
+                    variants=[{"key": "control", "rollout_percentage": 100}],
+                    rollout_percentage=40,
+                    assign_variant_by=None,
+                    holdout=None,
+                ),
+            ),
+            (
                 "empty_filters",
                 {},
                 ExperimentRuleConfig(variants=[], rollout_percentage=None, assign_variant_by=None, holdout=None),
@@ -801,3 +816,28 @@ class TestExperimentRuleFromFilters:
     )
     def test_derivation(self, _name, filters, expected):
         assert experiment_rule_from_filters(filters) == expected
+
+    @parameterized.expand(
+        [
+            ("v2_document", {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}, "v2"),
+            (
+                "version_string",
+                {"version": "1", "groups": [{"properties": [], "rollout_percentage": 40}]},
+                "unsupported",
+            ),
+            (
+                "version_boolean",
+                {"version": True, "groups": [{"properties": [], "rollout_percentage": 40}]},
+                "unsupported",
+            ),
+            (
+                "unknown_future_version",
+                {"version": 3, "groups": [{"properties": [], "rollout_percentage": 40}]},
+                "unsupported",
+            ),
+        ]
+    )
+    def test_non_v1_formats_do_not_enter_the_v1_branch(self, _name, filters, expected_kind):
+        with pytest.raises(ConfigFormatError) as exc_info:
+            experiment_rule_from_filters(filters)
+        assert exc_info.value.config_format.kind == expected_kind

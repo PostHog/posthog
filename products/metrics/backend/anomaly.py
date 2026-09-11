@@ -59,7 +59,7 @@ _AGGREGATION_BY_TYPE = {
 def _default_aggregation(team: Team, metric_name: str) -> tuple[str, float | None]:
     """Pick an aggregation from the metric's OTel type: counters get `rate`,
     gauges `avg`, histograms `histogram_quantile(0.95)`."""
-    for row in MetricNamesQueryRunner(team=team, search=metric_name, limit=5).run():
+    for row in MetricNamesQueryRunner(team=team, search=metric_name, limit=5, include_sparklines=False).run():
         if row["name"] == metric_name:
             aggregation = _AGGREGATION_BY_TYPE.get(row["metric_type"], "avg")
             return aggregation, 0.95 if aggregation == "histogram_quantile" else None
