@@ -1,4 +1,3 @@
-import sys
 import json
 import shlex
 import asyncio
@@ -1502,7 +1501,6 @@ class TestStartupFailureDiagnostics:
         assert "never reported hasSession=true" in diagnostics["failure_reason"]
         assert diagnostics["host_pressure"].startswith("unavailable:")
 
-    @pytest.mark.skipif(sys.platform != "linux", reason="requires Linux /proc and GNU coreutils")
     def test_host_pressure_probe_script_reports_every_measurement(self):
         completed = subprocess.run(
             ["bash", "-c", HOST_PRESSURE_PROBE_SCRIPT], capture_output=True, text=True, timeout=60, check=False

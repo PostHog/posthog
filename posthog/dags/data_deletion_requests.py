@@ -159,14 +159,6 @@ def _json_property_filter_clause(props: list[str], column: str = "properties") -
     return f"({' OR '.join(exprs)})"
 
 
-def _json_mutation_keys(props: list[str]) -> list[str]:
-    """Keys for JSONDropKeys on the native-JSON events table. The ingest cleaner folds every
-    `$feature/<flag>` property into the `$feature_flags` map, so the stored path is the map entry."""
-    return [
-        f"$feature_flags.{prop.removeprefix('$feature/')}" if prop.startswith("$feature/") else prop for prop in props
-    ]
-
-
 def _property_filter_params(props: list[str], prefix: str = "fp_") -> dict:
     params: dict[str, str] = {}
     for i, prop in enumerate(props):
@@ -939,7 +931,7 @@ def process_property_removal_shard(
         if properties:
             properties_read = "toJSONString(properties)" if json_schema else "properties"
             update_parts.append(f"properties = JSONDropKeys(%(keys)s)({properties_read})")
-            mutation_params["keys"] = _json_mutation_keys(properties) if json_schema else properties
+            mutation_params["keys"] = properties
         if person_properties:
             person_properties_read = "toJSONString(person_properties)" if json_schema else "person_properties"
             update_parts.append(f"person_properties = JSONDropKeys(%(person_keys)s)({person_properties_read})")

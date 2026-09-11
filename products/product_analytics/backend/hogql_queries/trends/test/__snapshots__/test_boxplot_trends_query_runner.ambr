@@ -802,7 +802,7 @@
          quantile(0.75)(accurateCastOrNull(e.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.revenue, 'Float64')) AS max_val,
          avg(accurateCastOrNull(e.revenue, 'Float64')) AS mean_val
-  FROM s3('http://objectstorage:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.boxplot/posthog_test_boxplot_table/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `created` DateTime64(3, \'UTC\'), `revenue` Float64') AS e
+  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.boxplot/posthog_test_boxplot_table/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `created` DateTime64(3, \'UTC\'), `revenue` Float64') AS e
   WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC

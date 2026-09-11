@@ -174,8 +174,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         override surface — a subclass that customizes either of those without
         calling super() would otherwise leak the token.
 
-        This mixin must precede dispatch overrides such as QueryCoalescingMixin
-        so cached responses also pass through this cleanup.
+        Note: a subclass that overrides `dispatch` itself without super() would
+        also bypass this cleanup; in this codebase only `query_coalescer.py`
+        overrides dispatch and it does call super().
 
         ContextVars in sync Django are thread-local and the same worker thread
         is reused across requests, so a leaked token would let scope from one

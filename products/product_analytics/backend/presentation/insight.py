@@ -1770,8 +1770,8 @@ Background calculation can be tracked using the `query_status` response field.""
     destroy=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER]),
 )
 class InsightViewSet(
-    TeamAndOrgViewSetMixin,
     QueryCoalescingMixin,
+    TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,

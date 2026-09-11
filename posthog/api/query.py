@@ -207,7 +207,7 @@ def required_scopes_for_query_payload(query: object) -> list[str] | None:
     return None
 
 
-class QueryViewSet(TeamAndOrgViewSetMixin, QueryCoalescingMixin, PydanticModelMixin, viewsets.ViewSet):
+class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
     serializer_class = _FallbackSerializer

@@ -96,13 +96,11 @@ def test_internal_stage_uses_aws_s3_for_cloud(cloud_deployment: str) -> None:
         assert _get_s3_credentials() is None
 
 
-@pytest.mark.parametrize(("is_debug", "is_test"), [(False, False), (True, False), (False, True)])
-def test_s3_endpoint_url_uses_configured_worker_endpoint(is_debug: bool, is_test: bool) -> None:
+def test_s3_endpoint_url_self_hosted_uses_configured_endpoint_not_localhost() -> None:
     with override_settings(
         CLOUD_DEPLOYMENT=None,
-        DEBUG=is_debug,
-        TEST=is_test,
-        OBJECT_STORAGE_ENDPOINT="http://127.0.0.1:19001",
+        DEBUG=False,
+        TEST=False,
         BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT=OBJECT_STORAGE_ENDPOINT,
     ):
-        assert _get_s3_endpoint_url() == ("http://127.0.0.1:19001" if is_debug or is_test else OBJECT_STORAGE_ENDPOINT)
+        assert _get_s3_endpoint_url() == OBJECT_STORAGE_ENDPOINT

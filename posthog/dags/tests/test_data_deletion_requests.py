@@ -24,7 +24,6 @@ from posthog.dags.data_deletion_requests import (
     DataDeletionRequestConfig,
     DeletionRequestContext,
     PersonRemovalContext,
-    _json_mutation_keys,
     _property_removal_where,
     _refuse_property_removal_unsweepable,
     auto_approve_deletion_requests_job,
@@ -2618,26 +2617,3 @@ def test_json_property_presence_expr_treats_empty_values_as_absent(document: str
     )
 
     assert present == expected
-
-
-@pytest.mark.parametrize(
-    "requested,absent_after,present_after",
-    [
-        (["$feature/beta"], ["$feature/beta"], ["$feature/other", "custom"]),
-        (["custom"], ["custom"], ["$feature/beta", "$feature/other"]),
-    ],
-)
-def test_json_mutation_keys_drop_folded_feature_flags(
-    requested: list[str], absent_after: list[str], present_after: list[str]
-):
-    document = '{"$feature_flags":{"beta":"control","other":"x"},"custom":"y"}'
-    presence = ", ".join(
-        f"toUInt8({json_property_presence_expr('properties', prop)})" for prop in absent_after + present_after
-    )
-    [row] = sync_execute(
-        f"SELECT {presence} FROM (SELECT CAST(JSONDropKeys(%(keys)s)(toJSONString(CAST(%(raw)s, %(json_type)s))), "
-        "%(json_type)s) AS properties)",
-        {"keys": _json_mutation_keys(requested), "raw": document, "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
-    )
-
-    assert list(row) == [0] * len(absent_after) + [1] * len(present_after)

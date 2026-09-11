@@ -1,7 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 
 from posthog.models.person.util import (
     _fetch_person_by_distinct_id_via_personhog,
@@ -431,7 +431,6 @@ class TestGetPersonByPkOrUuid(SimpleTestCase):
 # ── personhog_call unit tests ────────────────────────────────────
 
 
-@override_settings(OTEL_SERVICE_NAME="posthog-django")
 class TestPersonhogCall(SimpleTestCase):
     @patch("posthog.personhog_client.metrics.PERSONHOG_ROUTING_TOTAL")
     def test_calls_fn_and_increments_counter(self, mock_routing):

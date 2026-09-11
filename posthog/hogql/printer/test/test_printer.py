@@ -1395,9 +1395,7 @@ class TestPrinter(BaseTest):
                 expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             )
 
-    @pytest.mark.skipif(
-        not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="Requires test-new-events-schema CI label (#63448)"
-    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_json_has_uses_direct_json_subcolumns(self) -> None:
         expected_by_expr = {
             "JSONHas(properties, 'dynamic_key')": "or(isNotNull(events.properties.dynamic_key), notEquals(toJSONString(events.properties.^dynamic_key), '{}'))",
@@ -1424,9 +1422,7 @@ class TestPrinter(BaseTest):
         self.assertIn("events.properties.items", printed)
         self.assertNotIn("JSONExtractKeysAndValuesRaw", printed)
 
-    @pytest.mark.skipif(
-        not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="Requires test-new-events-schema CI label (#63448)"
-    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_keyed_json_extracts_avoid_blob_reconstruction(self) -> None:
         # Extracting one key must read only that subcolumn — falling back to the reconstructed
         # whole-properties blob is a large per-row serialization cost.
@@ -1446,9 +1442,7 @@ class TestPrinter(BaseTest):
             for properties in [{}, {"$exception_types": ["TypeError"], "items": [None, "", {}, []], "custom_empty": []}]
         ]
     )
-    @pytest.mark.skipif(
-        not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="Requires test-new-events-schema CI label (#63448)"
-    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_to_json_string_strips_empty_values(
         self, expression: str, properties: dict[str, object]
     ) -> None:
@@ -1466,9 +1460,7 @@ class TestPrinter(BaseTest):
             ({"$groups": {"organization": "o", "custom": "c"}}, {"organization": "o", "custom": "c"}, 1, 1),
         ]
     )
-    @pytest.mark.skipif(
-        not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="Requires test-new-events-schema CI label (#63448)"
-    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_groups_omit_typed_defaults(
         self,
         properties: dict[str, object],
@@ -1489,9 +1481,6 @@ class TestPrinter(BaseTest):
         self.assertEqual(result[1:4], (has_groups, has_organization, int(expected_groups is None)))
         self.assertEqual(result[4], (expected_groups or {}).get("organization"))
 
-    @pytest.mark.skipif(
-        not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="Requires test-new-events-schema CI label (#63448)"
-    )
     def test_instance_setting_enables_new_events_schema(self) -> None:
         # The production rollout lever is the instance setting, not the env var — a fresh context
         # must pick up a runtime flip.
@@ -1500,9 +1489,6 @@ class TestPrinter(BaseTest):
         self.assertIn("FROM events_json", sql)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-    @pytest.mark.skipif(
-        not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="Requires test-new-events-schema CI label (#63448)"
-    )
     def test_instance_setting_team_allowlist_enables_new_events_schema(self) -> None:
         with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False):
             with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", f" 999999, {self.team.pk} "):
@@ -1518,9 +1504,7 @@ class TestPrinter(BaseTest):
                 with pytest.raises(ValueError):
                     self._select("SELECT event FROM events")
 
-    @pytest.mark.skipif(
-        not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="Requires test-new-events-schema CI label (#63448)"
-    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_percent_property_keys_use_bound_subcolumns(self) -> None:
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
 
@@ -1529,9 +1513,7 @@ class TestPrinter(BaseTest):
             self.assertIn("getSubcolumn(events.properties,", printed)
             self.assertNotIn("JSONExtractKeysAndValuesRaw", printed)
 
-    @pytest.mark.skipif(
-        not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="Requires test-new-events-schema CI label (#63448)"
-    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_runtime_first_property_keys_fail_fast(self) -> None:
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
 
@@ -5413,9 +5395,13 @@ class TestPrinter(BaseTest):
 
 
 class TestNewEventsSchemaDefaults(BaseTest):
-    def test_hogql_events_table_uses_configured_schema(self) -> None:
-        use_new_events_schema = settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+    @parameterized.expand([("json", True), ("legacy", False)])
+    def test_hogql_events_table_uses_configured_schema(self, _name: str, use_new_events_schema: bool) -> None:
+        # The instance setting's constance default is seeded from the same env var, so in
+        # json-mode CI override_settings alone still resolves to json via the fallback —
+        # pin the instance settings too.
         with (
+            override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema),
             override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", use_new_events_schema),
             override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", ""),
         ):

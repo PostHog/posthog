@@ -19,9 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.regis
     snapshot_registered_writers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load import delivery
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.builtin_writers import (
-    ensure_builtin_destination_writers_registered,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery import (
     destination_table_name,
 )
@@ -61,7 +58,6 @@ class DeliveryTestCase(BaseTest):
 
         # The registry is process-global, so these fakes have to come back out or every later
         # test sees destination types this deployment cannot really write.
-        ensure_builtin_destination_writers_registered()
         self.addCleanup(restore_registered_writers, snapshot_registered_writers())
         for destination_type in (ExternalDataDestination.Type.REDSHIFT, ExternalDataDestination.Type.SNOWFLAKE):
             register_destination_writer(destination_type, RecordingWriter)
