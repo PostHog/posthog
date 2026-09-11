@@ -122,13 +122,15 @@ class RepartitionTooLargeForBudgetError(Exception):
     """One activity budget already failed to cover this table, and its checkpoint cannot be resumed.
 
     A rewrite that runs out of budget resumes only while live stays at the Delta version its
-    checkpoint was built against, and the schema's own merge moves that version between runs. The
-    restart that follows re-streams from row 0, with the same budget, over a table that has only
-    grown, so it runs out in the same place and is discarded again on the next run. Three of those
-    spend the attempt cap and the controller abandons the rewrite terminally, having spent a full
-    budget per run to learn nothing. Raised instead of starting that restart, and terminal like
-    `RepartitionUnpartitionableError`: the flag is cleared and the cooldown engaged, so the table is
-    measured again on a later cycle rather than re-streamed on every sync.
+    checkpoint was built against. The import hold keeps that fence valid between runs, so reaching
+    here means the checkpoint died another way: its temp is gone or unreadable, or the hold lapsed
+    and something committed to live. The restart that follows re-streams from row 0, with the same
+    budget, over a table that has only grown, so it runs out in the same place and is discarded
+    again on the next run. Three of those spend the attempt cap and the controller abandons the
+    rewrite terminally, having spent a full budget per run to learn nothing. Raised instead of
+    starting that restart, and terminal like `RepartitionUnpartitionableError`: the flag is cleared
+    and the cooldown engaged, so the table is measured again on a later cycle rather than
+    re-streamed on every sync.
     """
 
 
