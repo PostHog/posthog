@@ -10,7 +10,7 @@ const jsonParseDurationMsSummary = new Summary({
 
 export function parseJSON(json: string) {
     const startTime = performance.now()
-    // eslint-disable-next-line no-restricted-syntax
+    // oxlint-disable-next-line eslint-js/no-restricted-syntax
     const result = JSON.parse(json)
     jsonParseDurationMsSummary.labels('native').observe(performance.now() - startTime)
 

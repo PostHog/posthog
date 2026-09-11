@@ -24,11 +24,22 @@ class TestAppfiguresSource:
 
     def test_catalog_and_lookup_tables_are_full_refresh_dated_tables_incremental(self):
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        # The product catalog and the /data lookups have no server-side date filter to drive.
-        for name in ("products", "stores", "categories", "countries"):
+        # The product catalog, the /data lookups, and the ASO snapshots have no server-side date
+        # filter to drive, because /aso reports each keyword's latest position, not a dated series.
+        for name in ("products", "stores", "categories", "countries", "aso_keywords", "aso_stats"):
             assert schemas[name].supports_incremental is False
             assert schemas[name].incremental_fields == []
-        for name in ("reviews", "sales_report", "revenue_report", "subscriptions_report", "ratings_report", "ranks"):
+        for name in (
+            "reviews",
+            "sales_report",
+            "revenue_report",
+            "subscriptions_report",
+            "ratings_report",
+            "ads_report",
+            "adspend_report",
+            "payments_report",
+            "ranks",
+        ):
             assert schemas[name].supports_incremental is True
             assert [f["field"] for f in schemas[name].incremental_fields] == ["date"]
 

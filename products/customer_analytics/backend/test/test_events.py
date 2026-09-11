@@ -13,6 +13,7 @@ from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
 )
+from products.customer_analytics.backend.logic.custom_property_values import set_synced_custom_property_value
 from products.customer_analytics.backend.models import AccountRelationshipDefinition
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 
@@ -310,34 +311,53 @@ class TestAccountCustomPropertyChangedEvent(BaseTest):
         assert event["properties"]["actor_type"] == "workflow"
         assert event["properties"]["workflow_id"] == WORKFLOW_ID
 
-    def test_workflow_clear_emits_null_current_value(self, mock_capture):
+    @parameterized.expand([("workflow",), ("system",)])
+    def test_clear_emits_null_current_value(self, mock_capture, actor_type):
         definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
         self._set_value(definition, "silver")
         mock_capture.reset_mock()
 
         with self.captureOnCommitCallbacks(execute=True):
-            result = facade.set_external_account_custom_properties(
-                self.team.id, "acme-1", properties={str(definition.id): None}, workflow_id=WORKFLOW_ID
-            )
+            if actor_type == "workflow":
+                result = facade.set_external_account_custom_properties(
+                    self.team.id, "acme-1", properties={str(definition.id): None}, workflow_id=WORKFLOW_ID
+                )
+                assert result.error is None
+                assert result.values == []
+            else:
+                assert set_synced_custom_property_value(
+                    team_id=self.team.id, account_id=self.account.id, definition=definition, value=None
+                )
 
-        assert result.error is None
-        assert result.values == []
         mock_capture.assert_called_once()
         (event,) = mock_capture.call_args.kwargs["events"]
         assert event["properties"]["previous_value"] == "silver"
         assert event["properties"]["current_value"] is None
-        assert event["properties"]["actor_type"] == "workflow"
+        assert event["properties"]["actor_type"] == actor_type
 
-    def test_clearing_an_unset_value_emits_nothing(self, mock_capture):
+        mock_capture.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            assert not set_synced_custom_property_value(
+                team_id=self.team.id, account_id=self.account.id, definition=definition, value=None
+            )
+        mock_capture.assert_not_called()
+
+    @parameterized.expand([("workflow",), ("system",)])
+    def test_clearing_an_unset_value_emits_nothing(self, mock_capture, actor_type):
         definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
 
         with self.captureOnCommitCallbacks(execute=True):
-            result = facade.set_external_account_custom_properties(
-                self.team.id, "acme-1", properties={str(definition.id): None}, workflow_id=WORKFLOW_ID
-            )
+            if actor_type == "workflow":
+                result = facade.set_external_account_custom_properties(
+                    self.team.id, "acme-1", properties={str(definition.id): None}, workflow_id=WORKFLOW_ID
+                )
+                assert result.error is None
+                assert result.values == []
+            else:
+                assert not set_synced_custom_property_value(
+                    team_id=self.team.id, account_id=self.account.id, definition=definition, value=None
+                )
 
-        assert result.error is None
-        assert result.values == []
         mock_capture.assert_not_called()
 
     def test_user_actor_populates_actor_fields(self, mock_capture):
