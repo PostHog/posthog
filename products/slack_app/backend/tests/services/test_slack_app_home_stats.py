@@ -13,6 +13,7 @@ from django.utils import timezone
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackThreadTaskMapping, SlackUserProfileCache
 from products.slack_app.backend.services.slack_app_home import handle_app_home_opened, render_home_view
@@ -484,6 +485,14 @@ class TestResolveStatsState:
 class TestStatsCardGating:
     @pytest.mark.parametrize("is_admin, expected_visible", [(True, True), (False, False)])
     def test_card_is_admin_only(self, slack_integration, mock_slack_client, flag_on, is_admin, expected_visible):
+        # Slack admin rights alone reach nothing — the card is scoped to the projects the
+        # viewer can already see, so the admin needs a PostHog identity for either case.
+        admin = User.objects.create_and_join(slack_integration.team.organization, "admin@posthog.com", None)
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration,
+            slack_user_id=SLACK_USER,
+            email=admin.email,
+        )
         with patch(
             "products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin",
             return_value=is_admin,
@@ -492,3 +501,14 @@ class TestStatsCardGating:
 
         view = mock_slack_client.views_publish.call_args.kwargs["view"]
         assert ("Workspace activity" in str(view)) is expected_visible
+
+    def test_card_is_withheld_from_an_admin_with_no_posthog_account(
+        self, slack_integration, mock_slack_client, flag_on
+    ):
+        with patch(
+            "products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin",
+            return_value=True,
+        ):
+            handle_app_home_opened({"user": SLACK_USER}, WORKSPACE, integration=slack_integration)
+
+        assert "Workspace activity" not in str(mock_slack_client.views_publish.call_args.kwargs["view"])
