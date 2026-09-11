@@ -3450,7 +3450,16 @@ def _report_slack_mention_received(
             "slack_team_id": slack_team_id,
             "slack_channel": channel,
             "slack_thread_ts": thread_ts,
+            # Identifies the individual message, so an accepted mention can be ordered against
+            # the drops in its thread and joined to the agent turn that answered it.
+            "slack_message_ts": message_ts,
             "slack_user_id": slack_user_id,
+            # Whether the message tagged the bot. ``app_mention`` is a tagged message;
+            # ``message`` is an untagged thread reply that the follow-up mode let through,
+            # because the ``message`` copy of a tagged reply drops earlier as ``tagged_reply``.
+            # ``posthog code slack mention dropped`` reports the same field, so the two sides
+            # add up to a funnel.
+            "slack_event_type": event.get("type"),
             # "im" marks an assistant DM; channel mentions carry "channel"/"group" or no type at all.
             "slack_channel_type": event.get("channel_type"),
             "posthog_user_identified": identified_distinct_id is not None,

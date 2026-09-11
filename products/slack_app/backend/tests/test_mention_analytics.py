@@ -30,42 +30,55 @@ class TestReportSlackMentionReceived:
 
     @parameterized.expand(
         [
-            # name, event, user_resolved, thread_reply_count, exp_first, exp_count, exp_identified
+            # name, event, user_resolved, thread_reply_count, exp_first, exp_count, exp_identified,
+            # exp_event_type
             (
                 "first_message_resolved",
-                {"channel": "C001", "ts": "1700.0001", "user": "U123"},
+                {"type": "app_mention", "channel": "C001", "ts": "1700.0001", "user": "U123"},
                 True,
                 None,
                 True,
                 1,
                 True,
+                "app_mention",
             ),
             (
                 "thread_root_is_the_mention_itself",
-                {"channel": "C001", "ts": "1700.0001", "thread_ts": "1700.0001", "user": "U123"},
+                {
+                    "type": "app_mention",
+                    "channel": "C001",
+                    "ts": "1700.0001",
+                    "thread_ts": "1700.0001",
+                    "user": "U123",
+                },
                 True,
                 None,
                 True,
                 1,
                 True,
+                "app_mention",
             ),
+            # An untagged reply the follow-up mode let through arrives as ``message``, and is the
+            # only shape here whose own ts differs from its thread's.
             (
-                "followup_counts_thread_messages",
-                {"channel": "C001", "ts": "1700.0009", "thread_ts": "1700.0001", "user": "U123"},
+                "untagged_followup_counts_thread_messages",
+                {"type": "message", "channel": "C001", "ts": "1700.0009", "thread_ts": "1700.0001", "user": "U123"},
                 True,
                 3,
                 False,
                 3,
                 True,
+                "message",
             ),
             (
                 "first_message_unresolved_user",
-                {"channel": "C001", "ts": "1700.0001", "user": "U999"},
+                {"type": "app_mention", "channel": "C001", "ts": "1700.0001", "user": "U999"},
                 False,
                 None,
                 True,
                 1,
                 False,
+                "app_mention",
             ),
         ]
     )
@@ -81,6 +94,7 @@ class TestReportSlackMentionReceived:
         exp_first,
         exp_count,
         exp_identified,
+        exp_event_type,
         mock_resolve,
         mock_capture,
         mock_slack_integration,
@@ -108,6 +122,10 @@ class TestReportSlackMentionReceived:
         assert props["session_message_count"] == exp_count
         assert props["slack_session_id"] == f"T12345:{event['channel']}:{thread_ts}"
         assert props["slack_thread_ts"] == thread_ts
+        # Must track the message, not its thread: the two only diverge on a follow-up, so wiring
+        # this to ``thread_ts`` would still look right on every thread-opening mention.
+        assert props["slack_message_ts"] == event["ts"]
+        assert props["slack_event_type"] == exp_event_type
         assert props["slack_user_id"] == event["user"]
         assert props["posthog_user_identified"] is exp_identified
         assert ("$set" in props) is exp_identified
