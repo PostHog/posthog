@@ -1216,7 +1216,7 @@ function TraceSidebar({
                         topLevelTrace={trace}
                         node={{
                             event: trace,
-                            displayTotalCost: trace.totalCost || 0,
+                            displayTotalCost: trace.totalCost ?? null,
                             displayLatency: trace.totalLatency || 0,
                             displayUsage: formatLLMUsage(trace),
                         }}
@@ -1275,7 +1275,7 @@ const TreeNode = React.memo(function TraceNode({
     topLevelTrace: LLMTrace
     node:
         | EnrichedTraceTreeNode
-        | { event: LLMTrace; displayTotalCost: number; displayLatency: number; displayUsage: string | null }
+        | { event: LLMTrace; displayTotalCost: number | null; displayLatency: number; displayUsage: string | null }
     isSelected: boolean
     searchQuery?: string
     showBillingInfo?: boolean
@@ -1444,11 +1444,15 @@ function TreeNodeChildren({
 }
 
 function EventContentDisplay({
+    eventId,
+    traceId,
     input,
     output,
     searchQuery,
     displayOption,
 }: {
+    eventId: string
+    traceId: string
     input: unknown
     output: unknown
     searchQuery?: string
@@ -1469,6 +1473,8 @@ function EventContentDisplay({
                 errorData={undefined}
                 searchQuery={searchQuery}
                 displayOption={displayOption}
+                eventId={eventId}
+                traceId={traceId}
             />
         )
     }
@@ -1562,16 +1568,23 @@ const EventContent = React.memo(
         // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
         const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
 
-        // Only pre-load for generation events ($ai_input/$ai_output_choices).
         // TODO: Figure out why spans can't load properties async
         const eventData = isGenerationEvent
             ? {
                   uuid: event.id,
                   input: event.properties.$ai_input,
                   output: event.properties.$ai_output_choices,
+                  tools: event.properties.$ai_tools,
+                  traceId: trace.id,
+                  timestamp: event.createdAt,
               }
             : undefined
-        const { input: loadedInput, output: loadedOutput } = useAIData(eventData)
+        const {
+            input: loadedInput,
+            output: loadedOutput,
+            tools: loadedTools,
+            isLoading: aiDataLoading,
+        } = useAIData(eventData)
 
         const handleOpenInPlayground = (): void => {
             if (!event || !isLLMEvent(event)) {
@@ -1580,9 +1593,8 @@ const EventContent = React.memo(
 
             const model = event.properties.$ai_model
             const provider = event.properties.$ai_provider
-            const tools = event.properties.$ai_tools
-
-            openInPlayground({ model, provider, input: loadedInput, output: loadedOutput, tools })
+            const output = selectAiValue(loadedOutput, event.properties.$ai_output)
+            openInPlayground({ model, provider, input: loadedInput, output, tools: loadedTools })
         }
 
         return (
@@ -1634,7 +1646,7 @@ const EventContent = React.memo(
                                 <div className="flex flex-col gap-1">
                                     {aggregation && (
                                         <div className="flex flex-row flex-wrap items-center gap-2">
-                                            {aggregation.totalCost > 0 && (
+                                            {aggregation.totalCost !== null && aggregation.totalCost > 0 && (
                                                 <LemonTag type="muted" size="small">
                                                     Total Cost: {formatLLMCost(aggregation.totalCost)}
                                                 </LemonTag>
@@ -1691,6 +1703,7 @@ const EventContent = React.memo(
                                             size="xsmall"
                                             icon={<IconPlay />}
                                             onClick={handleOpenInPlayground}
+                                            loading={aiDataLoading}
                                             tooltip="Open in Playground"
                                             data-attr="llma-playground-open-from-trace"
                                         >
@@ -1736,14 +1749,21 @@ const EventContent = React.memo(
                                         <>
                                             {isTopLevelTraceWithoutContent ? (
                                                 <InsightEmptyState
-                                                    heading="No top-level trace event"
+                                                    heading="No trace-level input and output captured"
                                                     detail={
                                                         <>
-                                                            This trace doesn't have an associated <code>$ai_trace</code>{' '}
-                                                            event.
+                                                            This trace's content is on the events in the tree. Select an
+                                                            event to view its input and output.
                                                             <br />
-                                                            Click on individual generations in the tree to view their
-                                                            content.
+                                                            To show a conversation here, capture a{' '}
+                                                            <Link
+                                                                to="https://posthog.com/docs/ai-observability/traces"
+                                                                target="_blank"
+                                                            >
+                                                                <code>$ai_trace</code> event
+                                                            </Link>{' '}
+                                                            with <code>$ai_input_state</code> and{' '}
+                                                            <code>$ai_output_state</code> properties.
                                                         </>
                                                     }
                                                 />
@@ -1825,6 +1845,8 @@ const EventContent = React.memo(
                                                         <>
                                                             <TraceMetricsTable />
                                                             <EventContentDisplay
+                                                                eventId={event.id}
+                                                                traceId={trace.id}
                                                                 input={event.inputState}
                                                                 output={event.outputState}
                                                                 searchQuery={searchQuery}

@@ -45,7 +45,9 @@ from products.data_warehouse.backend.facade.api import (
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
     ExternalDataSchema,
+    ExternalDataSchemaDestination,
     ExternalDataSource,
+    resolve_destinations,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     update_sync_type_config_keys,
@@ -63,6 +65,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.presentation.views.destination_links import (
+    DestinationLinkSerializer,
+    SchemaDestinationsSerializer,
+    set_schema_destinations,
+)
 from products.warehouse_sources.backend.presentation.views.source_api_versions import (
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
@@ -177,6 +184,21 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
 
     instance.status = ExternalDataSchema.Status.RUNNING
     instance.save(update_fields=["status", "updated_at"])
+
+
+def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
+    """Trigger the schema's sync, creating its Temporal schedule first if it has none.
+
+    A schema can reach the UI with no schedule behind it (never created, or dropped), and
+    triggering one that isn't there raises NOT_FOUND. Retrying can't fix that, so recover the
+    same way the source-level reload does instead of dead-ending a single table's sync.
+    """
+    try:
+        trigger_external_data_workflow(instance)
+    except temporalio.service.RPCError as e:
+        if e.status != temporalio.service.RPCStatusCode.NOT_FOUND:
+            raise
+        sync_external_data_job_workflow(instance, create=True, should_sync=instance.should_sync)
 
 
 # Sync frequencies below the 5-minute floor. No longer accepted as input (dropped from the
@@ -1474,6 +1496,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "cancel",
         "incremental_fields",
         "delete_data",
+        "destinations",
     ]
     scope_object_read_actions = ["list", "retrieve", "logs"]
     queryset = ExternalDataSchema.objects.all()
@@ -1561,6 +1584,52 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(
+        request=DestinationLinkSerializer,
+        responses={200: SchemaDestinationsSerializer},
+    )
+    @action(methods=["GET", "PATCH"], detail=True, filter_backends=[])
+    def destinations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Read or replace this table's destination override.
+
+        Send `destination_ids: null` to clear the override so the table follows its source again.
+        """
+        schema = self.get_object()
+
+        if request.method == "GET":
+            links = list(
+                ExternalDataSchemaDestination.objects.for_team(self.team_id)
+                .filter(schema_id=schema.id, enabled=True)
+                .exclude(destination__deleted=True)
+            )
+            overridden = (
+                ExternalDataSchemaDestination.objects.for_team(self.team_id).filter(schema_id=schema.id).exists()
+            )
+            return Response(
+                status=status.HTTP_200_OK,
+                data=SchemaDestinationsSerializer(
+                    {
+                        "destination_ids": [str(link.destination_id) for link in links] if overridden else None,
+                        "inherits_from_source": not overridden,
+                        "effective_destination_ids": [str(d.id) for d in resolve_destinations(schema)],
+                    }
+                ).data,
+            )
+
+        serializer = DestinationLinkSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        attached = set_schema_destinations(
+            team_id=self.team_id,
+            schema_id=schema.id,
+            destination_ids=serializer.validated_data["destination_ids"],
+        )
+        return Response(
+            status=status.HTTP_200_OK,
+            data=SchemaDestinationsSerializer(
+                {"destination_ids": attached, "inherits_from_source": attached is None}
+            ).data,
+        )
+
     @extend_schema(parameters=[LogEntryRequestSerializer])
     @action(methods=["GET"], detail=True, filter_backends=[])
     def logs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1587,6 +1656,11 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=None,
+        description=(
+            "Trigger a sync for the schema using its configured sync method. Most methods keep the "
+            "existing warehouse table and add or merge new rows, but a full-refresh schema rebuilds "
+            "the whole table on every run. To force a rebuild from the source, use resync."
+        ),
         responses={
             200: OpenApiResponse(description="The sync was triggered."),
             400: OpenApiResponse(
@@ -1609,13 +1683,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            trigger_external_data_workflow(instance)
+            _trigger_schema_sync(instance)
         except temporalio.service.RPCError as e:
             # Only mark the schema Running once the trigger succeeded: a Running status with no
             # workflow behind it sticks forever (nothing finalizes it) and blocks cancel.
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             return Response(
-                data={"detail": "Couldn't start the sync. Please try again."},
+                data={"detail": "Couldn't start the sync. Try again in a few minutes."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as e:
@@ -1628,6 +1702,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=None,
+        description=(
+            "Request a full resync of the schema. For sources that can backfill, this drops the "
+            "warehouse table and re-imports every row from the source, so existing data is deleted "
+            "first. A webhook-only schema cannot backfill, so it keeps its existing table and "
+            "resumes ingestion instead. To sync without requesting a rebuild, use reload."
+        ),
         responses={
             200: OpenApiResponse(description="The full resync was triggered."),
             400: OpenApiResponse(
@@ -1681,14 +1761,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.initial_sync_complete = False
 
         try:
-            trigger_external_data_workflow(instance)
+            _trigger_schema_sync(instance)
         except temporalio.service.RPCError as e:
             # Only mark the schema Running once the trigger succeeded: a Running status with no
             # workflow behind it sticks forever (nothing finalizes it) and blocks cancel. The
             # sync_type_config reset above stays; the schema's intent is still "resync next run".
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             return Response(
-                data={"detail": "Couldn't start the sync. Please try again."},
+                data={"detail": "Couldn't start the sync. Try again in a few minutes."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1877,6 +1957,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": str(e)},
+            )
+
+        if not schemas:
+            return Response(
+                data={
+                    "message": f"Could not discover schema {instance.name}. The connection may be missing SELECT or "
+                    "schema access privileges, or discovery may not support this relation type. Check that the "
+                    "relation exists, restore read privileges, or expose it as a supported table or view, then try again."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         # Not every source honors the `names` filter (e.g. Slack returns all schemas regardless), so

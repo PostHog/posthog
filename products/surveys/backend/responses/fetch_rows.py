@@ -13,7 +13,7 @@ from typing import Any, cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models import Team
 
 from products.surveys.backend.models import Survey
@@ -122,6 +122,12 @@ SUBMISSION_GROUPING_KEY = (
 )
 
 
+RESPONSE_EVENT_FILTER = """(event = 'survey sent' OR (
+    event IN ('survey dismissed', 'survey abandoned')
+    AND coalesce(JSONExtractString(properties, '$survey_partially_completed'), '') = 'true'
+))"""
+
+
 # Metadata columns appended to every row — known $-prefixed event properties resolved via
 # HogQL property accessors (backticked because the keys are literal property names, not
 # placeholder values).
@@ -220,7 +226,7 @@ def fetch_response_rows(
     )
 
     inner_conditions = [
-        "event = 'survey sent'",
+        RESPONSE_EVENT_FILTER,
         "properties.`$survey_id` = {survey_id}",
         "timestamp >= {start_date}",
         "timestamp <= {end_date}",

@@ -207,6 +207,18 @@ The visualization system is designed to be extractable to a standalone `@posthog
 **Other**:
 
 - **PostHogLink** - "View in PostHog" button
+- **PostHogLogo** - Logo mark shared by the app resolution states
+- **AppErrorState** / **AppLoadingState** - The states an app shows before, or instead of, content
+
+### Stories
+
+Storybook compiles these stories from the `common/storybook` workspace, which cannot resolve this package's own dependencies.
+A story may therefore only import components that never reach `@modelcontextprotocol/ext-apps`.
+The visualizers and the resolution states above are safe; `AppWrapper` and `useToolResult` are not.
+Keep presentational components in their own module rather than importing them from an SDK-coupled one.
+
+The Storybook dev server resolves the SDK anyway, so it renders such a story happily and only the production build fails.
+Verify with `pnpm --filter=@posthog/storybook build` rather than `start`.
 
 ### Theming
 

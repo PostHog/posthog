@@ -1,18 +1,26 @@
+import socket
 import datetime
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 from typing import cast
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 import pymysql
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
@@ -35,16 +43,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_transient_metadata_query_reset,
     _is_transient_packet_sequence_error,
     _is_transient_tablet_unavailable,
+    _is_transient_tiproxy_unavailable,
     _is_transient_too_many_connections,
     _is_transient_vitess_dial_timeout,
     _is_transient_vitess_reparent,
+    _reconnect_pinned,
     _release_streaming_cursor,
     _retry_on_transient_tablet_unavailable,
     _safe_convert_date,
     _safe_convert_datetime,
     _sanitize_identifier,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import (
+    _INVALID_CREDENTIALS_ERROR,
+    MySQLSource,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 # ---------------------------------------------------------------------------
@@ -1493,6 +1506,26 @@ class TestConnectTransientRetry:
         assert mock_connect.call_count == 2
         sleep.assert_called_once_with(2)
 
+    def test_retries_tiproxy_unavailable_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(
+                    1105, "TiProxy fails to connect to TiDB, please make sure TiDB is available"
+                ),
+                conn,
+            ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
     def test_does_not_retry_connection_refused(self, mocker):
         sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         mock_connect = mocker.patch(
@@ -1627,6 +1660,32 @@ class TestIsTransientVitessReparent:
         assert not _is_transient_vitess_reparent(ValueError("reparent operation in progress"))
 
 
+class TestIsTransientTiproxyUnavailable:
+    def test_matches_tiproxy_unavailable(self):
+        assert _is_transient_tiproxy_unavailable(
+            pymysql.err.OperationalError(1105, "TiProxy fails to connect to TiDB, please make sure TiDB is available")
+        )
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            # Other 1105 payloads (Vitess cases, unrelated TiDB errors) are not this class.
+            (1105, "vttablet: rpc error: code = Unavailable desc = node is shutting down"),
+            (1105, "vttablet: rpc error: code = InvalidArgument desc = some bad request"),
+            (1045, "Access denied for user"),
+            (2003, "Can't connect to MySQL server on 'db.example.com'"),
+        ],
+    )
+    def test_does_not_match_other_errors(self, code, message):
+        assert not _is_transient_tiproxy_unavailable(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_tiproxy_unavailable(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_tiproxy_unavailable(ValueError("TiProxy fails to connect to TiDB"))
+
+
 class TestIsTransientMetadataQueryReset:
     def test_matches_connection_reset_mid_query(self):
         # A peer reset landing on an already-open connection while a metadata query (e.g.
@@ -1701,6 +1760,22 @@ class TestRetryOnTransientTabletUnavailable:
             2013, "Lost connection to MySQL server during query ([Errno 104] Connection reset by peer)"
         )
         operation = MagicMock(side_effect=[reset, "ok"])
+
+        assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
+
+        assert operation.call_count == 2
+
+    def test_retries_vitess_dial_timeout_then_succeeds(self, mocker):
+        # A vtgate dial timeout to a backend tablet (error 1815) can land on a metadata query
+        # against an already-open connection, not just at connect time — `connect()` succeeding
+        # doesn't retry it, so this wrapper must.
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        dial_timeout = pymysql.err.OperationalError(
+            1815,
+            "internal connection error: dial tcp 10.0.0.1:8083: connect: connection timed out, "
+            "after 1 attempts, reqid=csYTzBMNB2hB8111yzcg4A",
+        )
+        operation = MagicMock(side_effect=[dial_timeout, "ok"])
 
         assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
 
@@ -2400,7 +2475,7 @@ class TestMySQLSourceValidateCredentials:
             # that sends the user to inspect the host/port instead. Mirrors Postgres.
             (
                 pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
-                "Invalid user or password",
+                _INVALID_CREDENTIALS_ERROR,
             ),
         ],
     )
@@ -2421,6 +2496,9 @@ class TestMySQLSourceValidateCredentials:
         [
             "https://db.example.com/",
             "mysql://root:secret@db.example.com:3306/mydb",
+            # No scheme, so the guard has to match on the path and userinfo separators instead.
+            "db.example.com/mydb",
+            "root:secret@db.example.com",
         ],
     )
     def test_url_in_host_field_rejected_without_echoing_input(self, source, mocker, host):
@@ -2517,3 +2595,125 @@ class TestConnectPortCoercion:
         passed_port = mock_connect.call_args.kwargs["port"]
         assert passed_port == 3306
         assert isinstance(passed_port, int)
+
+
+_MYSQL_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql"
+_MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
+
+
+@frozen
+class _CloudConnect:
+    getaddrinfo: MagicMock
+    create_connection: MagicMock
+    pymysql_connect: MagicMock
+
+
+class TestMySQLConnectDialsOnlyValidatedAddresses:
+    @contextmanager
+    def _connect_on_cloud(self, *addresses: str, tunnel_host: str = "db.example.com") -> Iterator[_CloudConnect]:
+        with (
+            override_settings(CLOUD_DEPLOYMENT="US"),
+            patch(f"{_MYSQL_MODULE}.open_ssh_tunnel") as tunnel_mock,
+            patch(f"{_MIXINS_MODULE}.settings") as mock_settings,
+            patch(
+                "posthog.psycopg_helpers.socket.getaddrinfo", return_value=addrinfo(3306, *addresses)
+            ) as getaddrinfo_mock,
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
+            patch(f"{_MYSQL_MODULE}.socket.create_connection") as create_connection_mock,
+            patch(f"{_MYSQL_MODULE}.pymysql.connect") as pymysql_connect_mock,
+            patch(f"{_MYSQL_MODULE}.time.sleep"),
+        ):
+            tunnel_mock.return_value.__enter__.return_value = (tunnel_host, 3306)
+            mock_settings.TEST = False
+            mock_settings.DEBUG = False
+            mock_settings.E2E_TESTING = False
+            yield _CloudConnect(
+                getaddrinfo=getaddrinfo_mock,
+                create_connection=create_connection_mock,
+                pymysql_connect=pymysql_connect_mock,
+            )
+
+    def test_dials_the_validated_address_and_keeps_the_hostname_for_tls(self) -> None:
+        with self._connect_on_cloud("52.1.2.3") as cloud:
+            with MySQLImplementation().connect(_make_config(host="db.example.com"), team_id=999):
+                pass
+
+        cloud.create_connection.assert_called_once_with(("52.1.2.3", 3306), 10)
+        connect_kwargs = cloud.pymysql_connect.call_args.kwargs
+        assert connect_kwargs["host"] == "db.example.com"
+        assert connect_kwargs["defer_connect"] is True
+        cloud.pymysql_connect.return_value.connect.assert_called_once_with(sock=cloud.create_connection.return_value)
+
+    def test_an_internal_address_in_the_resolved_set_refuses_the_connect(self) -> None:
+        with self._connect_on_cloud("52.1.2.3", "10.0.0.5") as cloud:
+            with pytest.raises(Exception, match="Database host not allowed"):
+                with MySQLImplementation().connect(_make_config(host="db.example.com"), team_id=999):
+                    pass
+
+        cloud.create_connection.assert_not_called()
+        cloud.pymysql_connect.assert_not_called()
+
+    def test_falls_over_to_the_next_validated_address(self) -> None:
+        with self._connect_on_cloud("52.1.2.3", "52.1.2.4") as cloud:
+            second_socket = MagicMock()
+            cloud.create_connection.side_effect = [OSError(111, "Connection refused"), second_socket]
+            with MySQLImplementation().connect(_make_config(host="db.example.com"), team_id=999):
+                pass
+
+        assert cloud.create_connection.call_args.args[0] == ("52.1.2.4", 3306)
+        cloud.pymysql_connect.return_value.connect.assert_called_once_with(sock=second_socket)
+
+    def test_every_address_failing_raises_the_error_pymysql_would_raise(self) -> None:
+        with self._connect_on_cloud("52.1.2.3") as cloud:
+            cloud.create_connection.side_effect = OSError(111, "Connection refused")
+            with pytest.raises(pymysql.err.OperationalError) as exc_info:
+                with MySQLImplementation().connect(_make_config(host="db.example.com"), team_id=999):
+                    pass
+
+        assert exc_info.value.args[0] == 2003
+        assert "Can't connect to MySQL server on 'db.example.com'" in exc_info.value.args[1]
+
+    def test_a_tunnel_loopback_literal_connects_by_name_without_a_lookup(self) -> None:
+        with self._connect_on_cloud(tunnel_host="127.0.0.1") as cloud:
+            with MySQLImplementation().connect(_make_config(host="db.example.com"), team_id=999):
+                pass
+
+        cloud.getaddrinfo.assert_not_called()
+        cloud.create_connection.assert_not_called()
+        cloud.pymysql_connect.return_value.connect.assert_not_called()
+        assert cloud.pymysql_connect.call_args.kwargs["host"] == "127.0.0.1"
+
+    def test_the_team_reaches_the_host_policy(self) -> None:
+        with self._connect_on_cloud("10.0.0.5") as cloud:
+            with MySQLImplementation().connect(_make_config(host="db.example.com"), team_id=2):
+                pass
+
+        cloud.create_connection.assert_called_once_with(("10.0.0.5", 3306), 10)
+
+    def test_a_resolver_blip_is_retried_with_a_fresh_lookup(self) -> None:
+        with self._connect_on_cloud() as cloud:
+            cloud.getaddrinfo.side_effect = socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
+            with pytest.raises(pymysql.err.OperationalError) as exc_info:
+                with MySQLImplementation().connect(_make_config(host="db.example.com"), team_id=999):
+                    pass
+
+        assert exc_info.value.args[0] == 2003
+        assert cloud.getaddrinfo.call_count == _MAX_CONNECT_ATTEMPTS
+        cloud.create_connection.assert_not_called()
+
+    def test_a_reconnect_dials_a_freshly_validated_address(self) -> None:
+        with self._connect_on_cloud("52.1.2.3") as cloud:
+            connection = MagicMock(host="db.example.com", port=3306, connect_timeout=10)
+            _reconnect_pinned(connection, team_id=999)
+
+        cloud.create_connection.assert_called_once_with(("52.1.2.3", 3306), 10)
+        connection.connect.assert_called_once_with(sock=cloud.create_connection.return_value)
+
+    def test_a_reconnect_refuses_a_record_that_now_answers_private(self) -> None:
+        with self._connect_on_cloud("10.0.0.5") as cloud:
+            connection = MagicMock(host="db.example.com", port=3306, connect_timeout=10)
+            with pytest.raises(HostNotAllowedError):
+                _reconnect_pinned(connection, team_id=999)
+
+        cloud.create_connection.assert_not_called()
+        connection.connect.assert_not_called()

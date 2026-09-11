@@ -94,10 +94,10 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         key_property: z.string().optional(),
     }),
     z.object({
-        type: z.literal('slack-message'),
+        type: z.literal('internal-event'),
         filters: z.object({
-            // Message-property filters only. Channel is one of these rather than a field of its own,
-            // so it composes with poster and text conditions instead of being matched separately.
+            source: z.literal('internal-events'),
+            events: z.array(z.any()).min(1),
             properties: z.array(z.any()).optional(),
         }),
     }),
@@ -111,14 +111,6 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         }),
         // Optional row column used as the masking / dedup key in place of distinct_id
         key_property: z.string().optional(),
-    }),
-    z.object({
-        type: z.literal('github-event'),
-        filters: z.object({
-            // Delivery-property filters only, on the same footing as slack-message: repository,
-            // event type and actor are all properties rather than fields of their own.
-            properties: z.array(z.any()).optional(),
-        }),
     }),
 ])
 
@@ -342,6 +334,15 @@ export const HogFlowSchema = z.object({
     // User-configured email pacing for deliverability. The email worker holds this flow's sends
     // under the limit by rescheduling over-limit sends, never dropping them.
     email_sending_rate_limit: HogFlowEmailSendingRateLimitSchema.optional().nullable(),
+    // Set when PostHog paused this flow's email automatically because its spam complaint or hard
+    // bounce rate breached a threshold. Non-null means the email service skips every send for this
+    // flow, including test sends. Same value shapes as `updated_at`: pg returns a Date, fixtures
+    // use epoch millis or an ISO string.
+    email_sending_paused_at: z.union([z.number(), z.string(), z.date()]).optional().nullable(),
+    email_sending_paused_reason: z.string().optional().nullable(),
+    // "auto" (deliverability detector) or "staff". Staff pauses are not customer-resumable, so the
+    // skip log tells the customer to contact support instead of pointing at the resume button.
+    email_sending_paused_by: z.string().optional().nullable(),
     actions: z.array(HogFlowActionSchema),
     // Secret function inputs, split out of `actions` and stored Fernet-encrypted at rest, keyed by
     // action id then input key. Decrypted by the manager and merged back into `action.config.inputs`
@@ -361,7 +362,7 @@ export const HogFlowSchema = z.object({
 
 export type RowScopedTrigger = Extract<
     HogFlow['trigger'],
-    { type: 'data-warehouse-table' | 'data-warehouse-view' | 'slack-message' | 'github-event' }
+    { type: 'data-warehouse-table' | 'data-warehouse-view' | 'internal-event' }
 >
 
 /**
@@ -373,9 +374,75 @@ export function isRowScopedTrigger(trigger: HogFlow['trigger']): trigger is RowS
     return (
         trigger?.type === 'data-warehouse-table' ||
         trigger?.type === 'data-warehouse-view' ||
-        trigger?.type === 'slack-message' ||
-        trigger?.type === 'github-event'
+        trigger?.type === 'internal-event'
     )
+}
+
+// The internal event a Slack-connected workflow's trigger fires on. Shared by the internal-events
+// consumer's eligibility check and the test-run trigger handler so both match the same events.
+// The Python producer keeps its own copy in products/slack_app/backend/slack_workflow_events.py.
+export const SLACK_MESSAGE_RECEIVED_EVENT = '$slack_message_received'
+
+// The same, for a GitHub delivery. The Python producer keeps its own copy in
+// products/workflows/backend/github_workflow_events.py.
+export const GITHUB_EVENT_RECEIVED_EVENT = '$github_event_received'
+
+// The event ids an internal-event trigger's filters name, or null when the filters are not the
+// shape the internal-events consumer accepts (wrong source, no events, or action/warehouse
+// filters, which that stream cannot evaluate). Shared by the consumer's eligibility check and
+// the test-run trigger handler so both accept the same filters.
+export function getInternalEventFilterEventIds(filters: unknown): string[] | null {
+    if (!filters || typeof filters !== 'object') {
+        return null
+    }
+
+    const { source, events, actions, data_warehouse } = filters as {
+        source?: unknown
+        events?: unknown
+        actions?: unknown
+        data_warehouse?: unknown
+    }
+    const hasUnsupportedFilters =
+        (actions !== undefined && (!Array.isArray(actions) || actions.length > 0)) ||
+        (data_warehouse !== undefined && (!Array.isArray(data_warehouse) || data_warehouse.length > 0))
+    if (source !== 'internal-events' || !Array.isArray(events) || !events.length || hasUnsupportedFilters) {
+        return null
+    }
+
+    const eventIds = events.map((event) => (event && typeof event === 'object' ? (event as { id?: unknown }).id : null))
+    return eventIds.every((eventId): eventId is string => typeof eventId === 'string' && eventId.trim().length > 0)
+        ? eventIds
+        : null
+}
+
+export function hasMatchingInternalEventFilter(filters: unknown, eventName: string): boolean {
+    return getInternalEventFilterEventIds(filters)?.includes(eventName) ?? false
+}
+
+// Synthetic event name stamped on the row built for a warehouse-row trigger from a synced source
+// table. Shared by the warehouse-events consumer's eligibility check and the test-run trigger
+// handler so both match the same rows.
+export const WAREHOUSE_SOURCE_ROW_EVENT = '$warehouse_source_row'
+
+// The same, for a row a materialized view run added or updated.
+export const WAREHOUSE_VIEW_ROW_EVENT = '$warehouse_view_row'
+
+// Property on the synthetic row event holding the dot-notated source table name, read against a
+// row-scoped trigger's own `table_name` to confirm a row actually came from that table.
+export const DWH_SOURCE_TABLE_PROPERTY = '$source_table'
+
+// The row-scoped trigger type a synthetic warehouse event's name matches, or null for anything
+// else. Explicit rather than defaulting to one type, so a caller that can receive an arbitrary
+// event - like a workflow test run - does not treat an unrelated event as a warehouse row by
+// elimination.
+export function rowScopedTriggerTypeForEvent(eventName: string | undefined): RowScopedTrigger['type'] | null {
+    if (eventName === WAREHOUSE_VIEW_ROW_EVENT) {
+        return 'data-warehouse-view'
+    }
+    if (eventName === WAREHOUSE_SOURCE_ROW_EVENT) {
+        return 'data-warehouse-table'
+    }
+    return null
 }
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen

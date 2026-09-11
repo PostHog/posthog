@@ -1,1 +1,1 @@
-1331_messagingrecord_campaign_key_idx
+1352_email_lookup_indexes

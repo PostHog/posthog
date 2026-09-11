@@ -11,6 +11,7 @@ from unittest.mock import patch
 import dagster
 import psycopg2
 from clickhouse_driver import Client
+from psycopg2 import OperationalError
 
 from posthog.clickhouse.cleanup_snapshots import (
     CLEANUP_DELETED_PERSONS_TABLE,
@@ -23,6 +24,7 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags import clickhouse_cleanup
 from posthog.dags.clickhouse_cleanup import (
     PG_CLEANUP_QUEUE_TABLE,
+    SCHEDULED_RUN_CONFIG,
     MutationProgress,
     MutationStalled,
     MutationStatus,
@@ -53,11 +55,12 @@ def persons_database() -> Iterator[psycopg2.extensions.connection]:
         conn.close()
 
 
-def run_job(cluster: ClickhouseCluster, persons_database, run_config=RUN_FOR_REAL, raise_on_error=True):
+def run_job(cluster: ClickhouseCluster, persons_database, run_config=RUN_FOR_REAL, raise_on_error=True, instance=None):
     return clickhouse_deletion_sweep_job.execute_in_process(
         run_config=run_config,
-        resources={"cluster": cluster, "persons_database": persons_database},
+        resources={"cluster": cluster, "persons_database_url": persons_db_url(writer=True)},
         raise_on_error=raise_on_error,
+        instance=instance,
     )
 
 
@@ -187,7 +190,7 @@ def seed_decoy_run(cluster: ClickhouseCluster, spared_person: str, spared_distin
 
 def queued_rows(conn) -> list[tuple]:
     with conn.cursor() as cursor:
-        cursor.execute(f"SELECT team_id, person_uuid, deleted_at, cleaned_at FROM {PG_CLEANUP_QUEUE_TABLE} ORDER BY 2")
+        cursor.execute(f"SELECT team_id, person_uuid, deleted_at, blocked_at FROM {PG_CLEANUP_QUEUE_TABLE} ORDER BY 2")
         return cursor.fetchall()
 
 
@@ -292,10 +295,10 @@ def test_queues_the_deleted_persons_for_postgres(cluster: ClickhouseCluster, per
 
     rows = queued_rows(persons_database)
     assert len(rows) == 1
-    team_id, person_uuid, deleted_at, cleaned_at = rows[0]
+    team_id, person_uuid, deleted_at, blocked_at = rows[0]
     assert (team_id, str(person_uuid)) == (TEAM_ID, deleted)
     assert deleted_at is not None
-    assert cleaned_at is None
+    assert blocked_at is None
 
     # A second run must not raise on the primary key: it re-queues persons the drain has not
     # reached yet.
@@ -317,16 +320,20 @@ def test_queues_every_person_across_page_boundaries(cluster: ClickhouseCluster, 
 
 
 @pytest.mark.django_db
-def test_requeues_a_person_the_drain_already_cleaned(cluster: ClickhouseCluster, persons_database):
-    # A person can be deleted, drained, then re-created and deleted again under the same uuid. The
-    # drain only reads rows where cleaned_at is null, so leaving the cleaned row untouched would
-    # drop the second deletion and leak that person's Postgres rows for good.
+def test_resweeping_a_pending_person_refreshes_deleted_at_and_clears_blocked_at(
+    cluster: ClickhouseCluster, persons_database
+):
+    # A row the drain marked blocked (tombstoned person still owning a live distinct id) stays
+    # queued. When ClickHouse tombstones the same person again, the sweep must hand the drain
+    # fresh evidence: the new deleted_at and a cleared block. Ignoring the conflict would leave
+    # the row blocked forever and leak that person's Postgres rows for good.
     deleted = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
     run_job(cluster, persons_database)
+    [(_, _, first_deleted_at, _)] = queued_rows(persons_database)
 
-    # Stand in for the drain having processed it.
+    # Stand in for the drain having found the person blocked.
     with persons_database.cursor() as cursor:
-        cursor.execute(f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET cleaned_at = now()")
+        cursor.execute(f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET blocked_at = now()")
     persons_database.commit()
     assert queued_rows(persons_database)[0][3] is not None
 
@@ -336,7 +343,157 @@ def test_requeues_a_person_the_drain_already_cleaned(cluster: ClickhouseCluster,
 
     rows = queued_rows(persons_database)
     assert len(rows) == 1, "the row is keyed on (team_id, person_uuid), so this stays a single row"
-    assert rows[0][3] is None, "cleaned_at must be cleared so the drain picks the person up again"
+    assert rows[0][2] > first_deleted_at, "deleted_at must move to the later sweep"
+    assert rows[0][3] is None, "blocked_at must be cleared so the drain retries the person"
+
+
+def _foreign_run_dictionary(cluster: ClickhouseCluster, run_id: str) -> clickhouse_cleanup.SnapshotDictionary:
+    # A stranded dictionary the way a dead run leaves one: created on every host, source table
+    # rows irrelevant (the janitor drops by name, never by content).
+    scoped = run_id.replace("-", "_")
+    dictionary = clickhouse_cleanup.SnapshotDictionary(
+        source=clickhouse_cleanup.DeletedPersonsTable(run_id=scoped),
+        excluded=clickhouse_cleanup.RevivedPersonsTable(run_id=scoped),
+    )
+    cluster.map_all_hosts(partial(dictionary.create, shards=1, max_execution_time=0, max_memory_usage=0)).result()
+    return dictionary
+
+
+@pytest.mark.django_db
+def test_the_janitor_reaps_every_foreign_runs_dictionaries(cluster: ClickhouseCluster, persons_database):
+    # The run-queue limit guarantees no sibling run is live, so every foreign dictionary is a
+    # dead run's leftover. Dropping the janitor call, or breaking its name parse, leaks tens of
+    # GiB per host per dead run with no path back but manual DDL.
+    stranger = "99999999-9999-4999-8999-999999999999"
+    _foreign_run_dictionary(cluster, stranger)
+    assert cluster.any_host(dictionaries_for_run(stranger)).result() == 1
+
+    result = run_job(cluster, persons_database)
+
+    assert result.success
+    assert cluster.any_host(dictionaries_for_run(stranger)).result() == 0
+
+
+@pytest.mark.django_db
+def test_the_janitor_never_touches_foreign_tables_or_its_own_run(cluster: ClickhouseCluster, persons_database):
+    # Non-matching names are invisible to the janitor, and the run's own dictionaries must
+    # survive its janitor pass (they are created after it, but the name gate is the guarantee).
+    def create_decoy(client: Client) -> None:
+        client.execute(
+            "CREATE DICTIONARY IF NOT EXISTS not_a_sweep_dictionary (team_id Int64, present UInt8)"
+            " PRIMARY KEY team_id"
+            " SOURCE(CLICKHOUSE(QUERY 'SELECT 1, 1'))"
+            " LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(0)"
+        )
+
+    def decoy_exists(client: Client) -> int:
+        [[count]] = client.execute("SELECT count() FROM system.dictionaries WHERE name = 'not_a_sweep_dictionary'")
+        return count
+
+    def drop_decoy(client: Client) -> None:
+        client.execute("DROP DICTIONARY IF EXISTS not_a_sweep_dictionary SYNC")
+
+    cluster.map_all_hosts(create_decoy).result()
+    try:
+        result = run_job(cluster, persons_database)
+        assert result.success
+        assert cluster.any_host(decoy_exists).result() == 1
+    finally:
+        cluster.map_all_hosts(drop_decoy).result()
+
+
+@pytest.mark.django_db
+def test_the_janitor_reaps_past_a_run_it_cannot_reap(cluster: ClickhouseCluster, persons_database):
+    # One unreapable run must not shadow the later ones, or they stay stranded on every sweep.
+    first = "11111111-1111-4111-8111-111111111111"
+    second = "22222222-2222-4222-8222-222222222222"
+    dict_first = _foreign_run_dictionary(cluster, first)
+    _foreign_run_dictionary(cluster, second)
+
+    real = clickhouse_cleanup._kill_and_drop_run_assets
+
+    def fail_on_first(cluster_arg, run_id):
+        if run_id == first.replace("-", "_"):
+            raise RuntimeError("unreapable")
+        return real(cluster_arg, run_id)
+
+    try:
+        with patch.object(clickhouse_cleanup, "_kill_and_drop_run_assets", side_effect=fail_on_first):
+            result = run_job(cluster, persons_database)
+        assert result.success
+        assert cluster.any_host(dictionaries_for_run(second)).result() == 0
+        assert cluster.any_host(dictionaries_for_run(first)).result() == 1
+    finally:
+        cluster.map_all_hosts(dict_first.drop).result()
+
+
+@pytest.mark.django_db
+def test_the_janitor_kills_a_stranded_runs_mutations_before_dropping(
+    cluster: ClickhouseCluster, persons_database, monkeypatch
+):
+    # A canceled run's last mutation keeps retrying server-side. Dropping its dictionary without
+    # the kill leaves that mutation failing forever and blocking every later mutation on the
+    # table, so the janitor must kill first, exactly like the failure hook.
+    dead_run_id = "33333333-3333-4333-8333-333333333333"
+    dictionary = _foreign_run_dictionary(cluster, dead_run_id)
+    runner = clickhouse_cleanup.LightweightDeleteMutationRunner(
+        table="person_distinct_id2",
+        predicate=(
+            f"throwIf(version >= 0, 'stranded sweep') OR isNotNull("
+            f"dictGetOrNull({dictionary.qualified_name!r}, 'max_version', (team_id, distinct_id)))"
+        ),
+    )
+    cluster.any_host(runner).result()
+
+    result = run_job(cluster, persons_database)
+
+    assert result.success
+    assert cluster.any_host(dictionaries_for_run(dead_run_id)).result() == 0
+
+    def unfinished_mutations(client) -> int:
+        [[count]] = client.execute(
+            "SELECT count() FROM system.mutations WHERE NOT is_done AND NOT is_killed AND table = %(table)s",
+            {"table": "person_distinct_id2"},
+        )
+        return count
+
+    assert cluster.any_host(unfinished_mutations).result() == 0
+
+
+@pytest.mark.django_db
+def test_a_dry_run_never_dials_postgres(cluster: ClickhouseCluster, persons_database):
+    # The EU dry run failed at Postgres resource init on a network path a dry run never needed.
+    # Connecting inside the op, after the dry-run return, keeps a dry run ClickHouse-only.
+    run = clickhouse_cleanup.CleanupRun.for_run("dry_run_no_pg", clickhouse_cleanup.CleanupConfig(dry_run=True))
+    with patch.object(clickhouse_cleanup.psycopg2, "connect", side_effect=AssertionError("dialed postgres")):
+        clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, "postgres://unused", run)
+
+
+@pytest.mark.django_db
+def test_a_postgres_connect_failure_drops_the_dictionaries(cluster: ClickhouseCluster, persons_database):
+    # A connect failure at resource init happens before the step exists, so the failure hook
+    # never ran and the run's dictionaries survived on every host. Connecting inside the op
+    # makes it a step failure, and the hook must clean up.
+    create_person(team_id=TEAM_ID, version=0, is_deleted=True)
+
+    real_connect = psycopg2.connect
+
+    def refuse_dsn_connects(*args, **kwargs):
+
+        # Only the op passes a single DSN string; Django's own connections use kwargs and must
+
+        # keep working, or the cohort op fails first and the wrong step trips the hook.
+
+        if args and isinstance(args[0], str):
+            raise OperationalError("connection timed out")
+
+        return real_connect(*args, **kwargs)
+
+    with patch.object(clickhouse_cleanup.psycopg2, "connect", side_effect=refuse_dsn_connects):
+        result = run_job(cluster, persons_database, raise_on_error=False)
+
+    assert not result.success
+    assert cluster.any_host(dictionaries_for_run(result.run_id)).result() == 0
 
 
 @pytest.mark.django_db
@@ -397,25 +554,25 @@ def test_a_same_run_retry_rewrites_no_rows(cluster: ClickhouseCluster, persons_d
     def queue_row() -> tuple:
         # xmin changes on every UPDATE, so a stable xmin proves no new tuple version was written.
         with persons_database.cursor() as cursor:
-            cursor.execute(f"SELECT xmin::text, deleted_at, cleaned_at FROM {PG_CLEANUP_QUEUE_TABLE}")
+            cursor.execute(f"SELECT xmin::text, deleted_at, blocked_at FROM {PG_CLEANUP_QUEUE_TABLE}")
             [row] = cursor.fetchall()
             return row
 
-    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_database, run)
+    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_db_url(writer=True), run)
     first = queue_row()
 
-    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_database, run)
+    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_db_url(writer=True), run)
     assert queue_row() == first
 
-    # A drained row must still be re-armed even when deleted_at matches, or the second deletion
-    # of a re-created person is dropped.
+    # A blocked row is not touched by a same-run retry either: only a newer deleted_at is evidence
+    # the drain should try again, and rewriting the row here would defeat the no-dead-tuple guard.
     with persons_database.cursor() as cursor:
-        cursor.execute(f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET cleaned_at = now()")
+        cursor.execute(f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET blocked_at = now()")
     persons_database.commit()
-    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_database, run)
-    rearmed = queue_row()
-    assert rearmed[2] is None
-    assert rearmed[0] != first[0]
+    blocked = queue_row()
+    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_db_url(writer=True), run)
+    assert queue_row() == blocked
+    assert blocked[2] is not None
 
 
 @pytest.mark.django_db
@@ -520,12 +677,29 @@ def test_clears_cohort_rows_and_marks_the_deletion_verified_on_the_next_run(
 
 
 @pytest.mark.django_db
+def test_cohort_sweep_can_be_switched_off_without_stopping_the_person_sweep(
+    cluster: ClickhouseCluster, persons_database
+):
+    create_person(team_id=TEAM_ID, version=0, is_deleted=True)
+    seed_cohort_rows(cluster, count=10)
+    AsyncDeletion.objects.create(deletion_type=DeletionType.Cohort_full, team_id=TEAM_ID, key=f"{COHORT_ID}_0")
+
+    # The lever to pull if cohort mutations misbehave mid-rollout: the person half still runs.
+    switched_off = {"ops": {"clear_removed_cohort_data": {"config": {"dry_run": False, "cohort_sweep": False}}}}
+    result = run_job(cluster, persons_database, run_config=switched_off)
+
+    assert result.success
+    assert cluster.any_host(cohort_rows).result() == 10
+    assert AsyncDeletion.objects.get(team_id=TEAM_ID).delete_verified_at is None
+
+
+@pytest.mark.django_db
 def test_cohort_delete_pass_runs_when_the_mark_pass_fails(cluster: ClickhouseCluster, persons_database):
     seed_cohort_rows(cluster, count=10)
     AsyncDeletion.objects.create(deletion_type=DeletionType.Cohort_full, team_id=TEAM_ID, key=f"{COHORT_ID}_0")
 
     with patch(
-        "posthog.models.async_deletion.delete_cohorts.AsyncCohortDeletion.mark_deletions_done",
+        "posthog.models.async_deletion.delete_cohorts._mark_verified",
         side_effect=Exception("boom"),
     ):
         result = run_job(cluster, persons_database)
@@ -891,3 +1065,63 @@ def test_a_mutation_that_fails_every_attempt_fails_the_run_and_gets_killed(
         return count
 
     assert cluster.any_host(unfinished_mutations).result() == 0
+
+
+def _deletes_success_context(instance: dagster.DagsterInstance) -> dagster.RunStatusSensorContext:
+    deletes_run = dagster.DagsterRun(job_name="deletes_job", run_id="11111111-1111-1111-1111-111111111111")
+    return dagster.build_run_status_sensor_context(
+        sensor_name="run_cleanup_sweep_after_deletes",
+        dagster_event=dagster.DagsterEvent(
+            event_type_value=dagster.DagsterEventType.RUN_SUCCESS.value, job_name="deletes_job"
+        ),
+        dagster_instance=instance,
+        dagster_run=deletes_run,
+    )
+
+
+def test_the_sweep_sensor_launches_a_real_run_after_deletes():
+    # Weekly hard-deletion has no Celery fallback once the cutover lands. A sensor that ships
+    # stopped, or loses the dry_run override, silently ends or no-ops the sweep.
+    sensor = clickhouse_cleanup.run_cleanup_sweep_after_deletes
+    assert sensor.default_status == dagster.DefaultSensorStatus.RUNNING
+
+    instance = dagster.DagsterInstance.ephemeral()
+    request = sensor(_deletes_success_context(instance))
+    assert isinstance(request, dagster.RunRequest)
+    assert request.run_config == SCHEDULED_RUN_CONFIG
+    # One sweep per deletes_job success: re-evaluating the same event must not launch another.
+    assert request.run_key == "11111111-1111-1111-1111-111111111111"
+
+
+def test_the_job_carries_the_operational_tags():
+    # The charts run-queue limit matches the concurrency tag, and the janitor's unconditional reap
+    # depends on it. max_runtime is the only bound on total runtime.
+    tags = clickhouse_deletion_sweep_job.tags
+    assert tags["clickhouse_deletion_sweep_concurrency"] == "v1"
+    assert int(tags["dagster/max_runtime"]) == 43200
+
+
+def test_the_scheduled_config_pins_every_setting_the_sweep_reads():
+    # A field added to CleanupConfig without a scheduled value would run production on whatever
+    # the code default happens to be, which is exactly what pinning this config prevents.
+    pinned = set(SCHEDULED_RUN_CONFIG["ops"]["clear_removed_cohort_data"]["config"])
+    declared = set(clickhouse_cleanup.CleanupConfig.model_fields)
+    assert declared == pinned
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        dagster.DagsterRunStatus.STARTED,
+        # A canceling run's last mutation keeps applying server-side, so it still counts as active.
+        dagster.DagsterRunStatus.CANCELING,
+    ],
+)
+def test_the_sweep_sensor_skips_while_a_sweep_is_already_active(status: dagster.DagsterRunStatus):
+    # Two concurrent sweeps would mutate person and person_distinct_id2 at the same time, which
+    # is the contention this sensor exists to prevent.
+    instance = dagster.DagsterInstance.ephemeral()
+    instance.create_run_for_job(job_def=clickhouse_deletion_sweep_job, status=status)
+
+    result = clickhouse_cleanup.run_cleanup_sweep_after_deletes(_deletes_success_context(instance))
+    assert isinstance(result, dagster.SkipReason)

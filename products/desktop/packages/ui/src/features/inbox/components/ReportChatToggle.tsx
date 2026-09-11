@@ -38,8 +38,8 @@ export function ReportChatToggle({ report }: { report: SignalReport }) {
           <Button
             type="button"
             variant={chatOpen ? "primary" : "outline"}
-            size="icon-xs"
-            className="relative h-7 w-7"
+            size="sm"
+            className="relative"
             aria-label={actionLabel}
             aria-pressed={chatOpen}
             data-attr="report-chat-toggle"
@@ -47,13 +47,10 @@ export function ReportChatToggle({ report }: { report: SignalReport }) {
           />
         }
       >
-        <span
-          aria-hidden
-          data-slot="chat-icon"
-          className="absolute inset-0 flex items-center justify-center"
-        >
+        <span aria-hidden data-slot="chat-icon" className="flex items-center">
           <ChatCircleIcon size={14} />
         </span>
+        Chat
         {hasConversation && (
           <span
             aria-hidden

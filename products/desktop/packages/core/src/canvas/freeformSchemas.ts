@@ -40,6 +40,11 @@ export type CanvasDataQueryInput = z.infer<typeof canvasDataQueryInput>;
 
 export const canvasDataResultSchema = z.object({
   columns: z.array(z.string()),
+  // True when the host served a cached result older than the canvas's declared
+  // refresh window and kicked off a background recompute. The bridge uses it to
+  // shorten its client-cache lifetime so the canvas's next read picks up the
+  // fresh numbers; it is stripped before the result reaches canvas code.
+  stale: z.boolean().optional(),
   // The result rows. SHAPE DEPENDS ON THE QUERY KIND (true for both `ph.query`
   // and `ph.loadInsight`):
   //   • HogQLQuery / SQL insight → an array of ROWS, each row an array of cell
@@ -95,6 +100,25 @@ export type CanvasCaptureInput = z.infer<typeof canvasCaptureInput>;
 
 export const canvasCaptureResultSchema = z.object({ ok: z.boolean() });
 export type CanvasCaptureResult = z.infer<typeof canvasCaptureResultSchema>;
+
+// Connector-call avenue behind the `ph.connectors.call` shim. The host resolves
+// the viewer's own connection server-side; the iframe names only the provider,
+// the tool, and its arguments.
+export const canvasConnectorProviderSchema = z.union([
+  z.literal("github"),
+  z
+    .string()
+    .max(300)
+    .regex(/^mcp:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i),
+]);
+
+export const canvasConnectorCallInput = z.object({
+  provider: canvasConnectorProviderSchema,
+  tool: z.string().min(1).max(200),
+  arguments: z.record(z.string().max(128), z.unknown()).default({}),
+  refresh: z.number().int().min(30).max(86_400).optional(),
+});
+export type CanvasConnectorCallInput = z.infer<typeof canvasConnectorCallInput>;
 
 export const canvasAgentRequestInputSchema = z.object({
   prompt: z.string().min(1).max(10_000),
@@ -259,6 +283,12 @@ export const canvasNavIntentSchema = z.discriminatedUnion("target", [
   z.object({ target: z.literal("new-task") }),
   z.object({ target: z.literal("canvas"), dashboardId: z.string().min(1) }),
   z.object({ target: z.literal("new-canvas") }),
+  // ph.connectors.connect(provider): the host maps the provider to its own
+  // settings page, so the iframe never names a route.
+  z.object({
+    target: z.literal("connect"),
+    provider: canvasConnectorProviderSchema,
+  }),
 ]);
 export type CanvasNavIntent = z.infer<typeof canvasNavIntentSchema>;
 
@@ -286,6 +316,7 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
       "stateList",
       "actionInvoke",
       "agentRequest",
+      "connectorCall",
     ]),
     payload: z.unknown(),
   }),

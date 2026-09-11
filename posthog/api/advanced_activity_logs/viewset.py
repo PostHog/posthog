@@ -102,11 +102,10 @@ def restrict_loop_activity_for_org(queryset: QuerySet[ActivityLog], organization
 
 
 def restrict_canvas_activity(queryset: QuerySet[ActivityLog], team_id: int, user) -> QuerySet[ActivityLog]:
-    """Keep personal-channel canvases' metadata out of the team-wide activity feed.
+    """Keep Canvas metadata hidden by channel visibility or source policy out of the feed.
 
-    Canvas activity is team-scoped in the log, but a canvas in a personal channel is
-    owner-only (see `CanvasViewSet`). Restrict `Canvas`-scoped rows to canvases this
-    user may actually see. Lazy import keeps the canvas product off this module's path.
+    Restrict `Canvas`-scoped rows to canvases this user may access through `CanvasViewSet`.
+    Lazy import keeps the canvas product off this module's path.
     """
     from products.canvas.backend import activity_visibility as canvas_activity  # noqa: PLC0415
 
@@ -116,12 +115,12 @@ def restrict_canvas_activity(queryset: QuerySet[ActivityLog], team_id: int, user
 
 def restrict_canvas_activity_for_org(queryset: QuerySet[ActivityLog], organization_id, user) -> QuerySet[ActivityLog]:
     """Org-wide equivalent of `restrict_canvas_activity`. The org route has no single
-    `team_id`, so deny other users' personal-channel canvas rows across the org. Canvases
-    are soft-deleted, so their visibility stays computable without a persisted snapshot.
+    `team_id`, so deny canvases hidden by channel visibility or source policy across the
+    org. Canvases are soft-deleted, so their visibility stays computable without a snapshot.
     """
     from products.canvas.backend import activity_visibility as canvas_activity  # noqa: PLC0415
 
-    hidden_ids = canvas_activity.hidden_personal_canvas_ids_for_org(organization_id, user)
+    hidden_ids = canvas_activity.hidden_canvas_ids_for_org(organization_id, user)
     if not hidden_ids:
         return queryset
     return queryset.exclude(Q(scope="Canvas") & Q(item_id__in=hidden_ids))

@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -28,7 +29,6 @@ import { isUUIDLike } from 'lib/utils/guards'
 import { markdownToHtml } from 'lib/utils/markdown'
 import { objectsEqual } from 'lib/utils/objects'
 import { fullName } from 'lib/utils/strings'
-import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -45,10 +45,7 @@ import type { Breadcrumb, CommentType, PersonType, UserType } from '~/types'
 import { ActivityScope, PropertyFilterType, PropertyOperator, Region } from '~/types'
 
 import {
-    businessKnowledgeGapSuggestionsDismissCreate,
-    businessKnowledgeGapSuggestionsList,
-} from 'products/business_knowledge/frontend/generated/api'
-import {
+    conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
@@ -65,14 +62,7 @@ import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
-import type {
-    AiReplyFeedbackRating,
-    ChatMessage,
-    KnowledgeGapSuggestion,
-    Ticket,
-    TicketPriority,
-    TicketStatus,
-} from '../../types'
+import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
 import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeLogic'
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
@@ -248,11 +238,12 @@ export interface supportTicketSceneLogicValues {
     eventsQuery: DataTableNode | null
     exceptionsQuery: DataTableNode | null
     feedbackByMessageId: Record<string, AiReplyFeedbackRating>
+    fullEmailContent: string | null
+    fullEmailContentLoading: boolean
+    fullEmailMessageId: string | null
     hasMoreMessages: boolean
     hasPendingWork: boolean
     hasUnsavedChanges: boolean
-    knowledgeGaps: KnowledgeGapSuggestion[]
-    knowledgeGapsLoading: boolean
     latestAiMessage: ChatMessage | null
     linkedReports: SignalReportApi[]
     linkedReportsLoading: boolean
@@ -293,35 +284,29 @@ export interface supportTicketSceneLogicActions {
     clearEditingMessage: () => {
         value: true
     }
+    closeFullEmail: () => {
+        value: true
+    }
     deleteMessage: (messageId: string) => {
         messageId: string
-    }
-    dismissKnowledgeGap: (suggestionId: string) => {
-        suggestionId: string
     }
     incrementUnreadCustomerCount: () => {
         value: true
     }
-    loadKnowledgeGaps: () => {
-        value: true
-    }
-    loadKnowledgeGapsFailure: (
+    loadFullEmail: (messageId: string) => string
+    loadFullEmailFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadKnowledgeGapsSuccess: (
-        knowledgeGaps: KnowledgeGapSuggestion[],
-        payload?: {
-            value: true
-        }
+    loadFullEmailSuccess: (
+        fullEmailContent: string,
+        payload?: string
     ) => {
-        knowledgeGaps: KnowledgeGapSuggestion[]
-        payload?: {
-            value: true
-        }
+        fullEmailContent: string
+        payload?: string
     }
     loadLinkedReports: () => {
         value: true
@@ -524,11 +509,7 @@ export interface supportTicketSceneLogicMeta {
             unsavedTicketChanges: string[]
         ) => boolean
         hasPendingWork: (hasUnsavedChanges: boolean, editingMessageId: string | null) => boolean
-        chatMessages: (
-            messages: CommentType[],
-            ticket: Ticket | null,
-            featureFlags: FeatureFlagsSet // featureFlagLogic
-        ) => ChatMessage[]
+        chatMessages: (messages: CommentType[], ticket: Ticket | null, featureFlags: FeatureFlagsSet) => ChatMessage[]
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
@@ -609,10 +590,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadPreviousTickets: true,
         loadLinkedReports: true,
 
-        // Knowledge gap suggestions
-        loadKnowledgeGaps: true,
-        dismissKnowledgeGap: (suggestionId: string) => ({ suggestionId }),
-
         // Draft message state (persists across tab switches)
         setDraftContent: (content: string | JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
@@ -634,6 +611,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             messageId,
             rating,
         }),
+        closeFullEmail: true,
     }),
     loaders(({ values, props }) => ({
         person: [
@@ -730,23 +708,21 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 },
             },
         ],
-        knowledgeGaps: [
-            [] as KnowledgeGapSuggestion[],
+        fullEmailContent: [
+            null as string | null,
             {
-                loadKnowledgeGaps: async (): Promise<KnowledgeGapSuggestion[]> => {
+                loadFullEmail: async (messageId: string, breakpoint): Promise<string> => {
                     const ticket = values.ticket
                     if (!ticket) {
-                        return []
+                        throw new Error('Ticket is not loaded')
                     }
-                    try {
-                        const response = await businessKnowledgeGapSuggestionsList(String(getCurrentTeamId()), {
-                            ticket_id: ticket.id,
-                        })
-                        const data = Array.isArray(response) ? response : (response.results ?? [])
-                        return data as unknown as KnowledgeGapSuggestion[]
-                    } catch {
-                        return []
-                    }
+                    const response = await conversationsTicketsMessagesFullEmailRetrieve(
+                        String(getCurrentTeamId()),
+                        ticket.id,
+                        messageId
+                    )
+                    breakpoint()
+                    return response.content
                 },
             },
         ],
@@ -774,6 +750,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 loadTicket: () => true,
                 setTicket: () => false,
                 setTicketLoading: (_, { loading }) => loading,
+            },
+        ],
+        fullEmailMessageId: [
+            null as string | null,
+            {
+                loadFullEmail: (_, messageId) => messageId,
+                loadFullEmailFailure: () => null,
+                closeFullEmail: () => null,
             },
         ],
         status: [
@@ -1104,6 +1088,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             version: message.version,
                             emailDeliveryStatus: message.item_context?.email_delivery_status,
                             fromZendesk: message.item_context?.from_zendesk === true,
+                            hasFullEmailContent: message.item_context?.has_full_email_content === true,
                         }
                     })
             },
@@ -1171,7 +1156,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                 // Load session context data
                 actions.loadPerson()
-                actions.loadKnowledgeGaps()
                 actions.loadLinkedReports()
 
                 // Refresh the unread count since viewing a ticket marks it as read
@@ -1202,6 +1186,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadPersonSuccess: async () => {
             // Load previous tickets after person is loaded
             actions.loadPreviousTickets()
+        },
+        loadFullEmailFailure: () => {
+            lemonToast.error("Couldn't load the full email. Try again.")
+            actions.closeFullEmail()
         },
         updateTicket: async (_, breakpoint) => {
             if (props.id === 'new') {
@@ -1514,14 +1502,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 },
                 secondaryButton: { children: 'Cancel' },
             })
-        },
-        dismissKnowledgeGap: async ({ suggestionId }) => {
-            try {
-                await businessKnowledgeGapSuggestionsDismissCreate(String(getCurrentTeamId()), suggestionId)
-                actions.loadKnowledgeGaps()
-            } catch {
-                lemonToast.error('Failed to dismiss suggestion')
-            }
         },
         submitAiReplyFeedback: async ({ messageId, rating, feedbackText }) => {
             const ticket = values.ticket

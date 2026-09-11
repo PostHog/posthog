@@ -9,6 +9,146 @@
  */
 import * as zod from 'zod'
 
+export const dashboardSavedViewsCreateBodyNameMax = 200
+
+export const dashboardSavedViewsCreateBodyFiltersOneSearchMax = 200
+
+export const dashboardSavedViewsCreateBodyFiltersOneCreatedByOneMax = 100
+
+export const dashboardSavedViewsCreateBodyFiltersOneTagsItemMax = 100
+
+export const dashboardSavedViewsCreateBodyFiltersOneTagsMax = 50
+
+export const dashboardSavedViewsCreateBodyFiltersOneFolderMax = 4000
+
+export const dashboardSavedViewsCreateBodyScopeDefault = `private`
+
+export const DashboardSavedViewsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(dashboardSavedViewsCreateBodyNameMax)
+        .describe('Name shown in the dashboard list view picker.'),
+    filters: zod
+        .object({
+            search: zod.string().max(dashboardSavedViewsCreateBodyFiltersOneSearchMax).optional(),
+            createdBy: zod
+                .union([
+                    zod.array(zod.number()).max(dashboardSavedViewsCreateBodyFiltersOneCreatedByOneMax),
+                    zod.enum(['All users']),
+                ])
+                .optional(),
+            pinned: zod.boolean().optional(),
+            shared: zod.boolean().optional(),
+            tags: zod
+                .array(zod.string().max(dashboardSavedViewsCreateBodyFiltersOneTagsItemMax))
+                .max(dashboardSavedViewsCreateBodyFiltersOneTagsMax)
+                .optional(),
+            folder: zod.string().max(dashboardSavedViewsCreateBodyFiltersOneFolderMax).nullish(),
+        })
+        .describe('Dashboard list filters stored by this view.'),
+    scope: zod
+        .enum(['private', 'team'])
+        .describe('\* `private` - Private\n\* `team` - Team')
+        .default(dashboardSavedViewsCreateBodyScopeDefault)
+        .describe(
+            'Whether only the creator or all team members can use this view.\n\n\* `private` - Private\n\* `team` - Team'
+        ),
+})
+
+export const dashboardSavedViewsUpdateBodyNameMax = 200
+
+export const dashboardSavedViewsUpdateBodyFiltersOneSearchMax = 200
+
+export const dashboardSavedViewsUpdateBodyFiltersOneCreatedByOneMax = 100
+
+export const dashboardSavedViewsUpdateBodyFiltersOneTagsItemMax = 100
+
+export const dashboardSavedViewsUpdateBodyFiltersOneTagsMax = 50
+
+export const dashboardSavedViewsUpdateBodyFiltersOneFolderMax = 4000
+
+export const dashboardSavedViewsUpdateBodyScopeDefault = `private`
+
+export const DashboardSavedViewsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(dashboardSavedViewsUpdateBodyNameMax)
+        .describe('Name shown in the dashboard list view picker.'),
+    filters: zod
+        .object({
+            search: zod.string().max(dashboardSavedViewsUpdateBodyFiltersOneSearchMax).optional(),
+            createdBy: zod
+                .union([
+                    zod.array(zod.number()).max(dashboardSavedViewsUpdateBodyFiltersOneCreatedByOneMax),
+                    zod.enum(['All users']),
+                ])
+                .optional(),
+            pinned: zod.boolean().optional(),
+            shared: zod.boolean().optional(),
+            tags: zod
+                .array(zod.string().max(dashboardSavedViewsUpdateBodyFiltersOneTagsItemMax))
+                .max(dashboardSavedViewsUpdateBodyFiltersOneTagsMax)
+                .optional(),
+            folder: zod.string().max(dashboardSavedViewsUpdateBodyFiltersOneFolderMax).nullish(),
+        })
+        .describe('Dashboard list filters stored by this view.'),
+    scope: zod
+        .enum(['private', 'team'])
+        .describe('\* `private` - Private\n\* `team` - Team')
+        .default(dashboardSavedViewsUpdateBodyScopeDefault)
+        .describe(
+            'Whether only the creator or all team members can use this view.\n\n\* `private` - Private\n\* `team` - Team'
+        ),
+})
+
+export const dashboardSavedViewsPartialUpdateBodyNameMax = 200
+
+export const dashboardSavedViewsPartialUpdateBodyFiltersOneSearchMax = 200
+
+export const dashboardSavedViewsPartialUpdateBodyFiltersOneCreatedByOneMax = 100
+
+export const dashboardSavedViewsPartialUpdateBodyFiltersOneTagsItemMax = 100
+
+export const dashboardSavedViewsPartialUpdateBodyFiltersOneTagsMax = 50
+
+export const dashboardSavedViewsPartialUpdateBodyFiltersOneFolderMax = 4000
+
+export const dashboardSavedViewsPartialUpdateBodyScopeDefault = `private`
+
+export const DashboardSavedViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(dashboardSavedViewsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Name shown in the dashboard list view picker.'),
+    filters: zod
+        .object({
+            search: zod.string().max(dashboardSavedViewsPartialUpdateBodyFiltersOneSearchMax).optional(),
+            createdBy: zod
+                .union([
+                    zod.array(zod.number()).max(dashboardSavedViewsPartialUpdateBodyFiltersOneCreatedByOneMax),
+                    zod.enum(['All users']),
+                ])
+                .optional(),
+            pinned: zod.boolean().optional(),
+            shared: zod.boolean().optional(),
+            tags: zod
+                .array(zod.string().max(dashboardSavedViewsPartialUpdateBodyFiltersOneTagsItemMax))
+                .max(dashboardSavedViewsPartialUpdateBodyFiltersOneTagsMax)
+                .optional(),
+            folder: zod.string().max(dashboardSavedViewsPartialUpdateBodyFiltersOneFolderMax).nullish(),
+        })
+        .optional()
+        .describe('Dashboard list filters stored by this view.'),
+    scope: zod
+        .enum(['private', 'team'])
+        .describe('\* `private` - Private\n\* `team` - Team')
+        .default(dashboardSavedViewsPartialUpdateBodyScopeDefault)
+        .describe(
+            'Whether only the creator or all team members can use this view.\n\n\* `private` - Private\n\* `team` - Team'
+        ),
+})
+
 export const dashboardTemplatesCreateBodyTemplateNameMax = 400
 
 export const dashboardTemplatesCreateBodyDashboardDescriptionMax = 400
@@ -131,6 +271,7 @@ export const DashboardTemplatesCopyBetweenProjectsCreateBody = /* @__PURE__ */ z
 
 export const dashboardsCreateBodyNameMax = 400
 
+export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
 export const dashboardsCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateBody = /* @__PURE__ */ zod
@@ -140,7 +281,46 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
         pinned: zod.boolean().optional(),
         last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
-        breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
+        breakdown_colors: zod
+            .array(
+                zod.object({
+                    breakdownValue: zod
+                        .string()
+                        .describe('The breakdown value this color applies to, as it appears in the chart legend.'),
+                    colorToken: zod
+                        .string()
+                        .regex(dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp)
+                        .nullable()
+                        .describe(
+                            'Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.'
+                        ),
+                    breakdownType: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.'
+                        ),
+                    breakdownProperty: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.'
+                        ),
+                    source: zod
+                        .union([
+                            zod.enum(['auto', 'manual']).describe('\* `auto` - auto\n\* `manual` - manual'),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            '`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n\* `auto` - auto\n\* `manual` - manual'
+                        ),
+                })
+            )
+            .nullish()
+            .describe(
+                "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
+            ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
@@ -194,6 +374,7 @@ export const DashboardsCollaboratorsCreateBody = /* @__PURE__ */ zod.object({
 
 export const dashboardsUpdateBodyNameMax = 400
 
+export const dashboardsUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
 export const dashboardsUpdateBodyDeleteInsightsDefault = false
 
 export const DashboardsUpdateBody = /* @__PURE__ */ zod
@@ -203,7 +384,46 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
         pinned: zod.boolean().optional(),
         last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
-        breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
+        breakdown_colors: zod
+            .array(
+                zod.object({
+                    breakdownValue: zod
+                        .string()
+                        .describe('The breakdown value this color applies to, as it appears in the chart legend.'),
+                    colorToken: zod
+                        .string()
+                        .regex(dashboardsUpdateBodyBreakdownColorsItemColorTokenRegExp)
+                        .nullable()
+                        .describe(
+                            'Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.'
+                        ),
+                    breakdownType: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.'
+                        ),
+                    breakdownProperty: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.'
+                        ),
+                    source: zod
+                        .union([
+                            zod.enum(['auto', 'manual']).describe('\* `auto` - auto\n\* `manual` - manual'),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            '`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n\* `auto` - auto\n\* `manual` - manual'
+                        ),
+                })
+            )
+            .nullish()
+            .describe(
+                "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
+            ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
@@ -247,6 +467,8 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 export const dashboardsPartialUpdateBodyNameMax = 400
+
+export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault = 25
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitMax = 50
@@ -339,7 +561,46 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.'
             ),
-        breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
+        breakdown_colors: zod
+            .array(
+                zod.object({
+                    breakdownValue: zod
+                        .string()
+                        .describe('The breakdown value this color applies to, as it appears in the chart legend.'),
+                    colorToken: zod
+                        .string()
+                        .regex(dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp)
+                        .nullable()
+                        .describe(
+                            'Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.'
+                        ),
+                    breakdownType: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.'
+                        ),
+                    breakdownProperty: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.'
+                        ),
+                    source: zod
+                        .union([
+                            zod.enum(['auto', 'manual']).describe('\* `auto` - auto\n\* `manual` - manual'),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            '`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n\* `auto` - auto\n\* `manual` - manual'
+                        ),
+                })
+            )
+            .nullish()
+            .describe(
+                "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
+            ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.string()).optional(),
         restriction_level: zod
@@ -1110,17 +1371,25 @@ export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
  * Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
  * or annotations between insight tiles to give the dashboard structure.
  */
+export const dashboardsCreateTextTileCreateBodyTypeDefault = `text`
 export const dashboardsCreateTextTileCreateBodyBodyMax = 4000
 
 export const dashboardsCreateTextTileCreateBodyColorMax = 400
 
 export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['text', 'image'])
+        .describe('\* `text` - text\n\* `image` - image')
+        .default(dashboardsCreateTextTileCreateBodyTypeDefault)
+        .describe(
+            'Tile type. Use image for a body with exactly one Markdown image. Defaults to text.\n\n\* `text` - text\n\* `image` - image'
+        ),
     body: zod
         .string()
         .min(1)
         .max(dashboardsCreateTextTileCreateBodyBodyMax)
         .describe(
-            'Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.'
+            'Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. Image tiles require exactly one Markdown image. Max 4000 characters.'
         ),
     layouts: zod
         .object({
@@ -3305,6 +3574,10 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
  */
 export const dashboardsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const dashboardsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const dashboardsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const DashboardsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.number())
@@ -3316,11 +3589,17 @@ export const DashboardsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(dashboardsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(dashboardsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set.'),
 })
 
 export const dashboardsCreateFromTemplateJsonCreateBodyNameMax = 400
 
+export const dashboardsCreateFromTemplateJsonCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp(
+    '^preset-[1-9][0-9]\*$'
+)
 export const dashboardsCreateFromTemplateJsonCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
@@ -3330,7 +3609,46 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
         pinned: zod.boolean().optional(),
         last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
-        breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
+        breakdown_colors: zod
+            .array(
+                zod.object({
+                    breakdownValue: zod
+                        .string()
+                        .describe('The breakdown value this color applies to, as it appears in the chart legend.'),
+                    colorToken: zod
+                        .string()
+                        .regex(dashboardsCreateFromTemplateJsonCreateBodyBreakdownColorsItemColorTokenRegExp)
+                        .nullable()
+                        .describe(
+                            'Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.'
+                        ),
+                    breakdownType: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.'
+                        ),
+                    breakdownProperty: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.'
+                        ),
+                    source: zod
+                        .union([
+                            zod.enum(['auto', 'manual']).describe('\* `auto` - auto\n\* `manual` - manual'),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            '`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n\* `auto` - auto\n\* `manual` - manual'
+                        ),
+                })
+            )
+            .nullish()
+            .describe(
+                "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
+            ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
@@ -3380,6 +3698,9 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
  */
 export const dashboardsCreateUnlistedDashboardCreateBodyNameMax = 400
 
+export const dashboardsCreateUnlistedDashboardCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp(
+    '^preset-[1-9][0-9]\*$'
+)
 export const dashboardsCreateUnlistedDashboardCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
@@ -3389,7 +3710,46 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
         pinned: zod.boolean().optional(),
         last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
-        breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
+        breakdown_colors: zod
+            .array(
+                zod.object({
+                    breakdownValue: zod
+                        .string()
+                        .describe('The breakdown value this color applies to, as it appears in the chart legend.'),
+                    colorToken: zod
+                        .string()
+                        .regex(dashboardsCreateUnlistedDashboardCreateBodyBreakdownColorsItemColorTokenRegExp)
+                        .nullable()
+                        .describe(
+                            'Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.'
+                        ),
+                    breakdownType: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.'
+                        ),
+                    breakdownProperty: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.'
+                        ),
+                    source: zod
+                        .union([
+                            zod.enum(['auto', 'manual']).describe('\* `auto` - auto\n\* `manual` - manual'),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            '`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n\* `auto` - auto\n\* `manual` - manual'
+                        ),
+                })
+            )
+            .nullish()
+            .describe(
+                "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
+            ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod

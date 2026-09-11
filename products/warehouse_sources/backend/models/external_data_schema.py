@@ -138,6 +138,15 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
         """
         disabling = kwargs.get("should_sync") is False
         deleting = kwargs.get("deleted") is True
+
+        # `auto_disabled_at` is written by `save()`, which a bulk write skips. The auto-disable
+        # path always runs through `update_should_sync`, which saves the instance, so a bulk
+        # write that names `should_sync` is the user's decision. An earlier halt must not
+        # outlive it, or a schema nobody halted stays in the failure digest. An explicit value
+        # still wins, so a caller can stage a halted row.
+        if "should_sync" in kwargs and "auto_disabled_at" not in kwargs:
+            kwargs["auto_disabled_at"] = None
+
         transitioning: list[tuple[uuid.UUID, int]] = []
         if disabling or deleting:
             predicate = models.Q()
@@ -167,6 +176,12 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     source = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
     table = models.ForeignKey("warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     should_sync = models.BooleanField(default=True)
+    auto_disabled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When PostHog stopped syncing this schema itself, after an error that retrying would not fix. "
+        "Null while syncing is on, and while syncing is off because the user turned it off.",
+    )
     latest_error = models.TextField(
         null=True, blank=True, help_text="The latest error that occurred when syncing this schema."
     )
@@ -242,6 +257,30 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             return "disabled"
         return None
 
+    def _apply_auto_disabled_marker(self, teardown_kind: str | None, update_fields: Iterable[str] | None) -> bool:
+        """Record whether PostHog stopped this schema itself. Returns whether the value changed.
+
+        The failure digest emails a team about a schema PostHog halted, and stays quiet about one
+        the user switched off, so which of the two happened must outlive the write that stopped
+        the schema. Only the auto-disable path supplies an error message through
+        ``sync_disable_context``, and that is what tells the two apart. A save that leaves
+        ``should_sync`` False without performing the disable transition keeps the existing stamp,
+        so the pipeline's frequent bookkeeping saves cannot erase it.
+        """
+        if update_fields is not None and "should_sync" not in update_fields:
+            return False
+        if self.should_sync:
+            marker = None
+        elif teardown_kind == "disabled":
+            context = _sync_disable_context.get()
+            marker = timezone.now() if context is not None and context.error_message else None
+        else:
+            return False
+        if marker == self.auto_disabled_at:
+            return False
+        self.auto_disabled_at = marker
+        return True
+
     def save(self, *args: Any, skip_activity_log: bool = False, **kwargs: Any) -> None:
         # Populate the S3 folder on first write so the column is always authoritative for new rows.
         # Legacy/qualified rows set it explicitly before renaming (see `_qualify_legacy_row`); this
@@ -256,6 +295,11 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # `.update()` twin lives on ExternalDataSchemaQuerySet. Detected before the write,
         # dispatched only after it succeeds.
         teardown_kind = self._sync_teardown_kind(kwargs.get("update_fields"))
+
+        if self._apply_auto_disabled_marker(teardown_kind, kwargs.get("update_fields")):
+            scoped_fields = kwargs.get("update_fields")
+            if scoped_fields is not None:
+                kwargs["update_fields"] = {*scoped_fields, "auto_disabled_at"}
 
         if skip_activity_log:
             # Internal pipeline-driven bookkeeping saves (sync_type_config / xmin state) don't need
@@ -398,6 +442,15 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def incremental_field_earliest_value(self) -> IncrementalFieldValue:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_earliest_value", None)
+
+        return None
+
+    @property
+    def last_full_run_at(self) -> str | None:
+        """ISO timestamp of the last run that actually extracted, so a schema completing on a
+        negative probe still gets one full run per interval (see `_fast_return_eligible`)."""
+        if self.sync_type_config:
+            return self.sync_type_config.get("last_full_run_at", None)
 
         return None
 
@@ -636,7 +689,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         appending from that offset instead of re-streaming from row 0, so a table too large to rewrite
         in one activity converges across attempts rather than giving up terminally. Cleared once temp
         is fully built (a swap is staged) or when the controller gives up. Shape:
-        {"temp_uri": str, "rows_written": int, "target": dict, "live_version": int, "held_at": str}.
+        {"temp_uri": str, "rows_written": int, "target": dict, "live_version": int, "held_at": str,
+        "budget_exhausted": bool}.
         """
         if self.sync_type_config:
             marker = self.sync_type_config.get("repartition_rewrite", None)
@@ -705,8 +759,16 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         )
 
     def record_partition_measurement(self, max_partition_bytes: int) -> None:
-        self.sync_type_config["max_partition_bytes"] = max_partition_bytes
-        self._save_sync_type_config()
+        # Deferred: this module loads during django.setup() and the util pulls in temporalio.
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
+        self.sync_type_config = retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(
+                self.id,
+                self.team_id,
+                updates={"max_partition_bytes": max_partition_bytes},
+            )
+        )
 
     def set_repartition_pending(self, target: dict[str, Any]) -> None:
         self.sync_type_config["repartition_pending"] = target
@@ -1218,6 +1280,64 @@ def save_repartition_checkpoint_if_claimed(
 
     update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
     return claimed
+
+
+def finalize_repartition_scheme(
+    schema: ExternalDataSchema,
+    *,
+    partitioning_keys: list[str],
+    partition_count: int | None,
+    partition_size: int | None,
+    partition_mode: PartitionMode | None,
+    partition_format: PartitionFormat | None,
+    claim_token: str | None = None,
+) -> bool:
+    """Adopt the scheme a completed repartition swap put on disk, and retire its markers, in one write.
+
+    The swap has already re-bucketed the data in S3, so until these settings land the schema row
+    describes a layout the table no longer has. An incremental merge in that window scopes its
+    predicate to a `_ph_partition_key` value the table cannot contain, matches nothing, and inserts
+    every fetched row instead of upserting it. `set_partitioning_enabled` plus the three marker
+    writes leave four separate chances to stop halfway; doing it under one row lock means a reader
+    sees either the whole new scheme or the untouched `repartition_swap` marker that says the swap is
+    still unresolved.
+
+    Returns whether the write happened. False means `claim_token` no longer owns the schema, so a
+    newer attempt owns this swap and will finalize it.
+    """
+    wrote = False
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal wrote
+        if claim_token is not None:
+            claim = config.get("repartition_claim")
+            if not (claim and claim.get("token") == claim_token):
+                return
+        config["partitioning_enabled"] = True
+        config["partition_count"] = partition_count
+        config["partition_size"] = partition_size
+        config["partitioning_keys"] = partitioning_keys
+        config["partition_mode"] = partition_mode
+        config["partition_format"] = partition_format
+        # Engage the cooldown here rather than in a follow-up write, or a stop between the two
+        # re-flags the table on the next sync and repartitions it again straight away.
+        config["last_repartition_at"] = timezone.now().isoformat()
+        for key in (
+            # Operator pins are one-shot: they are baked into the settings above, so a later reset
+            # falls back to auto-detection (see `set_partitioning_enabled`).
+            "partition_count_override",
+            "partition_size_override",
+            "partition_mode_override",
+            "partitioning_keys_override",
+            "repartition_swap",
+            "repartition_pending",
+            "repartition_rewrite",
+        ):
+            config.pop(key, None)
+        wrote = True
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return wrote
 
 
 def complete_schema_run(schema: ExternalDataSchema, *, last_synced_at: datetime) -> bool:

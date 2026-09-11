@@ -5,8 +5,9 @@ use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 // The `cohort-core`-owned metric names this binary emits: its metric-surface manifest.
 pub use cohort_core::metrics::{
     COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_COHORT_PARSE_ERRORS,
-    FILTER_CATALOG_INVALID_SHAPE_HASH, FILTER_CATALOG_SKIPPED_LEAVES, FILTER_CATALOG_TZ_FALLBACK,
-    STAGE1_GLOBALS_PARSE_ERROR, STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION,
+    FILTER_CATALOG_CONDITION_PROJECTION, FILTER_CATALOG_INVALID_SHAPE_HASH,
+    FILTER_CATALOG_SKIPPED_LEAVES, FILTER_CATALOG_TZ_FALLBACK, STAGE1_GLOBALS_PARSE_ERROR,
+    STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION,
 };
 
 /// Teams with ≥1 realtime cohort in the current catalog snapshot (gauge).
@@ -26,6 +27,11 @@ pub const FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS: &str =
 /// Catalog refresh attempts, labelled by `result` (`success`|`error`) (counter). The `error` series
 /// gives the failure rate; the `success` series proves the loop is still ticking at all.
 pub const FILTER_CATALOG_REFRESH_TOTAL: &str = "filter_catalog_refresh_total";
+/// Wall time of one catalog build — parsing every cohort's filters JSON and loading every leaf's
+/// bytecode (histogram, seconds). The build runs on the blocking pool, so it cannot stall a
+/// partition worker; a build that grew into the seconds instead shows up as catalog staleness.
+/// Measured inside the offloaded closure, so it excludes blocking-pool queue delay.
+pub const FILTER_CATALOG_BUILD_DURATION_SECONDS: &str = "filter_catalog_build_duration_seconds";
 /// Cascade depths reached, from the `depth` field on cascade messages (histogram). Cohort ids are
 /// logged, not labelled, to keep cardinality bounded.
 pub const CASCADE_DEPTH_OBSERVED: &str = "cascade_depth_observed";
@@ -142,9 +148,11 @@ pub const STORE_OFFLOAD_QUEUE_WAIT_DURATION_SECONDS: &str =
 /// Execution time of the offloaded op inside the blocking closure, labelled by `op` (histogram,
 /// seconds) — excludes permit and queue waits, so it is the pure on-thread store cost.
 pub const STORE_OFFLOAD_EXEC_DURATION_SECONDS: &str = "store_offload_exec_duration_seconds";
-/// Store ops currently executing inside a blocking closure, labelled by `lane`
-/// (`event`|`maintenance`|`write`|`section`) (gauge). Maintained inside the closure so it stays
-/// correct even if the caller future is dropped mid-flight.
+/// Store ops currently executing inside a blocking closure, labelled by `lane` (gauge). The label is
+/// the permit lane the op holds (`event`|`maintenance`), or `write` and `section` for the permit-free
+/// write and stats-snapshot offloads, so `lane="maintenance"` is the maintenance permits in use,
+/// sections included. Maintained inside the closure so it stays correct even if the caller future
+/// is dropped mid-flight.
 pub const STORE_OFFLOAD_INFLIGHT: &str = "store_offload_inflight";
 
 /// Latency of a RocksDB read, labelled by `op` (histogram, seconds). `op=get` is sampled 1-in-N
@@ -229,17 +237,28 @@ pub const TOKIO_BLOCKING_QUEUE_DEPTH: &str = "tokio_blocking_queue_depth";
 pub const PARTITIONS_ACTIVE: &str = "partitions_active";
 /// Messages dropped while routing (no live worker), labelled by `reason` (counter).
 pub const PARTITION_ROUTE_DROPPED_TOTAL: &str = "partition_route_dropped_total";
-/// Sub-batches queued in a partition worker's channel, labelled by `partition` (gauge).
+/// Sub-batches queued in a partition worker's live lane, labelled by `partition` (gauge).
 pub const PARTITION_CHANNEL_DEPTH: &str = "partition_channel_depth";
-/// Events held back because a partition worker's channel was full, labelled by `partition` (counter).
-/// Backpressure, not loss: the partition is paused and its events redispatch once the channel drains.
-/// Re-counted on every retry of a still-full holdover, so it is a pressure rate, not a distinct-event
-/// count.
+/// Events held back because a partition worker's live lane was full, labelled by `partition`
+/// (counter). Backpressure, not loss: the partition is paused and its events redispatch once the
+/// lane drains. Re-counted on every retry of a still-full holdover, so it is a pressure rate, not a
+/// distinct-event count.
 pub const PARTITION_CHANNEL_FULL_TOTAL: &str = "partition_channel_full_total";
-/// Un-drained events in a partition worker's channel (plus the batch it is processing), labelled by
-/// `partition` (gauge). A value pinned near `PARTITION_INTAKE_MAX_EVENTS` that never drains flags a
-/// stuck worker.
+/// Un-drained events in a partition worker's live lane (plus the batch it is processing), labelled
+/// by `partition` (gauge). A value pinned near `PARTITION_INTAKE_MAX_EVENTS` that never drains flags
+/// a stuck worker.
 pub const PARTITION_INTAKE_EVENTS: &str = "partition_intake_events";
+/// Seeds resident in a partition worker's seed lane, queued plus the quantum being applied,
+/// labelled by `partition` (gauge). The router adds what it lands, the worker releases a quantum
+/// once its last run has applied, and a revoke zeroes the series. A value pinned near
+/// `PARTITION_INTAKE_MAX_SEEDS` means the worker is serving live traffic and the seed lane is
+/// backing up behind it: a partition whose live lane never empties makes no seed progress by
+/// design, and shows under [`SEED_PAUSED_PARTITIONS`] with cause `channel_full`.
+pub const PARTITION_SEED_CHANNEL_DEPTH: &str = "partition_seed_channel_depth";
+/// Seeds held back because a partition worker's seed lane was full, labelled by `partition`
+/// (counter). Backpressure, not loss, and re-counted on every retry of a still-full holdover, like
+/// its live twin [`PARTITION_CHANNEL_FULL_TOTAL`].
+pub const PARTITION_SEED_CHANNEL_FULL_TOTAL: &str = "partition_seed_channel_full_total";
 /// Partitions currently paused on the events consumer to shed downstream backpressure (gauge).
 pub const PARTITIONS_PAUSED: &str = "partitions_paused";
 /// Events currently held across all paused partitions, awaiting redispatch (gauge). Bounded — a
@@ -267,6 +286,10 @@ pub const STAGE1_EVENTS_PROCESSED: &str = "stage1_events_processed_total";
 pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
 /// HogVM evaluations, labelled by `kind` — one per unique conditionHash per event (counter).
 pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total";
+/// Behavioral globals builds, labelled by `result`: `built`, `no_candidates` when no condition can
+/// match so neither payload is parsed, or `parse_error` (counter). `no_candidates` conflates an
+/// unbucketed event name with a team that has no behavioral condition; scope by team to separate.
+pub const STAGE1_GLOBALS_BUILDS: &str = "stage1_globals_builds_total";
 /// Condition evaluations skipped because the result was already known, labelled by `reason`
 /// (`event_name_gate`) (counter).
 pub const STAGE1_CONDITIONS_SKIPPED: &str = "stage1_conditions_skipped_total";
@@ -281,7 +304,9 @@ pub const STAGE1_PERSON_RECORD_TOTAL: &str = "stage1_person_record_total";
 pub const STAGE1_PERSON_RECORD_SIZE_BYTES: &str = "stage1_person_record_size_bytes";
 /// Behavioral applies staged per event — the write fan-out of the behavioral side (histogram).
 pub const STAGE1_BEHAVIORAL_APPLIES: &str = "stage1_behavioral_applies";
-/// Leaf membership flips emitted, labelled by `kind` (counter).
+/// Leaf membership flips emitted, labelled by `kind` (counter). The seed paths count a run's
+/// *net* flip per leaf, not one per seed: a run that enters then leaves the same leaf counts
+/// nothing, because that is what it tells downstream.
 pub const STAGE1_TRANSITIONS: &str = "stage1_transitions_total";
 /// `cf_behavioral` records written, labelled by `variant` (counter).
 pub const STAGE1_STATE_WRITES: &str = "stage1_state_writes_total";
@@ -292,6 +317,8 @@ pub const STAGE1_REPLAY_SKIPPED: &str = "stage1_replay_skipped_total";
 /// (counter). A defensive guard against a stale catalog.
 pub const STAGE1_UNSUPPORTED_VARIANT_SKIPPED: &str = "stage1_unsupported_variant_skipped_total";
 /// Stored `cf_behavioral` values that failed to decode; the key is skipped, not panicked (counter).
+/// The seed path counts once per corrupt row its run reads, not once per tile that touches it;
+/// `cohort_seed_tiles_dropped_total{reason="corrupt_state"}` is still per tile-leaf.
 pub const STAGE1_STATE_DECODE_ERROR: &str = "stage1_state_decode_error_total";
 /// End-to-end per-event processing latency in the worker (histogram, seconds).
 pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_seconds";
@@ -380,6 +407,29 @@ pub const SWEEP_CYCLES_TOTAL: &str = "sweep_cycles_total";
 pub const SWEEP_CYCLE_DURATION_SECONDS: &str = "sweep_cycle_duration_seconds";
 /// Keys the sweep evicted, labelled by `variant` (counter).
 pub const SWEEP_KEYS_EVICTED_TOTAL: &str = "sweep_keys_evicted_total";
+/// Wall-clock duration of one sweep **batch** inside the partition worker: read, produce, commit and
+/// Stage 2 composition (histogram, seconds). This is the number that says how long live traffic waits
+/// behind eviction. [`SWEEP_CYCLE_DURATION_SECONDS`] does not: it times the dispatch that hands each
+/// worker a request, and returns before any worker starts.
+pub const SWEEP_BATCH_DURATION_SECONDS: &str = "sweep_batch_duration_seconds";
+/// Time one sweep batch spent awaiting the acks of its single-leaf membership produce (histogram,
+/// seconds). Splits [`SWEEP_BATCH_DURATION_SECONDS`] between the store and the delivery report:
+/// every batch pays the producer's linger and a broker round trip whatever its size, which is the
+/// cost a larger batch target would amortize.
+pub const SWEEP_BATCH_PRODUCE_SECONDS: &str = "sweep_batch_produce_seconds";
+/// Keys one sweep batch claimed out of the queue (histogram). Bounded by the batch target, except
+/// where one person's group does not fit and the batch takes it whole, so the upper quantiles are
+/// the wide-person signal.
+pub const SWEEP_BATCH_KEYS_CLAIMED: &str = "sweep_batch_keys_claimed";
+/// Raw value bytes one batched `cf_behavioral` read returned inside a sweep batch (histogram, bytes).
+/// **A key limit does not bound bytes**, because behavioral values grow with window length, so read
+/// this before assuming the batch target is a memory ceiling.
+pub const SWEEP_READ_CHUNK_BYTES: &str = "sweep_read_chunk_bytes";
+/// How far a partition's soonest queued deadline sits behind the newest cutoff the sweep was asked
+/// for, labelled by `partition` (gauge, seconds). Zero when nothing is overdue. A level that grows
+/// across ticks means eviction is not keeping up with the wave, which the evicted counter alone
+/// cannot show.
+pub const SWEEP_QUEUE_LAG_SECONDS: &str = "sweep_queue_lag_seconds";
 /// Person merges handled, labelled by `path` (`same_partition`|`cross_partition`) (counter).
 pub const MERGE_HANDLED_TOTAL: &str = "merge_handled_total";
 /// Drain messages short-circuited by a `cf_merge_drains_applied` hit (counter).
@@ -457,9 +507,17 @@ pub const STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL: &str = "stage2_orphan_gc_unde
 /// `cf_stage2` keys a cohort-prefix scan could not decode and skipped (counter).
 pub const STAGE2_SCAN_UNDECODABLE_KEYS_TOTAL: &str = "stage2_scan_undecodable_keys_total";
 
-/// Keys the sweep popped but did not evict, labelled by `reason` (counter). Conservation:
-/// `popped == evicted + dropped`.
+/// Keys the sweep claimed but did not evict, labelled by `reason` (counter). Every reason here is a
+/// lost eviction. Conservation over a pass whose batches all settle: `claimed == evicted + dropped`;
+/// a batch that fails its produce or commit is counted under neither until the request that retries
+/// it. Keys selected but never claimed are counted under [`SWEEP_KEYS_NOT_CLAIMED_TOTAL`] instead,
+/// so this counter stays summable across `reason`.
 pub const SWEEP_KEYS_DROPPED_TOTAL: &str = "sweep_keys_dropped_total";
+/// Keys a sweep pass selected but could not claim (counter): an event rescheduled the key past the
+/// cutoff, so it stays queued on its new deadline, or a merge cancelled it, so it was retired on
+/// purpose. Not a lost eviction, and expected to be non-zero on an active partition. Read
+/// [`SWEEP_QUEUE_LAG_SECONDS`] to size an eviction backlog.
+pub const SWEEP_KEYS_NOT_CLAIMED_TOTAL: &str = "sweep_keys_not_claimed_total";
 
 /// Seed payloads consumed and decoded — tiles and ordered skips both (counter).
 pub const COHORT_STREAM_SEEDS_CONSUMED: &str = "cohort_stream_seeds_consumed_total";
@@ -503,6 +561,8 @@ pub const PERSON_SEEDS_DROPPED_TOTAL: &str = "cohort_person_seeds_dropped_total"
 /// from an absent baseline, dropping whatever the unreadable row held outside the seed's evaluated
 /// set. **Any non-zero value is a real record-codec failure, not a dormant person** — the event
 /// path's `stage1_person_record_total{result="corrupt"}` is the same signal for live traffic.
+/// Counted once per corrupt row the run's batched read decodes, not once per seed that touches
+/// it, so a rate comparison across the batched-apply roll is not apples to apples.
 pub const PERSON_SEED_PRIOR_CORRUPT_TOTAL: &str = "cohort_person_seed_prior_corrupt_total";
 /// Hashes dropped from a person seed's effective set, labelled by `reason`
 /// (`unknown_hash`|`variant_mismatch`) (counter). **Sustained non-zero means the run's pinned
@@ -516,6 +576,43 @@ pub const PERSON_SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_person_seeds_rekey_
 /// Failed person-seed re-key produces; the seed offset is held (counter).
 pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
     "cohort_person_seeds_rekey_produce_failure_total";
+/// Single-leaf membership changes a seed apply derived from the persisted register with no stage-1
+/// transition behind them, labelled by `kind` (`entered`|`left`) and `found`, which names what the
+/// row held rather than why (counter). `absent`: no row, a register that predates the apply, such
+/// as a cohort added over existing leaf state; expect these in bulk through the first full run
+/// after a roll. `corrupt`: a row that did not decode, also counted on
+/// [`STAGE2_STATE_DECODE_ERROR`]. `mismatch`: a row that disagreed with the truth.
+/// **A `mismatch` rate has more than one cause — a redelivery repairing a failed produce, an
+/// edited cohort whose leaf key moved, a transferred fallback row — so read it against the seed
+/// produce-failure counters before concluding produces are failing.**
+pub const SEED_REGISTER_REPAIRS_TOTAL: &str = "cohort_seed_register_repairs_total";
+
+/// Persons whose Stage 2 inputs a seed apply read through shared store sections (counter).
+/// Attempt-based: a held run counts its persons, and so does the redelivery that replays it.
+/// **Do not divide [`STAGE2_COHORTS_EVALUATED`] by this**, because that counter is settled-based and
+/// the ratio then under-reports the sharing on exactly the runs that hold. Read keys per person off
+/// [`SEED_RECOMPUTE_KEYS_FETCHED_TOTAL`], which is attempt-based on both sides.
+pub const SEED_RECOMPUTE_PERSONS_TOTAL: &str = "cohort_seed_recompute_persons_total";
+/// Store keys those sections fetched, labelled by `source` (`behavioral`|`person_record`|`stage2`)
+/// (counter). Over [`SEED_RECOMPUTE_PERSONS_TOTAL`] this is the sharing win: `person_record` holds
+/// at one per person however many cohorts that person reaches.
+pub const SEED_RECOMPUTE_KEYS_FETCHED_TOTAL: &str = "cohort_seed_recompute_keys_fetched_total";
+/// Raw value bytes one batched read returned, labelled by the same `source` (histogram, bytes).
+/// **A key limit does not bound bytes**, because behavioral values grow with window length, so read
+/// this before assuming the read plan has a memory ceiling. A miss records a real `0`, so prefer the
+/// upper quantiles while a backfill sweeps persons it finds nothing for.
+pub const SEED_RECOMPUTE_CHUNK_BYTES: &str = "cohort_seed_recompute_chunk_bytes";
+
+/// Seeds applied as one run, labelled by `kind` (histogram). The p50 is the batching win: `1` means
+/// every seed still pays its own produce round trip.
+pub const SEED_APPLY_RUN_SIZE: &str = "cohort_seed_apply_run_size";
+/// Wall time one run spent in each pipeline step, labelled by `kind` and `stage` (histogram). A
+/// held run records no sample for the step that failed, so the histogram stays a picture of
+/// completed work; [`SEED_APPLY_RUNS_HELD_TOTAL`] carries the failures.
+pub const SEED_APPLY_RUN_DURATION_SECONDS: &str = "cohort_seed_apply_run_duration_seconds";
+/// Runs that held their first offset instead of marking, labelled by `kind` and `stage` (counter).
+/// **Alert on a sustained non-zero rate: the partition is replaying the same run.**
+pub const SEED_APPLY_RUNS_HELD_TOTAL: &str = "cohort_seed_apply_runs_held_total";
 /// The seed commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
 /// **Alert on a sustained non-zero level.**
 pub const SEED_HELD_OFFSET_GAUGE: &str = "seed_held_offset";
@@ -606,6 +703,10 @@ mod tests {
             "filter_catalog_last_success_timestamp_seconds",
         );
         assert_eq!(FILTER_CATALOG_REFRESH_TOTAL, "filter_catalog_refresh_total");
+        assert_eq!(
+            FILTER_CATALOG_BUILD_DURATION_SECONDS,
+            "filter_catalog_build_duration_seconds",
+        );
     }
 
     #[test]
@@ -771,6 +872,11 @@ mod tests {
     fn partition_backpressure_metric_names_are_stable() {
         assert_eq!(PARTITION_CHANNEL_FULL_TOTAL, "partition_channel_full_total");
         assert_eq!(PARTITION_INTAKE_EVENTS, "partition_intake_events");
+        assert_eq!(PARTITION_SEED_CHANNEL_DEPTH, "partition_seed_channel_depth");
+        assert_eq!(
+            PARTITION_SEED_CHANNEL_FULL_TOTAL,
+            "partition_seed_channel_full_total"
+        );
         assert_eq!(PARTITIONS_PAUSED, "partitions_paused");
         assert_eq!(PENDING_HELD_EVENTS, "pending_held_events");
     }
@@ -878,6 +984,31 @@ mod tests {
         assert_eq!(
             PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL,
             "cohort_person_seeds_rekey_produce_failure_total",
+        );
+        assert_eq!(
+            SEED_REGISTER_REPAIRS_TOTAL,
+            "cohort_seed_register_repairs_total"
+        );
+        assert_eq!(
+            SEED_RECOMPUTE_PERSONS_TOTAL,
+            "cohort_seed_recompute_persons_total"
+        );
+        assert_eq!(
+            SEED_RECOMPUTE_KEYS_FETCHED_TOTAL,
+            "cohort_seed_recompute_keys_fetched_total",
+        );
+        assert_eq!(
+            SEED_RECOMPUTE_CHUNK_BYTES,
+            "cohort_seed_recompute_chunk_bytes"
+        );
+        assert_eq!(SEED_APPLY_RUN_SIZE, "cohort_seed_apply_run_size");
+        assert_eq!(
+            SEED_APPLY_RUN_DURATION_SECONDS,
+            "cohort_seed_apply_run_duration_seconds",
+        );
+        assert_eq!(
+            SEED_APPLY_RUNS_HELD_TOTAL,
+            "cohort_seed_apply_runs_held_total"
         );
         // The held-offset gauge deliberately mirrors merge_held_offset/cascade_held_offset.
         assert_eq!(SEED_HELD_OFFSET_GAUGE, "seed_held_offset");
