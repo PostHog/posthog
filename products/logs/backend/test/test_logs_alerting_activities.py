@@ -43,6 +43,7 @@ from products.logs.backend.temporal.activities import (
     _evaluate_single_alert,
     _finalize_alert,
     _save_cohort_outcomes,
+    _snapshot_alert_for_evaluation,
     emit_alert_signals_activity,
 )
 from products.logs.backend.temporal.constants import EMIT_SIGNAL_BATCH_SIZE, MAX_ALERTS_PER_RUN
@@ -68,9 +69,11 @@ def _evaluate_and_save_one(
     if dispatched.suppressed_by_quiet_hours:
         return
     elapsed_ms = int((time.perf_counter() - eval_start) * 1000)
-    saved, _failed = _save_cohort_outcomes([dispatched], now)
+    saved, _failed, _stale = _save_cohort_outcomes([dispatched], now)
     if saved:
         _finalize_alert(saved[0], elapsed_ms, stats)
+    elif _stale:
+        return
     else:
         stats["checked"] += 1
         stats["errored"] += 1
@@ -383,6 +386,7 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
             date_from=datetime(2025, 1, 1, 0, 0, tzinfo=UTC),
             date_to=datetime(2025, 1, 1, 0, 5, tzinfo=UTC),
             state_before=alert.state,
+            concurrency_snapshot=_snapshot_alert_for_evaluation(alert),
         )
         return _DispatchedAlert(evaluation=evaluation, notification_failed=False)
 
@@ -420,12 +424,59 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
             evaluation=dataclasses.replace(dispatched.evaluation, outcome=firing_outcome),
         )
 
-        saved, failed = _save_cohort_outcomes([dispatched], datetime(2025, 1, 1, 0, 1, tzinfo=UTC))
+        saved, failed, stale = _save_cohort_outcomes([dispatched], datetime(2025, 1, 1, 0, 1, tzinfo=UTC))
 
         event = LogsAlertEvent.objects.get(alert=alert)
         assert failed == []
+        assert stale == []
         assert saved[0].persisted_event_id == str(event.id)
         assert _build_notified_from_saved(saved)[0].idempotency_key == str(event.id)
+
+    def test_concurrent_snooze_discards_the_stale_result_without_overwriting_it(self):
+        alert = self._make_alert(next_check_at=datetime(2025, 1, 1, 0, 0, tzinfo=UTC))
+        dispatched = self._make_dispatched(alert)
+        snooze_until = datetime(2025, 1, 1, 1, 0, tzinfo=UTC)
+        LogsAlertConfiguration.objects.filter(id=alert.id).update(
+            state=LogsAlertConfiguration.State.SNOOZED,
+            snooze_until=snooze_until,
+            next_check_at=snooze_until,
+        )
+
+        saved, failed, stale = _save_cohort_outcomes([dispatched], datetime(2025, 1, 1, 0, 1, tzinfo=UTC))
+
+        assert saved == []
+        assert failed == []
+        assert stale == [dataclasses.replace(dispatched, discarded_as_stale=True)]
+        alert.refresh_from_db()
+        assert alert.state == LogsAlertConfiguration.State.SNOOZED
+        assert alert.snooze_until == snooze_until
+        assert alert.next_check_at == snooze_until
+        assert not LogsAlertEvent.objects.filter(alert=alert).exists()
+
+    @patch("products.logs.backend.temporal.activities._dispatch_notification")
+    def test_concurrent_snooze_discards_the_stale_result_before_notification(self, dispatch_notification):
+        alert = self._make_alert(next_check_at=datetime(2025, 1, 1, 0, 0, tzinfo=UTC))
+        evaluation = self._make_dispatched(alert).evaluation
+        evaluation = dataclasses.replace(
+            evaluation,
+            outcome=dataclasses.replace(
+                evaluation.outcome,
+                new_state=AlertState.FIRING,
+                notification=NotificationAction.FIRE,
+                update_last_notified_at=True,
+            ),
+        )
+        snooze_until = datetime(2025, 1, 1, 1, 0, tzinfo=UTC)
+        LogsAlertConfiguration.objects.filter(id=alert.id).update(
+            state=LogsAlertConfiguration.State.SNOOZED,
+            snooze_until=snooze_until,
+            next_check_at=snooze_until,
+        )
+
+        result = _dispatch_for_alert(evaluation, datetime(2025, 1, 1, 0, 1, tzinfo=UTC))
+
+        assert result.discarded_as_stale is True
+        dispatch_notification.assert_not_called()
 
     @patch("products.logs.backend.temporal.activities.LogsAlertConfiguration.objects.bulk_update")
     def test_operational_error_propagates(self, mock_bulk_update):
