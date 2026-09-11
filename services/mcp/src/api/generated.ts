@@ -7028,6 +7028,7 @@ export namespace Schemas {
       Linear: 'linear',
       Github: 'github',
       Gitlab: 'gitlab',
+      Helpscout: 'helpscout',
       MetaAds: 'meta-ads',
       Instagram: 'instagram',
       Clickup: 'clickup',
@@ -16238,6 +16239,32 @@ export namespace Schemas {
     }
 
     /**
+     * The renderable build of one component referenced by a grid layout, shaped
+     * like the builds endpoint's response so clients reuse one lifecycle reader.
+     */
+    export interface CanvasComponentLifecycle {
+      /** Id of the component canvas. */
+      canvas_id: string;
+      /**
+         * The source version the placement pins, or null when it follows the latest.
+         * @nullable
+         */
+      requested_version_id: string | null;
+      /**
+         * Id of the component's live build. Null until a build completes.
+         * @nullable
+         */
+      published_build_id: string | null;
+      /**
+         * Id of the source version the component's head points at.
+         * @nullable
+         */
+      current_version_id: string | null;
+      /** The build the placement renders (live, or the pinned version's retained build). Empty when none is renderable. */
+      builds: CanvasBuild[];
+    }
+
+    /**
      * * `native` - Native
      * * `mcp` - Mcp
      */
@@ -16304,6 +16331,11 @@ export namespace Schemas {
      */
     export interface CanvasConnectorCall {
       /**
+         * Single-use token from a needs_approval response. Submit only after the viewer approves this exact call. Expires after 15 minutes.
+         * @maxLength 200
+         */
+      approval_token?: string;
+      /**
          * Declared provider id, e.g. 'github'.
          * @maxLength 300
          */
@@ -16327,6 +16359,7 @@ export namespace Schemas {
      * * `ok` - Ok
      * * `not_connected` - Not Connected
      * * `needs_reauth` - Needs Reauth
+     * * `needs_approval` - Needs Approval
      * * `blocked` - Blocked
      * * `tool_missing` - Tool Missing
      * * `write_blocked` - Write Blocked
@@ -16339,6 +16372,7 @@ export namespace Schemas {
       Ok: 'ok',
       NotConnected: 'not_connected',
       NeedsReauth: 'needs_reauth',
+      NeedsApproval: 'needs_approval',
       Blocked: 'blocked',
       ToolMissing: 'tool_missing',
       WriteBlocked: 'write_blocked',
@@ -16349,11 +16383,17 @@ export namespace Schemas {
      * Result of one connector call. `status` is 'ok' when `result` holds the tool's output.
      */
     export interface CanvasConnectorCallResult {
-      /** 'ok' carries a result. 'not_connected' and 'needs_reauth' mean the viewer must connect the provider at connect_path. 'blocked' is team policy. 'write_blocked' is a tool that may write. 'upstream_error' is a failure at the provider.
+      /**
+         * Host-only, single-use approval token bound to this viewer, connection, canvas version, tool, and arguments. Never forward it to the canvas iframe.
+         * @nullable
+         */
+      approval_token: string | null;
+      /** 'ok' carries a result. 'not_connected' and 'needs_reauth' mean the viewer must connect the provider at connect_path. 'blocked' is team policy. 'write_blocked' is a tool that may write. 'needs_approval' requires the viewer to approve this call in the host. 'upstream_error' is a failure at the provider.
        *
        * * `ok` - Ok
        * * `not_connected` - Not Connected
        * * `needs_reauth` - Needs Reauth
+       * * `needs_approval` - Needs Approval
        * * `blocked` - Blocked
        * * `tool_missing` - Tool Missing
        * * `write_blocked` - Write Blocked
@@ -16831,9 +16871,11 @@ export namespace Schemas {
     }
 
     /**
-     * A grid canvas's layout plus the version pointer edits must be based on.
+     * The layout response, plus (when requested) the renderable build of every
+     * component the layout places — so a grid opens on one round trip instead of
+     * one builds fetch per placement.
      */
-    export interface CanvasLayoutResponse {
+    export interface CanvasLayoutWithComponentsResponse {
       /** Identity and version pointers for the canvas. */
       canvas: CanvasSummary;
       /** The layout document. A grid canvas with no versions yet returns the default empty layout. */
@@ -16843,6 +16885,8 @@ export namespace Schemas {
          * @nullable
          */
       current_version_id: string | null;
+      /** One entry per distinct (component, pinned version) the layout's live placements reference, present only when the request passes include_components. Components the caller may not see are omitted. */
+      component_lifecycles?: CanvasComponentLifecycle[];
     }
 
     /**
@@ -17207,6 +17251,34 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** When the version was published. */
       created_at: string;
+    }
+
+    /**
+     * Everything a client needs to open a canvas, in one round trip.
+     *
+     * Replaces the record → builds → source waterfall: the record, the live
+     * build (with its signed artifact URL), and — only when there is nothing
+     * built to render — the head source project (freeform/component) or the
+     * layout document (grid).
+     */
+    export interface CanvasViewResponse {
+      /** The canvas record. */
+      canvas: Canvas;
+      /** The live build with its signed artifact URL. Null until a build completes. */
+      published_build: CanvasBuild | null;
+      /**
+         * Id of the source version the canvas's head points at. Null before the first publish.
+         * @nullable
+         */
+      current_version_id: string | null;
+      /** True while a build is queued or running — poll the builds endpoint until it settles. */
+      has_active_build: boolean;
+      /** The head source project, present only when the canvas has no live build to render (the client-side fallback tier). Null otherwise, and always null for grid canvases. */
+      source?: CanvasSourceProject | null;
+      /** For grid canvases: the head layout document. Null for other kinds. */
+      layout?: CanvasLayout | null;
+      /** For grid canvases: the renderable build of every component the layout's live placements reference, so the grid renders from this one call. Absent for other kinds. */
+      component_lifecycles?: CanvasComponentLifecycle[];
     }
 
     export interface CapabilityReadiness {
@@ -48073,6 +48145,7 @@ export namespace Schemas {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
      * * `intercom` - Intercom
@@ -48125,6 +48198,7 @@ export namespace Schemas {
       GooglePubsub: 'google-pubsub',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
+      Helpscout: 'helpscout',
       Hubspot: 'hubspot',
       Instagram: 'instagram',
       Intercom: 'intercom',
@@ -48177,6 +48251,7 @@ export namespace Schemas {
        * * `google-pubsub` - Google Pubsub
        * * `google-search-console` - Google Search Console
        * * `google-sheets` - Google Sheets
+       * * `helpscout` - Helpscout
        * * `hubspot` - Hubspot
        * * `instagram` - Instagram
        * * `intercom` - Intercom
@@ -50502,6 +50577,18 @@ export namespace Schemas {
       config?: LogsListWidgetConfig;
     }
 
+    /**
+     * * `logs` - Logs
+     * * `spans` - Spans
+     */
+    export type LogsMetricRuleRecordSourceEnum = typeof LogsMetricRuleRecordSourceEnum[keyof typeof LogsMetricRuleRecordSourceEnum];
+
+
+    export const LogsMetricRuleRecordSourceEnum = {
+      Logs: 'logs',
+      Spans: 'spans',
+    } as const;
+
     export interface LogsMetricRule {
       /** Unique identifier for this metric rule. */
       readonly id: string;
@@ -50520,16 +50607,21 @@ export namespace Schemas {
       /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
       filter_group?: unknown;
       /**
-         * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+         * Attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`, prefixed with `attributes.` / `resource_attributes.`. For `source=spans` rules, the span pseudo-key `duration_ms` (span wall-clock duration) is also allowed. Omit to count matching records instead. Immutable after creation — it determines the emitted metric type.
          * @maxLength 512
          * @nullable
          */
       value_attribute?: string | null;
       /**
-         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code, kind; for either, map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion. For `source=spans` rules, note that `name` is high-cardinality on poorly instrumented services (route params or SQL fragments in the span name), so grouping by `name` can overflow the per-rule series cap on its own.
          * @items.maxLength 512
          */
       group_by?: string[];
+      /** Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.
+       *
+       * * `logs` - Logs
+       * * `spans` - Spans */
+      source?: LogsMetricRuleRecordSourceEnum;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
       readonly created_by: number;
@@ -62045,6 +62137,17 @@ export namespace Schemas {
       results: WizardRunArtifact[];
     }
 
+    export interface WizardRunCreator {
+      /** Unique ID of the user who created the Wizard run. */
+      readonly id: number;
+      /** First name of the user who created the Wizard run. */
+      readonly first_name: string;
+      /** Last name of the user who created the Wizard run. */
+      readonly last_name: string;
+      /** Email address of the user who created the Wizard run. */
+      readonly email: string;
+    }
+
     export type WizardWorkspace = LocalFolderWorkspace | GitRepositoryWorkspace;
 
     /**
@@ -62093,6 +62196,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly created_by_id: number | null;
+      /** User who created the Wizard run, or null if that user no longer exists. */
+      readonly created_by: WizardRunCreator | null;
       /** Where the setup agent runs.
        *
        * * `local` - local
@@ -66251,16 +66356,21 @@ export namespace Schemas {
       /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
       filter_group?: unknown;
       /**
-         * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+         * Attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`, prefixed with `attributes.` / `resource_attributes.`. For `source=spans` rules, the span pseudo-key `duration_ms` (span wall-clock duration) is also allowed. Omit to count matching records instead. Immutable after creation — it determines the emitted metric type.
          * @maxLength 512
          * @nullable
          */
       value_attribute?: string | null;
       /**
-         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code, kind; for either, map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion. For `source=spans` rules, note that `name` is high-cardinality on poorly instrumented services (route params or SQL fragments in the span name), so grouping by `name` can overflow the per-rule series cap on its own.
          * @items.maxLength 512
          */
       group_by?: string[];
+      /** Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.
+       *
+       * * `logs` - Logs
+       * * `spans` - Spans */
+      source?: LogsMetricRuleRecordSourceEnum;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
       readonly created_by?: number;
@@ -94555,6 +94665,10 @@ export namespace Schemas {
 
     export type CanvasesBuildsRetrieveParams = {
     /**
+     * "slim" returns only what rendering needs — the live build, the head version's builds, and anything still in flight — instead of the full recent-build history. Any other value (or none) returns the full window.
+     */
+    scope?: string;
+    /**
      * Include the retained ready build for this historical source version.
      */
     version_id?: string;
@@ -94572,6 +94686,10 @@ export namespace Schemas {
     };
 
     export type CanvasesLayoutRetrieveParams = {
+    /**
+     * Also return the renderable build (with signed artifact URL) of every component the layout's live placements reference, so a grid renders from this one call.
+     */
+    include_components?: boolean;
     /**
      * Read this historical layout version instead of the head (for version browsing).
      */
@@ -99408,6 +99526,7 @@ export namespace Schemas {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
      * * `intercom` - Intercom
@@ -99471,6 +99590,7 @@ export namespace Schemas {
       GooglePubsub: 'google-pubsub',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
+      Helpscout: 'helpscout',
       Hubspot: 'hubspot',
       Instagram: 'instagram',
       Intercom: 'intercom',

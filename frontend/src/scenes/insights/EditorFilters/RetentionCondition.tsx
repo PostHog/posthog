@@ -11,16 +11,17 @@ import { getOrdinalSuffix } from 'lib/utils/strings'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getRetentionPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
+
+import { groupsModel } from '~/models/groupsModel'
+import { EditorFilterProps, EntityTypes, FilterType, RetentionPeriod, RetentionType } from '~/types'
+
 import {
     dateOptionPlurals,
     dateOptions,
     retentionOptionDescriptions,
     retentionOptions,
-} from 'scenes/retention/constants'
-import { MAX_BRACKETS, retentionLogic } from 'scenes/retention/retentionLogic'
-
-import { groupsModel } from '~/models/groupsModel'
-import { EditorFilterProps, EntityTypes, FilterType, RetentionPeriod, RetentionType } from '~/types'
+} from 'products/product_analytics/frontend/insights/retention/constants'
+import { MAX_BRACKETS, retentionLogic } from 'products/product_analytics/frontend/insights/retention/retentionLogic'
 
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/types'
