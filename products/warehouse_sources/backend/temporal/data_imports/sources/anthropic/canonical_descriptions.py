@@ -3,6 +3,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 
 _ADMIN_API_DOCS = "https://platform.claude.com/docs/en/api/admin-api"
+_ANALYTICS_API_DOCS = "https://platform.claude.com/docs/en/api/admin/analytics"
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "users": {
@@ -155,6 +156,81 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "cache_creation_tokens": "Input tokens used to create prompt-cache entries.",
             "estimated_cost_amount": "Estimated cost in the lowest currency unit (cents) as a decimal string.",
             "estimated_cost_currency": 'Currency code for the estimated cost, currently always "USD".',
+        },
+    },
+    "analytics_user_activity": {
+        "description": (
+            "Per-seat engagement across Claude products, one row per organization member per UTC day. "
+            "Metric columns are prefixed by the product surface they measure: chat, claude_code, "
+            "cowork, design, office (per Office app) and science."
+        ),
+        "docs_url": f"{_ANALYTICS_API_DOCS}/users/list",
+        "columns": {
+            "id": "Synthesized surrogate key: a hash of the day and the user id.",
+            "date": "UTC day the metrics are aggregated over, in RFC 3339 format.",
+            "user_id": "Tagged identifier of the organization member the activity belongs to.",
+            "user_email_address": "Email address of the organization member.",
+            "last_activity_date": "Most recent UTC day the member had any counted activity, or null if that reporting is off for the organization.",
+            "web_search_count": "Web searches the member performed.",
+            "distinct_user_count": "Distinct active members represented by the row. Null on per-member rows.",
+            "rbac_group_id": "Tagged RBAC group identifier. Null unless the request grouped by group.",
+            "rbac_group_name": "Display name of the RBAC group, alongside rbac_group_id when it resolves.",
+            "chat_message_count": "Messages the member sent in Claude chat.",
+            "chat_distinct_conversation_count": "Distinct chat conversations the member took part in.",
+            "chat_thinking_message_count": "Chat messages that used extended thinking.",
+            "claude_code_core_metrics_distinct_session_count": "Distinct Claude Code sessions.",
+            "claude_code_core_metrics_commit_count": "Commits made through Claude Code.",
+            "claude_code_core_metrics_pull_request_count": "Pull requests created through Claude Code.",
+            "claude_code_core_metrics_lines_of_code_added_count": "Lines of code added through Claude Code.",
+            "claude_code_core_metrics_lines_of_code_removed_count": "Lines of code removed through Claude Code.",
+            "cowork_message_count": "Messages the member sent in Cowork sessions.",
+            "cowork_distinct_session_count": "Distinct Cowork sessions.",
+            "design_message_count": "Messages the member sent in Claude Design sessions.",
+            "science_message_count": "Messages the member sent in Claude Science sessions.",
+        },
+    },
+    "analytics_user_cost": {
+        "description": (
+            "Cost attributed to a seat user, one row per member per UTC day. Covers only cost that "
+            "belongs to a seat user; org-wide totals including direct API-key traffic are in cost_report."
+        ),
+        "docs_url": f"{_ANALYTICS_API_DOCS}/cost/list_by_user",
+        "columns": {
+            "id": "Synthesized surrogate key: a hash of the day and the user id.",
+            "starting_at": "Start of the day the cost is bucketed into, in RFC 3339 format.",
+            "ending_at": "End of the bucket (exclusive), in RFC 3339 format.",
+            "user_id": "Tagged identifier of the member the cost is attributed to.",
+            "user_email": "Email address of the member, or null once the account is deleted.",
+            "user_name": "Full name of the member, or null if unset or hidden for a removed member.",
+            "user_deleted": "True when the account is deleted or the member has left the organization.",
+            "amount": "Post-discount, pre-credit cost in fractional cents, as a decimal string. Divide by 100 for dollars.",
+            "list_amount": "List-price (pre-discount) cost in fractional cents, as a decimal string.",
+            "currency": 'Currency code for the cost amounts, currently always "USD".',
+            "requests": "API requests in the row's scope. Counts execution spans for code execution.",
+        },
+    },
+    "analytics_user_usage": {
+        "description": (
+            "Token usage attributed to a seat user, one row per member per UTC day. Covers only usage "
+            "that belongs to a seat user; org-wide totals including direct API-key traffic are in usage_report."
+        ),
+        "docs_url": f"{_ANALYTICS_API_DOCS}/usage/list_by_user",
+        "columns": {
+            "id": "Synthesized surrogate key: a hash of the day and the user id.",
+            "starting_at": "Start of the day the usage is bucketed into, in RFC 3339 format.",
+            "ending_at": "End of the bucket (exclusive), in RFC 3339 format.",
+            "user_id": "Tagged identifier of the member the usage is attributed to.",
+            "user_email": "Email address of the member, or null once the account is deleted.",
+            "user_name": "Full name of the member, or null if unset or hidden for a removed member.",
+            "user_deleted": "True when the account is deleted or the member has left the organization.",
+            "uncached_input_tokens": "Input tokens processed without a cache hit.",
+            "cache_read_input_tokens": "Input tokens read from the prompt cache.",
+            "cache_creation_ephemeral_1h_input_tokens": "Input tokens used to create 1-hour prompt-cache entries.",
+            "cache_creation_ephemeral_5m_input_tokens": "Input tokens used to create 5-minute prompt-cache entries.",
+            "output_tokens": "Output tokens generated.",
+            "total_tokens": "Total tokens across every token type.",
+            "requests": "API requests in the row's scope. Counts execution spans for code execution.",
+            "web_search_requests": "Web search requests made through server-side tool use.",
         },
     },
 }

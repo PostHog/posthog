@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -53,18 +53,18 @@ class TestFormatBeginDate:
 
 
 class TestResolveBeginDate:
-    @freeze_time("2026-07-02")
+    @time_machine.travel("2026-07-02", tick=False)
     def test_uses_watermark_when_incremental(self) -> None:
         config = NEW_YORK_TIMES_ENDPOINTS["article_search"]
         assert _resolve_begin_date(config, True, datetime(2026, 6, 1, tzinfo=UTC)) == "20260601"
 
-    @freeze_time("2026-07-02")
+    @time_machine.travel("2026-07-02", tick=False)
     def test_falls_back_to_lookback_without_watermark(self) -> None:
         # First incremental sync (no watermark) must window to the lookback range, not all of history.
         config = NEW_YORK_TIMES_ENDPOINTS["article_search"]
         assert _resolve_begin_date(config, True, None) == "20260602"
 
-    @freeze_time("2026-07-02")
+    @time_machine.travel("2026-07-02", tick=False)
     def test_full_refresh_uses_lookback(self) -> None:
         config = NEW_YORK_TIMES_ENDPOINTS["article_search"]
         assert _resolve_begin_date(config, False, None) == "20260602"
@@ -165,7 +165,7 @@ class TestGetRowsArticleSearch:
         with (
             patch.object(new_york_times, "make_tracked_session", return_value=session),
             patch.object(new_york_times.time, "sleep"),
-            freeze_time("2026-07-02"),
+            time_machine.travel("2026-07-02", tick=False),
         ):
             batches = list(
                 get_rows("KEY", "article_search", MagicMock(), manager)  # type: ignore[arg-type]
@@ -183,7 +183,7 @@ class TestGetRowsArticleSearch:
         with (
             patch.object(new_york_times, "make_tracked_session", return_value=session),
             patch.object(new_york_times.time, "sleep"),
-            freeze_time("2026-07-02"),
+            time_machine.travel("2026-07-02", tick=False),
         ):
             batches = list(
                 get_rows("KEY", "article_search", MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
@@ -198,7 +198,7 @@ class TestGetRowsArticleSearch:
         with (
             patch.object(new_york_times, "make_tracked_session", return_value=session),
             patch.object(new_york_times.time, "sleep"),
-            freeze_time("2026-07-02"),
+            time_machine.travel("2026-07-02", tick=False),
         ):
             batches = list(
                 get_rows("KEY", "article_search", MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
@@ -225,7 +225,7 @@ class TestGetRowsArticleSearch:
         with (
             patch.object(new_york_times, "make_tracked_session", return_value=session),
             patch.object(new_york_times.time, "sleep"),
-            freeze_time("2026-07-02"),
+            time_machine.travel("2026-07-02", tick=False),
         ):
             list(
                 get_rows(

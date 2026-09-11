@@ -81,6 +81,10 @@ RESEARCH_RATE_LIMIT_MESSAGE = (
     "conversation for continued access."
 )
 
+# Roughly 10k tokens. Every path that accepts a user message shares this, so the limit can't drift
+# between them. The frontend mirrors it in `MAX_MESSAGE_LENGTH` (frontend/src/scenes/max/max-constants.tsx).
+MAX_MESSAGE_CONTENT_LENGTH = 40000
+
 STREAM_ITERATION_LATENCY_HISTOGRAM = Histogram(
     "posthog_ai_stream_iteration_latency_seconds",
     "Time between iterations in the async stream loop",
@@ -105,7 +109,7 @@ class MessageSerializer(MessageMinimalSerializer):
     content = serializers.CharField(
         required=True,
         allow_null=True,  # Null content means we're resuming streaming or continuing previous generation
-        max_length=40000,  # Roughly 10k tokens
+        max_length=MAX_MESSAGE_CONTENT_LENGTH,
     )
     conversation = serializers.UUIDField(
         required=True
@@ -157,7 +161,7 @@ class MessageSerializer(MessageMinimalSerializer):
 
 
 class QueueMessageSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, allow_blank=False, max_length=40000)
+    content = serializers.CharField(required=True, allow_blank=False, max_length=MAX_MESSAGE_CONTENT_LENGTH)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     ui_context = serializers.JSONField(required=False)
     billing_context = serializers.JSONField(required=False)
@@ -194,7 +198,7 @@ class QueueMessageSerializer(serializers.Serializer):
 
 
 class QueueMessageUpdateSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, allow_blank=False, max_length=40000)
+    content = serializers.CharField(required=True, allow_blank=False, max_length=MAX_MESSAGE_CONTENT_LENGTH)
 
 
 class SandboxAttachedContextItemSerializer(serializers.Serializer):
@@ -235,7 +239,7 @@ class SandboxOpenSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         allow_blank=True,
-        max_length=40000,
+        max_length=MAX_MESSAGE_CONTENT_LENGTH,
         help_text="The user's message text. Omit or null to warm a sandbox (boot + idle) ahead of the first message.",
     )
     trace_id = serializers.UUIDField(

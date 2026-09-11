@@ -96,10 +96,11 @@ tools:
                insight_id (short_id), state (always "Firing" — the event is only emitted on a firing transition,
                not on recovery), last_checked_at (ISO 8601 string or null), breaches (human-readable summary, e.g.
                "Series A is below 1000"), and detector metadata: alert_mode (always present), detector_type and
-               ensemble_operator (null for threshold alerts, set for anomaly detection). Dispatches gated on the
-               anomaly investigation agent may also carry investigation_notebook_url and insight_chart_url
-               (a tokenized image URL the Slack blocks above render as a chart); both are absent otherwise, so
-               templates must fall back, as the conditional block above does. Project context is
+               ensemble_operator (null for threshold alerts, set for anomaly detection). Any firing alert may
+               carry insight_chart_url (a tokenized image URL the Slack blocks above render as a chart), and
+               dispatches gated on the anomaly investigation agent may also carry investigation_notebook_url;
+               both are absent otherwise, so templates must fall back, as the conditional block above does.
+               Project context is
                available as {project.url} (already includes /project/<team_id>), {project.id}, {project.name}. Do
                not reference value, threshold_lower, or insight_url — those are not emitted.
 

@@ -58,18 +58,16 @@ export function deriveSessionLifecycleState(
   const hasStarted =
     sessionMatchesActiveRun && session.firstPromptForRunId === activeTaskRunId;
   const expectsInitialPrompt =
-    !!session &&
-    (!!task.description || !!task.latest_run?.id || session.isPromptPending);
+    !!session && (!!session.initialPrompt?.length || session.isPromptPending);
 
   let isInitializing = isTaskStarting;
   if (!isTaskStarting && !hasError && !isCloudRunTerminal && !hasStarted) {
     isInitializing = effectiveIsCloud;
     if (!effectiveIsCloud) {
       isInitializing =
-        !session ||
-        (sessionMatchesActiveRun &&
-          (session.status === "connecting" ||
-            (session.status === "connected" && expectsInitialPrompt)));
+        sessionMatchesActiveRun &&
+        (session.status === "connecting" ||
+          (session.status === "connected" && expectsInitialPrompt));
     }
   }
 
@@ -128,7 +126,7 @@ export function deriveSessionViewState(
     events,
     isPromptPending,
     promptStartedAt,
-    isInitializing,
+    isInitializing: isInitializing || (!effectiveIsCloud && !session),
     cloudBranch,
     errorTitle: session?.errorTitle,
     errorMessage:

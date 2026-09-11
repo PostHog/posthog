@@ -80,14 +80,13 @@ import {
     MessageTemplate,
     ReasoningAnswer,
     RecordingsWidget,
-    ReplayVisionScanWidget,
-    ResourcesBar,
     ThreadView,
     TurnFeedbackActions,
     type TurnTrailer,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
+import { ReplayVisionScanWidget } from 'products/replay_vision/frontend/posthogAi/ReplayVisionScanWidget'
 
 import { LangGraphActivity, ShimmeringContent } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
@@ -407,7 +406,6 @@ export function SandboxComposerSurfaces(): JSX.Element | null {
             props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
         >
             <div className="w-full max-w-180 self-center mx-auto">
-                <ResourcesBar />
                 <ContextUsageBar />
             </div>
         </BindLogic>

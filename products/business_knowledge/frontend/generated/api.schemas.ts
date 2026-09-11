@@ -46,7 +46,7 @@ export interface KnowledgeSearchResultApi {
     readonly source_id: string
     /** Human label of the knowledge source this chunk belongs to. */
     readonly source_name: string
-    /** Source type (text, url, or file). */
+    /** Source type: text, URL, or file. */
     readonly source_type: string
     /** Title of the document this chunk belongs to. */
     readonly document_title: string
@@ -112,6 +112,18 @@ export interface GapTopicActionResultApi {
     readonly normalized_topic: string
     /** Number of gap rows whose status changed. */
     readonly updated: number
+}
+
+export interface BusinessKnowledgeSettingsApi {
+    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
+    learn_from_support_enabled: boolean
+    /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
+    readonly support_enabled: boolean
+}
+
+export interface PatchedBusinessKnowledgeSettingsUpdateApi {
+    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Rejected when Support is off for this environment. */
+    learn_from_support_enabled?: boolean
 }
 
 /**
@@ -200,6 +212,8 @@ export interface KnowledgeSourceApi {
     readonly team_id: number
     readonly name: string
     readonly source_type: SourceTypeEnumApi
+    /** Whether PostHog manages this source with knowledge learned from resolved support tickets. */
+    readonly is_generated: boolean
     readonly status: SourceStatusEnumApi
     readonly error_message: string
     /** Number of documents belonging to this source. */
