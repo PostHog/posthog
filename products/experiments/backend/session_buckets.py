@@ -315,6 +315,7 @@ def get_experiment_session_bucket(
         experiment,
         exposure=exposure,
         variant_keys=scan_variant_keys,
+        run_start=experiment.start_date,
         run_end=run_end,
         shared_hogql=shared_hogql,
     )
@@ -427,6 +428,7 @@ def _anchor_cache_key(
     experiment: Experiment,
     *,
     variant_keys: list[str],
+    run_start: datetime,
     run_end: datetime,
     exposure: SessionExposure,
 ) -> str:
@@ -439,7 +441,7 @@ def _anchor_cache_key(
     spec = json.dumps(
         [
             variant_keys,
-            experiment.start_date.replace(second=0, microsecond=0).isoformat(),
+            run_start.replace(second=0, microsecond=0).isoformat(),
             run_end.replace(second=0, microsecond=0).isoformat(),
             exposure.default_exposure_event,
             exposure.variant_property,
@@ -466,6 +468,7 @@ def _resolve_window_end(
     *,
     exposure: SessionExposure,
     variant_keys: list[str],
+    run_start: datetime,
     run_end: datetime,
     shared_hogql: SharedHogQLDatabase,
 ) -> Optional[datetime]:
@@ -483,7 +486,9 @@ def _resolve_window_end(
         # of buying the anchor at that price.
         return run_end
 
-    cache_key = _anchor_cache_key(team, user, experiment, variant_keys=variant_keys, run_end=run_end, exposure=exposure)
+    cache_key = _anchor_cache_key(
+        team, user, experiment, variant_keys=variant_keys, run_start=run_start, run_end=run_end, exposure=exposure
+    )
     cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached.window_end
@@ -503,10 +508,10 @@ def _resolve_window_end(
     # The recent stretch first, and it settles the anchor on its own whenever it holds an exposure:
     # every exposure outside it is older than every exposure inside it, so its latest is the run's
     # latest. An experiment with current traffic therefore never reads its older days.
-    recent_start = max(experiment.start_date, run_end - timedelta(days=MAX_BUCKET_SCAN_DAYS))
+    recent_start = max(run_start, run_end - timedelta(days=MAX_BUCKET_SCAN_DAYS))
     latest = latest_from(recent_start)
-    if latest is None and recent_start > experiment.start_date:
-        latest = latest_from(experiment.start_date)
+    if latest is None and recent_start > run_start:
+        latest = latest_from(run_start)
     window_end = None if latest is None else min(run_end, latest + timedelta(hours=MAX_SESSION_DURATION_HOURS))
     safe_cache_set(cache_key, _WindowAnchor(window_end=window_end), timeout=SESSION_BUCKET_CACHE_TTL)
     return window_end
