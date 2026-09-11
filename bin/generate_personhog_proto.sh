@@ -21,8 +21,10 @@ python -m grpc_tools.protoc \
     --grpc_python_out="$OUT_DIR" \
     "${PROTO_FILES[@]}"
 
-# protoc emits no package markers; type checkers and wheel builds want regular packages.
+# protoc emits no package markers; type checkers and wheel builds want regular packages, and
+# PEP 561 needs py.typed before a type checker reads the .pyi stubs of an installed package.
 find "$OUT_DIR/personhog" -type d -exec touch {}/__init__.py \;
+touch "$OUT_DIR/personhog/py.typed"
 
 echo "Linting and formatting generated files..."
 ruff check --fix --quiet "$OUT_DIR"
