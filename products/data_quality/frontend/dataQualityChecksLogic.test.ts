@@ -445,6 +445,32 @@ describe('dataQualityChecksLogic', () => {
         expect(logic.values.isSuiteRunning).toBe(true)
     })
 
+    it('adopts the run the first metric check schedules once the worker writes it', async () => {
+        await mountLogic({ subjectType: 'metric', subjectId: 'metric-1' })
+        expect(logic.values.checks).toEqual([])
+
+        jest.useFakeTimers()
+        logic.actions.upsertCheck(buildCheck())
+        await drainListeners()
+        expect(logic.values.isSuiteRunning).toBe(false)
+
+        ;(dataCatalogMetricsCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [buildSuiteRun()] })
+        await advancePoll(2000)
+
+        expect(logic.values.isSuiteRunning).toBe(true)
+    })
+
+    it('does not look for a scheduled run after a first check on a warehouse subject', async () => {
+        await mountLogic({ subjectType: 'table', subjectId: 'table-1' })
+        const listCallsAfterMount = (warehouseTablesCheckSuiteRunsList as jest.Mock).mock.calls.length
+
+        jest.useFakeTimers()
+        logic.actions.upsertCheck(buildCheck())
+        await advancePoll(2000)
+
+        expect((warehouseTablesCheckSuiteRunsList as jest.Mock).mock.calls.length).toEqual(listCallsAfterMount)
+    })
+
     // kea-test-utils waits on real timers, so the polling tests settle listeners by draining
     // microtasks instead: every step in the poll chain resolves an already-resolved mock.
     async function drainListeners(): Promise<void> {
