@@ -173,21 +173,34 @@ export function hasDangerousScheme(url: string): boolean {
     return /^(javascript|vbscript):/.test(normalized)
 }
 
+function urlProtocol(value: string): string | null {
+    const trimmed = value.trim()
+    if (!trimmed) {
+        return null
+    }
+    try {
+        return new URL(trimmed).protocol
+    } catch {
+        return null
+    }
+}
+
 /**
  * True for a value that parses as an `https://` URL. Whitespace around the value is ignored,
  * because `new URL()` ignores it too. A caller that needs a host allowlist, or that wants to
  * reject embedded credentials, adds that check itself.
  */
 export function isHttpsUrl(value: string): boolean {
-    const trimmed = value.trim()
-    if (!trimmed) {
-        return false
-    }
-    try {
-        return new URL(trimmed).protocol === 'https:'
-    } catch {
-        return false
-    }
+    return urlProtocol(value) === 'https:'
+}
+
+/**
+ * True for a value that parses as an `http://` or `https://` URL. Do not replace this with
+ * `URL.canParse`, which needs Chrome 120, Safari 17 or Firefox 115.
+ */
+export function isHttpOrHttpsUrl(value: string): boolean {
+    const protocol = urlProtocol(value)
+    return protocol === 'http:' || protocol === 'https:'
 }
 
 export function isEmail(string: string, options?: { requireTLD?: boolean }): boolean {

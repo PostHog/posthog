@@ -39,8 +39,6 @@ describe('newNotificationDialogLogic', () => {
     // safe to ship deduped. The sub-template declares masking; if creation stops forwarding it the
     // alert silently goes back to one message per event, which is what makes it floodable.
     it('creates the MCP failure alert deduped per failing tool', async () => {
-        // Slack rather than a webhook destination: the webhook validator calls URL.canParse, which
-        // jsdom doesn't implement, so it throws before the form can submit.
         logic.actions.setNotificationFormValues({
             destination: 'slack',
             slackIntegrationId: 1,
@@ -60,5 +58,18 @@ describe('newNotificationDialogLogic', () => {
         // has to yield a constant for those rather than an empty string.
         expect(masking.hash).toContain("!= ''")
         expect(masking.hash).toContain('unknown-tool')
+    })
+
+    // The validator runs inside the form `errors` selector, so a validator that throws on a browser
+    // without `URL.canParse` blanks the whole scene instead of only failing validation.
+    it.each([
+        ['https://example.com/webhook', undefined],
+        ['http://example.com/webhook', undefined],
+        ['example.com/webhook', 'Please enter a webhook URL'],
+        ['', 'Please enter a webhook URL'],
+    ])('validates the webhook URL %s without throwing', (webhookUrl, expectedError) => {
+        logic.actions.setNotificationFormValues({ destination: 'webhook', webhookUrl })
+
+        expect(logic.values.notificationFormValidationErrors.webhookUrl).toEqual(expectedError)
     })
 })

@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { isHttpOrHttpsUrl } from 'lib/utils/url'
 import { convertToHogFunctionInvocationGlobals } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { DESTINATION_OPTIONS, DestinationKey } from 'scenes/hog-functions/list/newNotificationDialogLogic'
 import {
@@ -183,10 +184,6 @@ export function appendTemplateLine(value: string, line: string): string {
     }
 
     return trimmedValue ? `${trimmedValue}\n${line}` : line
-}
-
-function isValidHttpUrl(value: string): boolean {
-    return URL.canParse(value) && /^https?:\/\//.test(value)
 }
 
 function buildSlackBlocks(message: string, includeButtons: boolean): Record<string, unknown>[] {
@@ -963,21 +960,21 @@ function getNotificationFormErrors(
             }
         case 'discord':
             return {
-                discordWebhookUrl: !isValidHttpUrl(form.discordWebhookUrl.trim())
+                discordWebhookUrl: !isHttpOrHttpsUrl(form.discordWebhookUrl)
                     ? 'Enter a valid Discord webhook URL.'
                     : undefined,
                 discordMessage: !form.discordMessage.trim() ? 'Enter the Discord message.' : undefined,
             }
         case 'microsoft-teams':
             return {
-                teamsWebhookUrl: !isValidHttpUrl(form.teamsWebhookUrl.trim())
+                teamsWebhookUrl: !isHttpOrHttpsUrl(form.teamsWebhookUrl)
                     ? 'Enter a valid Microsoft Teams webhook URL.'
                     : undefined,
                 teamsMessage: !form.teamsMessage.trim() ? 'Enter the Microsoft Teams message.' : undefined,
             }
         case 'webhook':
             try {
-                if (!isValidHttpUrl(form.webhookUrl.trim())) {
+                if (!isHttpOrHttpsUrl(form.webhookUrl)) {
                     return { webhookUrl: 'Enter a valid webhook URL.' }
                 }
                 if (!form.webhookBody.trim()) {
