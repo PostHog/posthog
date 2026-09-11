@@ -1769,5 +1769,19 @@ describe('sessionRecordingPlayerLogic', () => {
             startReplayExportSpy.mockRestore()
             captureSpy.mockRestore()
         })
+
+        // An uncancelled wait outlives the player, so it keeps reading values off a logic that
+        // is no longer mounted.
+        it('drops the wait when the player unmounts before the frame arrives', async () => {
+            withoutPlayerFrame()
+
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            logic.actions.exportRecording(ExporterFormat.PNG, 0, SessionRecordingPlayerMode.Screenshot)
+            logic.unmount()
+            await delay(300)
+
+            expect(captureSpy).not.toHaveBeenCalledWith('replay export blocked', expect.anything())
+            captureSpy.mockRestore()
+        })
     })
 })

@@ -3367,13 +3367,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 height: parseFloat(iframe.height),
             })
         },
-        exportRecording: async ({
-            format,
-            timestamp = 0,
-            mode = SessionRecordingPlayerMode.Screenshot,
-            duration = 5,
-            filename = '',
-        }) => {
+        exportRecording: async (
+            { format, timestamp = 0, mode = SessionRecordingPlayerMode.Screenshot, duration = 5, filename = '' },
+            breakpoint
+        ) => {
             actions.setPause()
             // The export buttons and the screenshot hotkey are live before rrweb builds its iframe,
             // so an early click used to fail outright. Wait for the frame instead.
@@ -3383,7 +3380,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const waitUntil = startedAt + (IS_TEST_MODE ? 200 : REPLAYER_IFRAME_WAIT_MS)
             let iframe = findIframe()
             while (!iframe && performance.now() < waitUntil) {
-                await delay(REPLAYER_IFRAME_POLL_MS)
+                // The breakpoint stops this wait when the player unmounts, so an abandoned
+                // export cannot keep polling a torn-down logic.
+                await breakpoint(REPLAYER_IFRAME_POLL_MS)
                 iframe = findIframe()
             }
             if (!iframe) {
