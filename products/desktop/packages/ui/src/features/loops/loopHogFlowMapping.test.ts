@@ -2,6 +2,7 @@ import type { Schemas } from "@posthog/api-client/generated";
 import { describe, expect, it } from "vitest";
 import { summarizeNotificationDestinations } from "./loopDisplay";
 import {
+  defaultLoopContextOutputs,
   emptyLoopFormValues,
   type LoopFormValues,
   loopToFormValues,
@@ -177,6 +178,32 @@ describe("loopHogFlowMapping", () => {
       },
     });
   });
+
+  it.each([
+    ["a named space", "general", "folder-1|general"],
+    ["a space with no name yet", "", "folder-1"],
+  ])(
+    "keeps the loop attached to %s across a write and a read",
+    (_label, name, expectedInput) => {
+      const contextTarget = {
+        folderId: "folder-1",
+        name,
+        outputs: defaultLoopContextOutputs(),
+      };
+      const flow = flowFromWrite(scheduleValues({ contextTarget }));
+
+      expect(taskAction(flow).config).toMatchObject({
+        inputs: { channel: { value: expectedInput } },
+      });
+      expect(
+        hogFlowToLoop(flow, { projectId: PROJECT_ID }).context_target,
+      ).toEqual({
+        folder_id: "folder-1",
+        name,
+        outputs: defaultLoopContextOutputs(),
+      });
+    },
+  );
 
   it("only writes the task inputs the form filled in", () => {
     const { flow } = formValuesToHogFlowWrite(

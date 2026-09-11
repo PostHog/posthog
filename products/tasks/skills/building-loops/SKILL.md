@@ -66,6 +66,7 @@ Include the other inputs only when the loop needs them:
 - `connectors`: ids from `mcp-connections-list`. Only connections shared with everyone in the project are accepted.
 - `skills`: exact names from `skill-list`, at most 10.
 - `posthog_mcp_scopes`: `read_only` by default. Use `full` only when the user asks for the task to change things in PostHog.
+- `channel`: the space the loop belongs to, as `<space id>|<space name>`. Set it only when the app tells you which space the loop is being created in, never from a name the user types. Each run then shows up in that space's feed, and the loop is listed under that space.
 - `reply_in_slack_thread`: `true` (a JSON boolean, not a template string) for a Slack-triggered loop whose result should land back in the thread. That covers the notification, so leave out the `notify` step.
 
 Keep `non_failure_status_codes` exactly as the graph has it, on every loop. The API answers 409 when a run hits a task limit. Without this input the step fails with a generic fetch error and the user never reads the limit message.

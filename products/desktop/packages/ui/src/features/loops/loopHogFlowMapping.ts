@@ -5,7 +5,12 @@ import {
   LOOPS_ORIGIN_PRODUCT,
 } from "@posthog/api-client/hogFlowLoops";
 import type { LoopSchemas } from "@posthog/api-client/loops";
-import { defaultLoopBehaviors, type LoopFormValues } from "./loopFormTypes";
+import {
+  defaultLoopBehaviors,
+  defaultLoopContextOutputs,
+  type LoopContextTargetDraft,
+  type LoopFormValues,
+} from "./loopFormTypes";
 import {
   hogFlowScheduleToScheduleConfig,
   scheduleConfigToHogFlowSchedule,
@@ -67,6 +72,7 @@ const MANAGED_TASK_INPUTS: ReadonlySet<string> = new Set([
   "repository",
   "model",
   "skills",
+  "channel",
 ]);
 
 type Json = Record<string, unknown>;
@@ -160,7 +166,35 @@ function taskInputs(values: LoopFormValues): Json {
   if (values.teamSkills.length > 0) {
     inputs.skills = { value: [...values.teamSkills] };
   }
+  if (values.contextTarget) {
+    inputs.channel = { value: spaceInputValue(values.contextTarget) };
+  }
   return inputs;
+}
+
+/** The space attachment as the task step holds it: the space id, then the name
+ * after a pipe. The backend reads the id and files each run in that space's
+ * feed; the name rides along so the list and detail views can label the space
+ * without a second lookup. Same shape as the Slack step's `C123|#name`. */
+function spaceInputValue(contextTarget: LoopContextTargetDraft): string {
+  return contextTarget.name
+    ? `${contextTarget.folderId}|${contextTarget.name}`
+    : contextTarget.folderId;
+}
+
+/** The space a task step is attached to, or null when it names none. */
+function spaceFromTaskInputs(
+  inputs: Json,
+): LoopSchemas.LoopContextTarget | null {
+  const [folderId, ...rest] = readString(inputValue(inputs, "channel")).split(
+    "|",
+  );
+  if (!folderId) return null;
+  return {
+    folder_id: folderId,
+    name: rest.join("|"),
+    outputs: defaultLoopContextOutputs(),
+  };
 }
 
 /** Task inputs on an existing flow that the form does not manage, so a save
@@ -553,7 +587,7 @@ export function hogFlowToLoop(
     behaviors: defaultLoopBehaviors(),
     connectors: { mcp_installation_ids: [], posthog_mcp_scopes: "read_only" },
     notifications: notificationsFromNotify(parsed?.actions.notify ?? null),
-    context_target: null,
+    context_target: spaceFromTaskInputs(inputs),
     internal: false,
     origin_product: LOOPS_ORIGIN_PRODUCT,
     last_run_at: null,

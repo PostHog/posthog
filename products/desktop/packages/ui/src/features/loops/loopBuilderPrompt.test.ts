@@ -127,13 +127,13 @@ describe("buildLoopBuilderPrompt", () => {
       expect(prompt).toContain("Do not create until I reply `confirm`");
     });
 
-    it("drops the context target, which workflow loops cannot carry", () => {
+    it("carries the space into the task step's channel input", () => {
       const withContext = buildLoopBuilderPrompt({
         backend: "workflow",
         context: { folderId: "folder-9", name: "growth" },
       });
-      expect(withContext).not.toContain("context_target");
-      expect(withContext).not.toContain("folder-9");
+      expect(withContext).toContain('"folder-9|growth"');
+      expect(withContext).toContain("`channel` input");
     });
 
     it.each([
