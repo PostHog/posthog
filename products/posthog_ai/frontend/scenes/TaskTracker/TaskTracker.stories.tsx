@@ -160,14 +160,14 @@ const CONVERSATIONS = {
     ],
 }
 
-function UnifiedNavigationStory(): JSX.Element {
+function UnifiedNavigationStory({ viewMode = 'new' }: { viewMode?: 'new' | 'legacy' }): JSX.Element {
     const { setNavExperimentTab } = useActions(panelLayoutLogic)
     const { setPhaiViewMode } = useActions(maxGlobalLogic)
 
     useEffect(() => {
         setNavExperimentTab('chat')
-        setPhaiViewMode('new')
-    }, [setNavExperimentTab, setPhaiViewMode])
+        setPhaiViewMode(viewMode)
+    }, [setNavExperimentTab, setPhaiViewMode, viewMode])
 
     return <App />
 }
@@ -213,6 +213,7 @@ export const UnifiedNavigation: Story = {
 }
 
 export const AiTaskSelected: Story = {
+    render: () => <UnifiedNavigationStory viewMode="legacy" />,
     parameters: {
         pageUrl: urls.aiTask('task-3'),
     },
