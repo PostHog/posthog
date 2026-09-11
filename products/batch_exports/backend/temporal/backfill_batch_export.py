@@ -21,6 +21,7 @@ from structlog.contextvars import bind_contextvars
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import (
@@ -45,6 +46,7 @@ from products.batch_exports.backend.service import (
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
+from products.batch_exports.backend.temporal.sql.events import SERIALIZED_EVENTS_JSON_SOURCE
 from products.batch_exports.backend.temporal.workflow_metadata import (
     WorkflowDetails,
     build_logs_link,
@@ -251,11 +253,12 @@ async def _get_backfill_info_for_events(
         date_conditions += "AND timestamp < %(end_at)s "
         extra_query_parameters["end_at"] = end_at.astimezone(dt.UTC)
 
+    source = SERIALIZED_EVENTS_JSON_SOURCE if await database_sync_to_async(use_new_events_schema)(team_id) else "events"
     query = f"""
         SELECT
             MIN(timestamp) as min_timestamp,
             count() as record_count
-        FROM events
+        FROM {source} AS events
         WHERE team_id = %(team_id)s
         AND timestamp > '2000-01-01'
         AND (length(%(include_events)s) = 0 OR event IN %(include_events)s)

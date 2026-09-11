@@ -5,8 +5,6 @@ HogQL, and this turns them into a printed ClickHouse boolean clause plus the pla
 to send alongside it.
 """
 
-import typing
-
 from posthog.schema import EventPropertyFilter, HogQLPropertyFilter, HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql.context import HogQLContext
@@ -14,12 +12,13 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import Team
 
+from products.batch_exports.backend.hogql_source import prepare_serialized_export_query
 from products.batch_exports.backend.service import SUPPORTED_FILTER_TYPES
 
 
@@ -70,10 +69,6 @@ def compose_filters_clause(
         enable_select_queries=False,
         limit_top_select=False,
         within_non_hogql_query=False,
-        # Export SQL reads the legacy String-properties tables/views (events, events_recent,
-        # events_batch_export), so filter fragments must stay on the legacy schema. Remove this pin
-        # only together with porting those views and field lists to events_json.
-        use_new_events_schema=False,
         values=values or {},
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )
@@ -125,12 +120,8 @@ def compose_filters_clause(
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         where=and_expr,
     )
-    prepared_select_query: ast.SelectQuery = typing.cast(
-        ast.SelectQuery, prepare_ast_for_printing(select_query, context=context, dialect="hogql", stack=[select_query])
-    )
-    prepared_and_expr = prepare_ast_for_printing(
-        and_expr, context=context, dialect="clickhouse", stack=[prepared_select_query]
-    )
+    prepared_select_query = prepare_serialized_export_query(select_query, context)
+    prepared_and_expr = prepared_select_query.where
 
     try:
         printed = print_prepared_ast(

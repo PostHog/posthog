@@ -1,19 +1,27 @@
+import json
 import datetime as dt
 
 import pytest
 
+from django.conf import settings
 from django.test import override_settings
+
+import pyarrow as pa
 
 from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
 from posthog.credentials import AWSKeyPair
+from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.hogql_source import UnsupportedHogQLQueryError
-from products.batch_exports.backend.service import BatchExportModel
+from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.temporal.batch_exports import iter_records
+from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.record_batch_model import (
     HogQLQueryRecordBatchModel,
     SessionsRecordBatchModel,
@@ -451,3 +459,90 @@ class TestHogQLQueryRecordBatchModel:
         """Without this, a missing query would fall through to the events template path and export the wrong data."""
         with pytest.raises(UnsupportedHogQLQueryError):
             resolve_batch_exports_model(team_id=1, batch_export_model=BatchExportModel(name="hogql", schema=None))
+
+
+@pytest.mark.parametrize("is_backfill", [False, True])
+@pytest.mark.parametrize("interval_start_is_none", [False, True])
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+async def test_custom_export_runs_without_legacy_events_tables(
+    ateam, clickhouse_client, is_backfill, interval_start_is_none
+):
+    database = f"native_export_{uuid7().hex}"
+    await clickhouse_client.execute_query(f"CREATE DATABASE {database}")
+    try:
+        async with ClickHouseClient(
+            url=settings.CLICKHOUSE_HTTP_URL,
+            user=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+            database=database,
+            output_format_arrow_string_as_string="true",
+        ) as client:
+            await client.execute_query(
+                f"CREATE TABLE events_json (uuid UUID, person_id UUID, team_id Int64, event String, distinct_id String, "
+                f"timestamp DateTime64(6), inserted_at DateTime64(6), created_at DateTime64(6), elements_chain String, "
+                f"properties {EVENTS_PROPERTIES_JSON_TYPE()}, person_properties {PERSON_PROPERTIES_JSON_TYPE()}, "
+                "temporary_properties JSON) ENGINE = Memory"
+            )
+            row = {
+                "uuid": str(uuid7()),
+                "person_id": str(uuid7()),
+                "team_id": ateam.pk,
+                "event": "purchase",
+                "distinct_id": "buyer",
+                "timestamp": "2024-01-01 12:00:00",
+                "inserted_at": "2024-02-01 12:00:00",
+                "created_at": "2024-02-01 12:00:00",
+                "elements_chain": "",
+                "properties": {"$browser": "Firefox", "amount": 2.5, "person": {"properties": "event value"}},
+                "person_properties": {"email": "buyer@example.com"},
+                "temporary_properties": {"$set": {"email": "buyer@example.com"}},
+            }
+            await client.execute_query(
+                "INSERT INTO events_json FORMAT JSONEachRow\n"
+                + "\n".join(json.dumps(value) for value in [row, row, {**row, "team_id": ateam.pk + 1}])
+            )
+            schema: BatchExportSchema = {
+                "hogql_query": "SELECT e.properties.$browser AS browser, e.properties.amount AS amount, e.person.properties.email AS email, e.properties.person.properties AS nested FROM events AS e",
+                "fields": [{"expression": "events.mat_removed_column", "alias": "browser"}],
+                "values": {"unused_old_parameter": "stale"},
+            }
+            _, _, _, fields, _, values = await database_sync_to_async(resolve_batch_exports_model)(
+                team_id=ateam.pk, batch_export_schema=schema
+            )
+            assert fields is not None
+            assert "unused_old_parameter" not in values
+            predicate, values = await database_sync_to_async(compose_filters_clause)(
+                [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Firefox"]}],
+                team_id=ateam.pk,
+                values=values,
+            )
+            month = "01" if is_backfill else "02"
+            batches: list[pa.RecordBatch] = await database_sync_to_async(
+                lambda: list(
+                    iter_records(
+                        client=client,
+                        team_id=ateam.pk,
+                        use_new_events_schema=True,
+                        interval_start=None if interval_start_is_none else f"2024-{month}-01 00:00:00",
+                        interval_end=f"2024-{month}-02 00:00:00",
+                        include_events=["purchase"],
+                        fields=fields
+                        + [{"expression": key, "alias": key} for key in ("properties", "person_properties", "set")],
+                        filters_str=predicate,
+                        extra_query_parameters=values,
+                        is_backfill=is_backfill,
+                    )
+                )
+            )()
+            rows = pa.Table.from_batches(batches).to_pylist()
+            assert len(rows) == 1
+            assert rows[0]["browser"] == "Firefox"
+            assert rows[0]["amount"] == "2.5"
+            assert rows[0]["email"] == "buyer@example.com"
+            assert rows[0]["nested"] == "event value"
+            assert json.loads(rows[0]["properties"])["$browser"] == "Firefox"
+            assert json.loads(rows[0]["person_properties"])["email"] == "buyer@example.com"
+            assert json.loads(rows[0]["set"]) == {"email": "buyer@example.com"}
+            assert rows[0]["_inserted_at"] == dt.datetime(2024, int(month), 1, 12, tzinfo=dt.UTC)
+    finally:
+        await clickhouse_client.execute_query(f"DROP DATABASE {database}")

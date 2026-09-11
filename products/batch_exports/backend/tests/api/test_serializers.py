@@ -28,12 +28,11 @@ def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
             context=HogQLContext(
                 team_id=team_id,
                 enable_select_queries=True,
-                use_new_events_schema=False,
                 modifiers=HogQLQueryModifiers(
                     personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
                 ),
             ),
-            dialect="clickhouse",
+            dialect="hogql",
         ),
     )
 
