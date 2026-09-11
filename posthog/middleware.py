@@ -34,7 +34,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
-from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
+from social_core.exceptions import AuthCanceled, AuthException, AuthFailed, AuthStateForbidden, AuthStateMissing
 from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
@@ -1408,6 +1408,11 @@ class SocialAuthExceptionMiddleware:
         # Handle AuthCanceled (user cancelled OAuth flow)
         if isinstance(exception, AuthCanceled):
             return redirect(sso_failure_redirect_url(request, "oauth_cancelled"))
+
+        # The state this callback must match is gone, so retrying the callback cannot succeed. Send no
+        # error detail, so the frontend shows recovery copy instead of the library's message.
+        if isinstance(exception, AuthStateMissing | AuthStateForbidden):
+            return redirect(sso_failure_redirect_url(request, "oauth_state_lost"))
 
         # Handle AuthFailed with specific error codes that have dedicated frontend messages
         if isinstance(exception, AuthFailed) and len(exception.args) >= 1:

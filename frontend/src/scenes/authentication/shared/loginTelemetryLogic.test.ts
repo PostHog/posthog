@@ -139,6 +139,7 @@ describe('loginTelemetryLogic', () => {
         expect(capturedProperties('login failed')).toMatchObject({
             step: 'login',
             error_code: 'improperly_configured_sso',
+            error_detail: 'Check your SSO setup',
         })
         expect(captureCount('login failed')).toBe(1)
     })
