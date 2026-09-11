@@ -25,9 +25,9 @@ import { ActivityScope, Breadcrumb, Group, GroupTypeIndex, PropertyFilterType, P
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 
-import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { Noun } from '../../models/groupsModel'
-import type { GroupType } from '../../types'
+import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
+import type { Noun } from '../../../../frontend/src/models/groupsModel'
+import type { GroupType } from '../../../../frontend/src/types'
 
 function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTableNode {
     return {

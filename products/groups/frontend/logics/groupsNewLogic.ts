@@ -29,8 +29,8 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { Breadcrumb, CreateGroupParams, Group, GroupTypeIndex } from '~/types'
 
-import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { Noun } from '../../models/groupsModel'
+import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
+import type { Noun } from '../../../../frontend/src/models/groupsModel'
 
 export type GroupsNewLogicProps = {
     groupTypeIndex: number

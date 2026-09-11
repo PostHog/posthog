@@ -27,9 +27,9 @@ import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
 
 import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/annotationsEmptyState'
 
-import { AnnotationModal } from './AnnotationModal'
-import { annotationModalLogic, annotationScopeToLevel, annotationScopeToName } from './annotationModalLogic'
-import { annotationScopesMenuOptions, annotationsLogic } from './annotationsLogic'
+import { AnnotationModal } from '../components/AnnotationModal'
+import { annotationModalLogic, annotationScopeToLevel, annotationScopeToName } from '../logics/annotationModalLogic'
+import { annotationScopesMenuOptions, annotationsLogic } from '../logics/annotationsLogic'
 
 export const scene: SceneExport = {
     component: Annotations,

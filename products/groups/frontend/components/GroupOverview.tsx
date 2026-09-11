@@ -4,10 +4,10 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { Group } from '~/types'
 
-import { GroupDashboardCard } from './cards/GroupDashboardCard'
-import { GroupPeopleCard } from './cards/GroupPeopleCard'
-import { GroupPropertiesCard } from './cards/GroupPropertiesCard'
-import { groupLogic } from './groupLogic'
+import { GroupDashboardCard } from '../cards/GroupDashboardCard'
+import { GroupPeopleCard } from '../cards/GroupPeopleCard'
+import { GroupPropertiesCard } from '../cards/GroupPropertiesCard'
+import { groupLogic } from '../logics/groupLogic'
 
 export function GroupOverview({ groupData }: { groupData: Group }): JSX.Element {
     const { groupTypeName } = useValues(groupLogic)

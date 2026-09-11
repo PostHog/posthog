@@ -15,8 +15,8 @@ import { userLogic } from 'scenes/userLogic'
 import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType, DashboardBasicType, QueryBasedInsightModel } from '~/types'
 
-import type { UserType } from '../../types'
-import type { RawAnnotationType } from '../../types'
+import type { UserType } from '../../../../frontend/src/types'
+import type { RawAnnotationType } from '../../../../frontend/src/types'
 
 export const ANNOTATION_DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
