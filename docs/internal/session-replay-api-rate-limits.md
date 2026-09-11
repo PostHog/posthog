@@ -55,9 +55,11 @@ For bulk retrieval, point the customer at batch exports rather than a higher req
 
 ## Observability
 
-Throttle rejections are Prometheus only, not PostHog events:
+Throttle rejections land in metrics, not in PostHog events:
 
 - `rate_limit_exceeded_total{scope,team_id,route}`, where `scope` carries the tier suffix, for example `snapshots_sustained_paid`.
+  Prometheus only.
 - `session_recording_api_throttled_total{location,auth_type}`, emitted by the sharing-token throttle, the dashboard listing helper, and the ClickHouse capacity and timeout paths on the list action.
+  Prometheus, and also the PostHog Metrics product on deployments that set `OTEL_METRICS_EXPORT_URL` and `OTEL_METRICS_EXPORT_TOKEN`.
 
 There is no way to query 429 volume per team from product data.
