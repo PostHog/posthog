@@ -277,7 +277,7 @@ class _BaseEvalRun:
                     namespace=self.trace_namespace,
                     scorer_traces=self.scorer_traces,
                 )
-                evaluation_client.flush()
+                await asyncio.to_thread(evaluation_client.flush)
                 await self.ctx.reporter.record_posthog_evaluations_url(self.experiment_name, self.experiment_id)
             except Exception:
                 logger.exception("Failed to emit evaluation events for '%s'", self.experiment_name)
@@ -306,7 +306,7 @@ class _BaseEvalRun:
                             scores=eval_result.scores,
                             token_usage=meta.get("token_usage"),
                         )
-                self.posthog_client.flush()
+                await asyncio.to_thread(self.posthog_client.flush)
             except Exception:
                 logger.exception("Failed to emit trace roots for '%s'", self.experiment_name)
 

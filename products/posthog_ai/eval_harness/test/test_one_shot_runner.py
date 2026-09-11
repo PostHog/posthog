@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from functools import partial
 from pathlib import Path
+from threading import Event
 from typing import Any, ClassVar
 
 import pytest
@@ -178,6 +179,19 @@ def test_run_routes_through_the_engine(
     async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
         raise AssertionError("the engine is stubbed, so the task must not run")
 
+    async def run_suite(run: _OneShotEvalRun) -> None:
+        loop = asyncio.get_running_loop()
+        loop_progress_during_flush: list[bool] = []
+
+        def blocking_flush() -> None:
+            loop_progress = Event()
+            loop.call_soon_threadsafe(loop_progress.set)
+            loop_progress_during_flush.append(loop_progress.wait(timeout=5))
+
+        with patch.object(Posthog, "flush", side_effect=blocking_flush):
+            assert await run.run() is canned
+        assert all(loop_progress_during_flush)
+
     canned = ExperimentResult(
         summary=EvalSummary(engine_name="stub", experiment_name="one-shot-test", scores={}),
         results=[
@@ -212,7 +226,7 @@ def test_run_routes_through_the_engine(
                 run.is_public = not no_send_logs
                 run.agent_trace_id_lookup["c1"] = "trace-1"
                 run.case_trace_meta["c1"] = {"prompt": "the prompt", "duration": 1.0, "first_timestamp": ""}
-                assert asyncio.run(run.run()) is canned
+                asyncio.run(run_suite(run))
             assert settings.TEST
             assert ctx.posthog_client is not None
             assert ctx.posthog_client.disabled

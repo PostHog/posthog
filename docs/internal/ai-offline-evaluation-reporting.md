@@ -11,6 +11,7 @@ Evaluation result uploads to Braintrust and PostHog share the `no_send_logs` set
 `SandboxedPrivateEval` sets `no_send_logs=True` and uploads to neither service; local logs are still written.
 
 The harness creates one dedicated result client at startup, shares it across all suites, and shuts it down after the invocation.
+Each suite waits for queued PostHog uploads in worker threads so other suites can keep running.
 This client permits `$ai_evaluation` reporting independently of `TEST` and `OPT_OUT_CAPTURE`, so those settings do not separate the two result destinations.
 Ordinary PostHog SDK clients and trace clients retain their existing `TEST` and `OPT_OUT_CAPTURE` guards.
 
