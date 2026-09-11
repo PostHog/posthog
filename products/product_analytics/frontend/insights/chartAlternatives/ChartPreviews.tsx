@@ -40,7 +40,6 @@ export function ChartPreviews({
 
     return (
         <div className="rounded border bg-surface-primary p-2" data-attr="chart-previews">
-            <div className="mb-2 text-xs font-semibold text-secondary">Preview as</div>
             <ScrollableShadows
                 direction="horizontal"
                 innerClassName="snap-x snap-mandatory"
