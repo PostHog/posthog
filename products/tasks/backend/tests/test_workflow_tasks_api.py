@@ -151,7 +151,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         task = Task.objects.get(id=response.json()["id"])
-        assert task.channel_id == (channel.id if expect_filed else None)
+        assert task.channel_id == (channel.id if channel and expect_filed else None)
 
     @parameterized.expand(
         [
