@@ -339,9 +339,7 @@ def list_symbol_sets(
         # to a membership test against the much smaller release table, so Postgres no longer has
         # to join every symbol set the team owns just to evaluate the OR.
         matching_releases = ErrorTrackingRelease.objects.filter(
-            Q(version__icontains=search)
-            | Q(project__icontains=search)
-            | Q(metadata__git__commit_id__icontains=search),
+            Q(version__icontains=search) | Q(project__icontains=search) | Q(metadata__git__commit_id__icontains=search),
             team_id=team_id,
         ).values("id")
         queryset = queryset.filter(Q(ref__icontains=search) | Q(release_id__in=matching_releases))
