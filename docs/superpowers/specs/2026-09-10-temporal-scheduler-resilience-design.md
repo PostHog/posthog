@@ -330,6 +330,8 @@ Permit, claim-health, and backlog values are authoritative snapshots written by 
 database activity. Companion snapshot-time gauges identify that writer: dashboards select the
 newest live target for each scheduler and region and reject samples older than the coordinator's
 freshness interval. They must not sum identical queue-wide snapshots across worker replicas.
+Alerting applies the same freshness rule, and treats an absent or stale snapshot timestamp as unhealthy rather than healthy.
+Each gauge holds its last written value for as long as the worker process lives, so a coordinator that stops running keeps exporting its final healthy sample.
 
 Freshness is the greater of the oldest eligible due-item age and the oldest admitted-but-unfinished
 source-due age. A child that renews its claim therefore remains visible after discovery excludes it.
@@ -355,7 +357,8 @@ The initial alert set covers:
 7. coordinator timeouts repeat; and
 8. claim cleanup or renewal lag approaches the lease timeout;
 9. any payload-budget or resource-exhausted failure occurs; and
-10. a new quarantine transition occurs or quarantined work remains unresolved.
+10. a new quarantine transition occurs or quarantined work remains unresolved; and
+11. a required permit, claim-health, or backlog snapshot timestamp is absent or older than the coordinator's freshness interval.
 
 A capacity forecast also alerts before saturation when projected high-percentile demand will consume the recovery envelope within the planning horizon.
 
