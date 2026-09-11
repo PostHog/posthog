@@ -301,6 +301,54 @@ describe('scratchpadLogic', () => {
         expect(logic.values.canLoadOlderEntries).toBe(true)
     })
 
+    // A reload drops the walked pages, and the fresh first page has not yet said whether anything
+    // older is left. A control left live over that gap pages from the window that just went away.
+    it('retires the older-page control while the first page reloads', async () => {
+        logic.actions.loadEntriesSuccess(
+            Array.from({ length: SCRATCHPAD_FETCH_LIMIT }, (_, i) => entry(`pattern:${i}`, 'note'))
+        )
+        expect(logic.values.hasMoreOlderEntries).toBe(true)
+
+        logic.actions.loadEntries()
+        expect(logic.values.hasMoreOlderEntries).toBe(false)
+
+        // The fresh first page decides it again, and this one came back short.
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.hasMoreOlderEntries).toBe(false)
+    })
+
+    // A page read against a window that a reload replaced has nothing to attach to. Appending it
+    // files old rows under a new first page, and its dedupe set cannot see that page's keys, so a
+    // key can render twice in a table that keys rows by it.
+    it('drops an older page that answers after the first page reloaded', async () => {
+        const older = { ...entry('pattern:older', 'note'), updated_at: '2026-06-01T00:00:00Z' }
+        let firstPageServed = (): void => {}
+        const reloadServed = new Promise<void>((resolve) => {
+            firstPageServed = resolve
+        })
+        useMocks({
+            get: {
+                [SCRATCHPAD_URL]: async ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    // The walked page answers only once the reload that invalidated it has.
+                    if (params.get('date_to')) {
+                        await reloadServed
+                        return [200, [older]]
+                    }
+                    firstPageServed()
+                    return [200, [ALSO_TRUNCATED]]
+                },
+            },
+        })
+
+        logic.actions.loadEntriesSuccess([TRUNCATED, WHOLE])
+        logic.actions.loadOlderEntries()
+        logic.actions.loadEntries()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.windowEntries).toEqual([ALSO_TRUNCATED])
+    })
+
     // Nothing older than the first page was reachable before: the endpoint caps at 1,000 rows and
     // the panel only ever asked once. The `date_to` bound is exclusive, but rows can share a
     // timestamp, so a page may still repeat a key already on screen.
