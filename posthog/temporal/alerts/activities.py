@@ -128,8 +128,8 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             )
             .annotate(
                 # Give every due team its configured fair share before overdue overflow fills any
-                # remaining global capacity. Active children keep their old due time until completion,
-                # so they retain their place in the ordering and deterministic workflow IDs prevent duplicates.
+                # remaining capacity. Deterministic workflow IDs prevent duplicate active checks
+                # when alerts remain due across scheduler runs.
                 _fair_share_order=Case(
                     When(_team_rank__lte=inputs.team_fair_share_per_run, then=Value(0)),
                     default=Value(1),
