@@ -336,7 +336,10 @@ class ClickHousePrinter(BasePrinter):
         elif node.name == "convertCurrency":
             # convertCurrency(from_currency, to_currency, amount, timestamp?)
             from_currency, to_currency, amount, *_rest = args
-            date = args[3] if len(args) > 3 and args[3] else "today()"
+            # The dictionary range key only accepts a non-nullable Date, but most ways to write a
+            # date in HogQL are nullable: `toDate` maps to `toDateOrNull`, and warehouse date
+            # columns read back nullable. A null date falls back to today(), as no date does.
+            date = f"ifNull(accurateCastOrNull({args[3]}, 'Date'), today())" if len(args) > 3 and args[3] else "today()"
             db = django_settings.CLICKHOUSE_DATABASE
             scale = EXCHANGE_RATE_DECIMAL_PRECISION
             # Build rate lookup expressions
