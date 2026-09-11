@@ -53795,13 +53795,7 @@ export namespace Schemas {
       readonly updated_at: string | null;
       readonly upstream_count: number;
       readonly downstream_count: number;
-      /**
-         * When this model last succeeded.
-       *
-       * The stored stamp is written on every outcome, failures included, so it would report a
-       * failed run as fresh. It stands in only for nodes with no job rows to read.
-         * @nullable
-         */
+      /** @nullable */
       readonly last_run_at: string | null;
       /**
          * Skipped runs are written straight to the job table and never reach the stored status,
@@ -66755,13 +66749,7 @@ export namespace Schemas {
       readonly updated_at?: string | null;
       readonly upstream_count?: number;
       readonly downstream_count?: number;
-      /**
-         * When this model last succeeded.
-       *
-       * The stored stamp is written on every outcome, failures included, so it would report a
-       * failed run as fresh. It stands in only for nodes with no job rows to read.
-         * @nullable
-         */
+      /** @nullable */
       readonly last_run_at?: string | null;
       /**
          * Skipped runs are written straight to the job table and never reach the stored status,
