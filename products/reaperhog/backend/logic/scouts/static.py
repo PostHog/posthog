@@ -29,9 +29,10 @@ def find_knip_workspaces(root: Path, scope_path: str | None) -> list[Path]:
             break
         if (candidate / KNIP_CONFIG).is_file():
             return [candidate]
-    if scope_path:
-        return []
-    return sorted(path.parent for path in root.glob(f"products/*/{KNIP_CONFIG}"))
+    # No workspace above the scope, so the scope may sit above one instead. From the repository root
+    # that means every products/*/knip.json; from a directory scope, its own children.
+    pattern = f"products/*/{KNIP_CONFIG}" if scope_path is None else f"*/{KNIP_CONFIG}"
+    return sorted(path.parent for path in base.glob(pattern))
 
 
 def run_knip(workspace: Path) -> dict | None:

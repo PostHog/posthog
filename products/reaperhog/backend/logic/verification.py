@@ -142,6 +142,8 @@ def verdict_violations(verdict: Verdict) -> tuple[str, ...]:
         problems.append(f"files_to_edit names protected or unusable path(s): {', '.join(uneditable)}")
     if not verdict.searches:
         problems.append("no searches recorded")
+    if not verdict.files_to_delete and not verdict.files_to_edit:
+        problems.append("no files named")
     return tuple(problems)
 
 
