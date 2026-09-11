@@ -1565,16 +1565,21 @@ def test_cleanup_git_does_not_run_gc_on_a_partial_clone(monkeypatch: pytest.Monk
     assert any("--keep-unreachable" in cmd for cmd in ran)
 
 
+@pytest.mark.parametrize(
+    "clone_args",
+    [[], ["--filter=blob:none", "--origin", "upstream"]],
+    ids=["full-clone", "blobless-clone-with-renamed-remote"],
+)
 def test_doctor_git_fix_fetches_commits_that_the_commit_graph_still_lists(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git_origin: tuple[Path, Path]
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git_origin: tuple[Path, Path], clone_args: list[str]
 ) -> None:
-    # The stale graph hid the deleted commit from the missing-commit walk, and a lazy
-    # fetch refuses a commit that the graph lists, so --fix left the clone broken.
+    # The stale graph hid the deleted commit from the missing-commit walk, and the
+    # per-commit lazy fetch that followed does not exist in a full clone.
     remote, seed = git_origin
     lost = _push_commit(seed, "a")
     _push_commit(seed, "b")
     clone = tmp_path / "clone"
-    _git(tmp_path, "clone", "-q", remote.as_uri(), str(clone))
+    _git(tmp_path, "clone", "-q", *clone_args, remote.as_uri(), str(clone))
     _git(clone, "commit-graph", "write", "--reachable")
     # Unpack every object into a loose file, so that one commit can be deleted.
     pack_dir = clone / ".git" / "objects" / "pack"

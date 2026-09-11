@@ -583,15 +583,26 @@ def _estimate_pnpm_store(repo_root: Path) -> CleanupEstimate:
 _GIT_REPACK_ARGS = ["repack", "-a", "-d", "-l", "--keep-unreachable", "--threads=0"]
 
 
-def _is_partial_clone(repo_root: Path) -> bool:
-    """Whether the repo has a promisor remote, which is how git defines a partial clone.
+def _promisor_remote(repo_root: Path) -> str | None:
+    """The remote a partial clone fetches missing objects from, or None for a full clone.
 
-    The `.promisor` scan in `_git_health` stops at its pack cap, so it can miss the marker.
+    Git defines a partial clone by this remote. The `.promisor` scan in `_git_health`
+    stops at its pack cap, so it can miss the marker.
     """
     config = _run_output(
         ["git", "-C", str(repo_root), "config", "--get-regexp", r"^remote\..*\.promisor$|^extensions\.partialclone$"]
     )
-    return config is not None and any(not line.endswith(" false") for line in config.splitlines())
+    for line in (config or "").splitlines():
+        key, _, value = line.partition(" ")
+        if key == "extensions.partialclone":
+            return value
+        if value != "false":
+            return key.removeprefix("remote.").removesuffix(".promisor")
+    return None
+
+
+def _is_partial_clone(repo_root: Path) -> bool:
+    return _promisor_remote(repo_root) is not None
 
 
 def _estimate_git(repo_root: Path) -> CleanupEstimate:
@@ -2757,9 +2768,10 @@ def _write_commit_graph(main_worktree: Path) -> bool:
     if oids:
         click.echo(f"  fetching {len(oids)} missing commits...")
         # A normal fetch does not send an ancestor of a commit the repo already has.
-        # A lazy fetch refuses a commit that the commit-graph lists. --refetch skips
-        # negotiation and gets all of them in one pack. After --refetch, git forces an
-        # auto gc and incremental-repack, which are the repacks that lose commits.
+        # A lazy fetch can refuse a commit that the commit-graph lists, and a full clone
+        # has no lazy fetch. --refetch skips negotiation and gets all of them in one pack.
+        # After --refetch, git forces an auto gc and incremental-repack, which are the
+        # repacks that lose commits.
         refetch = [
             "-c",
             "core.commitGraph=false",
@@ -2767,7 +2779,7 @@ def _write_commit_graph(main_worktree: Path) -> bool:
             "--refetch",
             "--no-auto-maintenance",
             "--no-write-fetch-head",
-            "origin",
+            _promisor_remote(main_worktree) or "origin",
             *oids,
         ]
         if not _run_git(main_worktree, refetch, "refetch of missing commits"):
