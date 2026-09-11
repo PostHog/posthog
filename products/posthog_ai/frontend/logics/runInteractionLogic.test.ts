@@ -21,6 +21,7 @@ import { attachedContextLogic } from './attachedContextLogic'
 import { runCancellationLogic } from './runCancellationLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
+import { TaskDraftPersistence, taskDraftStorageKey } from './taskDraftPersistence'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 // Minimal kea stub for the shared sandbox stream logic — gives the test full control over the busy gate
@@ -195,6 +196,7 @@ describe('runInteractionLogic', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
+        localStorage.clear()
         ;(tasksRunsCommandCreate as jest.Mock).mockResolvedValue({ jsonrpc: '2.0', result: { queued: true } })
         ;(tasksRunCreate as jest.Mock).mockResolvedValue({ latest_run: { id: 'run-2' } })
         ;(tasksRunsClearConversationCreate as jest.Mock).mockResolvedValue({})
@@ -222,6 +224,54 @@ describe('runInteractionLogic', () => {
         toolEvents?.unmount()
     })
 
+    it('restores queued text and the latest page-exit draft without sending on readiness or turn completion', async () => {
+        logic.actions.enableTaskDraftPersistence('user-1', 997)
+        setThinking(true)
+        logic.actions.setComposerFormValues({ draft: 'queued first' })
+        logic.actions.submitComposerForm()
+        logic.actions.setComposerFormValues({ draft: 'queued second' })
+        logic.actions.submitComposerForm()
+        runInteractionLogic({
+            ...logic.props,
+            flushDraft: () => logic.actions.setComposerFormValues({ draft: 'last keystroke' }),
+        })
+        window.dispatchEvent(new Event('pagehide'))
+        logic.unmount()
+        logic = runInteractionLogic({ taskId: TASK_ID, runId: RUN_ID, onRunStarted })
+        logic.mount()
+        logic.actions.enableTaskDraftPersistence('user-1', 997)
+        expect(logic.values.composerForm.draft).toBe('queued first\n\nqueued second\n\nlast keystroke')
+        expect(logic.values.queuedMessages).toEqual([])
+        expect(logic.values.draftRecovery).toBe('restored')
+        setThinking(false)
+        await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        expect(tasksRunCreate).not.toHaveBeenCalled()
+        expect(tasksWarmResumeCreate).not.toHaveBeenCalled()
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+            ...userMessageCommand('queued first\n\nqueued second\n\nlast keystroke')
+        )
+        expect(new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, TASK_ID)).restore()).toBeNull()
+    })
+
+    it('does not prewarm a recovered terminal draft or copy it into another user or project', async () => {
+        const key = taskDraftStorageKey('user-1', 997, TASK_ID)
+        new TaskDraftPersistence(key).save({ runId: RUN_ID, draft: 'saved draft', queuedText: '', recovery: null })
+        setStatus('completed')
+        await expectLogic(logic, () => logic.actions.enableTaskDraftPersistence('user-1', 997)).toFinishAllListeners()
+        expect(logic.values.composerForm.draft).toBe('saved draft')
+        expect(tasksWarmResumeCreate).not.toHaveBeenCalled()
+        logic.actions.setComposerFormValues({ draft: 'edited after recovery' })
+        logic.actions.enableTaskDraftPersistence('user-1', 997)
+        expect(logic.values.composerForm.draft).toBe('edited after recovery')
+        logic.actions.enableTaskDraftPersistence('user-2', 997)
+        expect(logic.values.composerForm.draft).toBe('')
+        logic.actions.enableTaskDraftPersistence('user-1', 998)
+        expect(logic.values.composerForm.draft).toBe('')
+        expect(new TaskDraftPersistence(key).restore()?.draft).toBe('edited after recovery')
+    })
+
     it('keeps startup input and settings through attachment and sends the queue after the first turn', async () => {
         const pending = runInteractionLogic({ taskId: '', runId: '', streamKey: RUN_ID, interactionKey: 'creation' })
         const unmount = pending.mount()
@@ -235,6 +285,7 @@ describe('runInteractionLogic', () => {
         const setReady = (ready: boolean): void =>
             (stream.actions as unknown as { setStubReady: (ready: boolean) => void }).setStubReady(ready)
         try {
+            pending.actions.enableTaskDraftPersistence('user-1', 997)
             other.actions.setComposerFormValues({ draft: 'another task follow-up' })
             other.actions.submitComposerForm()
             setStatus(null)
@@ -253,8 +304,17 @@ describe('runInteractionLogic', () => {
                 { id: 'queued', content: 'first follow-up\n\nsecond follow-up' },
             ])
 
+            pending.actions.hydrateTaskDraft(TASK_ID)
+            expect(new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, TASK_ID)).restore()?.draft).toBe(
+                'first follow-up\n\nsecond follow-up\n\nunfinished draft'
+            )
+
             const attached = runInteractionLogic({ ...pending.props, taskId: TASK_ID, runId: RUN_ID })
             expect(attached).toBe(pending)
+            expect(new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, TASK_ID)).restore()?.draft).toBe(
+                'first follow-up\n\nsecond follow-up\n\nunfinished draft'
+            )
+            expect(attached.values.draftRecovery).toBeNull()
             setStatus('queued')
             attached.actions.steerQueue()
             expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
@@ -1234,6 +1294,8 @@ describe('runInteractionLogic', () => {
     })
 
     it('keeps text typed into the composer during an in-flight draft send instead of clobbering it on success', async () => {
+        logic.actions.enableTaskDraftPersistence('user-1', 997)
+        const key = taskDraftStorageKey('user-1', 997, TASK_ID)
         let resolveSend: () => void = () => {}
         ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(
             new Promise((resolve) => {
@@ -1251,6 +1313,11 @@ describe('runInteractionLogic', () => {
         // The user keeps typing while the send is in flight.
         logic.actions.setComposerFormValues({ draft: 'next thought' })
 
+        expect(new TaskDraftPersistence(key).restore()).toEqual({
+            draft: 'ship it\n\nnext thought',
+            recovery: 'unconfirmed',
+        })
+
         await expectLogic(logic, () => {
             resolveSend()
         }).toFinishAllListeners()
@@ -1258,6 +1325,7 @@ describe('runInteractionLogic', () => {
         // Success leaves the composer alone — the newly typed text survives rather than being wiped.
         expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('ship it'))
         expect(logic.values.composerForm.draft).toBe('next thought')
+        expect(new TaskDraftPersistence(key).restore()).toEqual({ draft: 'next thought', recovery: 'restored' })
     })
 
     it('restores a failed draft send ahead of text typed during the send, preserving order', async () => {

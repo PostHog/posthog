@@ -512,6 +512,29 @@ its session history from the API.
 Publish the updated agent and rebuild sandbox images before deploying the stricter
 backend capability gate, so the fallback supplies a compatible agent.
 
+## Recovering task messages after a refresh
+
+The task page and side panel save unsent queue text and composer drafts in browser
+local storage once a task has an ID. The cache is scoped to the signed-in user,
+project, and task, expires after seven days, and does not sync between browsers.
+The latest edit wins across tabs; another tab's edits do not replace an open composer.
+
+Opening the task again restores queued messages followed by the unfinished draft
+into one editable draft, separated by blank lines. The queue starts empty. The
+user must review and submit the restored draft; sandbox readiness, turn completion,
+and permission responses cannot send it or start a run. An active optimistic
+handoff keeps its live queue and does not perform draft recovery.
+
+Messages awaiting a send acknowledgement remain cached. If a page closes before
+confirmation, recovery asks the user to check the conversation before sending again.
+Successful sends clear the submitted text while preserving newer edits. Storage
+failures do not block composing or sending; those drafts cannot survive a refresh.
+
+While a sandbox starts, the conversation displays its first submitted message from
+the run's saved `pending_user_message` when logs do not yet contain it. This is a
+display fallback: it strips context wrappers, gives way to the selected run's log
+or stream echo, and never submits the message again.
+
 ## Local development
 
 To set up sandboxed agents for local development:

@@ -1,4 +1,17 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
@@ -41,6 +54,8 @@ import { modelCatalogueLogic } from './modelCatalogueLogic'
 import { type CancellationState, runCancellationLogic } from './runCancellationLogic'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
 import type { RunStatus } from './runStreamLogic'
+import { taskDraftListeners } from './taskDraftListeners'
+import type { DraftRecovery } from './taskDraftPersistence'
 import { taskRunDefaultsLogic } from './taskRunDefaultsLogic'
 import { taskWarmLogic } from './taskWarmLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
@@ -151,6 +166,7 @@ export interface runInteractionLogicValues {
     consentBlocked: boolean
     consentBlockedSource: 'draft' | 'queue' | 'steer'
     deferredSteerRequestId: string | null
+    draftRecovery: DraftRecovery
     effortOverride: string | null
     hasUnresolvedApproval: boolean
     isBusy: boolean
@@ -279,6 +295,9 @@ export interface runInteractionLogicActions {
     releaseApplyBackTargets: (streamKey: string) => {
         streamKey: string
     } // toolStreamEventsLogic
+    beginTaskDraftDelivery: (content: string) => {
+        content: string
+    }
     blockOnConsent: (source?: 'draft' | 'queue' | 'steer') => {
         source: 'draft' | 'queue' | 'steer'
     }
@@ -291,14 +310,30 @@ export interface runInteractionLogicActions {
     clearQueue: () => {
         value: true
     }
+    enableTaskDraftPersistence: (
+        userId: string,
+        projectId: number
+    ) => {
+        projectId: number
+        userId: string
+    }
     enqueueMessage: (content: string) => {
         content: string
         wasEmpty: boolean
+    }
+    finishTaskDraftDelivery: () => {
+        value: true
     }
     flushQueue: (steer?: boolean) => {
         steer: boolean
     }
     handleEscape: () => {
+        value: true
+    }
+    hydrateTaskDraft: (taskId?: string) => {
+        taskId: string | undefined
+    }
+    persistTaskDraft: () => {
         value: true
     }
     prependQueuedMessage: (content: string) => {
@@ -351,6 +386,9 @@ export interface runInteractionLogicActions {
     }
     setDeferredSteer: (requestId: string | null) => {
         requestId: string | null
+    }
+    setDraftRecovery: (recovery: DraftRecovery) => {
+        recovery: DraftRecovery
     }
     setEffort: (effort: string) => {
         effort: string
@@ -575,6 +613,12 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
     })),
 
     actions(({ values }) => ({
+        enableTaskDraftPersistence: (userId: string, projectId: number) => ({ userId, projectId }),
+        hydrateTaskDraft: (taskId?: string) => ({ taskId }),
+        persistTaskDraft: true,
+        beginTaskDraftDelivery: (content: string) => ({ content }),
+        finishTaskDraftDelivery: true,
+        setDraftRecovery: (recovery: DraftRecovery) => ({ recovery }),
         setComposerFocused: (focused: boolean) => ({ focused }),
         setSending: (sending: boolean) => ({ sending }),
         blockOnConsent: (source: 'draft' | 'queue' | 'steer' = 'draft') => ({ source }),
@@ -671,6 +715,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             false,
             {
                 setClearing: (_, { clearing }) => clearing,
+            },
+        ],
+        draftRecovery: [
+            null as DraftRecovery,
+            {
+                setDraftRecovery: (_, { recovery }) => recovery,
+                submitComposerForm: () => null,
+                resetComposerForm: () => null,
             },
         ],
         queuedMessages: [
@@ -996,7 +1048,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             // Consent gates warming as it gates sending: a warm boots a cloud sandbox and restores
             // the task's repository snapshot, so typing must not start one before the organization
             // accepts AI data processing.
-            if (!props.taskId || !props.runId || !values.isTerminal || !values.dataProcessingAccepted) {
+            if (
+                !props.taskId ||
+                !props.runId ||
+                !values.isTerminal ||
+                !values.dataProcessingAccepted ||
+                values.draftRecovery ||
+                cache.restoringTaskDraft
+            ) {
                 return
             }
             const createRequest = buildRunCreateRequest(
@@ -1127,6 +1186,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     props.runId === runId &&
                     props.taskId === taskId
                 actions.setSending(true)
+                actions.beginTaskDraftDelivery(content)
                 const streamKey = props.streamKey ?? props.runId
                 // `/clear` goes unwrapped: a context block would hide the command behind it (the
                 // agent reads the command off the front) and mark refs sent that nothing ever read.
@@ -1138,6 +1198,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 if (source === 'draft') {
                     actions.resetComposerForm()
                 }
+                actions.persistTaskDraft()
                 try {
                     // Sync the picked model/effort to the agent session first, but only what the user actually
                     // changed since the last sync — mid-run config lives as session state, so it must go via a
@@ -1222,6 +1283,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // The SSE echo (`pushHumanMessage`) reopens the turn — always the raw text the user typed.
                     actions.pushHumanMessage(content)
                     markPendingContextSent(pendingContext)
+                    actions.finishTaskDraftDelivery()
                 } catch {
                     if (!isCurrent()) {
                         return
@@ -1240,6 +1302,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         actions.queueDeliveryFailed()
                         actions.prependQueuedMessage(content)
                     }
+                    actions.finishTaskDraftDelivery()
                     lemonToast.error('Failed to send message. Please try again.')
                 } finally {
                     if (isCurrent()) {
@@ -1329,6 +1392,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         }
                     )
                     getWarmLogic()?.actions.consumeWarm()
+                    actions.beginTaskDraftDelivery(content)
                     actions.resetComposerForm()
                     actions.startOptimisticResume(content)
                     optimisticStarted = true
@@ -1344,6 +1408,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         throw new Error('The run response did not include a run')
                     }
                     accepted = true
+                    actions.finishTaskDraftDelivery()
                     markPendingContextSent(pendingContext)
                     props.flushDraft?.()
                     const handoff = { run, streamKey, draft: values.composerForm.draft }
@@ -1367,6 +1432,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         })
                         optimisticStarted = false
                     }
+                    actions.finishTaskDraftDelivery()
                     lemonToast.error(
                         error instanceof ApiError && error.code === 'warm_run_activation_unavailable'
                             ? "Couldn't start this run yet. Please try again."
@@ -1404,10 +1470,36 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             },
         }
     }),
-    afterMount(({ actions, props }) => {
+    listeners(taskDraftListeners),
+    propsChanged(({ actions }) => {
+        actions.hydrateTaskDraft()
+    }),
+    afterMount((logic) => {
+        const { actions, props, cache } = logic
         if (props.initialDraft) {
             actions.setComposerFormValues({ draft: props.initialDraft })
             props.onDraftAdopted?.()
         }
+        cache.disposables.add(
+            () => {
+                const flush = (): void => {
+                    logic.props.flushDraft?.()
+                    actions.persistTaskDraft()
+                }
+                const onVisibilityChange = (): void => {
+                    if (document.visibilityState === 'hidden') {
+                        flush()
+                    }
+                }
+                window.addEventListener('pagehide', flush)
+                document.addEventListener('visibilitychange', onVisibilityChange)
+                return () => {
+                    window.removeEventListener('pagehide', flush)
+                    document.removeEventListener('visibilitychange', onVisibilityChange)
+                }
+            },
+            'task-draft-page-exit',
+            { pauseOnPageHidden: false }
+        )
     }),
 ])

@@ -1046,6 +1046,26 @@ export interface FoldedThread {
     toolInvocations: Map<string, ToolInvocation>
 }
 
+export interface PendingRunMessage {
+    runId: string
+    id: string
+    text: string
+}
+
+function readPendingRunMessage(state: unknown, runId: string): PendingRunMessage | null {
+    if (!isRecord(state) || typeof state.pending_user_message !== 'string') {
+        return null
+    }
+    const text = unwrapUserMessageContent(state.pending_user_message)
+    return text
+        ? {
+              runId,
+              id: typeof state.pending_user_message_id === 'string' ? state.pending_user_message_id : runId,
+              text,
+          }
+        : null
+}
+
 /**
  * Pure projection: fold the ordered log into the rendered thread (and the tool-invocation map the
  * renderer looks up). The fold rules (chunk buffering with the tail rule, tool-update merge,
@@ -1053,7 +1073,10 @@ export interface FoldedThread {
  * across re-folds. `isResumeRun` drives the §6 resume-context filter; per-entry `source` decides
  * whether a wire user turn renders (replay) or is left to the live echo (live).
  */
-export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: boolean }): FoldedThread {
+export function foldLogToThread(
+    entries: StoredEntry[],
+    options: { isResumeRun: boolean; pendingMessage?: PendingRunMessage | null }
+): FoldedThread {
     let items: ThreadItem[] = []
     const invocations = new Map<string, ToolInvocation>()
     // Texts already rendered by a `_posthog/user_message`, so a later identical `user_message_chunk`
@@ -1071,8 +1094,14 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
     let contextSeq = 0
     let timestamp: number | undefined
     let importedRun = false
+    let entryRunId: string | undefined
+    let pendingMessageSeen = false
+    let pendingInsertionIndex: number | undefined
 
     const pushHuman = (text: string): void => {
+        if (options.pendingMessage?.text === text && entryRunId === options.pendingMessage.runId) {
+            pendingMessageSeen = true
+        }
         items = insertHumanMessageAtTurnStart(items, {
             id: `human-${humanCount++}`,
             type: 'human_message',
@@ -1227,6 +1256,14 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
     }
 
     for (const { entry, source } of entries) {
+        entryRunId = entry.source_run_id ?? options.pendingMessage?.runId
+        if (
+            options.pendingMessage &&
+            entryRunId === options.pendingMessage.runId &&
+            pendingInsertionIndex === undefined
+        ) {
+            pendingInsertionIndex = items.length
+        }
         const notification = entry.notification
         const method = notification.method
         const params = (notification.params ?? {}) as Record<string, unknown>
@@ -1438,6 +1475,15 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         }
     }
 
+    if (options.pendingMessage && !pendingMessageSeen) {
+        // This is a display fallback, not an optimistic send; bootstrap must still read the full log.
+        items.splice(pendingInsertionIndex ?? items.length, 0, {
+            id: `pending-${options.pendingMessage.runId}-${options.pendingMessage.id}`,
+            type: 'human_message',
+            text: options.pendingMessage.text,
+            complete: true,
+        })
+    }
     return { threadItems: items, toolInvocations: invocations }
 }
 
@@ -1490,6 +1536,7 @@ export interface runStreamLogicValues {
     log: RunLog
     logBootstrapLoading: boolean
     pendingPermissionRequest: PermissionRequestRecord | null
+    pendingRunMessage: PendingRunMessage | null
     permissionResponseRequestIds: Set<string>
     reconnectAttempt: number
     resolvedPermissionRequestIds: Set<string>
@@ -1712,6 +1759,9 @@ export interface runStreamLogicActions {
     setCurrentStage: (stage: string | null) => {
         stage: string | null
     }
+    setPendingRunMessage: (message: PendingRunMessage | null) => {
+        message: PendingRunMessage | null
+    }
     setRunOpening: (opening: boolean) => {
         opening: boolean
     }
@@ -1749,7 +1799,11 @@ export interface runStreamLogicMeta {
             permissionResponseRequestIds: Set<string>,
             pendingPermissionRequest: PermissionRequestRecord | null
         ) => boolean
-        foldedThread: (log: RunLog, isBootstrapResumeRun: boolean) => FoldedThread
+        foldedThread: (
+            log: RunLog,
+            isBootstrapResumeRun: boolean,
+            pendingRunMessage: PendingRunMessage | null
+        ) => FoldedThread
         latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
         hasThreadItems: (threadItems: ThreadItem[]) => boolean
@@ -1988,6 +2042,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * `pushHumanMessage`.
          */
         startOptimisticRun: (message?: string) => ({ message }),
+        setPendingRunMessage: (message: PendingRunMessage | null) => ({ message }),
         startOptimisticResume: (message: string) => ({ message }),
         appendResumeBoundary: true,
         rollbackOptimisticResume: true,
@@ -2055,6 +2110,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 sseReconnecting: (state) => state + 1,
                 bootstrapRun: () => 0,
                 reset: () => 0,
+            },
+        ],
+        pendingRunMessage: [
+            null as PendingRunMessage | null,
+            {
+                setPendingRunMessage: (_, { message }) => message,
+                reset: () => null,
+                startOptimisticResume: () => null,
             },
         ],
         currentRunStatus: [
@@ -2343,8 +2406,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * Memoized on `log` identity, so it recomputes only when a frame is actually appended.
          */
         foldedThread: [
-            (s) => [s.log, s.isBootstrapResumeRun],
-            (log: RunLog, isResumeRun: boolean): FoldedThread => foldLogToThread(log.entries, { isResumeRun }),
+            (s) => [s.log, s.isBootstrapResumeRun, s.pendingRunMessage],
+            (log: RunLog, isResumeRun: boolean, pendingMessage: PendingRunMessage | null): FoldedThread =>
+                foldLogToThread(log.entries, { isResumeRun, pendingMessage }),
         ],
         latestTurnTraceId: [
             (s) => [s.threadItems],
@@ -2571,6 +2635,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 breakpoint()
                 actions.markBootstrapResumeRun(isResumeRun(replayRun))
                 actions.mergeRunArtifacts(extractRunArtifacts(replayRun))
+                actions.setPendingRunMessage(readPendingRunMessage(replayRun.state, runId))
 
                 const replayResult = await fetchLogEntriesWithRetry(taskId, runId, breakpoint)
                 if (!Array.isArray(replayResult)) {
@@ -2628,6 +2693,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // Flag the run's resume-ness so the projection can drop the synthetic resume-context
             // prompt (§6) before any history frame folds.
             actions.markBootstrapResumeRun(isResumeRun(run))
+            actions.setPendingRunMessage(readPendingRunMessage(run.state, runId))
             // Surface any git artifacts the run already carries (working/base branch, an opened PR)
             // so the pre-turn header and post-turn PR card render immediately on reopen.
             actions.mergeRunArtifacts(extractRunArtifacts(run))

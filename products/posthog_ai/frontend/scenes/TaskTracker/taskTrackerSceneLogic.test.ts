@@ -14,6 +14,7 @@ import { attachedContextLogic, runStreamLogic } from '../../api/logics'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic } from '../../logics/runInteractionLogic'
+import { TaskDraftPersistence, taskDraftStorageKey } from '../../logics/taskDraftPersistence'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
@@ -55,6 +56,7 @@ describe('taskTrackerSceneLogic', () => {
     })
 
     beforeEach(() => {
+        localStorage.clear()
         createBody = null
         runBody = null
         useMocks({
@@ -203,9 +205,19 @@ describe('taskTrackerSceneLogic', () => {
             const streamKey = logic.values.activeCreation!.streamKey
             expect(runStreamLogic({ streamKey }).values.streamPhase).toBe('provisioning')
             const interaction = runInteractionLogic.findMounted(streamKey)!
+            interaction.actions.enableTaskDraftPersistence('user-1', 997)
             interaction.actions.setComposerFormValues({ draft: 'Include a weekly comparison' })
             interaction.actions.submitComposerForm()
             interaction.actions.setComposerFormValues({ draft: 'Also include a chart' })
+
+            if (failure !== 'task') {
+                await waitFor(() =>
+                    expect(new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, 'new-task')).restore()).toEqual({
+                        draft: 'Explain the example chart\n\nInclude a weekly comparison\n\nAlso include a chart',
+                        recovery: 'unconfirmed',
+                    })
+                )
+            }
 
             await expectLogic(logic, finishRequest).toFinishAllListeners()
 

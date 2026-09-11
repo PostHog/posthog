@@ -219,6 +219,96 @@ test.describe('Task run surface', () => {
         await expect(page.getByText('Agent error')).toBeVisible({ timeout: 20000 })
     })
 
+    test('refresh restores the startup queue as a draft without sending it when the agent becomes ready', async ({
+        page,
+    }, testInfo) => {
+        const firstMessage = 'Compare weekly activity.'
+        const followUp = 'Include a monthly comparison.'
+        const draft = 'Keep this unfinished draft.'
+        const restoredDraft = `${followUp}\n\n${draft}`
+        const commands: { method: string; params: { content?: string } }[] = []
+        await prepareRunComposer(page)
+        await routeTasksApi(page, {
+            runStatus: 'queued',
+            logs: { status: 200, body: '' },
+            stream: { mode: 'hang' },
+        })
+        await page.route(
+            (url) => url.pathname.endsWith(`/tasks/${TASK_ID}/`),
+            fulfillJson({ ...makeTask('queued'), created_by: null })
+        )
+        await page.route(
+            (url) => url.pathname.endsWith(`/runs/${RUN_ID}/`),
+            fulfillJson({
+                ...makeRun('queued'),
+                state: { pending_user_message: firstMessage, pending_user_message_id: 'pending-first-message' },
+            })
+        )
+        await page.route(
+            (url) => url.pathname.endsWith(`/runs/${RUN_ID}/command/`),
+            async (route) => {
+                commands.push(route.request().postDataJSON())
+                await fulfillJson({ jsonrpc: '2.0', result: { queued: true } })(route)
+            }
+        )
+
+        await openRunDeepLink(page, workspace!.team_id)
+        await expect(page.getByText(firstMessage, { exact: true })).toBeVisible()
+        const composer = page.getByTestId('sandbox-composer-input')
+        await composer.fill(followUp)
+        await composer.press('Enter')
+        await expect(page.getByText('Up next', { exact: true })).toBeVisible()
+        await expect(page.getByText(followUp, { exact: true })).toBeVisible()
+
+        let startAgent!: () => void
+        const agentReady = new Promise<void>((resolve) => {
+            startAgent = resolve
+        })
+        await page.route(
+            (url) => new RegExp(`/runs/${RUN_ID}/stream/?$`).test(url.pathname),
+            async (route) => {
+                await agentReady
+                await route.fulfill({
+                    contentType: 'text/event-stream',
+                    body: toSse([
+                        {
+                            type: 'notification',
+                            notification: { method: '_posthog/run_started', params: { runId: RUN_ID } },
+                        },
+                        {
+                            type: 'notification',
+                            notification: { method: '_posthog/user_message', params: { content: firstMessage } },
+                        },
+                        agentMessageFrame('first-answer', 'Start by grouping activity by week.'),
+                        { type: 'notification', notification: { method: '_posthog/turn_complete', params: {} } },
+                    ]),
+                })
+            }
+        )
+        await composer.fill(draft)
+        await page.reload()
+        await expect(composer).toHaveValue(restoredDraft, { timeout: 40000 })
+        await expect(page.getByTestId('task-draft-restored')).toHaveText('Draft restored. Review it before sending.')
+        await expect(page.getByText('Up next', { exact: true })).toHaveCount(0)
+        await expect(page.getByText(firstMessage, { exact: true })).toBeVisible()
+
+        startAgent()
+        await expect(page.getByText('Start by grouping activity by week.', { exact: true })).toBeVisible()
+        await expect(page.getByText(firstMessage, { exact: true })).toHaveCount(1)
+        await expect(composer).toHaveValue(restoredDraft)
+        expect(commands).toEqual([])
+        await page.screenshot({ path: testInfo.outputPath('restored-task-draft.png') })
+
+        await composer.press('Enter')
+        await expect(composer).toHaveValue('')
+        await expect(page.getByTestId('task-draft-restored')).toHaveCount(0)
+        await expect
+            .poll(() =>
+                commands.filter((command) => command.method === 'user_message').map((command) => command.params.content)
+            )
+            .toEqual([restoredDraft])
+    })
+
     for (const [surface, path] of [
         ['task page', 'tasks/new'],
         ['side panel', 'settings/user#panel=max'],

@@ -2,8 +2,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MutableRefObject, type RefObject, useEffect } from 'react'
 
+import { projectLogic } from 'scenes/projectLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
 import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/primitives'
@@ -31,6 +33,7 @@ export function TaskRunComposer({
 }): JSX.Element {
     const {
         composerForm,
+        draftRecovery,
         canSend,
         isSubmitting,
         isBusy,
@@ -46,12 +49,15 @@ export function TaskRunComposer({
         cancellationState,
     } = useValues(runInteractionLogic(logicProps))
     const { catalogue } = useValues(modelCatalogueLogic)
+    const { user } = useValues(userLogic)
+    const { currentProjectId } = useValues(projectLogic)
     const { myConfigLoading } = useValues(taskRunDefaultsLogic)
     // A live run's harness is whatever it booted on; once terminal the next run follows the picked model.
     const composerAdapter = logicProps.currentRuntimeAdapter ?? getRuntimeAdapterForModel(catalogue, selectedModel)
     const controlsReady = isTerminal || !!logicProps.currentRuntimeAdapter
     const {
         setComposerFormValues,
+        enableTaskDraftPersistence,
         setComposerFocused,
         submitComposerForm,
         requestCancellation,
@@ -64,6 +70,12 @@ export function TaskRunComposer({
         steerQueue,
         submitAfterConsent,
     } = useActions(runInteractionLogic(logicProps))
+
+    useEffect(() => {
+        if (user?.uuid && currentProjectId !== null) {
+            enableTaskDraftPersistence(user.uuid, currentProjectId)
+        }
+    }, [user?.uuid, currentProjectId, enableTaskDraftPersistence])
 
     const draft = useDebouncedDraft(composerForm.draft, (value) => setComposerFormValues({ draft: value }))
     useEffect(() => {
@@ -91,6 +103,15 @@ export function TaskRunComposer({
                 isTurnActive={isBusy}
                 onStop={requestCancellation}
             >
+                {draftRecovery && composerForm.draft && (
+                    <Composer.Banner>
+                        <p className="text-xs text-muted px-2 mb-2" data-attr="task-draft-restored">
+                            {draftRecovery === 'unconfirmed'
+                                ? "Delivery wasn't confirmed. Check the conversation before sending again."
+                                : 'Draft restored. Review it before sending.'}
+                        </p>
+                    </Composer.Banner>
+                )}
                 {queuedMessages.length > 0 && (
                     <Composer.Banner>
                         <QueuedMessageList

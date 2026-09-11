@@ -717,6 +717,13 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // since the Run it points at is the one the create just activated.
                 actions.consumeWarm()
 
+                if (!disposables.isDisposed && values.activeCreation?.streamKey === streamKey) {
+                    interaction.props.flushDraft?.()
+                    interaction.actions.hydrateTaskDraft(newTask.id)
+                    interaction.actions.beginTaskDraftDelivery(description)
+                    interaction.actions.persistTaskDraft()
+                }
+
                 // `latest_run` set means the create matched an idling warm Run and activated it in place,
                 // with `pending_user_message` as turn 1. Creating a second Run here would strand that warm
                 // sandbox and cold-boot another one.
@@ -752,6 +759,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 const creationIsActive = values.activeCreation?.streamKey === streamKey
                 if (creationIsActive) {
                     interaction.props.flushDraft?.()
+                    interaction.actions.finishTaskDraftDelivery()
                     runInteractionLogic({
                         ...interaction.props,
                         taskId: newTask.id,
