@@ -1,3 +1,6 @@
+import { useActions } from 'kea'
+import { router } from 'kea-router'
+
 import { IconPlay } from '@posthog/icons'
 import { LemonButton, LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
 
@@ -5,6 +8,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import posthog from 'lib/posthog-typed'
 import { colonDelimitedDuration } from 'lib/utils/durations'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
 import { ObservationResultSummary, readResult } from '../../components/ObservationCard'
@@ -56,20 +60,35 @@ interface WatchFeedCardProps {
 
 export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Element {
     const { observation, reason } = item
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const clip = observationClipRange(observation)
     const scannerType = observation.scanner_snapshot?.scanner_type as ScannerType | undefined
     const scannerName = (observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)'
     const person = observation.recording_subject_email || observation.distinct_id
     // t=0 when nothing is cited, so the observation page still opens with the player expanded.
-    const watchUrl = `${urls.replayVisionObservation(observation.id)}?t=${clip ? Math.floor(clip.startMs / 1000) : 0}`
-    const captureClick = (): void => {
+    const observationUrl = `${urls.replayVisionObservation(observation.id)}?t=${clip ? Math.floor(clip.startMs / 1000) : 0}`
+    const capture = (target: 'clip_modal' | 'observation'): void => {
         posthog.capture('replay_vision_watch_clip_clicked', {
             scanner_id: observation.scanner_id,
             scanner_type: scannerType,
             observation_id: observation.id,
             position,
             reason_kind: reason.kind,
+            target,
         })
+    }
+    const watchClipInModal = (): void => {
+        capture('clip_modal')
+        // The modal's own `initialTimestamp` is an absolute unix-ms time, but a clip start is an
+        // offset into the recording. The player reads `?t=<seconds>` as an offset on first load and
+        // the modal preserves existing search params, so set (or clear) `t` before opening.
+        const { location, searchParams, hashParams } = router.values
+        router.actions.replace(
+            location.pathname,
+            { ...searchParams, t: clip ? Math.floor(clip.startMs / 1000) : undefined },
+            hashParams
+        )
+        openSessionPlayer({ id: observation.session_id })
     }
 
     return (
@@ -122,8 +141,8 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                         player expanded at the first cited moment. Inner links and the button sit
                         above it via `relative z-10`, so the anchors never nest. */}
                     <Link
-                        to={watchUrl}
-                        onClick={captureClick}
+                        to={observationUrl}
+                        onClick={() => capture('observation')}
                         className="text-sm text-default after:absolute after:inset-0 after:content-['']"
                         data-attr="vision-watch-feed-card-body"
                     >
@@ -135,8 +154,7 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                         type="secondary"
                         size="small"
                         icon={<IconPlay />}
-                        to={watchUrl}
-                        onClick={captureClick}
+                        onClick={watchClipInModal}
                         className="relative z-10"
                         data-attr="vision-watch-clip"
                     >
