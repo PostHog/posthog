@@ -1,7 +1,9 @@
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
+import { validateSkillName } from 'products/skills/frontend/skillConstants'
 
 import type { ScannerScoutTemplate } from './scannerScout'
 import {
+    SCOUT_DISPLAY_NAME_MAX_LENGTH,
     scoutNameToSkillName,
     isScannerScoutConfig,
     scannerScoutCreatePayload,
@@ -36,6 +38,21 @@ describe('scannerScout', () => {
         const name = scoutNameToSkillName('new issue watch', 'x'.repeat(80), [])
         expect(name.length).toBeLessThanOrEqual(64)
         expect(name.endsWith('-new-issue-watch')).toBe(true)
+    })
+
+    it('derives a valid skill name from a name far longer than one', () => {
+        // The name field accepts up to SCOUT_DISPLAY_NAME_MAX_LENGTH characters, so the slug has to
+        // survive being cut mid-word: a trailing or doubled hyphen fails the skill name validation.
+        const name = scoutNameToSkillName('x'.repeat(SCOUT_DISPLAY_NAME_MAX_LENGTH), 'Rage clicks', [])
+        expect(name.length).toBeLessThanOrEqual(64)
+        expect(validateSkillName(name)).toBeUndefined()
+        const wordy = scoutNameToSkillName(
+            'Robot: Replay Vision intent and friction report -- every weekday morning, ranked',
+            'Rage clicks on checkout',
+            []
+        )
+        expect(wordy.length).toBeLessThanOrEqual(64)
+        expect(validateSkillName(wordy)).toBeUndefined()
     })
 
     it('claims only the scouts recorded as belonging to this scanner', () => {

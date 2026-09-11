@@ -19,6 +19,11 @@ export function isScannerScoutConfig(config: SignalScoutConfigApi, scannerId: st
 // Every morning at 9:00 in the project timezone: the default cadence for every template.
 export const SCANNER_SCOUT_CRON = '0 9 * * *'
 
+/** What the name field accepts. The typed name is recorded as the scout config's `display_name`,
+ * so it is this cap that bounds it rather than the 64 characters the derived skill name has to fit.
+ * Kept in sync with the `display_name` maxLength on the Signals scout config API. */
+export const SCOUT_DISPLAY_NAME_MAX_LENGTH = 200
+
 const SKILL_NAME_MAX_LENGTH = 64
 const SKILL_NAME_PREFIX = 'signals-scout-'
 // Room for the `-2`..`-99` a collision appends.
@@ -59,6 +64,16 @@ export function scoutNameToSkillName(label: string, scannerName: string, takenNa
             return candidate
         }
     }
+}
+
+/** Whether the skill name derived from this name still carries the whole of it, ignoring the
+ * scanner prefix the derivation adds and any collision suffix. False when the name was too long to
+ * fit the skill name's 64 characters and had to be cut — the one case where the scout needs its own
+ * `display_name`, since the name shown in the fleet is otherwise read back off the skill name. */
+export function skillNameCarriesScoutName(skillName: string, label: string): boolean {
+    const labelSlug = slugify(label) || 'digest'
+    const withoutSuffix = skillName.replace(/-\d+$/, '')
+    return withoutSuffix === `${SKILL_NAME_PREFIX}${labelSlug}` || withoutSuffix.endsWith(`-${labelSlug}`)
 }
 
 export type ScannerScoutTemplateKey = 'daily-digest' | 'trend-watch' | 'new-issues' | 'scratch'

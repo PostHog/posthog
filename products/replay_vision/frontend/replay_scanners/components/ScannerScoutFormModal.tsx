@@ -12,7 +12,7 @@ import { scoutDisplayName } from 'products/signals/frontend/inbox/utils/scoutRun
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { scannerScoutTemplate, scoutBodyPlaceholders } from '../scannerScout'
+import { SCOUT_DISPLAY_NAME_MAX_LENGTH, scannerScoutTemplate, scoutBodyPlaceholders } from '../scannerScout'
 import { SCOUT_REPORT_EMITTED_EVENT, webhookUrlError } from '../scannerScoutDelivery'
 import type { ScannerScoutForm } from '../scannerScoutLogic'
 import { scannerScoutLogic } from '../scannerScoutLogic'
@@ -225,7 +225,7 @@ export function ScannerScoutFormModal({
                         value={form.name}
                         onChange={(name) => patch({ name })}
                         placeholder={template?.defaultName}
-                        maxLength={template ? 45 : 200}
+                        maxLength={SCOUT_DISPLAY_NAME_MAX_LENGTH}
                         data-attr="vision-scout-form-name"
                     />
                 </div>

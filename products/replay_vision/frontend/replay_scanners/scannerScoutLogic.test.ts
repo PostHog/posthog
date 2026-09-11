@@ -208,6 +208,77 @@ describe('scannerScoutLogic', () => {
         })
     })
 
+    it('keeps the whole typed name on a scout whose skill name had to be shortened', async () => {
+        // The name field is not bounded by the skill name: the typed name is recorded as the
+        // config's display name, so the part that the 64-character skill name cannot hold is
+        // still what the scouts list shows.
+        await mountWithReports([])
+        const typed = 'Robot: Replay Vision intent and friction report, every weekday morning'
+        const config = makeConfig({ output_destinations: {} })
+        mockScoutsCreate.mockResolvedValueOnce({ created: true, config } as any)
+        jest.mocked(signalsScoutConfigUpdate).mockResolvedValue({ ...config, display_name: typed })
+
+        logic.actions.createScout({
+            name: typed,
+            body: 'Watch this scanner.',
+            cron: '0 9 * * *',
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((mockScoutsCreate.mock.calls[0][2] as any).name.length).toBeLessThanOrEqual(64)
+        expect(signalsScoutConfigUpdate).toHaveBeenCalledWith(expect.any(String), config.id, {
+            display_name: typed,
+        })
+    })
+
+    it('leaves a scout whose skill name carries its name reading back off that name', async () => {
+        // The name read off the skill name has the scanner in front of it, which is what tells two
+        // scanners' digests apart in the fleet list. A display name that fits needs no override.
+        await mountWithReports([])
+        mockScoutsCreate.mockResolvedValueOnce({
+            created: true,
+            config: makeConfig({ output_destinations: {} }),
+        } as any)
+
+        logic.actions.createScout({
+            name: 'Daily digest',
+            body: 'Watch this scanner.',
+            cron: '0 9 * * *',
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(signalsScoutConfigUpdate).not.toHaveBeenCalledWith(
+            expect.any(String),
+            expect.any(String),
+            expect.objectContaining({ display_name: expect.anything() })
+        )
+    })
+
+    it('creates the scout even when its display name cannot be recorded', async () => {
+        // The scout is already created by then, so a failed rename must not read as a failed create.
+        await mountWithReports([])
+        mockScoutsCreate.mockResolvedValueOnce({
+            created: true,
+            config: makeConfig({ output_destinations: {} }),
+        } as any)
+        jest.mocked(signalsScoutConfigUpdate).mockRejectedValue(new Error('boom'))
+
+        logic.actions.createScout({
+            name: 'Robot: Replay Vision intent and friction report, every weekday morning',
+            body: 'Watch this scanner.',
+            cron: '0 9 * * *',
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockScoutsCreate).toHaveBeenCalledTimes(1)
+    })
+
     it('renames and retries when another tab already took the name', async () => {
         // Skill names are unique per team, so a scout created in one tab leaves this tab's roster
         // stale and its derived name already taken.

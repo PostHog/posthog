@@ -34,7 +34,12 @@ import {
 } from '../generated/api'
 import type { ScoutReportApi } from '../generated/api.schemas'
 import type { ScannerScoutTemplateKey } from './scannerScout'
-import { isScannerScoutConfig, scannerScoutCreatePayload, scoutNameToSkillName } from './scannerScout'
+import {
+    isScannerScoutConfig,
+    scannerScoutCreatePayload,
+    scoutNameToSkillName,
+    skillNameCarriesScoutName,
+} from './scannerScout'
 import { isScoutDestination, scoutWebhookDestinationPayload } from './scannerScoutDelivery'
 
 /** Everything the scout form edits, in both create and settings mode. */
@@ -709,6 +714,25 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             }
         }
 
+        /** Records a typed name the derived skill name could not carry, so a name longer than the
+         * skill name's 64 characters still shows in full. A name the skill name does carry is left
+         * to read back off it, which is what keeps the scanner in front of it in the fleet list.
+         * Best-effort: the scout is already created, so a failure here leaves it named after its
+         * skill rather than unsaved. */
+        const applyDisplayName = async (config: SignalScoutConfigApi, name: string): Promise<void> => {
+            const teamId = teamLogic.values.currentTeamId
+            const displayName = name.trim()
+            if (!teamId || !displayName || skillNameCarriesScoutName(config.skill_name, displayName)) {
+                return
+            }
+            try {
+                await signalsScoutConfigUpdate(String(teamId), config.id, { display_name: displayName })
+            } catch {
+                // Nothing to tell the user: the scout exists and reads as its skill name, which the
+                // settings form can rename.
+            }
+        }
+
         /** Soft-deletes a scout's webhook destination without touching its config, for the delete
          * path where the config is already gone. */
         const clearScoutWebhook = async (
@@ -795,6 +819,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         }
                     }
                     const created = { config: config! }
+                    await applyDisplayName(created.config, form.name)
                     const delivered = await reconcileDelivery(created.config, form)
                     lemonToast.success(
                         delivered
