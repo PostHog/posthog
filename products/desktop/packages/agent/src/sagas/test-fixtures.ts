@@ -180,8 +180,10 @@ export function createToolResult(
 }
 
 /**
- * A Codex or pi tool call: standard ACP fields, with `_meta.posthog` only when
- * the adapter can name the tool. A shell call carries no meta at all.
+ * A Codex tool call: standard ACP fields, with `_meta.posthog` only when the
+ * adapter can name the tool. A shell call carries no meta at all. Pi is not
+ * covered here — it persists its own `pi_event` entries, which the rebuild
+ * never reads.
  */
 export function createAcpToolCall(
   toolCallId: string,
