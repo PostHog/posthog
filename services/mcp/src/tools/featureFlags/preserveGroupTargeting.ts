@@ -122,6 +122,7 @@ function mergeProperty(
     if (!isPresentType(out.type) && existingProp && isPresentType(existingProp.type)) {
         // Leaving the type unset makes the API report the property the agent actually
         // sent. Restoring `group` here would name fields the agent never sent.
+        // `!== 'group'` relies on the same complement rule. See mergeConditionGroup.
         if (canCarryGroupTargeting || existingProp.type !== 'group') {
             out.type = existingProp.type
         }
@@ -161,6 +162,10 @@ function mergeConditionGroup(
     // One explicit person, cohort, or flag property stops this set from keeping or
     // gaining group targeting. An explicit incoming group index still wins, and the API
     // then reports the contradiction in the agent's own payload.
+    // `!== 'group'` is the complement of PERSON_AGGREGATED_PROPERTY_TYPES in
+    // filters_validation.py. It holds only while 'group' is the sole type outside that
+    // tuple. A Python test asserts that:
+    // products/feature_flags/backend/test/test_filters_validation.py
     const hasExplicitNonGroupProperty =
         Array.isArray(incoming.properties) &&
         incoming.properties.some((p) => isPresentType(p?.type) && p.type !== 'group')
