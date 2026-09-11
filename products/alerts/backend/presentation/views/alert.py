@@ -655,12 +655,16 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                     user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
                 )
 
+        evaluation_changed = conditions_or_threshold_changed or any(
+            validated_data.get(field, getattr(instance, field)) != getattr(instance, field)
+            for field in ("condition", "config", "skip_weekend")
+        )
         calculation_interval_changed = (
             "calculation_interval" in validated_data
             and validated_data["calculation_interval"] != instance.calculation_interval
         )
-        if enable_now or conditions_or_threshold_changed or calculation_interval_changed:
-            if conditions_or_threshold_changed:
+        if enable_now or evaluation_changed or calculation_interval_changed:
+            if evaluation_changed:
                 apply_threshold_change(instance)
             # Keep the due timestamp so the scheduler metric can measure a
             # recheck that remains unhandled. Null is reserved for a brand-new
