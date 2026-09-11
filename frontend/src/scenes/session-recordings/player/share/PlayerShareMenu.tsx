@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExternal, IconGlobe, IconShare, IconShield } from '@posthog/icons'
+import { IconCopy, IconExternal, IconGlobe, IconShare, IconShield } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -48,20 +49,39 @@ export function PlayerShareMenu(): JSX.Element {
         newInternalTab(urls.replaySingle(sessionRecordingId))
     }
 
+    const getRecordingUrl = (): string => {
+        const timestamp = getCurrentPlayerTime()
+        return urls.absolute(
+            urls.currentProject(
+                urls.replaySingle(sessionRecordingId, timestamp ? { secondsOffsetFromStart: timestamp } : undefined)
+            )
+        )
+    }
+
     const onOpenInBrowserTab = (): void => {
         if (!sessionRecordingId) {
             return
         }
-        const path = urls.replaySingle(sessionRecordingId)
-        const timestamp = getCurrentPlayerTime()
-        const separator = path.includes('?') ? '&' : '?'
-        const fullUrl = `${window.location.origin}${path}${timestamp ? `${separator}t=${timestamp}` : ''}`
-        window.open(fullUrl, '_blank', 'noopener,noreferrer')
+        window.open(getRecordingUrl(), '_blank', 'noopener,noreferrer')
+    }
+
+    const onCopyLink = (): void => {
+        if (!sessionRecordingId) {
+            return
+        }
+        void copyToClipboard(getRecordingUrl(), 'recording link')
     }
 
     return (
         <LemonMenu
             items={[
+                {
+                    label: 'Copy link',
+                    icon: <IconCopy />,
+                    onClick: onCopyLink,
+                    disabledReason: !sessionRecordingId ? 'Recording not loaded yet' : undefined,
+                    'data-attr': 'copy-recording-link',
+                },
                 {
                     label: 'Open in new tab',
                     icon: <IconExternal />,

@@ -38,7 +38,8 @@ export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isVa
         }
     }
 
-    if (!urlToUse || urlToUse.trim() === '') {
+    // recordings with no captured href carry the synthesized literal 'unknown', which is not a page URL
+    if (!urlToUse || urlToUse.trim() === '' || urlToUse.trim() === 'unknown') {
         return { urlToUse: undefined, isValidUrl: false, isWebUrl: false }
     }
 
@@ -69,7 +70,7 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
             <span className="flex flex-row items-center gap-x-1 truncate">
                 <span className="flex items-center">
                     <CopyToClipboardInline
-                        description={urlToUse}
+                        description="page URL"
                         explicitValue={urlToUse}
                         iconStyle={{ color: 'var(--color-text-secondary)' }}
                         selectable={true}
