@@ -97,8 +97,14 @@ struct StoredSymbolSet {
 // `last_used` is a column of a functional index, so a refresh can never take a HOT update.
 const LAST_USED_THROTTLE_HOURS: i64 = 12;
 
+// A `last_used` at or before this instant is stale enough to refresh. Shared by the in-process
+// check and the conflict predicate that enforces the same window server-side.
+fn last_used_refresh_threshold() -> DateTime<Utc> {
+    Utc::now() - Duration::hours(LAST_USED_THROTTLE_HOURS)
+}
+
 fn last_used_is_fresh(last_used: Option<DateTime<Utc>>) -> bool {
-    last_used.is_some_and(|l| Utc::now() - l < Duration::hours(LAST_USED_THROTTLE_HOURS))
+    last_used.is_some_and(|l| l > last_used_refresh_threshold())
 }
 
 // This is the "intermediate" symbol set data. Rather than a simple `Bytes`, the saving layer
@@ -765,8 +771,13 @@ impl SymbolSetRecord {
             }
         }
 
-        // The guard stays on the statement: another writer can store data between the read above
-        // and this write.
+        // Both guards stay on the statement, because the read above locks nothing. The
+        // `storage_ptr` guard stops us clobbering data stored since that read. The freshness
+        // guard repeats the check above at commit time, against the row as committed: racing
+        // writers all read the same stale row, so without it every one of them rewrites an
+        // identical `failure_reason` and a new `last_used`. Suppressed server-side, the update
+        // makes no new tuple version and returns no row, which the tail below reports as
+        // nothing written.
         let id = sqlx::query_scalar::<_, Uuid>(
             r#"
             INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash, last_used)
@@ -774,6 +785,9 @@ impl SymbolSetRecord {
             ON CONFLICT (team_id, ref) DO UPDATE
             SET failure_reason = $4, last_used = $6
             WHERE posthog_errortrackingsymbolset.storage_ptr IS NULL
+                AND (posthog_errortrackingsymbolset.failure_reason IS DISTINCT FROM $4
+                    OR posthog_errortrackingsymbolset.last_used IS NULL
+                    OR posthog_errortrackingsymbolset.last_used <= $7)
             RETURNING id
             "#,
         )
@@ -783,6 +797,7 @@ impl SymbolSetRecord {
         .bind(&self.failure_reason)
         .bind(self.created_at)
         .bind(self.last_used)
+        .bind(last_used_refresh_threshold())
         .fetch_optional(pool)
         .await;
 
@@ -1272,6 +1287,91 @@ mod test {
             .unwrap()
             .unwrap();
         assert!(after_stale.last_used.unwrap() > stale);
+    }
+
+    // Wait until a statement in this test's database is parked on a lock. Polling beats a fixed
+    // sleep: the barrier holds however slowly the racing write gets scheduled. It gives up after
+    // a bound, because a racer that read the committed row instead satisfies the same assertions.
+    async fn wait_for_blocked_write(db: &PgPool) {
+        for _ in 0..500 {
+            let blocked: i64 = sqlx::query_scalar(
+                r#"SELECT count(*) FROM pg_stat_activity
+                WHERE datname = current_database()
+                    AND wait_event_type = 'Lock'
+                    AND pid <> pg_backend_pid()"#,
+            )
+            .fetch_one(db)
+            .await
+            .unwrap();
+            if blocked > 0 {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_racing_failure_write_is_suppressed_by_the_conflict_guard(db: PgPool) {
+        let set_ref = "https://example.com/racing.js".to_string();
+        let failure_reason = Some("{\"NoSourcemap\":\"racing.js\"}".to_string());
+
+        let mut seed = SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id: 0,
+            set_ref: set_ref.clone(),
+            storage_ptr: None,
+            failure_reason: failure_reason.clone(),
+            created_at: Utc::now(),
+            content_hash: None,
+            last_used: Some(Utc::now() - Duration::hours(LAST_USED_THROTTLE_HOURS + 1)),
+        };
+        seed.save(&db).await.unwrap();
+
+        // Hold an uncommitted refresh of the row. The racer below reads the stale `last_used`
+        // that is still committed, decides to write, and then parks on this lock.
+        let winner_last_used = Utc::now();
+        let mut winner = db.begin().await.unwrap();
+        sqlx::query!(
+            "UPDATE posthog_errortrackingsymbolset SET last_used = $2 WHERE id = $1",
+            seed.id,
+            winner_last_used
+        )
+        .execute(&mut *winner)
+        .await
+        .unwrap();
+
+        let racer_db = db.clone();
+        let racer_ref = set_ref.clone();
+        let racer_reason = failure_reason.clone();
+        let racer = tokio::spawn(async move {
+            let mut record = SymbolSetRecord {
+                id: Uuid::now_v7(),
+                team_id: 0,
+                set_ref: racer_ref,
+                storage_ptr: None,
+                failure_reason: racer_reason,
+                created_at: Utc::now(),
+                content_hash: None,
+                last_used: Some(Utc::now()),
+            };
+            record.save_failure(&racer_db).await.unwrap()
+        });
+
+        wait_for_blocked_write(&db).await;
+        winner.commit().await.unwrap();
+
+        // The racer re-evaluates the predicate against the committed row, finds the same failure
+        // with a fresh `last_used`, and writes nothing.
+        assert!(!racer.await.unwrap());
+        let after = SymbolSetRecord::load(&db, 0, &set_ref)
+            .await
+            .unwrap()
+            .unwrap();
+        // Postgres stores microseconds, so compare at the precision it kept.
+        assert_eq!(
+            after.last_used.unwrap().timestamp_micros(),
+            winner_last_used.timestamp_micros()
+        );
     }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
