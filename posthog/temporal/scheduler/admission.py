@@ -361,6 +361,8 @@ def confirm_scheduler_claim(
         )
         if claim is None:
             return False
+        scheduler = claim.scheduler
+        region = claim.region
         transitioned = claim.status == TemporalSchedulerClaim.Status.RESERVED
         proposed_expiry = transition_time + lease_duration
         updates: dict[str, object] = {}
@@ -373,7 +375,7 @@ def confirm_scheduler_claim(
         if updates:
             TemporalSchedulerClaim.objects.filter(id=claim_id).update(**updates)
     if transitioned:
-        record_scheduler_metrics_safely(lambda: _record_claim_transition_for_id(claim_id, metrics, "confirmed"))
+        record_scheduler_metrics_safely(lambda: metrics.record_claim_transition(scheduler, region, "confirmed"))
     return True
 
 
@@ -400,6 +402,8 @@ def renew_scheduler_claim(
         )
         if claim is None:
             return False
+        scheduler = claim.scheduler
+        region = claim.region
         proposed_expiry = transition_time + lease_duration
         updates: dict[str, object] = {}
         if claim.lease_expires_at is None or proposed_expiry > claim.lease_expires_at:
@@ -409,17 +413,8 @@ def renew_scheduler_claim(
         if updates:
             TemporalSchedulerClaim.objects.filter(id=claim_id).update(**updates)
     if updates:
-        record_scheduler_metrics_safely(lambda: _record_claim_transition_for_id(claim_id, metrics, "renewed"))
+        record_scheduler_metrics_safely(lambda: metrics.record_claim_transition(scheduler, region, "renewed"))
     return True
-
-
-def _record_claim_transition_for_id(
-    claim_id: uuid.UUID,
-    metrics: SchedulerMetrics,
-    transition: ClaimTransition,
-) -> None:
-    claim = TemporalSchedulerClaim.objects.only("scheduler", "region").get(id=claim_id)
-    metrics.record_claim_transition(claim.scheduler, claim.region, transition)
 
 
 def _get_locked_existing_pool(scheduler: str, region: str, tenant_key: str) -> TemporalSchedulerPermitPool:
