@@ -51,7 +51,7 @@ class ScheduledChange(RootTeamMixin, models.Model):
     # UTC-wall-clock interpretation to avoid retroactively shifting any live schedule.
     timezone = models.CharField(max_length=240, null=True, blank=True)
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     # When a scheduled change would flip a policy-gated field (e.g. enabling a flag), a pending
     # ChangeRequest is created at scheduling time and bound here. The Celery applier only applies
     # the change once that CR is approved; if the fire window passes while still pending, the CR
@@ -64,7 +64,7 @@ class ScheduledChange(RootTeamMixin, models.Model):
         related_name="scheduled_changes",
     )
     created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

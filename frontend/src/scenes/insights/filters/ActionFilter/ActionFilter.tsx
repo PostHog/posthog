@@ -109,6 +109,7 @@ export interface ActionFilterProps {
     addFilterDocLink?: string
     /** Properties to exclude from the properties filter */
     excludedProperties?: TaxonomicPopoverProps['excludedProperties']
+    includeHiddenEvents?: TaxonomicPopoverProps['includeHiddenEvents']
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
     hogQLGlobals?: Record<string, any>
@@ -152,6 +153,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         filtersLeftPadding,
         addFilterDocLink,
         excludedProperties,
+        includeHiddenEvents,
         allowNonCapturedEvents,
         hogQLGlobals,
         definitionPopoverRenderer,
@@ -224,6 +226,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         filtersLeftPadding,
         addFilterDocLink,
         excludedProperties,
+        includeHiddenEvents,
         allowNonCapturedEvents,
         hogQLGlobals,
         operatorAllowlist,
@@ -290,6 +293,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                         actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
                                         dataWarehousePopoverFields={dataWarehousePopoverFields}
                                         excludedProperties={excludedProperties}
+                                        includeHiddenEvents={includeHiddenEvents}
                                         insightType={filters.insight}
                                         definitionPopoverRenderer={definitionPopoverRenderer}
                                     />

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-08 10:05:35 UTC
+// Generated at: 2026-09-10 20:01:52 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -30,6 +30,7 @@ export type CanonicalProvider =
     | 'azure-global'
     | 'azure-swedencentral'
     | 'azure-us'
+    | 'baidu-fast'
     | 'baidu-fp4'
     | 'baidu-fp8'
     | 'baseten-fast'
@@ -74,6 +75,7 @@ export type CanonicalProvider =
     | 'fireworks-us'
     | 'friendli'
     | 'gmicloud-bf16'
+    | 'gmicloud-fp4'
     | 'gmicloud-fp8'
     | 'google-ai-studio'
     | 'google-ai-studio-flex'
@@ -96,8 +98,9 @@ export type CanonicalProvider =
     | 'inceptron-fp4'
     | 'inceptron-int4'
     | 'io-net-fp16'
+    | 'io-net-fp4'
     | 'io-net-fp8'
-    | 'ionstream-fp4'
+    | 'ionstream'
     | 'ionstream-fp8'
     | 'liquid-fp8'
     | 'makora'
@@ -126,7 +129,7 @@ export type CanonicalProvider =
     | 'morph-fp8'
     | 'nebius-fp4'
     | 'nebius-fp8'
-    | 'nex-agi'
+    | 'nex-agi-bf16'
     | 'nex-agi-fp8'
     | 'nextbit-bf16'
     | 'nextbit-fp8'

@@ -916,6 +916,36 @@ describe('scoutFleetLogic', () => {
             expect(logic.values.scoutRunCosts.size).toBe(0)
         })
 
+        it('shows a batch as soon as it lands, and sends the rest of the fleet together', async () => {
+            // Holding every batch back until the last one answers leaves the whole strip costless
+            // for the first seconds after load, which is the window a reader actually looks at.
+            const runIds = Array.from({ length: 401 }, (_, index) => `run-${index}`)
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue(runIds.map((run_id) => makeRun({ run_id })))
+            const held: Array<() => void> = []
+            mockSignalsScoutRunsTokenCosts.mockImplementation(async (_projectId, body) => {
+                const costs = [{ run_id: body.run_ids[0], token_cost_usd: 1 }]
+                if (!body.run_ids.includes('run-0')) {
+                    await new Promise<void>((resolve) => held.push(resolve))
+                }
+                return { costs, available: true }
+            })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'mergeScoutRunCosts'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.scoutRunCosts.get('run-0')).toBe(1)
+            expect(logic.values.scoutRunCostsLoading).toBe(true)
+            expect(held).toHaveLength(2)
+
+            held.forEach((resolve) => resolve())
+            await expectLogic(logic).toDispatchActions(['loadScoutRunCostsSuccess'])
+
+            expect(logic.values.scoutRunCosts.get('run-200')).toBe(1)
+            expect(logic.values.scoutRunCosts.get('run-400')).toBe(1)
+        })
+
         it('keeps the batches that answered when a later batch fails', async () => {
             // A materialized fleet is more run ids than one request carries, so the loader sends
             // several. Discarding the whole load over one failed batch blanks every tooltip in the

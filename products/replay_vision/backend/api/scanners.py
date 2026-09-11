@@ -17,6 +17,7 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
+from loginas.utils import is_impersonated_session
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -24,13 +25,15 @@ from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, Val
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import RecordingsQuery
+from posthog.schema import ProductIntentContext, ProductKey, RecordingsQuery
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, set_tags_on_object
-from posthog.event_usage import EventSource, get_event_source, report_user_action
+from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
 from posthog.exceptions import QuotaLimitExceeded
+from posthog.exceptions_capture import capture_exception
+from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
@@ -94,6 +97,7 @@ from products.replay_vision.backend.queries import (
     PREVIEW_ESTIMATE_BUDGET,
     SAVE_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
+    is_experiment_linkage_unresolved,
     project_monthly_observations,
     refresh_scanner_estimate,
 )
@@ -122,7 +126,7 @@ from products.replay_vision.backend.scanning import (
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
-from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
+from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
 from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
@@ -232,6 +236,30 @@ _QUERY_FILTER_KEYS = (
 )
 
 
+def _register_replay_vision_intent(
+    request: Request,
+    team: Team,
+    context: ProductIntentContext,
+    metadata: dict[str, Any],
+) -> None:
+    # Call at most once per request: register() writes a row every time, and a bulk scan can carry
+    # hundreds of session ids.
+    # Staff impersonating a customer is not the team's intent, so skip rather than fail the request.
+    if is_impersonated_session(request):
+        return
+    # Best-effort: the scan or create already happened, so a failure must not 500 and invite a retry.
+    try:
+        ProductIntent.register(
+            team=team,
+            product_type=ProductKey.REPLAY_VISION,
+            context=context,
+            user=cast(User, request.user),
+            metadata={**get_request_analytics_properties(request), **metadata},
+        )
+    except Exception as e:
+        capture_exception(e)
+
+
 def _scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
     """Config choices at save time, so launch dashboards can see whether the defaults get changed.
     Filter *values* stay out: they can carry customer data (URLs, emails)."""
@@ -246,7 +274,10 @@ def _scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
         "sampling_rate": scanner.sampling_rate,
         "sampling_mode": scanner.sampling_mode,
         "enabled": scanner.enabled,
-        "has_filters": any(query.get(key) for key in _QUERY_FILTER_KEYS),
+        # experiment_targeting narrows the population server-side, so it counts as filtered; the
+        # separate flag keeps experiment-scoped scanners countable apart from hand-filtered ones.
+        "has_filters": any(query.get(key) for key in _QUERY_FILTER_KEYS) or bool(scanner.experiment_targeting),
+        "has_experiment_targeting": bool(scanner.experiment_targeting),
         "estimated_monthly_observations": estimate,
         "estimated_monthly_credits": (
             estimate * observation_credits_for_model(scanner.model) if estimate is not None else None
@@ -260,8 +291,26 @@ def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
     # The estimate is advisory — never fail a scanner save over it, and keep the save's latency tail short.
     try:
         refresh_scanner_estimate(scanner, budget=SAVE_ESTIMATE_BUDGET)
+    except (ValidationError, PermissionDenied) as error:
+        if is_experiment_linkage_unresolved(scanner, error):
+            # The experiment targeting cannot resolve an exposed population, most often the draft
+            # a wizard creates next to the scanner. The hourly refresher retries, and the outcome
+            # counter keeps the skip visible from the first save. `reason` takes `detail` because
+            # a DRF ValidationError stringifies as an ErrorDetail list.
+            record_estimate_outcome("experiment_linkage_unresolved")
+            logger.info(
+                "replay_vision.estimate_linkage_unresolved",
+                scanner_id=str(scanner.id),
+                reason=error.detail,
+            )
+        else:
+            # The scanner's own query no longer builds, for example a deleted action or a bad
+            # cohort reference. No launch heals that, so keep it in error tracking.
+            logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
     except Exception:
         logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
+    else:
+        record_estimate_outcome("refreshed")
 
 
 def _scanner_copy_name(team_id: int, source_name: str) -> str:
@@ -1466,6 +1515,14 @@ class DraftScannerResponseSerializer(serializers.Serializer):
             "mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow."
         ),
     )
+    experiment_targeting = ScannerExperimentTargetingField(
+        allow_null=True,
+        help_text=(
+            "Goal-based flow only: the experiment whose participants the draft watches, when the goal "
+            "named one of the project's launched experiments. Null when it named none. Carried "
+            "separately from `query`, which never holds an exposure filter."
+        ),
+    )
     estimated_monthly_observations = serializers.IntegerField(
         allow_null=True,
         help_text=(
@@ -1674,6 +1731,20 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         )
         return response
 
+    def perform_create(self, serializer: Any) -> None:
+        super().perform_create(serializer)
+        # Saving a scanner means writing a prompt and picking a type, which is the least ambiguous
+        # "wants to use this" signal the product has.
+        _register_replay_vision_intent(
+            self.request,
+            self.team,
+            ProductIntentContext.REPLAY_VISION_SCANNER_CREATED,
+            {
+                "scanner_id": str(serializer.instance.id),
+                "scanner_type": serializer.instance.scanner_type,
+            },
+        )
+
     def perform_destroy(self, instance: ReplayScanner) -> None:
         # Snapshot lifecycle props before the row is deleted.
         properties = _scanner_lifecycle_properties(instance)
@@ -1866,6 +1937,16 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             team=self.team,
             request=request,
         )
+        _register_replay_vision_intent(
+            request,
+            self.team,
+            ProductIntentContext.REPLAY_VISION_SCAN_TRIGGERED,
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "scan_shape": "single",
+            },
+        )
         return Response(
             ObserveResponseSerializer({"workflow_id": workflow_id}).data,
             status=status.HTTP_202_ACCEPTED,
@@ -1918,6 +1999,21 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             },
             team=self.team,
             request=request,
+        )
+        # Once for the batch, not once per session: `register()` writes the row on every call and
+        # `session_ids` can be in the hundreds. Registered even when everything was skipped, because
+        # asking for a scan you didn't get the quota for is still intent.
+        _register_replay_vision_intent(
+            request,
+            self.team,
+            ProductIntentContext.REPLAY_VISION_SCAN_TRIGGERED,
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "scan_shape": "bulk",
+                "requested": len(session_ids),
+                "started": started,
+            },
         )
         # Key off the outcomes, not skip_reason: skip_reason only names the limit that would bind
         # first, and a batch that never reached the cap must not report exhaustion.
@@ -2338,7 +2434,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         }
         # Scoped tokens must not receive data their scopes exclude. Core memory is INTERNAL
         # (session-only), so any scoped token loses it; the goal-based entity grounding (surveys,
-        # actions) is gated per resource against these scopes inside the drafter.
+        # actions, experiments) is gated per resource against these scopes inside the drafter.
         allowed_scopes = get_authenticator_scopes(request.successful_authenticator)
         include_business_context = allowed_scopes is None
 
@@ -2391,6 +2487,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "scanner_type": drafted.scanner_type,
                 # Whether the goal mapped to a real filter or fell back to no targeting.
                 "has_query": bool(drafted.query),
+                # Whether the goal named an experiment, so the scan watches its participants rather
+                # than everyone who reached the same pages.
+                "has_experiment_targeting": drafted.experiment_targeting is not None,
                 "sampling_mode": drafted.sampling_mode,
                 "sampling_rate": drafted.sampling_rate,
                 "model": drafted.model,
@@ -2414,6 +2513,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "sampling_rate": drafted.sampling_rate,
                     "model": drafted.model,
                     "credit_limit": drafted.credit_limit,
+                    "experiment_targeting": drafted.experiment_targeting,
                     "estimated_monthly_observations": drafted.estimated_monthly_observations,
                 }
             ).data

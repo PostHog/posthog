@@ -1,13 +1,12 @@
 ---
 name: debugging-surveys
 description: >-
-  Debug, support, and build PostHog Surveys across the backend and all five SDKs
+  Diagnose PostHog Surveys configuration and responses across all five SDKs
   (web/posthog-js, iOS, Android, Flutter, React Native). Use whenever a Surveys
   support ticket is pasted ("survey not showing", "fewer responses than expected",
   "responses disappeared", "responses are incomplete", "only the first question was
   answered", "the user says they didn't mean to submit", "survey shows on wrong platform"),
-  when diagnosing why a survey does or doesn't display, or when doing survey feature work
-  that must ship across SDKs. Covers the eligibility pipeline, how a response actually gets
+  or when diagnosing why a survey does or doesn't display. Covers the eligibility pipeline, how a response actually gets
   stored (partial responses, branching, optional questions, auto-submit), cross-SDK feature
   parity, the known-cause catalog, read-only diagnostic queries, staff access, and the
   customer-reply style guide.
@@ -21,27 +20,10 @@ PostHog UI; it must then be evaluated and rendered by whichever SDK their app ru
 SDK correctly decided the user is not eligible, and the job is to find _which_ gate
 failed and _why_.
 
-## Repos
+## Access requirements
 
-GitHub is the source of truth for where the code lives. When you need to read or change SDK
-source, resolve a local checkout via the registry described in
-[references/local-repos.md](references/local-repos.md) so a clone is found once and reused —
-don't re-clone every session. First time on a machine, run `python3 scripts/repos.py init`
-to auto-discover existing checkouts; thereafter `python3 scripts/repos.py ensure <repo>`
-prints the path (and `--clone` clones if missing).
-
-| Concern              | Repo                                                                        | Where to look                                                            |
-| -------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Product UI + backend | this monorepo (PostHog/posthog)                                             | UI: `frontend/src/scenes/surveys/`, backend: `products/surveys/backend/` |
-| Web SDK              | [PostHog/posthog-js](https://github.com/PostHog/posthog-js)                 | `packages/browser/`                                                      |
-| React Native SDK     | [PostHog/posthog-js](https://github.com/PostHog/posthog-js) (same monorepo) | `packages/react-native/`                                                 |
-| iOS SDK              | [PostHog/posthog-ios](https://github.com/PostHog/posthog-ios)               | survey rendering + eligibility                                           |
-| Android SDK          | [PostHog/posthog-android](https://github.com/PostHog/posthog-android)       | eligibility (delegate-based UI)                                          |
-| Flutter SDK          | [PostHog/posthog-flutter](https://github.com/PostHog/posthog-flutter)       | Dart rendering; native iOS/Android handles eligibility                   |
-| Public docs          | [PostHog/posthog.com](https://github.com/PostHog/posthog.com)               | `contents/docs/surveys/`                                                 |
-
-Always check the local checkout is present and on a sane branch before quoting code; line
-numbers drift, so grep for the symbol rather than trusting a remembered line number.
+Use PostHog MCP tools or the survey API to inspect survey configuration and responses.
+A checkout of the PostHog repository is not required for these diagnostic steps.
 
 ## Cross-SDK feature parity (check this FIRST)
 
@@ -107,13 +89,19 @@ The radio in `frontend/src/scenes/surveys/SurveyResponsesCollection.tsx`. "Any q
 least one question is answered…" is `true`; "Complete survey: the response is stored when all
 questions are answered" is `false`.
 
-- `true` → `sendSurveyEvent` fires on **every** `onNextButtonClick`, so one `survey sent` per
+- `true` -> `sendSurveyEvent` fires on **every** `onNextButtonClick`, so one `survey sent` per
   question answered, all sharing a `$survey_submission_id` with `$survey_completed` running
-  `false … true`. The responses table collapses them by `argMax(uuid, timestamp)` per submission id
-  (`buildPartialResponsesFilter`, `frontend/src/scenes/surveys/utils.ts`), so **raw SQL shows far
-  more rows than the UI** and the extras look like broken submissions.
-- `false` → one event, at the end of the path. The table instead filters
-  `$survey_completed != 'false'`, keeping events where the property is absent (pre-1.240.0 SDKs).
+  `false ... true`.
+- `false` -> one `survey sent` event, at the end of the path.
+
+The setting controls capture, not response visibility. The results include every `survey sent`
+and every `survey dismissed` or `survey abandoned` marked `$survey_partially_completed = true`.
+`buildMergedSubmissionsSubquery` in `frontend/src/scenes/surveys/utils.ts` merges the latest
+answer per question for each submission ID; events without an ID stay separate. **Raw event
+counts can exceed response counts.** A completed event takes precedence over earlier partial
+closures. Otherwise the outcome chip reads "Dismissed" when the latest response event is a
+dismissal, and "Abandoned" for other unfinished submissions. "Abandoned" does not prove a
+page-unload event or inactivity timeout occurred; a later completion updates the same row.
 
 **The defaults disagree by creation path:** `NEW_SURVEY` sets `true`
 (`frontend/src/scenes/surveys/constants.tsx`) but the Django model default is `False`
@@ -309,19 +297,3 @@ Hi <name>,
 
 We're always here if you need a follow-up.
 ```
-
-## Feature work — shipping across SDKs
-
-A survey capability is only "done" when it works (or is deliberately scoped out) on every
-SDK a customer might use. When building or changing survey behavior:
-
-1. Land the backend/UI change in this repo (serializer + `frontend/src/scenes/surveys/`).
-2. Decide the per-SDK story using the parity table. If a feature lands web-only (like
-   `surveyPopupDelaySeconds`), say so explicitly in the docs and the PR — silent gaps
-   become support tickets.
-3. Implement in the SDK repos (`posthog-js` covers both web and React Native), then
-   `posthog-ios`, `posthog-android`, and the Flutter Dart layer. Remember Flutter's split:
-   eligibility/trigger logic is native (iOS/Android), rendering is Dart. Use the registry
-   in [references/local-repos.md](references/local-repos.md) to find each checkout.
-4. Update the `posthog.com` docs (`contents/docs/surveys/`) and this parity table.
-5. Use the `survey-sdk-audit` skill (if available) to confirm version requirements and cross-SDK coverage.

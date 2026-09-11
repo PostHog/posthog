@@ -82,6 +82,19 @@ describe("toConnectError", () => {
   it("falls back for non-Error values", () => {
     expect(toConnectError("x", "fallback").message).toBe("fallback");
   });
+
+  it("extracts the code and detail from an API request error", () => {
+    const error = Object.assign(new Error("raw response"), {
+      body: {
+        code: "invalid_input",
+        detail: "All installations are linked.",
+      },
+    });
+    expect(toConnectError(error, "fallback")).toEqual({
+      message: "All installations are linked.",
+      code: "invalid_input",
+    });
+  });
 });
 
 describe("invalidation keys", () => {

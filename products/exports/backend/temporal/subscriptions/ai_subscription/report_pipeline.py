@@ -23,6 +23,7 @@ from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 
+from products.exports.backend.models.subscription import AIQueryPlanStatus
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     SPEC_INVALID_DROP_REASONS,
     ChartFailureReason,
@@ -68,6 +69,8 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     StoredPlanInvalidError,
     build_enriched_prompt,
     build_frozen_prompt,
+    get_ai_query_plan_status,
+    resolve_ai_query_plan_status,
 )
 from products.exports.backend.temporal.subscriptions.types import safe_query_error_details
 
@@ -128,12 +131,14 @@ _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
-def _all_queries_failed_notice(total_steps: int) -> str:
+def _all_queries_failed_notice(total_steps: int, *, include_manage_link: bool = True) -> str:
     noun = "the query" if total_steps == 1 else f"all {total_steps} queries"
-    return (
-        f"> ⚠️ This report could not be generated — {noun} the assistant wrote failed to run. "
-        "Use the Manage subscription link to review the generated queries and the errors they hit.\n\n"
-    )
+    notice = f"> ⚠️ This report could not be generated — {noun} the assistant wrote failed to run."
+    # Every channel renders this one markdown body, so a report whose recipients get no manage
+    # control must not tell them to use it.
+    if include_manage_link:
+        notice += " Use the Manage subscription link to review the generated queries and the errors they hit."
+    return notice + "\n\n"
 
 
 def _all_contexts_failed_notice() -> str:
@@ -306,6 +311,9 @@ class AiReportResult:
     charts: tuple[RenderedChart, ...] = ()
     context: AiReportContext = field(default_factory=AiReportContext)
     authorized_context_refs: tuple[str, ...] = ()
+    # Immutable account of the plan state for this delivery. The delivery activity persists this
+    # after confirming that a newly generated plan was actually saved on the subscription.
+    query_plan_status: AIQueryPlanStatus = AIQueryPlanStatus.NOT_FROZEN
 
 
 EMPTY_AI_REPORT_CONTEXTS = AiReportContexts()
@@ -320,6 +328,8 @@ async def generate_ai_report(
     ai_query_plan: dict | None = None,
     report_context: ReportContextEvidence | None = None,
     trace_correlation_id: Optional[Union[int, str]] = None,
+    include_charts: bool = True,
+    include_manage_link: bool = True,
 ) -> AiReportResult:
     if user is None:
         raise PromptRejectedError("AI report must have a user to run.")
@@ -329,6 +339,8 @@ async def generate_ai_report(
     )
     context_events = report_context.relevant_events if report_context is not None else ()
     has_successful_context = context_provenance.has_successful_evidence
+
+    initial_query_plan_status = get_ai_query_plan_status(ai_query_plan)
 
     with slo_operation(
         spec=SloSpec(
@@ -381,7 +393,11 @@ async def generate_ai_report(
                     context_events=context_events,
                 )
                 freshly_planned = True
-            charts_enabled_for_team = await database_sync_to_async(charts_enabled, thread_sensitive=False)(team, user)
+            # A report that will not show its charts must not build or render them: each render is a
+            # headless PNG export holding a slot in a pool every concurrent report shares.
+            charts_enabled_for_team = include_charts and await database_sync_to_async(
+                charts_enabled, thread_sensitive=False
+            )(team, user)
             execution = await _execute_plan(
                 spec, team, user, window, trace_correlation_id, charts_enabled_for_team=charts_enabled_for_team
             )
@@ -457,7 +473,7 @@ async def generate_ai_report(
             # Every query failed, so the body is all "could not be computed" placeholders. Lead with a
             # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
             # instead of a confident-looking but empty report.
-            report = _all_queries_failed_notice(total_steps) + report
+            report = _all_queries_failed_notice(total_steps, include_manage_link=include_manage_link) + report
         if has_selected_context and not context_provenance.has_successful_evidence:
             report = _all_contexts_failed_notice() + report
         plan_to_persist = _plan_to_freeze(
@@ -469,6 +485,11 @@ async def generate_ai_report(
             trace_correlation_id=trace_correlation_id,
             chart_failure_count=chart_spec_failures,
         )
+        query_plan_status = resolve_ai_query_plan_status(
+            initial_status=initial_query_plan_status,
+            freshly_planned=freshly_planned,
+            generated_plan_frozen=plan_to_persist is not None,
+        )
         return AiReportResult(
             markdown=report,
             diagnostics=tuple(diagnostics),
@@ -478,6 +499,7 @@ async def generate_ai_report(
             charts=tuple(rendered_charts),
             context=AiReportContext(contexts=context_provenance),
             authorized_context_refs=report_context.authorized_context_refs if report_context is not None else (),
+            query_plan_status=query_plan_status,
         )
 
 

@@ -44,6 +44,7 @@ import { SubscriptionTimePicker } from './SubscriptionTimePicker'
 import {
     frequencyOptionsPlural,
     frequencyOptionsSingular,
+    getAiSubscriptionDisplaySummary,
     getAiSubscriptionGate,
     intervalOptions,
     bysetposOptions,
@@ -480,6 +481,7 @@ function SubscriptionContentStep({
                     contexts={subscription.contexts}
                     contextsEnabled={aiContextsEnabled}
                     prompt={subscription.prompt}
+                    targetType={subscription.target_type}
                     windowMode={subscription.ai_prompt_config?.window?.mode}
                     onAddContext={addContext}
                     onRemoveContext={removeContext}
@@ -736,6 +738,10 @@ function SubscriptionReviewStep({
                       : []),
                   { label: 'Prompt', value: subscription.prompt ?? '' },
                   { label: 'Analysis window', value: formatAiAnalysisWindow(subscription) },
+                  {
+                      label: 'Report contents',
+                      value: getAiSubscriptionDisplaySummary(subscription.delivery_config, subscription.target_type),
+                  },
               ]
             : []),
         { label: 'Sends to', value: subscription.target_value },
