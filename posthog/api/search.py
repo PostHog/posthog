@@ -6,7 +6,7 @@ from functools import partial
 from time import monotonic
 from typing import Any, Literal, TypedDict, TypeVar, cast
 
-from django.db import OperationalError, connection
+from django.db import DEFAULT_DB_ALIAS, OperationalError, connections, router
 from django.db.models import BigIntegerField, CharField, F, Model, QuerySet, Value
 from django.db.models.functions import Cast, JSONObject
 from django.http import HttpResponse
@@ -212,7 +212,7 @@ def search_entities(
     deadline = monotonic() + SEARCH_BUDGET_MS / 1000
     order_by = "-rank" if query else F("_sort_name").asc(nulls_first=True)
 
-    with _restored_statement_timeout():
+    with _restored_statement_timeout({_read_alias(entity_map[entity]["klass"]) for entity in entities}):
         for entity in sorted(entities):  # sorted so equally ranked rows keep a stable order
             entity_meta = entity_map[entity]
             klass_qs, entity_name = class_queryset(
@@ -225,15 +225,18 @@ def search_entities(
                 filters=entity_meta.get("filters"),
             )
             klass_qs = klass_qs.order_by(order_by)
+            alias = _read_alias(entity_meta["klass"])
             fetch_page: Callable[[], list[dict[str, Any]]] = partial(list, klass_qs[:cap])
-            entity_rows = _run_bounded(entity_name, deadline, fetch_page)
+            entity_rows = _run_bounded(entity_name, alias, deadline, fetch_page)
             if entity_rows is None:
                 continue
             rows.extend(entity_rows)
             if include_counts:
                 # A short page is already the whole result set, so fetching it has done the count.
                 counts[entity_name] = (
-                    len(entity_rows) if len(entity_rows) < cap else _run_bounded(entity_name, deadline, klass_qs.count)
+                    len(entity_rows)
+                    if len(entity_rows) < cap
+                    else _run_bounded(entity_name, alias, deadline, klass_qs.count)
                 )
 
     if query:
@@ -256,14 +259,23 @@ def search_entities(
     return results, counts or None, total_count
 
 
-def _run_bounded(entity: str, deadline: float, run: Callable[[], T]) -> T | None:
+def _read_alias(klass: type[Model]) -> str:
+    """The connection the entity reads from, which is the one the budget has to be set on.
+
+    A model opted into the read replica routes there, and a budget set on another connection
+    describes a different session than the one doing the work.
+    """
+    return router.db_for_read(klass) or DEFAULT_DB_ALIAS
+
+
+def _run_bounded(entity: str, alias: str, deadline: float, run: Callable[[], T]) -> T | None:
     """Returns `None` when the database cancels the query, or when the search has no budget left."""
     budget_ms = min(ENTITY_STATEMENT_TIMEOUT_MS, int((deadline - monotonic()) * 1000))
     if budget_ms <= 0:
         SEARCH_TIMED_OUT_COUNTER.labels(entity=entity).inc()
         return None
     try:
-        with execute_with_timeout(budget_ms):
+        with execute_with_timeout(budget_ms, database=alias):
             return run()
     except OperationalError as error:
         if not is_query_canceled(error):
@@ -273,24 +285,26 @@ def _run_bounded(entity: str, deadline: float, run: Callable[[], T]) -> T | None
 
 
 @contextmanager
-def _restored_statement_timeout() -> Iterator[None]:
-    """Put the connection's `statement_timeout` back afterwards.
+def _restored_statement_timeout(aliases: set[str]) -> Iterator[None]:
+    """Put the `statement_timeout` of every connection the search reads from back afterwards.
 
     `SET LOCAL` lasts until the enclosing transaction ends, so when the caller already holds one the
     per-entity budgets would otherwise govern every later query it runs.
     """
-    if not connection.in_atomic_block:
-        yield  # each per-entity transaction commits on its own, which discards its `SET LOCAL`
-        return
-    with connection.cursor() as cursor:
-        cursor.execute("SHOW statement_timeout")
-        row = cursor.fetchone()
-    previous = row[0] if row else "0"
+    previous: dict[str, str] = {}
+    for alias in aliases:
+        if not connections[alias].in_atomic_block:
+            continue  # each per-entity transaction commits on its own, which discards its `SET LOCAL`
+        with connections[alias].cursor() as cursor:
+            cursor.execute("SHOW statement_timeout")
+            row = cursor.fetchone()
+        previous[alias] = row[0] if row else "0"
     try:
         yield
     finally:
-        with connection.cursor() as cursor:
-            cursor.execute("SET LOCAL statement_timeout = %s", [previous])
+        for alias, timeout in previous.items():
+            with connections[alias].cursor() as cursor:
+                cursor.execute("SET LOCAL statement_timeout = %s", [timeout])
 
 
 def _annotate_user_access_levels(
