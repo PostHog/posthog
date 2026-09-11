@@ -1,9 +1,8 @@
-"""Replace every ``x IN (subquery)`` with a constant before ClickHouse is asked for the plan.
+"""Replace every ``x IN (subquery)`` with a constant before asking ClickHouse for the plan.
 
-``EXPLAIN`` runs each ``IN (subquery)`` to completion to build its set before it plans the outer
-query. That reads real data, which defeats a plan-only analysis. Replacing the comparison with a
-constant keeps the rest of the query's shape, so the plan still shows how the outer query reads the
-events table. The replaced subqueries are collected so each can be explained on its own.
+``EXPLAIN`` runs each ``IN (subquery)`` to completion before it plans, which reads real data. The
+constant keeps the outer query's shape, so the plan still shows how it reads the events table. The
+subqueries are collected so each can be explained on its own.
 """
 
 from posthog.hogql import ast
@@ -11,8 +10,7 @@ from posthog.hogql.visitor import CloningVisitor
 
 from posthog.dataclasses import frozen
 
-# The global and cohort variants appear only after the tree is lowered, so covering them lets the
-# stub run on the lowered tree too. The subquery-right check keeps literal IN lists untouched.
+# The global and cohort variants appear only in the lowered tree; literal IN lists are kept.
 _IN_SUBQUERY_OPS = frozenset(
     {
         ast.CompareOperationOp.In,
@@ -71,8 +69,7 @@ class _StubVisitor(CloningVisitor):
         return super().visit_not(node)
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
-        # The parser emits ``NOT (...)`` as a ``not(...)`` call, not an ``ast.Not``, keeping the source
-        # case, so the same fold applies here.
+        # The parser emits ``NOT (...)`` as a ``not(...)`` call rather than an ``ast.Not``.
         if node.name.lower() == "not" and len(node.args) == 1:
             right = _in_subquery_right(node.args[0])
             if right is not None:

@@ -6668,37 +6668,17 @@ class QueryScanWarning(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    clause: str | None = Field(
-        default=None,
-        description="The offending condition printed back as HogQL, when there is one",
-    )
+    clause: str | None = Field(default=None, description="The condition at fault, as HogQL.")
     duration_ms: int
-    evidence: str | None = Field(
-        default=None,
-        description=(
-            "The fact the finding rests on, in one sentence: what the plan reported, or the setting that caused it."
-        ),
-    )
-    fix: str = Field(
-        ...,
-        description=('The instruction "Fix with AI" and the assistant get for this finding.'),
-    )
+    evidence: str | None = Field(default=None, description="The one fact the finding rests on.")
+    fix: str = Field(..., description='What "Fix with AI" and the assistant are told to do.')
     kind: QueryScanFindingKind
-    message: str = Field(
-        ...,
-        description=("Shown to the person. Sentence case, says what happened and what to do."),
-    )
+    message: str = Field(..., description="Shown to the person: what happened and what to do.")
     reason: QueryScanFindingReason | None = Field(
-        default=None,
-        description=(
-            "Why the filter the query has did not narrow the read. Only on no_event_filter and no_start_date."
-        ),
+        default=None, description="Only with `no_event_filter` and `no_start_date`."
     )
     rows_read: int
-    type: Literal["query_scan"] = Field(
-        default="query_scan",
-        description="Tells warning kinds apart in the shared `warnings` list",
-    )
+    type: Literal["query_scan"] = "query_scan"
 
 
 class QueryStatus(BaseModel):
@@ -7023,7 +7003,8 @@ class SessionAttributionExplorerQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -7083,7 +7064,8 @@ class SessionBatchEventsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -7134,7 +7116,8 @@ class SessionQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -7253,7 +7236,8 @@ class SessionsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -7301,7 +7285,8 @@ class SessionsTimelineQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -7519,7 +7504,8 @@ class StickinessQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -7810,7 +7796,8 @@ class TestBasicQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -7868,7 +7855,8 @@ class TestCachedBasicQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -7956,7 +7944,8 @@ class TraceQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -8007,7 +7996,8 @@ class TraceSpansAggregationQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -8058,7 +8048,8 @@ class TraceSpansAttributeBreakdownQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -8109,7 +8100,8 @@ class TraceSpansQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -8160,7 +8152,8 @@ class TraceSpansSymbolStatsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -8211,7 +8204,8 @@ class TraceSpansTreeQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -8262,7 +8256,8 @@ class TracesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -8493,7 +8488,8 @@ class TrendsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -8562,7 +8558,8 @@ class UsageMetricsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -8614,7 +8611,8 @@ class WebAgentAnalyticsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -8699,7 +8697,8 @@ class WebBotsTableQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -8752,7 +8751,8 @@ class WebExternalClicksTableQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -8813,7 +8813,8 @@ class WebGoalsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -8862,7 +8863,8 @@ class WebNotableChangesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -8920,7 +8922,8 @@ class WebOverviewQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -8970,7 +8973,8 @@ class WebPageURLSearchQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -9038,7 +9042,8 @@ class WebStatsTableQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -9130,7 +9135,8 @@ class AccountsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -9185,7 +9191,8 @@ class AccountsTableQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -9250,7 +9257,8 @@ class ActorsPropertyTaxonomyQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -9303,7 +9311,8 @@ class ActorsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -9350,7 +9359,8 @@ class AnalyticsQueryResponseBase(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -10951,7 +10961,8 @@ class CachedAccountsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11017,7 +11028,8 @@ class CachedAccountsTableQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11075,7 +11087,8 @@ class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11139,7 +11152,8 @@ class CachedActorsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11198,7 +11212,8 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11259,7 +11274,8 @@ class CachedDocumentSimilarityQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11317,7 +11333,8 @@ class CachedEndpointsUsageOverviewQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11380,7 +11397,8 @@ class CachedEndpointsUsageTableQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11438,7 +11456,8 @@ class CachedEndpointsUsageTrendsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11496,7 +11515,8 @@ class CachedErrorTrackingBreakdownsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11555,7 +11575,8 @@ class CachedErrorTrackingFingerprintProjectionQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11640,7 +11661,8 @@ class CachedErrorTrackingReleasesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11701,7 +11723,8 @@ class CachedErrorTrackingSimilarIssuesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11762,7 +11785,8 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11826,7 +11850,8 @@ class CachedEventsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11921,7 +11946,8 @@ class CachedFunnelCorrelationResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -11986,7 +12012,8 @@ class CachedFunnelsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12050,7 +12077,8 @@ class CachedGroupsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12108,7 +12136,8 @@ class CachedLifecycleQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12171,7 +12200,8 @@ class CachedLogsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12229,7 +12259,8 @@ class CachedMCPHarnessBreakdownQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12288,7 +12319,8 @@ class CachedMCPMissingCapabilitiesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12346,7 +12378,8 @@ class CachedMCPModelBreakdownQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12404,7 +12437,8 @@ class CachedMCPToolCallBreakdownQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12462,7 +12496,8 @@ class CachedMCPToolCallsAndErrorsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12520,7 +12555,8 @@ class CachedMCPToolCategoriesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12578,7 +12614,8 @@ class CachedMCPToolCategoryCountsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12636,7 +12673,8 @@ class CachedMCPToolCategoryMapQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12694,7 +12732,8 @@ class CachedMCPToolDailyStatsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12752,7 +12791,8 @@ class CachedMCPToolDescriptionsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12810,7 +12850,8 @@ class CachedMCPToolFailureOccurrencesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12868,7 +12909,8 @@ class CachedMCPToolFailuresQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12926,7 +12968,8 @@ class CachedMCPToolNeighborsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -12984,7 +13027,8 @@ class CachedMCPToolQualityDailyStatsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -13046,7 +13090,8 @@ class CachedMCPToolQualityRowsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -13104,7 +13149,8 @@ class CachedMCPToolSampleIntentsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -13165,7 +13211,8 @@ class CachedMCPToolStatsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -13223,7 +13270,8 @@ class CachedMCPToolTopUsersQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -13282,7 +13330,8 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -13357,7 +13406,8 @@ class CachedMarketingAnalyticsAttributionPathsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -13438,7 +13488,8 @@ class CachedMarketingAnalyticsAttributionQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -13515,7 +13566,8 @@ class CachedMarketingAnalyticsRetentionQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -13579,7 +13631,8 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -13637,7 +13690,8 @@ class CachedMetricsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -13695,7 +13749,8 @@ class CachedPathsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -13753,7 +13808,8 @@ class CachedPropertyValuesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -13816,7 +13872,8 @@ class CachedRecordingsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -13874,7 +13931,8 @@ class CachedRetentionQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -13937,7 +13995,8 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14008,7 +14067,8 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14070,7 +14130,8 @@ class CachedSessionQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14133,7 +14194,8 @@ class CachedSessionsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14192,7 +14254,8 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14250,7 +14313,8 @@ class CachedStickinessQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14338,7 +14402,8 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14440,7 +14505,8 @@ class CachedTraceQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14502,7 +14568,8 @@ class CachedTraceSpansAggregationQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14564,7 +14631,8 @@ class CachedTraceSpansAttributeBreakdownQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14626,7 +14694,8 @@ class CachedTraceSpansQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14688,7 +14757,8 @@ class CachedTraceSpansSymbolStatsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14750,7 +14820,8 @@ class CachedTraceSpansTreeQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14812,7 +14883,8 @@ class CachedTracesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14872,7 +14944,8 @@ class CachedTrendsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14930,7 +15003,8 @@ class CachedUsageMetricsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -14988,7 +15062,8 @@ class CachedVectorSearchQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -15051,7 +15126,8 @@ class CachedWebAgentAnalyticsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -15114,7 +15190,8 @@ class CachedWebBotsTableQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -15178,7 +15255,8 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -15250,7 +15328,8 @@ class CachedWebGoalsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -15310,7 +15389,8 @@ class CachedWebNotableChangesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -15379,7 +15459,8 @@ class CachedWebOverviewQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -15440,7 +15521,8 @@ class CachedWebPageURLSearchQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -15519,7 +15601,8 @@ class CachedWebStatsTableQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -15585,7 +15668,8 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -15633,7 +15717,8 @@ class CalendarHeatmapResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -15744,7 +15829,8 @@ class Response(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -15797,7 +15883,8 @@ class Response1(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -15850,7 +15937,8 @@ class Response2(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -15908,7 +15996,8 @@ class Response4(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -15976,7 +16065,8 @@ class Response5(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16029,7 +16119,8 @@ class Response6(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16081,7 +16172,8 @@ class Response7(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16142,7 +16234,8 @@ class Response8(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16197,7 +16290,8 @@ class Response9(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16249,7 +16343,8 @@ class Response10(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16301,7 +16396,8 @@ class Response11(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16354,7 +16450,8 @@ class Response12(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16402,7 +16499,8 @@ class Response13(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16453,7 +16551,8 @@ class Response18(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16505,7 +16604,8 @@ class Response20(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16562,7 +16662,8 @@ class Response21(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16617,7 +16718,8 @@ class Response22(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16743,7 +16845,8 @@ class DocumentSimilarityQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16807,7 +16910,8 @@ class EndpointsUsageOverviewQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16859,7 +16963,8 @@ class EndpointsUsageTableQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16906,7 +17011,8 @@ class EndpointsUsageTrendsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -16953,7 +17059,8 @@ class ErrorTrackingBreakdownsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -17010,7 +17117,8 @@ class ErrorTrackingFingerprintProjectionQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -17083,7 +17191,8 @@ class ErrorTrackingQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -17172,7 +17281,8 @@ class ErrorTrackingReleasesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -17222,7 +17332,8 @@ class ErrorTrackingSimilarIssuesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -17272,7 +17383,8 @@ class EventTaxonomyQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -17325,7 +17437,8 @@ class EventsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -17416,7 +17529,8 @@ class FunnelCorrelationResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -17470,7 +17584,8 @@ class FunnelsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -17541,7 +17656,8 @@ class GroupsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -17630,7 +17746,7 @@ class HogQLQueryResponse(BaseModel):
             " sync failed, is paused, hit a billing limit, or is otherwise stale."
             " Results may not reflect current source data. Also carries access control"
             " warnings when a system-table query filters out objects the user can't"
-            " access."
+            " access. Also carries query scan findings, see `QueryScanWarning`."
         ),
     )
 
@@ -17769,7 +17885,8 @@ class LifecycleQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -17817,7 +17934,8 @@ class LogAttributesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -17864,7 +17982,8 @@ class LogValuesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -17916,7 +18035,8 @@ class LogsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -17981,7 +18101,8 @@ class MCPHarnessBreakdownQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18029,7 +18150,8 @@ class MCPMissingCapabilitiesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18076,7 +18198,8 @@ class MCPModelBreakdownQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18123,7 +18246,8 @@ class MCPToolCallBreakdownQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18170,7 +18294,8 @@ class MCPToolCallsAndErrorsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18217,7 +18342,8 @@ class MCPToolCategoriesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18264,7 +18390,8 @@ class MCPToolCategoryCountsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18311,7 +18438,8 @@ class MCPToolCategoryMapQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18358,7 +18486,8 @@ class MCPToolDailyStatsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18405,7 +18534,8 @@ class MCPToolDescriptionsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18452,7 +18582,8 @@ class MCPToolFailureOccurrencesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18499,7 +18630,8 @@ class MCPToolFailuresQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18546,7 +18678,8 @@ class MCPToolNeighborsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18593,7 +18726,8 @@ class MCPToolQualityDailyStatsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18644,7 +18778,8 @@ class MCPToolQualityRowsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18691,7 +18826,8 @@ class MCPToolSampleIntentsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18741,7 +18877,8 @@ class MCPToolStatsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18788,7 +18925,8 @@ class MCPToolTopUsersQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18836,7 +18974,8 @@ class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18900,7 +19039,8 @@ class MarketingAnalyticsAttributionPathsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -18970,7 +19110,8 @@ class MarketingAnalyticsAttributionQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19036,7 +19177,8 @@ class MarketingAnalyticsRetentionQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19089,7 +19231,8 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19159,7 +19302,8 @@ class MetricsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19279,7 +19423,8 @@ class PathsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19354,7 +19499,8 @@ class PropertyValuesQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19407,7 +19553,8 @@ class QueryResponseAlternative1(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19459,7 +19606,8 @@ class QueryResponseAlternative2(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19512,7 +19660,8 @@ class QueryResponseAlternative3(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19565,7 +19714,8 @@ class QueryResponseAlternative4(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19630,7 +19780,8 @@ class QueryResponseAlternative6(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19684,7 +19835,7 @@ class QueryResponseAlternative8(BaseModel):
             " sync failed, is paused, hit a billing limit, or is otherwise stale."
             " Results may not reflect current source data. Also carries access control"
             " warnings when a system-table query filters out objects the user can't"
-            " access."
+            " access. Also carries query scan findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19736,7 +19887,8 @@ class QueryResponseAlternative11(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19787,7 +19939,8 @@ class QueryResponseAlternative12(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19837,7 +19990,8 @@ class QueryResponseAlternative13(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19885,7 +20039,8 @@ class QueryResponseAlternative14(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -19932,7 +20087,8 @@ class QueryResponseAlternative15(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20006,7 +20162,8 @@ class QueryResponseAlternative16(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20073,7 +20230,8 @@ class QueryResponseAlternative22(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20131,7 +20289,8 @@ class QueryResponseAlternative23(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20199,7 +20358,8 @@ class QueryResponseAlternative24(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20252,7 +20412,8 @@ class QueryResponseAlternative25(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20304,7 +20465,8 @@ class QueryResponseAlternative26(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20365,7 +20527,8 @@ class QueryResponseAlternative28(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20420,7 +20583,8 @@ class QueryResponseAlternative29(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20470,7 +20634,8 @@ class QueryResponseAlternative30(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20519,7 +20684,8 @@ class QueryResponseAlternative32(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20572,7 +20738,8 @@ class QueryResponseAlternative33(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20620,7 +20787,8 @@ class QueryResponseAlternative34(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20690,7 +20858,8 @@ class QueryResponseAlternative35(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20754,7 +20923,8 @@ class QueryResponseAlternative36(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20820,7 +20990,8 @@ class QueryResponseAlternative37(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20873,7 +21044,8 @@ class QueryResponseAlternative38(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20926,7 +21098,8 @@ class QueryResponseAlternative39(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -20979,7 +21152,8 @@ class QueryResponseAlternative40(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21033,7 +21207,7 @@ class QueryResponseAlternative41(BaseModel):
             " sync failed, is paused, hit a billing limit, or is otherwise stale."
             " Results may not reflect current source data. Also carries access control"
             " warnings when a system-table query filters out objects the user can't"
-            " access."
+            " access. Also carries query scan findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21091,7 +21265,8 @@ class QueryResponseAlternative42(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21159,7 +21334,8 @@ class QueryResponseAlternative43(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21212,7 +21388,8 @@ class QueryResponseAlternative44(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21264,7 +21441,8 @@ class QueryResponseAlternative45(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21325,7 +21503,8 @@ class QueryResponseAlternative46(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21380,7 +21559,8 @@ class QueryResponseAlternative47(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21432,7 +21612,8 @@ class QueryResponseAlternative48(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21484,7 +21665,8 @@ class QueryResponseAlternative49(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21537,7 +21719,8 @@ class QueryResponseAlternative50(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21585,7 +21768,8 @@ class QueryResponseAlternative51(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21636,7 +21820,8 @@ class QueryResponseAlternative52(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21687,7 +21872,8 @@ class QueryResponseAlternative56(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21739,7 +21925,8 @@ class QueryResponseAlternative58(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21796,7 +21983,8 @@ class QueryResponseAlternative59(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21851,7 +22039,8 @@ class QueryResponseAlternative60(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21900,7 +22089,8 @@ class QueryResponseAlternative61(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -21954,7 +22144,8 @@ class QueryResponseAlternative62(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22001,7 +22192,8 @@ class QueryResponseAlternative63(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22048,7 +22240,8 @@ class QueryResponseAlternative64(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22095,7 +22288,8 @@ class QueryResponseAlternative65(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22142,7 +22336,8 @@ class QueryResponseAlternative66(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22194,7 +22389,8 @@ class QueryResponseAlternative68(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22246,7 +22442,8 @@ class QueryResponseAlternative70(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22298,7 +22495,8 @@ class QueryResponseAlternative71(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22346,7 +22544,8 @@ class QueryResponseAlternative72(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22393,7 +22592,8 @@ class QueryResponseAlternative73(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22440,7 +22640,8 @@ class QueryResponseAlternative74(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22491,7 +22692,8 @@ class QueryResponseAlternative75(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22542,7 +22744,8 @@ class QueryResponseAlternative76(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22593,7 +22796,8 @@ class QueryResponseAlternative77(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22644,7 +22848,8 @@ class QueryResponseAlternative78(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22706,7 +22911,8 @@ class QueryResponseAlternative80(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22756,7 +22962,8 @@ class QueryResponseAlternative81(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22803,7 +23010,8 @@ class QueryResponseAlternative82(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22854,7 +23062,8 @@ class QueryResponseAlternative83(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22926,7 +23135,8 @@ class QueryResponseAlternative87(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -22973,7 +23183,8 @@ class QueryResponseAlternative88(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23030,7 +23241,8 @@ class QueryResponseAlternative89(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23085,7 +23297,8 @@ class QueryResponseAlternative90(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23132,7 +23345,8 @@ class QueryResponseAlternative91(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23184,7 +23398,8 @@ class QueryResponseAlternative92(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23231,7 +23446,8 @@ class QueryResponseAlternative93(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23278,7 +23494,8 @@ class QueryResponseAlternative94(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23325,7 +23542,8 @@ class QueryResponseAlternative95(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23372,7 +23590,8 @@ class QueryResponseAlternative96(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23419,7 +23638,8 @@ class QueryResponseAlternative97(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23466,7 +23686,8 @@ class QueryResponseAlternative98(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23513,7 +23734,8 @@ class QueryResponseAlternative99(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23560,7 +23782,8 @@ class QueryResponseAlternative100(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23610,7 +23833,8 @@ class QueryResponseAlternative101(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23657,7 +23881,8 @@ class QueryResponseAlternative102(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23708,7 +23933,8 @@ class QueryResponseAlternative103(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23755,7 +23981,8 @@ class QueryResponseAlternative104(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23802,7 +24029,8 @@ class QueryResponseAlternative105(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23849,7 +24077,8 @@ class QueryResponseAlternative106(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23896,7 +24125,8 @@ class QueryResponseAlternative107(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23943,7 +24173,8 @@ class QueryResponseAlternative108(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -23990,7 +24221,8 @@ class QueryResponseAlternative109(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -24037,7 +24269,8 @@ class QueryResponseAlternative110(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -24085,7 +24318,8 @@ class QueryResponseAlternative111(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -24132,7 +24366,8 @@ class QueryResponseAlternative112(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -24184,7 +24419,8 @@ class RecordingsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -24231,7 +24467,8 @@ class RetentionQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -24382,7 +24619,8 @@ class TeamTaxonomyQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -24491,7 +24729,8 @@ class VectorSearchQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -24916,7 +25155,8 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -24963,7 +25203,8 @@ class WebVitalsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -25489,7 +25730,8 @@ class CachedErrorTrackingQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -25554,7 +25796,7 @@ class CachedHogQLQueryResponse(BaseModel):
             " sync failed, is paused, hit a billing limit, or is otherwise stale."
             " Results may not reflect current source data. Also carries access control"
             " warnings when a system-table query filters out objects the user can't"
-            " access."
+            " access. Also carries query scan findings, see `QueryScanWarning`."
         ),
     )
 
@@ -25679,7 +25921,8 @@ class CachedPathsV2QueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -25737,7 +25980,8 @@ class CachedWebVitalsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -26015,7 +26259,7 @@ class Response3(BaseModel):
             " sync failed, is paused, hit a billing limit, or is otherwise stale."
             " Results may not reflect current source data. Also carries access control"
             " warnings when a system-table query filters out objects the user can't"
-            " access."
+            " access. Also carries query scan findings, see `QueryScanWarning`."
         ),
     )
 
@@ -26066,7 +26310,8 @@ class Response14(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -26376,7 +26621,8 @@ class ErrorTrackingIssueCorrelationQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -27679,7 +27925,8 @@ class PathsV2QueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -27809,7 +28056,8 @@ class QueryResponseAlternative17(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -28355,7 +28603,8 @@ class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 
@@ -28437,7 +28686,8 @@ class Response15(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access."
+            " query filters out objects the user can't access. Also carries query scan"
+            " findings, see `QueryScanWarning`."
         ),
     )
 

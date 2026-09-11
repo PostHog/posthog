@@ -12,8 +12,7 @@ from posthog.query_scan.flag import DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO
 FindingKind = QueryScanFindingKind
 FindingReason = QueryScanFindingReason
 
-# The kind used by `to_query()` for a raw HogQL query. Any other kind is an insight built from
-# pickers, so the advice names the picker instead of a clause to add.
+# Raw SQL gets a clause to add; an insight built from pickers gets the name of its picker.
 _SQL_QUERY_KIND = "HogQLQuery"
 
 
@@ -27,8 +26,7 @@ class ScanThresholds:
 
 @frozen
 class ScanMeasurements:
-    # Every row ClickHouse read for the query, across every table it touched, so a joined table
-    # counts towards it. Both come from the run the person made, not from the plan.
+    # Rows across every table the run read, from the run itself rather than the plan.
     rows_read: int
     duration_ms: int
 
@@ -140,10 +138,8 @@ def build_warning(
 def explain_evidence(
     keys: tuple[str, ...], *, before: int | None, after: int | None, subquery_index: int | None
 ) -> str:
-    """What ClickHouse's deciding index step reported, for the person to check against.
-
-    ``before`` and ``after`` are the granules that step read and kept. ``subquery_index`` is set
-    when the finding is about an ``IN`` subquery, so the person can tell which one.
+    """What the deciding index step reported, for the person to check. ``before`` and ``after`` are
+    the granules it read and kept; ``subquery_index`` says which ``IN`` subquery, when it is one.
     """
     used = ", ".join(keys) if keys else "no columns"
     if before is None or after is None:

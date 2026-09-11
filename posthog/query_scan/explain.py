@@ -1,9 +1,7 @@
-"""Read the JSON that ``EXPLAIN indexes = 1, json = 1`` returns for a query.
+"""Read the JSON that ``EXPLAIN indexes = 1, json = 1`` returns.
 
-ClickHouse stores a table in granules, blocks of rows it reads or skips whole, so the granules a
-read kept measure how much of the table it touched. The plan says which table each node reads,
-which columns ClickHouse used to skip granules, how many each index step kept, and the timestamp
-range it could bound. The analysis reads its findings and its shares off this.
+ClickHouse reads a table in granules, blocks of rows it reads or skips whole, so the granules a
+read kept say how much of the table it touched. The plan reports that per table and per index step.
 """
 
 import re
@@ -12,8 +10,7 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
-# The events read prints as the sharded or the plain table, and the native-JSON schema has its own
-# pair. Spelled out rather than imported, so this parser does not pull in the model layer.
+# Spelled out rather than imported, so this parser does not pull in the model layer.
 _EVENTS_TABLE_NAMES = ("events", "events_json", "sharded_events", "sharded_events_json")
 
 _PERSON_TABLE_NAMES = ("person", "person_distinct_id2", "person_distinct_id_overrides")
@@ -22,8 +19,7 @@ _MIN_MAX_TYPE = "Min-Max"
 _PRIMARY_KEY_TYPE = "PrimaryKey"
 _SKIP_TYPE = "Skip"
 _MERGE_TREE_READ = "ReadFromMergeTree"
-# The other shards read through this node, and it carries no index report. It is not an object
-# storage or warehouse read, so it never sets `has_non_mergetree_read`.
+# The other shards' read. It carries no index report and is not a warehouse read.
 _REMOTE_READ = "ReadFromRemote"
 
 # ClickHouse prints a Min-Max timestamp condition in one canonical form: `timestamp in [A, +Inf)`,
@@ -62,8 +58,7 @@ class PlanTableRead:
     indexes: tuple[PlanIndex, ...]
 
     def reads_events(self) -> bool:
-        # The database qualifier is optional, but a longer name that merely ends in one of these is
-        # a different table.
+        # The database qualifier is optional; a longer name that only ends in one of these is another table.
         return self._matches(_EVENTS_TABLE_NAMES)
 
     def reads_persons(self) -> bool:
@@ -121,8 +116,7 @@ class QueryPlan:
 
 
 def parse_query_plan(payload: object) -> QueryPlan:
-    """Never raises. An unexpected shape yields a plan with no reads, which reads as
-    "EXPLAIN told us nothing" everywhere downstream."""
+    """Never raises: an unexpected shape yields a plan with no reads."""
     if isinstance(payload, str | bytes | bytearray):
         try:
             payload = json.loads(payload)

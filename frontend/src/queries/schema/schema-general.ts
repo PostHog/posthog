@@ -616,34 +616,32 @@ export interface QueryScanSummary {
 }
 
 /**
- * What the analysis found. `no_event_filter`: nothing narrows the query to particular events, so it
- * reads every event in its date range. `no_start_date`: nothing bounds the start, so it reads from the
- * project's first event. `persons_join`: the join to the persons tables reads as much as the events do.
+ * `no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds
+ * where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.
  */
 export type QueryScanFindingKind = 'no_event_filter' | 'no_start_date' | 'persons_join'
 
 /**
- * Why a filter the query has did not narrow the read. On `no_event_filter`: `in_or`, the event filter
- * is inside an OR; `wrapped`, `event` is inside a function call; `negated`, the filter excludes events
- * (`!=`, `NOT IN`) and excluding narrows nothing; `dynamic`, `event` is compared to another column;
- * `not_pruned`, ClickHouse reported the filter unused. On `no_start_date`: `filters`, the date range
- * comes from the insight's date picker through `{filters}` and was left open.
+ * Why a filter the query does have did not narrow the read. `in_or`: it sits inside an OR. `wrapped`:
+ * `event` is inside a function call. `negated`: it excludes events, which narrows nothing. `dynamic`:
+ * `event` is compared to a column. `not_pruned`: ClickHouse reported it unused. `filters`: the date
+ * range comes from `{filters}` and the insight left it open.
  */
 export type QueryScanFindingReason = 'in_or' | 'wrapped' | 'negated' | 'dynamic' | 'not_pruned' | 'filters'
 
+/** One finding of a query scan. Sits in the response's `warnings` list next to the other warning kinds. */
 export interface QueryScanWarning {
-    /** Tells warning kinds apart in the shared `warnings` list */
     type: 'query_scan'
     kind: QueryScanFindingKind
-    /** Why the filter the query has did not narrow the read. Only on no_event_filter and no_start_date. */
+    /** Only with `no_event_filter` and `no_start_date`. */
     reason?: QueryScanFindingReason
-    /** Shown to the person. Sentence case, says what happened and what to do. */
+    /** Shown to the person: what happened and what to do. */
     message: string
-    /** The instruction "Fix with AI" and the assistant get for this finding. */
+    /** What "Fix with AI" and the assistant are told to do. */
     fix: string
-    /** The offending condition printed back as HogQL, when there is one */
+    /** The condition at fault, as HogQL. */
     clause?: string
-    /** The fact the finding rests on, in one sentence: what the plan reported, or the setting that caused it. */
+    /** The one fact the finding rests on. */
     evidence?: string
     rows_read: integer
     duration_ms: integer
@@ -667,6 +665,7 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
      * Warnings about data warehouse sources referenced by the query whose latest sync failed,
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
+     * Also carries query scan findings, see `QueryScanWarning`.
      */
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | QueryScanWarning)[]
     query_scan?: QueryScanSummary
@@ -2758,6 +2757,7 @@ export interface AnalyticsQueryResponseBase {
      * Accumulated across every HogQL execution that contributes to this response — so insights backed
      * by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
+     * Also carries query scan findings, see `QueryScanWarning`.
      */
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | QueryScanWarning)[]
     query_scan?: QueryScanSummary

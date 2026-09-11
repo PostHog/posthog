@@ -1,9 +1,7 @@
-"""Turn ClickHouse's plans and the thresholds into findings and the two shares.
+"""Turn ClickHouse's plans into findings and the two shares.
 
-Everything here is pure: no ClickHouse, no Redis, no Celery. The job hands over the outer query's
-plan, one plan per stubbed ``IN`` subquery, and two denominators: the granules of the project's
-events over the query's date range, and over all time. Each share is the outer read's granules
-against one denominator, so a person sees how much of their data the query read.
+Pure: no ClickHouse, Redis or Celery. A share is the outer read's granules over a denominator, the
+project's events in the query's date range or over all time.
 """
 
 from posthog.schema import QueryScanWarning
@@ -21,17 +19,14 @@ from posthog.query_scan.findings import (
 
 __all__ = ["PlanSet", "QueryScanResult", "analyze"]
 
-# The kind the runner reports for a raw HogQL query. Any other kind is an insight built from
-# pickers; the same rules apply, only the finding copy differs.
+# Raw SQL and an insight built from pickers get different finding copy.
 _SQL_QUERY_KIND = "HogQLQuery"
 
 
 @frozen
 class PlanSet:
-    """The plans one job produced, plus the denominators for the two shares.
-
-    ``team_granules`` and ``range_granules`` are the selected granules of the two denominator
-    ``EXPLAIN``s the job ran: the team's whole data, and the team's data over the query's range.
+    """The plans one job produced. ``team_granules`` and ``range_granules`` are the denominators:
+    the project's events over all time, and over the query's date range.
     """
 
     outer: QueryPlan | None
@@ -71,8 +66,7 @@ def analyze(
     project_share = _share(numerator, plans.team_granules)
 
     findings: list[QueryScanWarning] = []
-    # The outer plan's events read is the one the range share measures, so its no-event-filter gate
-    # can use the share. A subquery has no share of its own, so it gates on the skip-step fallback.
+    # Only the outer read has a range share; a subquery gates on the skip-step fallback.
     findings += _findings_for_plan(
         plans.outer,
         thresholds,
@@ -161,11 +155,8 @@ def _event_key_missing(read: PlanTableRead) -> bool:
 
 
 def _passes_event_gate(read: PlanTableRead, range_share: float | None, thresholds: ScanThresholds) -> bool:
-    """The read is a large share of the range, so an event filter would have saved real work.
-
-    With the range share known, the gate is that share against `event_ratio`. Without it (a
-    subquery, or a failed denominator), fall back to whether any skip index already pruned most of
-    the read, which means something else narrowed it and an event filter would not help much.
+    """With the range share known, gate on it. Without one (a subquery, or a failed denominator), a
+    skip index that already pruned most of the read means an event filter would not help much.
     """
     if range_share is not None:
         return range_share >= thresholds.event_ratio
