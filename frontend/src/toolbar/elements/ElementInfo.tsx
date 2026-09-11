@@ -1,20 +1,32 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlus } from '@posthog/icons'
+import { IconPlus, IconRewindPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ElementClickStats } from 'lib/components/heatmaps/ElementClickStats'
 
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { ActionStep } from '~/toolbar/actions/ActionStep'
+import { buildElementRecordingsFilters } from '~/toolbar/elements/elementRecordingsFilters'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { urls } from '~/toolbar/urls'
+import { joinWithUiHost } from '~/toolbar/utils'
+import { ReplayTabs } from '~/types'
 
 import { actionsTabLogic } from '../actions/actionsTabLogic'
 import { SelectorQualityWarning } from './SelectorQualityWarning'
 
 export function ElementInfo(): JSX.Element | null {
-    const { clickCount: totalClickCount, dateRange } = useValues(heatmapToolbarMenuLogic)
+    const {
+        clickCount: totalClickCount,
+        dateRange,
+        href,
+        wildcardHref,
+        commonFilters,
+    } = useValues(heatmapToolbarMenuLogic)
+    const { uiHost } = useValues(toolbarConfigLogic)
 
     const { activeMeta } = useValues(elementsLogic)
     const { createAction } = useActions(elementsLogic)
@@ -25,6 +37,16 @@ export function ElementInfo(): JSX.Element | null {
     }
 
     const { element, position, count, clickCount, rageclickCount, deadclickCount, actionStep, actions } = activeMeta
+
+    const recordingsUrl = actionStep?.selector
+        ? joinWithUiHost(
+              uiHost,
+              urls.replay(
+                  ReplayTabs.Home,
+                  buildElementRecordingsFilters(actionStep.selector, href, wildcardHref, commonFilters)
+              )
+          )
+        : null
 
     return (
         <>
@@ -73,14 +95,27 @@ export function ElementInfo(): JSX.Element | null {
                         Select element
                     </LemonButton>
                 ) : (
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        onClick={() => createAction(element)}
-                        icon={<IconPlus />}
-                    >
-                        Create a new action
-                    </LemonButton>
+                    <div className="flex flex-wrap gap-2">
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            onClick={() => createAction(element)}
+                            icon={<IconPlus />}
+                        >
+                            Create a new action
+                        </LemonButton>
+                        {recordingsUrl && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                to={recordingsUrl}
+                                targetBlank
+                                icon={<IconRewindPlay />}
+                            >
+                                View recordings
+                            </LemonButton>
+                        )}
+                    </div>
                 )}
             </div>
         </>
