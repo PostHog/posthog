@@ -89,6 +89,25 @@ function clipText(text: string, budget: number): string {
 }
 
 /**
+ * The text channel as a JSON value, when it carries one. `output_format: 'json'`,
+ * a tool that pins `outputFormat: 'json'`, and `exec --json` all return a
+ * serialized value the caller parses, so shortening has to leave JSON behind —
+ * clipping the string and appending a notice does not.
+ */
+function parseJsonText(text: string): Record<string, unknown> | unknown[] | undefined {
+    const first = text.trimStart()[0]
+    if (first !== '{' && first !== '[') {
+        return undefined
+    }
+    try {
+        const value: unknown = JSON.parse(text)
+        return value !== null && typeof value === 'object' ? (value as Record<string, unknown> | unknown[]) : undefined
+    } catch {
+        return undefined
+    }
+}
+
+/**
  * Keeps whole top-level entries while they fit, trims an oversized array to its
  * leading items, and skips anything still too large. Later entries are still
  * considered after a skip, so the short identity fields an agent navigates by
@@ -125,6 +144,41 @@ function projectRecord(
     return { projected, omitted, shortened }
 }
 
+/** `record` projected to the budget, with what it left out recorded inside the value. */
+function projectRecordWithNotice(
+    record: Record<string, unknown>,
+    maxChars: number,
+    notice: string
+): Record<string, unknown> {
+    const keys = Object.keys(record)
+    // Reserve the worst-case truncation entry, with every key named in both
+    // lists, so the projection plus its own bookkeeping stays inside the budget.
+    const reserve = entryChars(RESPONSE_TRUNCATION_KEY, { notice, shortenedFields: keys, omittedFields: keys })
+    const { projected, omitted, shortened } = projectRecord(record, Math.max(MIN_PROJECTION_CHARS, maxChars - reserve))
+    return {
+        ...projected,
+        [RESPONSE_TRUNCATION_KEY]: {
+            notice,
+            ...(shortened.length > 0 ? { shortenedFields: shortened } : {}),
+            ...(omitted.length > 0 ? { omittedFields: omitted } : {}),
+        },
+    }
+}
+
+/**
+ * Leading items of `items` within the budget, closed by the same sentinel element
+ * trace compaction appends to a shortened list. A list stays a list, so a caller
+ * that parses the value still reads rows where it read rows before.
+ */
+function projectArrayWithNotice(items: unknown[], maxChars: number, notice: string): unknown[] {
+    const sentinel = (omittedItems: number): Record<string, unknown> => ({
+        [RESPONSE_TRUNCATION_KEY]: { notice, omittedItems, totalItems: items.length },
+    })
+    const reserve = serializedChars(sentinel(items.length)) + 1
+    const { kept } = keepLeadingItems(items, Math.max(MIN_PROJECTION_CHARS, maxChars - reserve))
+    return [...kept, sentinel(items.length - kept.length)]
+}
+
 /**
  * Shorten `response` to `maxTokens` if it is larger. Returns the response
  * untouched when it fits, or when no budget is set for the client.
@@ -140,26 +194,15 @@ export function capResponseToClientBudget(response: ToolResultPayload, maxTokens
     let capped: ToolResultPayload
 
     const text = response.content.map((part) => part.text).join('')
-    if (response.structuredContent && text === STRUCTURED_CONTENT_ONLY_TEXT) {
-        const keys = Object.keys(response.structuredContent)
-        // Reserve the worst-case truncation entry, with every key named in both
-        // lists, so the projection plus its own bookkeeping stays inside the budget.
-        const reserve = entryChars(RESPONSE_TRUNCATION_KEY, { notice, shortenedFields: keys, omittedFields: keys })
-        const { projected, omitted, shortened } = projectRecord(
-            response.structuredContent,
-            Math.max(MIN_PROJECTION_CHARS, maxChars - reserve)
-        )
-        capped = {
-            ...response,
-            structuredContent: {
-                ...projected,
-                [RESPONSE_TRUNCATION_KEY]: {
-                    notice,
-                    ...(shortened.length > 0 ? { shortenedFields: shortened } : {}),
-                    ...(omitted.length > 0 ? { omittedFields: omitted } : {}),
-                },
-            },
-        }
+    const structuredContent = text === STRUCTURED_CONTENT_ONLY_TEXT ? response.structuredContent : undefined
+    const jsonValue = structuredContent ? undefined : parseJsonText(text)
+    if (structuredContent) {
+        capped = { ...response, structuredContent: projectRecordWithNotice(structuredContent, maxChars, notice) }
+    } else if (jsonValue !== undefined) {
+        const projected = Array.isArray(jsonValue)
+            ? projectArrayWithNotice(jsonValue, maxChars, notice)
+            : projectRecordWithNotice(jsonValue, maxChars, notice)
+        capped = { ...response, content: [{ type: 'text', text: JSON.stringify(projected) }] }
     } else {
         // The notice, plus the blank line separating it from the kept text.
         const budget = Math.max(MIN_PROJECTION_CHARS, maxChars - notice.length - 2)

@@ -1,13 +1,24 @@
 import { describe, expect, it } from 'vitest'
 
-import { STRUCTURED_CONTENT_ONLY_TEXT, estimateResponseTokens, type ToolResultPayload } from '@/lib/build-tool-result'
+import {
+    STRUCTURED_CONTENT_ONLY_TEXT,
+    buildToolResultPayload,
+    estimateResponseTokens,
+    type ToolResultPayload,
+} from '@/lib/build-tool-result'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { RESPONSE_TRUNCATION_KEY, capResponseToClientBudget } from '@/lib/response-budget'
+import { POSTHOG_META_KEY } from '@/tools/types'
 
 const CODEX_BUDGET = 9_000
 
 function textPayload(text: string): ToolResultPayload {
     return { content: [{ type: 'text', text }] }
+}
+
+/** Rows of the shape a query handler returns, wide enough to overflow any client budget. */
+function blobRows(count: number): Record<string, unknown>[] {
+    return Array.from({ length: count }, (_, i) => ({ id: i, blob: 'x'.repeat(200) }))
 }
 
 /** A tabular result of the shape `formatResponse` emits, one row per line. */
@@ -64,11 +75,64 @@ describe('capResponseToClientBudget', () => {
         }
     })
 
+    // `output_format: 'json'` and `exec --json` return a serialized value the caller
+    // parses, so a shortened one has to still parse. Clipping the text and appending
+    // the notice left a JSON prefix followed by prose.
+    it('keeps an oversized JSON object response parseable and says what it left out', () => {
+        const payload = { results: blobRows(20_000), _posthogUrl: 'https://us.posthog.com/project/2/insights/abc' }
+
+        const capped = capResponseToClientBudget(textPayload(JSON.stringify(payload)), CODEX_BUDGET)
+
+        expect(estimateResponseTokens(capped.response)).toBeLessThanOrEqual(CODEX_BUDGET)
+        const parsed = JSON.parse(capped.response.content[0]!.text)
+        expect(parsed._posthogUrl).toBe(payload._posthogUrl)
+        expect(parsed.results.length).toBeGreaterThan(0)
+        expect(parsed.results.length).toBeLessThan(20_000)
+        expect(parsed[RESPONSE_TRUNCATION_KEY].notice).toContain('Result shortened to fit this client')
+    })
+
+    it('keeps an oversized JSON array response a list, closed by a truncation sentinel', () => {
+        const all = blobRows(20_000)
+
+        const capped = capResponseToClientBudget(textPayload(JSON.stringify(all)), CODEX_BUDGET)
+
+        expect(estimateResponseTokens(capped.response)).toBeLessThanOrEqual(CODEX_BUDGET)
+        const parsed = JSON.parse(capped.response.content[0]!.text)
+        expect(Array.isArray(parsed)).toBe(true)
+        expect(parsed[0]).toEqual(all[0])
+        expect(parsed.at(-1)[RESPONSE_TRUNCATION_KEY]).toMatchObject({ totalItems: 20_000 })
+        expect(parsed.length).toBeLessThan(20_000)
+    })
+
+    // The builder picks the JSON text channel from the caller's `output_format` or the
+    // tool's own metadata, so the cap has to keep both parseable end to end.
+    it.each(['the caller asks for json', 'the tool pins json'] as const)(
+        'keeps a built response parseable when %s',
+        (selection) => {
+            const built = buildToolResultPayload({
+                handlerResult: {
+                    results: blobRows(20_000),
+                    _posthogUrl: 'https://us.posthog.com/project/2/insights/abc',
+                },
+                toolName: 'query-web-stats',
+                params: selection === 'the caller asks for json' ? { output_format: 'json' } : {},
+                ...(selection === 'the tool pins json'
+                    ? { toolMeta: { [POSTHOG_META_KEY]: { outputFormat: 'json' as const } } }
+                    : {}),
+            })
+
+            const capped = capResponseToClientBudget(built, CODEX_BUDGET)
+
+            expect(() => JSON.parse(capped.response.content[0]!.text)).not.toThrow()
+            expect(capped.overflowTokens).toBeGreaterThan(CODEX_BUDGET)
+        }
+    )
+
     it('projects an oversized structuredContent payload to valid JSON that keeps the pointer fields', () => {
         const response: ToolResultPayload = {
             content: [{ type: 'text', text: STRUCTURED_CONTENT_ONLY_TEXT }],
             structuredContent: {
-                results: Array.from({ length: 20_000 }, (_, i) => ({ id: i, blob: 'x'.repeat(200) })),
+                results: blobRows(20_000),
                 _posthogUrl: 'https://us.posthog.com/project/2/insights/abc',
             },
         }
