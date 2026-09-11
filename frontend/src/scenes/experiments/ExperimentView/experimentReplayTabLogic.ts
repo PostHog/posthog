@@ -701,6 +701,10 @@ export interface experimentReplayTabLogicMeta {
             effectiveVariantKey: string | null,
             metricOptions: ExperimentReplayMetricOption[]
         ) => ExperimentSessionBucketRequest | null
+        scopeLockEvidence: (
+            sessionBucketRequest: ExperimentSessionBucketRequest | null,
+            sessionBucket: ExperimentSessionBucket | null
+        ) => ExperimentInSessionEvidence | null
         bucketSessionIds: (
             sessionBucketRequest: ExperimentSessionBucketRequest | null,
             sessionBucket: ExperimentSessionBucket | null,
