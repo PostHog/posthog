@@ -1,6 +1,6 @@
 import { DashboardTemplateStoredInsightTile } from '~/types'
 
-// Copied from the Website Metrics dashboard used to design the metric card experiment.
+// Mirrors the Website Metrics dashboard used to design the metric card experiment.
 export const WEBSITE_METRICS_METRIC_CARD_TILES: DashboardTemplateStoredInsightTile[] = [
     {
         type: 'INSIGHT',
@@ -256,7 +256,7 @@ export const WEBSITE_METRICS_METRIC_CARD_TILES: DashboardTemplateStoredInsightTi
                     showLegend: false,
                     hideWeekends: false,
                     decimalPlaces: 1,
-                    metricSummary: 'average',
+                    metricSummary: 'total',
                     legendPosition: 'bottom',
                     yAxisScaleType: 'linear',
                     showAnnotations: true,
@@ -522,7 +522,7 @@ export const WEBSITE_METRICS_METRIC_CARD_TILES: DashboardTemplateStoredInsightTi
         type: 'INSIGHT',
         name: 'Search engines vs AI',
         description:
-            'Sessions referred by search engines compared with sessions referred by AI assistants such as ChatGPT, Gemini, Perplexity and Claude.',
+            'Sessions that came from a search engine compared with sessions that came from an AI assistant, using the session channel type.',
         query: {
             kind: 'InsightVizNode',
             source: {
@@ -535,8 +535,10 @@ export const WEBSITE_METRICS_METRIC_CARD_TILES: DashboardTemplateStoredInsightTi
                         event: '$pageview',
                         properties: [
                             {
-                                key: "match(properties.$referring_domain, '^(www\\\\.)?google\\\\.[a-z.]+$|^(www\\\\.|cn\\\\.)?bing\\\\.com$|^duckduckgo\\\\.com$|^search\\\\.brave\\\\.com$|^search\\\\.yahoo\\\\.com$|^(www\\\\.)?ecosia\\\\.org$|^(www\\\\.)?yandex\\\\.[a-z]+$|^(www\\\\.)?baidu\\\\.com$')",
-                                type: 'hogql',
+                                key: '$channel_type',
+                                type: 'session',
+                                value: ['Organic Search', 'Paid Search'],
+                                operator: 'exact',
                             },
                         ],
                         custom_name: 'Search engines',
@@ -546,12 +548,7 @@ export const WEBSITE_METRICS_METRIC_CARD_TILES: DashboardTemplateStoredInsightTi
                         math: 'unique_session',
                         name: '$pageview',
                         event: '$pageview',
-                        properties: [
-                            {
-                                key: "match(properties.$referring_domain, '^(www\\\\.)?(chatgpt\\\\.com|chat\\\\.openai\\\\.com|perplexity\\\\.ai|claude\\\\.ai|gemini\\\\.google\\\\.com|copilot\\\\.microsoft\\\\.com|grok\\\\.com|chat\\\\.deepseek\\\\.com|chat\\\\.mistral\\\\.ai|meta\\\\.ai|you\\\\.com|poe\\\\.com|phind\\\\.com)$')",
-                                type: 'hogql',
-                            },
-                        ],
+                        properties: [{ key: '$channel_type', type: 'session', value: ['AI'], operator: 'exact' }],
                         custom_name: 'AI assistants',
                     },
                 ],
