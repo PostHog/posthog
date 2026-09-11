@@ -866,6 +866,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.instanceStaffUsers()]: [Scene.SystemStatus, 'instanceStaffUsers'],
     [urls.instanceKafkaInspector()]: [Scene.SystemStatus, 'instanceKafkaInspector'],
     [urls.instanceMetrics()]: [Scene.SystemStatus, 'instanceMetrics'],
+    [urls.instanceMetricsMigration()]: [Scene.SystemStatus, 'instanceMetricsMigration'],
     [urls.asyncMigrations()]: [Scene.AsyncMigrations, 'asyncMigrations'],
     [urls.asyncMigrationsFuture()]: [Scene.AsyncMigrations, 'asyncMigrationsFuture'],
     [urls.webScripts()]: [Scene.WebScripts, 'webScripts'],

@@ -76,7 +76,17 @@ class TestLoadGrafanaMetrics(APIBaseTest):
     def test_parses_committed_snapshot(self):
         payload = {
             "summary": {"coverage_pct": 50.0, "covered": 1, "grafana_metric_names": 2},
-            "dashboards": [{"title": "dash a", "covered_metrics": 1, "uncovered_metrics": 1, "coverage_pct": 50.0, "status": "partial", "metric_count": 2, "file": "a.json"}],
+            "dashboards": [
+                {
+                    "title": "dash a",
+                    "covered_metrics": 1,
+                    "uncovered_metrics": 1,
+                    "coverage_pct": 50.0,
+                    "status": "partial",
+                    "metric_count": 2,
+                    "file": "a.json",
+                }
+            ],
             "uncovered": [{"name": "missing_one", "dashboards": ["dash a"]}],
         }
         grafana_metrics, dashboard_metrics = load_grafana_metrics(payload)
@@ -86,7 +96,13 @@ class TestLoadGrafanaMetrics(APIBaseTest):
 
 class TestMergeLiveIngested(APIBaseTest):
     SNAPSHOT = {
-        "summary": {"grafana_metric_names": 2, "covered": 1, "uncovered": 1, "coverage_pct": 50.0, "posthog_ingested_names": 1},
+        "summary": {
+            "grafana_metric_names": 2,
+            "covered": 1,
+            "uncovered": 1,
+            "coverage_pct": 50.0,
+            "posthog_ingested_names": 1,
+        },
         "dashboards": [],
         "uncovered": [{"name": "missing_one", "dashboards": ["dash a"]}],
     }
@@ -118,7 +134,15 @@ class TestMetricsMigrationEndpoint(APIBaseTest):
             "dashboards_fully_covered": 0,
         },
         "dashboards": [
-            {"title": "dash a", "file": "a.json", "metric_count": 2, "covered_metrics": 1, "uncovered_metrics": 1, "coverage_pct": 50.0, "status": "partial"}
+            {
+                "title": "dash a",
+                "file": "a.json",
+                "metric_count": 2,
+                "covered_metrics": 1,
+                "uncovered_metrics": 1,
+                "coverage_pct": 50.0,
+                "status": "partial",
+            }
         ],
         "uncovered": [{"name": "missing_one", "dashboards": ["dash a"]}],
     }

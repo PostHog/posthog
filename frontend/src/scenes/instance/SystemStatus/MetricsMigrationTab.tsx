@@ -63,6 +63,7 @@ export function MetricsMigrationTab(): JSX.Element {
         },
         {
             title: 'Metrics covered',
+            dataIndex: 'covered_metrics',
             render: (_, dashboard) => `${dashboard.covered_metrics} / ${dashboard.metric_count}`,
             sorter: (a, b) => a.covered_metrics / a.metric_count - b.covered_metrics / b.metric_count,
         },

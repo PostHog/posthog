@@ -14,7 +14,7 @@ level) so the report logic can be unit-tested without the app stack.
 """
 
 import logging
-from typing import Any, Optional
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -107,8 +107,8 @@ def build_report(
 
 def load_snapshot() -> Optional[dict]:
     """Load the committed Grafana coverage snapshot, if present on this deploy."""
-    import json
     import os
+    import json
 
     path = os.environ.get(
         "GRAFANA_COVERAGE_SNAPSHOT",

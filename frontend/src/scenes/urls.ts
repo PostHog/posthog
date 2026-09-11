@@ -258,6 +258,7 @@ export const urls = {
     instanceKafkaInspector: (): string => '/instance/kafka_inspector',
     instanceSettings: (): string => '/instance/settings',
     instanceMetrics: (): string => `/instance/metrics`,
+    instanceMetricsMigration: (): string => `/instance/metrics_migration`,
     asyncMigrations: (): string => '/instance/async_migrations',
     asyncMigrationsFuture: (): string => '/instance/async_migrations/future',
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
