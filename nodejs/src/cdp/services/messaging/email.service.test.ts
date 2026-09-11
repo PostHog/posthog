@@ -1,6 +1,7 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
+import { randomUUID } from 'crypto'
 
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
@@ -913,6 +914,7 @@ describe('EmailService', () => {
     })
     describe('native email sending with maildev', () => {
         let invocation: CyclotronJobInvocationHogFunction
+        let recipient: string
         const mailDevAPI = new MailDevAPI()
         beforeEach(async () => {
             const actualFetch = jest.requireActual('~/common/utils/request').fetch as jest.Mock
@@ -935,31 +937,35 @@ describe('EmailService', () => {
             invocation.state.vmState = {
                 stack: [],
             } as any
-            invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
-            await mailDevAPI.clearEmails()
+            // MailDev is one inbox shared by all Jest workers. Each test uses its own recipient
+            // address, and reads back only the messages sent to it.
+            recipient = `maildev-${randomUUID()}@example.com`
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                to: { email: recipient, name: 'Test User' },
+            })
         })
         it('should send an email', async () => {
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-            await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
-            const emails = await mailDevAPI.getEmails()
-            expect(emails).toHaveLength(1)
+            await waitForExpect(async () => expect(mailDevAPI.getEmailsTo(recipient)).resolves.toHaveLength(1))
+            const emails = await mailDevAPI.getEmailsTo(recipient)
             expect(emails[0]).toMatchObject({
                 from: [{ address: 'test@posthog.com', name: 'Test User' }],
                 html: 'Test HTML',
                 subject: 'Test Subject',
                 text: 'Test Text',
-                to: [{ address: 'test@example.com', name: 'Test User' }],
+                to: [{ address: recipient, name: 'Test User' }],
             })
         })
         it('should include tracking code in the email with distinct_id', async () => {
             invocation.queueParameters = createEmailParams({
+                to: { email: recipient, name: 'Test User' },
                 html: '<body>Hi! <a href="https://example.com">Click me</a></body>',
             })
             await service.executeSendEmail(invocation)
-            await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
-            const emails = await mailDevAPI.getEmails()
-            expect(emails).toHaveLength(1)
+            await waitForExpect(async () => expect(mailDevAPI.getEmailsTo(recipient)).resolves.toHaveLength(1))
+            const emails = await mailDevAPI.getEmailsTo(recipient)
             // ph_id may be unsigned (base64url only) or signed (base64url + `.` + signature) depending on
             // ENCRYPTION_SALT_KEYS. Match the structure, not the exact value.
             expect(emails[0].html).toMatch(
