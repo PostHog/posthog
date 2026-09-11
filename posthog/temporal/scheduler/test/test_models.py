@@ -52,6 +52,7 @@ class TestTemporalSchedulerClaim(TestCase):
             "occurrence_hash": "a" * 64,
             "occurrence_key": "subscription:1:2026-09-10T10:00:00Z",
             "workflow_id": "process-subscription-1-2026-09-10T10:00:00Z",
+            "source_due_at": timezone.now(),
             "claim_token": uuid.uuid4(),
             "status": TemporalSchedulerClaim.Status.RESERVED,
             "lease_expires_at": timezone.now() + timedelta(minutes=5),
