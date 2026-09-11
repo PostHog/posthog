@@ -1,6 +1,11 @@
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
-import { EventsScanEstimate, PredicateIndexUsage, PredicateIndexVerdict } from '~/queries/schema/schema-general'
+import {
+    EventsScanEstimate,
+    PredicateIndexUsage,
+    PredicateIndexVerdict,
+    ScanEstimateTimeRange,
+} from '~/queries/schema/schema-general'
 
 // Above this many events a query on the default 60 second limit starts to time out on a busy cluster, so
 // the header switches to a warning. A round number on purpose: the estimate itself is only good to a few times.
@@ -29,7 +34,7 @@ export function summarizeFilters(predicates: PredicateIndexUsage[]): QueryScanSu
 export function summarizeScan(estimate: EventsScanEstimate): QueryScanSummary {
     const rows = humanFriendlyLargeNumber(estimate.rows)
     const range =
-        estimate.time_range === 'open'
+        estimate.time_range === ScanEstimateTimeRange.Open
             ? 'no date range, assuming a year'
             : estimate.days >= 2
               ? `${Math.round(estimate.days)} days`

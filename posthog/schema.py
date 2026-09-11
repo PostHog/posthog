@@ -245,6 +245,7 @@ from posthog.schema_enums import (
     RetentionReference as RetentionReference,
     RetentionType as RetentionType,
     Scale as Scale,
+    ScanEstimateTimeRange as ScanEstimateTimeRange,
     SessionAttributionGroupBy as SessionAttributionGroupBy,
     SessionsV2JoinMode as SessionsV2JoinMode,
     SessionTableVersion as SessionTableVersion,
@@ -282,7 +283,6 @@ from posthog.schema_enums import (
     TextMatching as TextMatching,
     Theme as Theme,
     TikTokAdsDefaultSources as TikTokAdsDefaultSources,
-    TimeRange as TimeRange,
     TimeUnitType as TimeUnitType,
     TimeWindowMode as TimeWindowMode,
     TraceOrderColumn as TraceOrderColumn,
@@ -5165,12 +5165,7 @@ class EventsScanEstimate(BaseModel):
         description=("Event names the estimate was narrowed to. Empty when the query reads every event."),
     )
     rows: int
-    time_range: TimeRange = Field(
-        ...,
-        description=(
-            "`bounded` when both ends of the timestamp range were understood, `open` when a default range was assumed."
-        ),
-    )
+    time_range: ScanEstimateTimeRange
 
 
 class ExperimentApiEventSource(BaseModel):

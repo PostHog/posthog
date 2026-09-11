@@ -23983,9 +23983,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "time_range": {
-                    "description": "`bounded` when both ends of the timestamp range were understood, `open` when a default range was assumed.",
-                    "enum": ["bounded", "open"],
-                    "type": "string"
+                    "$ref": "#/definitions/ScanEstimateTimeRange"
                 }
             },
             "required": ["rows", "days", "events", "time_range"],
@@ -50511,6 +50509,10 @@
             },
             "required": ["kind", "shortId"],
             "type": "object"
+        },
+        "ScanEstimateTimeRange": {
+            "enum": ["bounded", "open"],
+            "type": "string"
         },
         "ScatterChartSettings": {
             "additionalProperties": false,

@@ -1245,11 +1245,6 @@ class UrlMatching(Enum):
     NONE_TYPE_NONE = None
 
 
-class TimeRange(StrEnum):
-    BOUNDED = "bounded"
-    OPEN = "open"
-
-
 class MultipleVariantHandling(StrEnum):
     EXCLUDE = "exclude"
     FIRST_SEEN = "first_seen"
@@ -3955,6 +3950,11 @@ class RetentionType(StrEnum):
     RETENTION_RECURRING = "retention_recurring"
     RETENTION_FIRST_TIME = "retention_first_time"
     RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
+
+
+class ScanEstimateTimeRange(StrEnum):
+    BOUNDED = "bounded"
+    OPEN = "open"
 
 
 class XScale(StrEnum):
