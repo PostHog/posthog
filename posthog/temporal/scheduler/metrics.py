@@ -19,7 +19,7 @@ LOGGER = get_write_only_logger(__name__)
 
 
 class SchedulerMetrics:
-    def __init__(self, *, registry: CollectorRegistry = REGISTRY):
+    def __init__(self, *, registry: CollectorRegistry):
         self._payload_bytes = Histogram(
             "posthog_temporal_scheduler_payload_bytes",
             "Encoded Temporal scheduler payload size in bytes.",
@@ -143,7 +143,8 @@ class SchedulerMetrics:
         self._backlog_snapshot_unixtime.labels(scheduler=scheduler, region=region).set(time.time())
 
 
-DEFAULT_SCHEDULER_METRICS = SchedulerMetrics()
+# Reuse this instance process-wide: a second one on the same registry fails duplicate registration.
+DEFAULT_SCHEDULER_METRICS = SchedulerMetrics(registry=REGISTRY)
 
 
 def _should_record() -> bool:
