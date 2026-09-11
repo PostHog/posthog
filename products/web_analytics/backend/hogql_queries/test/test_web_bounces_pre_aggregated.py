@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
 
 from posthog.schema import DateRange, HogQLQueryModifiers, SessionTableVersion, WebOverviewQuery
@@ -15,7 +15,7 @@ from products.web_analytics.backend.hogql_queries.web_overview import WebOvervie
 
 class TestWebBouncesPreAggregated(WebAnalyticsPreAggregatedTestBase):
     def _setup_test_data(self):
-        with freeze_time("2024-01-01T09:00:00Z"):
+        with time_machine.travel("2024-01-01T09:00:00Z", tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["anon1"])
             _create_person(team_id=self.team.pk, distinct_ids=["user1"])
             _create_person(team_id=self.team.pk, distinct_ids=["user2"])

@@ -45,6 +45,7 @@ export function ConfidenceLevelInput(): JSX.Element {
                     setLocalValue(numValue)
                     debouncedUpdate(numValue)
                 }}
+                onBlur={() => debouncedUpdate.flush()}
                 min={0}
                 max={100}
                 step={1}

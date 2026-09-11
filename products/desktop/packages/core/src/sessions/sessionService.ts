@@ -38,6 +38,7 @@ import {
   isJsonRpcResponse,
   isPersistedOptionSupported,
   isRateLimitError,
+  isTranscriptNeutralNotificationMethod,
   isTransientUpstreamError,
   isTurnEndedWithoutResponseError,
   leadingSlashCommand,
@@ -68,7 +69,10 @@ import {
 } from "@posthog/shared/domain-types";
 import type { SendCommandOutput } from "../cloud-task/schemas";
 import type { CommentTarget } from "../comments/anchors";
-import type { AgentSessionNotification } from "../notification/agentSessionNotifications";
+import type {
+  AgentSessionNotification,
+  AgentSessionNotificationTrigger,
+} from "../notification/agentSessionNotifications";
 import { extractPostHogObjectReferences } from "../posthog-objects/references";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
 import {
@@ -132,6 +136,10 @@ import {
 import { selectSessionsToEvict } from "./sessionEviction";
 import { createBaseSession } from "./sessionFactory";
 import { type ParsedSessionLogs, parseSessionLogContent } from "./sessionLogs";
+import {
+  readSessionStartupPhase,
+  type SessionStartupPhase,
+} from "./sessionStartup";
 
 const LOCAL_SESSION_RECONNECT_ATTEMPTS = 3;
 const LOCAL_SESSION_RECONNECT_BACKOFF = {
@@ -360,7 +368,12 @@ export interface ISessionStore {
   setSession(session: AgentSession): void;
   removeSession(taskRunId: string): void;
   setTaskStarting?(taskId: string, runId?: string): void;
-  clearTaskStarting?(taskId: string): void;
+  clearTaskStarting?(taskId: string, runId?: string): void;
+  setTaskStartupPhase?(
+    taskId: string,
+    runId: string,
+    phase: SessionStartupPhase,
+  ): void;
   updateSession(taskRunId: string, updates: Partial<AgentSession>): void;
   appendEvents(
     taskRunId: string,
@@ -1485,6 +1498,14 @@ function isSessionPromptEvent(event: AcpMessage): boolean {
   );
 }
 
+/** Matches SessionLogWriter, which keeps one chunk buffer across these. */
+function isTranscriptNeutralEvent(event: AcpMessage): boolean {
+  return (
+    isJsonRpcNotification(event.message) &&
+    isTranscriptNeutralNotificationMethod(event.message.method)
+  );
+}
+
 function finishAgentMessageChunkRun(position: AgentMessagePosition): void {
   if (!position.chunkRunActive) return;
   position.messageIndex += 1;
@@ -1503,6 +1524,7 @@ function discardChunksSupersededByHydratedMessages(
   };
   for (const event of hydratedTurn.events) {
     if (isSessionPromptEvent(event)) continue;
+    if (isTranscriptNeutralEvent(event)) continue;
     const updateKind = agentMessageUpdateKind(event);
     if (updateKind === "ignored") continue;
     if (updateKind === "chunk") {
@@ -1539,6 +1561,9 @@ function discardChunksSupersededByHydratedMessages(
     let keep = true;
     if (isSessionPromptEvent(event)) {
       discardChunkRun = false;
+    } else if (isTranscriptNeutralEvent(event)) {
+      // The writer's chunk buffer stays open across these, so the live
+      // position must not advance either.
     } else {
       const updateKind = agentMessageUpdateKind(event);
       if (updateKind === "chunk") {
@@ -2231,10 +2256,12 @@ export class SessionService {
       session.editingQueuedId = previous.editingQueuedId;
       session.isPromptPending = previous.isPromptPending;
       session.promptStartedAt = previous.promptStartedAt;
+      session.currentPromptId = previous.currentPromptId;
       session.pausedDurationMs = previous.pausedDurationMs;
     }
 
     this.d.store.setSession(session);
+    this.updatePromptStateFromEvents(taskRunId, session.events);
     this.subscribeToChannel(taskRunId);
 
     try {
@@ -2673,28 +2700,51 @@ export class SessionService {
       claude: modelAccess?.claude ?? settingsClaudeModelAccess,
     };
     const preferredModel = model ?? this.d.DEFAULT_GATEWAY_MODEL;
-    const result = await this.d.trpc.agent.start.mutate({
-      taskId,
-      taskRunId: taskRun.id,
-      repoPath,
-      apiHost: auth.apiHost,
-      projectId: auth.projectId,
-      permissionMode: executionMode,
-      adapter,
-      codexModelAccess: resolvedModelAccess.codex,
-      claudeModelAccess: resolvedModelAccess.claude,
-      customInstructions: startCustomInstructions || undefined,
-      rtkEnabled: rtkEnabledLocal,
-      spokenNarration: spokenNarrationEnabled === true,
-      bedrockGatewayVariant,
-      effort: effortLevelSchema.safeParse(reasoningLevel).success
-        ? (reasoningLevel as EffortLevel)
-        : undefined,
-      contextWindow,
-      fastMode,
-      model: preferredModel,
-      importedSessionId,
-    });
+    this.d.store.setTaskStarting?.(taskId, taskRun.id);
+    const startupSubscription = this.d.trpc.agent.onSessionEvent.subscribe(
+      { taskRunId: taskRun.id },
+      {
+        onData: (event) => {
+          const phase = readSessionStartupPhase(event);
+          if (phase)
+            this.d.store.setTaskStartupPhase?.(taskId, taskRun.id, phase);
+        },
+        onError: () => {
+          this.d.log.warn("Startup progress is unavailable", {
+            taskId,
+            taskRunId: taskRun.id,
+          });
+        },
+      },
+    );
+    const result = await this.d.trpc.agent.start
+      .mutate({
+        taskId,
+        taskRunId: taskRun.id,
+        repoPath,
+        apiHost: auth.apiHost,
+        projectId: auth.projectId,
+        permissionMode: executionMode,
+        adapter,
+        codexModelAccess: resolvedModelAccess.codex,
+        claudeModelAccess: resolvedModelAccess.claude,
+        customInstructions: startCustomInstructions || undefined,
+        rtkEnabled: rtkEnabledLocal,
+        spokenNarration: spokenNarrationEnabled === true,
+        bedrockGatewayVariant,
+        effort: effortLevelSchema.safeParse(reasoningLevel).success
+          ? (reasoningLevel as EffortLevel)
+          : undefined,
+        contextWindow,
+        fastMode,
+        model: preferredModel,
+        importedSessionId,
+      })
+      .catch((error) => {
+        this.d.store.clearTaskStarting?.(taskId, taskRun.id);
+        throw error;
+      })
+      .finally(() => startupSubscription.unsubscribe());
 
     const session = createBaseSession(taskRun.id, taskId, taskTitle);
     session.channel = result.channel;
@@ -2750,6 +2800,7 @@ export class SessionService {
     }
 
     this.d.store.setSession(session);
+    this.d.store.clearTaskStarting?.(taskId, taskRun.id);
     this.subscribeToChannel(taskRun.id);
 
     this.d.track(ANALYTICS_EVENTS.TASK_RUN_STARTED, {
@@ -3522,6 +3573,7 @@ export class SessionService {
                 taskRunId,
                 session,
                 stopReason,
+                "cloud_turn_complete",
                 turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
               );
             }
@@ -3614,12 +3666,18 @@ export class SessionService {
     taskRunId: string,
     session: NotifiableAgentSession,
     stopReason: string,
+    trigger: Extract<
+      AgentSessionNotificationTrigger,
+      "local_prompt_response" | "cloud_turn_complete"
+    >,
     durationMs?: number,
   ): void {
     this.d.notifyAgentSession({
       kind: "turn_completed",
+      trigger,
       taskTitle: session.taskTitle,
       taskId: session.taskId,
+      taskRunId,
       stopReason,
       durationMs,
       isTaskAuthor: session.isTaskAuthor,
@@ -3630,11 +3688,17 @@ export class SessionService {
   private notifyNeedsInput(
     taskRunId: string,
     session: NotifiableAgentSession,
+    trigger: Extract<
+      AgentSessionNotificationTrigger,
+      "local_permission_request" | "cloud_permission_request"
+    >,
   ): void {
     this.d.notifyAgentSession({
       kind: "needs_input",
+      trigger,
       taskTitle: session.taskTitle,
       taskId: session.taskId,
+      taskRunId,
       isTaskAuthor: session.isTaskAuthor,
       agentSpoke: this.agentSpokeSinceTurnStarted(
         taskRunId,
@@ -3714,6 +3778,7 @@ export class SessionService {
           taskRunId,
           session,
           stopReason,
+          "local_prompt_response",
           turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
         );
       }
@@ -3959,7 +4024,7 @@ export class SessionService {
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
     this.d.taskViewedApi.markActivity(session.taskId);
-    this.notifyNeedsInput(taskRunId, session);
+    this.notifyNeedsInput(taskRunId, session, "local_permission_request");
   }
 
   private handleCloudPermissionRequest(
@@ -4016,7 +4081,7 @@ export class SessionService {
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
     this.d.taskViewedApi.markActivity(session.taskId);
-    this.notifyNeedsInput(taskRunId, session);
+    this.notifyNeedsInput(taskRunId, session, "cloud_permission_request");
   }
 
   private surfacePersistedPendingPermissions(
@@ -6189,34 +6254,49 @@ export class SessionService {
         codexModelAccess,
         claudeModelAccess,
       } = session;
-      await this.teardownSession(session.taskRunId);
-      const authStatus = await this.getAuthCredentialsStatus();
-      if (authStatus.kind === "restoring") {
-        throw new Error("Authentication is still restoring. Please wait.");
-      }
-      if (authStatus.kind !== "ready") {
-        throw new Error(
-          "Unable to reach server. Please check your connection.",
+      try {
+        const authStatus = await this.getAuthCredentialsStatus();
+        if (authStatus.kind === "restoring") {
+          throw new Error("Authentication is still restoring. Please wait.");
+        }
+        if (authStatus.kind !== "ready") {
+          throw new Error(
+            "Unable to reach server. Please check your connection.",
+          );
+        }
+        await this.teardownSession(session.taskRunId);
+        await this.createNewLocalSession(
+          taskId,
+          taskTitle,
+          repoPath,
+          authStatus.auth,
+          initialPrompt,
+          executionMode,
+          adapter,
+          model,
+          reasoningLevel,
+          undefined,
+          contextWindow,
+          fastMode,
+          { codex: codexModelAccess, claude: claudeModelAccess },
         );
+      } catch (error) {
+        const recoverySession =
+          this.d.store.getSessionByTaskId(taskId) ?? session;
+        this.d.store.setSession({
+          ...recoverySession,
+          status: "error",
+          errorTitle: "Failed to connect",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        this.localRepoPaths.set(taskId, repoPath);
+        throw error;
       }
-      await this.createNewLocalSession(
-        taskId,
-        taskTitle,
-        repoPath,
-        authStatus.auth,
-        initialPrompt,
-        executionMode,
-        adapter,
-        model,
-        reasoningLevel,
-        undefined,
-        contextWindow,
-        fastMode,
-        { codex: codexModelAccess, claude: claudeModelAccess },
-      );
       return;
     }
-    await this.reconnectInPlace(taskId, repoPath);
+    if (!(await this.reconnectInPlace(taskId, repoPath))) {
+      throw new Error("Failed to reconnect to session. Please try again.");
+    }
   }
 
   /**
@@ -6232,19 +6312,20 @@ export class SessionService {
   private async runHasConversationHistory(
     session: AgentSession,
   ): Promise<boolean> {
-    const isPromptEcho = (event: AcpMessage): boolean =>
-      isJsonRpcRequest(event.message) &&
-      event.message.method === "session/prompt";
-    if (session.events.some((event) => !isPromptEcho(event))) {
+    const isConversationEvent = (event: AcpMessage): boolean =>
+      !readSessionStartupPhase(event) &&
+      !(
+        isJsonRpcRequest(event.message) &&
+        event.message.method === "session/prompt"
+      );
+    if (session.events.some(isConversationEvent)) {
       return true;
     }
     const { rawEntries } = await this.fetchSessionLogs(
       session.logUrl,
       session.taskRunId,
     );
-    return convertStoredEntriesToEvents(rawEntries).some(
-      (event) => !isPromptEcho(event),
-    );
+    return convertStoredEntriesToEvents(rawEntries).some(isConversationEvent);
   }
 
   /**

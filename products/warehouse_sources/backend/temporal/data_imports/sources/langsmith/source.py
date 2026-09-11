@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -22,8 +22,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
     DEFAULT_BASE_URL,
+    PAGINATION_TOO_LARGE_ERROR,
     REPEATED_CURSOR_ERROR,
     RESPONSE_TOO_LARGE_ERROR,
+    RETRYABLE_API_ERROR,
     RUNS_PAGE_TOO_LARGE_ERROR,
     LangSmithResumeConfig,
     langsmith_source,
@@ -34,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     LANGSMITH_ENDPOINTS,
+    RUNS_SELECT_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -108,7 +111,29 @@ Leave the **Host** field blank for the US cloud (`api.smith.langchain.com`). Set
             "403 Client Error": "Your LangSmith API key does not have access to this workspace. Check the key's workspace scope, then reconnect.",
             REPEATED_CURSOR_ERROR: "LangSmith kept returning the same pagination cursor, so the import was stopped to avoid looping. This usually means the host is misconfigured. Check the Host field, then reconnect.",
             RESPONSE_TOO_LARGE_ERROR: "A page of data from the LangSmith API exceeded 256 MB. This usually means individual records contain very large inputs or outputs. Contact PostHog support for next steps.",
+            PAGINATION_TOO_LARGE_ERROR: "The LangSmith API returned more pagination data than PostHog can accept, so the import was stopped. This usually means the host is misconfigured. Check the Host field, then reconnect.",
             RUNS_PAGE_TOO_LARGE_ERROR: "A single LangSmith trace was too large to import, so the runs sync stopped. This usually means one trace has an unusually large input or output. Contact support so we can help unblock the sync.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch_page` already retries a 429/5xx (the RETRYABLE_API_ERROR sentinel), a dropped
+        # connection, and a read timeout up to 5 attempts. Once that budget exhausts, Temporal
+        # retries the whole activity from the saved pagination checkpoint, so the failure is
+        # transient and self-recovering. The host is customer-controlled (self-hosted LangSmith),
+        # so match only the stable, host-independent parts of the message.
+        return {
+            RETRYABLE_API_ERROR,
+            # A read timeout, plus the wrapper urllib3 puts around one it retried itself, which
+            # leaves the timeout nested inside as the cause.
+            "Read timed out",
+            "Max retries exceeded with url",
+            # A dropped connection arrives without that wrapper in both places it can happen. The
+            # shared retry policy retries GET/HEAD/OPTIONS only, so urllib3 re-raises the drop bare
+            # on the runs/query POST and requests reports "Connection aborted". A drop after the
+            # headers, while `_read_capped_body` streams the body, is past the retry path already
+            # and reports "Connection broken".
+            "Connection aborted",
+            "Connection broken",
         }
 
     def get_schemas(
@@ -130,6 +155,13 @@ Leave the **Host** field blank for the US cloud (`api.smith.langchain.com`). Set
                 return "Tracing projects (called sessions in the LangSmith API)"
             return None
 
+        def _schema_metadata(endpoint: str) -> dict[str, Any] | None:
+            # Only runs has a fixed field list, so only runs can fill the column picker before it
+            # has ever synced. Every other endpoint returns whatever fields the API sends.
+            if endpoint != "runs":
+                return None
+            return {"columns": [{"name": name} for name in RUNS_SELECT_FIELDS]}
+
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = LANGSMITH_ENDPOINTS[endpoint]
             supports_incremental = endpoint_config.window_param is not None and bool(INCREMENTAL_FIELDS.get(endpoint))
@@ -140,6 +172,7 @@ Leave the **Host** field blank for the US cloud (`api.smith.langchain.com`). Set
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 detected_primary_keys=endpoint_config.primary_keys,
                 description=_description(endpoint),
+                schema_metadata=_schema_metadata(endpoint),
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
@@ -177,4 +210,7 @@ Leave the **Host** field blank for the US cloud (`api.smith.langchain.com`). Set
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            # The generic projection drops unselected columns after the fetch, which is too late for
+            # the response cap, so the runs endpoint also narrows its server-side `select`.
+            enabled_columns=inputs.enabled_columns,
         )

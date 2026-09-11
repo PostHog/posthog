@@ -201,6 +201,7 @@ type SceneMainTitleProps = {
      * @default false
      */
     actions?: JSX.Element
+    hideProductSetupButton?: boolean
     /**
      * If provided, the back button will be forced to this breadcrumb
      * @default undefined
@@ -246,6 +247,7 @@ export function SceneTitleSection({
     noBorder = false,
     noPadding = false,
     actions,
+    hideProductSetupButton = false,
     forceBackTo,
     className,
     onGenerateMetadata,
@@ -267,7 +269,7 @@ export function SceneTitleSection({
     // Product auto-selection is handled by SceneContent via globalSetupLogic
     const effectiveActions = (
         <>
-            <ProductSetupButton />
+            {!hideProductSetupButton && <ProductSetupButton />}
             {actions}
         </>
     )

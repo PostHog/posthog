@@ -64,8 +64,8 @@ class TestCloudflareSource:
         "mock_return, expected_valid, expected_substring",
         [
             ((True, 200), True, None),
-            ((False, 401), False, "Invalid Cloudflare API token"),
-            ((False, 403), False, "Invalid Cloudflare API token"),
+            ((False, 401), False, "was rejected"),
+            ((False, 403), False, "was rejected"),
             ((False, None), False, "Couldn't reach Cloudflare"),
             ((False, 500), False, "Couldn't reach Cloudflare"),
             ((False, 429), False, "Couldn't reach Cloudflare"),

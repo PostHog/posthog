@@ -94,6 +94,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
     '/alerts': ['Alerts', 'alerts'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
+    '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
     '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
@@ -197,6 +198,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
     '/mcp-analytics/missing-capabilities': ['MCPAnalytics', 'mcpAnalyticsMissingCapabilities'],
     '/mcp-analytics/notifications': ['MCPAnalytics', 'mcpAnalyticsNotifications'],
+    '/mcp-registry': ['MCPRegistry', 'mcpRegistry'],
     '/mcp-servers/server/:id': ['McpGatewayServer', 'mcpGatewayServer'],
     '/mcp-servers/agent/:id': ['McpGatewayAgent', 'mcpGatewayAgent'],
     '/mcp-servers/member/:id': ['McpGatewayMember', 'mcpGatewayMember'],
@@ -259,10 +261,12 @@ export const productRoutes: Record<string, [string, string]> = {
         'VisualReviewSnapshotHistory',
         'visualReviewSnapshotHistory',
     ],
+    '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
     '/heatmaps': ['Heatmaps', 'heatmaps'],
     '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
     '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
     '/heatmaps/:id': ['Heatmap', 'heatmap'],
+    '/wizard/runs': ['WizardRuns', 'wizardRuns'],
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
@@ -560,6 +564,7 @@ export const productConfiguration: Record<string, any> = {
         description:
             'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
     },
+    BusinessKnowledgeSettings: { name: 'Business knowledge settings', projectBased: true, iconType: 'conversations' },
     Transformations: {
         projectBased: true,
         name: 'Transformations',
@@ -825,6 +830,11 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'mcp_analytics',
     },
+    MCPRegistry: {
+        name: 'MCP registry',
+        projectBased: true,
+        description: 'Find an MCP server for a task, ranked by whether it answers and how well it works.',
+    },
     McpGateway: {
         projectBased: true,
         name: 'MCP servers',
@@ -1001,6 +1011,13 @@ export const productConfiguration: Record<string, any> = {
     Heatmap: { name: 'Heatmap', projectBased: true, iconType: 'heatmap' },
     HeatmapNew: { name: 'New heatmap', projectBased: true, iconType: 'heatmap' },
     HeatmapRecording: { name: 'Heatmap recording', projectBased: true, iconType: 'heatmap' },
+    WizardRuns: {
+        projectBased: true,
+        name: 'Wizard runs',
+        description: 'Run the setup agent in the cloud, then review the changes it produces.',
+        layout: 'app-container',
+        iconType: 'llm_prompts',
+    },
     Workflows: {
         name: 'Workflows',
         iconType: 'workflows',
@@ -1099,6 +1116,7 @@ export const productUrls = {
     alert: (alertId: string): string => `/alerts?alert_type=insights&alert_id=${alertId}`,
     alerts: (): string => '/alerts',
     businessKnowledge: (): string => '/business-knowledge',
+    businessKnowledgeSettings: (): string => '/business-knowledge/settings',
     transformations: (): string => '/transformations',
     eventFiltering: (): string => '/event-filtering',
     cohort: (id: string | number): string => `/cohorts/${id}`,
@@ -1355,6 +1373,7 @@ export const productUrls = {
     mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
     mcpAnalyticsMissingCapabilities: (): string => '/mcp-analytics/missing-capabilities',
     mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
+    mcpRegistry: (): string => '/mcp-registry',
     mcpGateway: (): string => '/mcp-servers',
     mcpGatewayTab: (tab: string): string => `/mcp-servers/${tab}`,
     mcpGatewayServer: (id: string, scope?: string): string =>
@@ -1546,6 +1565,7 @@ export const productUrls = {
     webAnalyticsHealth: (): string => `/web/health`,
     webAnalyticsLive: (): string => `/web/live`,
     webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
+    webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmapNew: (params?: string): string =>
@@ -1553,6 +1573,7 @@ export const productUrls = {
     heatmapRecording: (params?: string): string =>
         `/heatmaps/recording${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmap: (id: string | number): string => `/heatmaps/${id}`,
+    wizardRuns: (): string => '/wizard/runs',
     workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
@@ -1932,6 +1953,7 @@ export type ProductTreePath =
     | 'Visual review'
     | 'Web analytics'
     | 'Web scripts'
+    | 'Wizard'
     | 'Workflows'
 
 /** This const is auto-generated, as is the whole file */
@@ -1974,7 +1996,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
         flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
         sceneKey: 'BusinessKnowledge',
-        sceneKeys: ['BusinessKnowledge'],
+        sceneKeys: ['BusinessKnowledge', 'BusinessKnowledgeSettings'],
     },
     {
         path: 'Clusters',
@@ -2684,6 +2706,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['WebScripts'],
     },
     {
+        path: 'Wizard',
+        intents: [],
+        category: ProductItemCategory.TOOLS,
+        type: 'wizard',
+        iconType: 'llm_prompts' as FileSystemIconType,
+        href: '/wizard/runs',
+        flag: FEATURE_FLAGS.WIZARD_UI_ENABLED,
+        sceneKey: 'WizardRuns',
+        sceneKeys: ['WizardRuns'],
+    },
+    {
         path: 'Workflows',
         intents: [ProductKey.WORKFLOWS],
         href: urls.workflows(),
@@ -2719,14 +2752,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.annotations(),
         sceneKey: 'Annotations',
         sceneKeys: ['Annotations'],
-    },
-    {
-        path: 'Comments',
-        category: 'Metadata',
-        iconType: 'comment',
-        href: urls.comments(),
-        sceneKey: 'Comments',
-        sceneKeys: ['Comments'],
     },
     {
         path: 'Core events',
