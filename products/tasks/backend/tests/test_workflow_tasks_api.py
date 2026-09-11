@@ -20,6 +20,7 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
@@ -30,7 +31,7 @@ from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
 )
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Channel, Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
 from products.workflows.backend.api.workflow_tasks import WorkflowTaskCreateSerializer
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
@@ -126,6 +127,31 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # shared with the project.
         assert task.mcp_builtin_agent_key == "workflow"
         assert task.mcp_gateway_server_allowlist == []
+
+    @parameterized.expand(
+        [
+            ("bare id", Channel.ChannelType.PUBLIC, "{id}", True),
+            ("id with the space name after a pipe", Channel.ChannelType.PUBLIC, "{id}|growth", True),
+            ("private space the owner is not in", Channel.ChannelType.PRIVATE, "{id}", False),
+            ("space that does not exist", None, "0198c9f1-bbbb-0000-0000-000000000001", False),
+            ("not an id at all", None, "growth", False),
+        ]
+    )
+    def test_files_the_task_in_the_named_space_only_when_the_owner_can_see_it(
+        self, _name: str, channel_type: str | None, reference: str, expect_filed: bool
+    ) -> None:
+        with team_scope(self.team.id):
+            channel = (
+                Channel.objects.create(team=self.team, name="growth", channel_type=channel_type)
+                if channel_type is not None
+                else None
+            )
+
+        response = self._post({"channel": reference.format(id=channel.id) if channel else reference})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+        assert task.channel_id == (channel.id if expect_filed else None)
 
     @parameterized.expand(
         [
