@@ -531,6 +531,32 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if gate_reason is not None:
                 raise ValidationError(gate_reason)
 
+    def _validate_re_enable_transition(
+        self,
+        attrs: dict,
+        existing: Subscription,
+        *,
+        target_type: str | None,
+        integration_id: int | None,
+        resource_type: str,
+    ) -> None:
+        error_message = validate_re_enable(target_type, integration_id)
+        if error_message:
+            raise ValidationError({"enabled": [error_message]})
+        if resource_type == Subscription.ResourceType.AI_PROMPT:
+            prompt_after = attrs.get("prompt") if "prompt" in attrs else existing.prompt
+            if existing.created_by is None:
+                raise ValidationError(
+                    {"enabled": ["Cannot re-enable AI subscription: the original creator is unavailable."]}
+                )
+            try:
+                sanitize_prompt(prompt_after)
+            except PromptRejectedError as exc:
+                raise ValidationError({"enabled": [f"Cannot re-enable AI subscription: prompt is invalid ({exc})."]})
+        if Subscription.project_next_delivery_date(instance=existing, **attrs) is None:
+            base = "Subscription schedule has reached its end date. Extend until_date or remove count"
+            raise ValidationError({"enabled": [f"{base} before re-enabling."]})
+
     def validate(self, attrs):
         request = self.context.get("request")
         # Re-run the free-tier cap on create AND on restore (deleted: true → false) —
@@ -630,25 +656,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # them again.
         is_re_enabling = self.instance is not None and attrs.get("enabled") is True and self.instance.enabled is False
         if is_re_enabling:
-            error_message = validate_re_enable(target_type, integration_id)
-            if error_message:
-                raise ValidationError({"enabled": [error_message]})
-            # AI subs auto-disable on PromptRejectedError (deleted creator, prompt now
-            # fails sanitization). The delivery path will just re-disable on the next
-            # tick unless the underlying cause is fixed by this PATCH.
-            if resource_type == Subscription.ResourceType.AI_PROMPT:
-                prompt_after = attrs.get("prompt") if "prompt" in attrs else (existing.prompt if existing else None)
-                created_by_after = existing.created_by if existing else None
-                if created_by_after is None:
-                    raise ValidationError(
-                        {"enabled": ["Cannot re-enable AI subscription: the original creator is unavailable."]}
-                    )
-                try:
-                    sanitize_prompt(prompt_after)
-                except PromptRejectedError as exc:
-                    raise ValidationError(
-                        {"enabled": [f"Cannot re-enable AI subscription: prompt is invalid ({exc})."]}
-                    )
+            assert existing is not None
+            self._validate_re_enable_transition(
+                attrs,
+                existing,
+                target_type=target_type,
+                integration_id=integration_id,
+                resource_type=resource_type,
+            )
 
         # Reject mutations that would land `next_delivery_date=None` — `enabled=True`
         # with a null next_delivery_date is invisible to the scheduler (the
@@ -656,14 +671,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # Three reachable paths: re-enable an exhausted sub, create one with a bad
         # rrule, or PATCH an active sub's schedule into exhaustion.
         check_schedule = (
-            is_re_enabling
-            or self.instance is None
+            self.instance is None
             or (self.instance is not None and self.instance.enabled and bool(Subscription.RRULE_FIELDS & attrs.keys()))
         )
         if check_schedule and Subscription.project_next_delivery_date(instance=self.instance, **attrs) is None:
             base = "Subscription schedule has reached its end date. Extend until_date or remove count"
-            if is_re_enabling:
-                raise ValidationError({"enabled": [f"{base} before re-enabling."]})
             if self.instance is None:
                 raise ValidationError({"start_date": [f"{base}."]})
             raise ValidationError(f"{base}.")
@@ -1030,6 +1042,20 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             # concurrent repoint cannot turn this update into delivery of restricted data.
             self._validate_target_access(validated_data, instance)
             self._validate_dashboard_export_subscription(validated_data, instance)
+            if instance.enabled is False and validated_data.get("enabled") is True:
+                target_type = validated_data.get("target_type") or instance.target_type
+                integration_id = (
+                    validated_data["integration_id"]
+                    if "integration_id" in validated_data
+                    else instance.integration_id
+                )
+                self._validate_re_enable_transition(
+                    validated_data,
+                    instance,
+                    target_type=target_type,
+                    integration_id=integration_id,
+                    resource_type=instance.resource_type,
+                )
             validated_data.pop("dashboard_export_insights", None)
             previous_target_value = instance.target_value
             was_disabled = instance.enabled is False
