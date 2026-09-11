@@ -3,6 +3,7 @@ import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
@@ -1029,6 +1030,49 @@ describe('Cyclotron V2', () => {
             expect(await countByStatus('running')).toBe(2)
         })
 
+        // The dequeue is a write-path UPDATE that contends for the head of the dequeue
+        // index with every other pod, so an empty queue must resolve on the read-only
+        // pre-check. Empty batches still have to reach the consumer — KEDA scales the
+        // workers off the utilization gauge they set.
+        it('does not run the dequeue update while the queue is empty', async () => {
+            const dequeueSpy = jest.spyOn(CyclotronV2Worker.prototype as any, 'dequeueJobs')
+            const worker = createWorker('empty-poll-precheck')
+            let emptyBatches = 0
+
+            // eslint-disable-next-line @typescript-eslint/require-await
+            await worker.connect(async (batch) => {
+                if (batch.length === 0) {
+                    emptyBatches++
+                }
+            })
+            await sleep(100)
+            await worker.stopConsuming()
+            const dequeueCalls = dequeueSpy.mock.calls.length
+            dequeueSpy.mockRestore()
+
+            expect(emptyBatches).toBeGreaterThan(0)
+            expect(dequeueCalls).toBe(0)
+        })
+
+        // The backoff grows the poll delay while a queue is idle, so an uncapped or
+        // never-reset delay would strand the next job for as long as the queue stayed quiet.
+        it('picks up a job enqueued once the empty-poll backoff has grown', async () => {
+            const queue = 'empty-poll-backoff'
+            const worker = createWorker(queue, { pollDelayMs: 10, maxPollDelayMs: 50 })
+            const processed: string[] = []
+
+            // eslint-disable-next-line @typescript-eslint/require-await
+            await worker.connect(async (batch) => {
+                processed.push(...batch.map((job) => job.id))
+            })
+            // Long enough for the backoff to saturate at maxPollDelayMs before the job lands.
+            await sleep(150)
+            const id = await manager.createJob({ teamId: 1, queueName: queue })
+
+            await waitForExpect(() => expect(processed).toContain(id), 2_000, 10)
+            await worker.stopConsuming()
+        })
+
         // The loop swallows errors and retries, so a queue whose batches all throw looks
         // exactly like an idle queue. The counter is the only externally visible signal.
         it.each([
@@ -1398,6 +1442,32 @@ describe('Cyclotron V2', () => {
                 // Critical: the SQL UPDATE never fires — rows stay 'available'.
                 expect(await countByStatus('available')).toBe(2)
                 expect(await countByStatus('running')).toBe(0)
+            })
+
+            // A throttle is not idleness: countWork found a backlog but the bucket granted zero.
+            // The skip must not deliver an empty batch even with includeEmptyBatches on, or
+            // observeConsumedBatch would set utilization to 0 and KEDA would read a backlogged
+            // queue as idle and scale the workers down. The denied claim stays visible on the
+            // rate-limiter metric instead.
+            it('does not report an empty batch while throttled with a backlog', async () => {
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+
+                // eslint-disable-next-line @typescript-eslint/require-await
+                const worker = createRateLimitedWorker(async () => ({ limit: 0, sleepMs: 5 }))
+                let emptyBatches = 0
+                // eslint-disable-next-line @typescript-eslint/require-await
+                await worker.connect(async (batch) => {
+                    if (batch.length === 0) {
+                        emptyBatches++
+                    }
+                })
+                await sleep(100)
+                await worker.stopConsuming()
+
+                expect(emptyBatches).toBe(0)
+                // The dequeue write still never fires while throttled.
+                expect(await countByStatus('available')).toBe(2)
             })
 
             it('falls back to batchMaxSize when the hook returns undefined', async () => {
