@@ -4,6 +4,7 @@ import {
   parseRepository,
 } from "@posthog/shared";
 import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
+import { createAppendOnlyTracker } from "../sessions/appendOnlyTracker";
 import {
   deriveTaskRunState,
   isTaskUnread,
@@ -23,23 +24,67 @@ export interface SessionStatusInput {
   lastStopReason?: string;
 }
 
+function readStopReason(event: AcpMessage): string | undefined {
+  const message = event.message;
+  if (!("result" in message)) return undefined;
+  const result = message.result;
+  if (
+    typeof result === "object" &&
+    result !== null &&
+    "stopReason" in result &&
+    typeof result.stopReason === "string"
+  ) {
+    return result.stopReason;
+  }
+  return undefined;
+}
+
 export function latestStopReason(
   events: readonly AcpMessage[],
 ): string | undefined {
   for (let index = events.length - 1; index >= 0; index--) {
-    const message = events[index].message;
-    if (!("result" in message)) continue;
-    const result = message.result;
-    if (
-      typeof result === "object" &&
-      result !== null &&
-      "stopReason" in result &&
-      typeof result.stopReason === "string"
-    ) {
-      return result.stopReason;
-    }
+    const stopReason = readStopReason(events[index]);
+    if (stopReason !== undefined) return stopReason;
   }
   return undefined;
+}
+
+function createStopReasonTracker() {
+  return createAppendOnlyTracker<
+    { stopReason: string | undefined },
+    string | undefined
+  >({
+    init: () => ({ stopReason: undefined }),
+    processEvent: (state, event) => {
+      const stopReason = readStopReason(event);
+      if (stopReason !== undefined) state.stopReason = stopReason;
+    },
+    getResult: (state) => state.stopReason,
+  });
+}
+
+// Weak keys let eviction release a transcript and its derived stop reason together.
+const stopReasonTrackers = new WeakMap<
+  AcpMessage,
+  ReturnType<typeof createStopReasonTracker>
+>();
+
+/**
+ * Same answer as {@link latestStopReason}, folded incrementally so a streaming
+ * transcript costs O(appended) per batch rather than a reverse scan that walks
+ * every event back to the previous turn boundary.
+ */
+export function trackLatestStopReason(
+  events: AcpMessage[] | undefined,
+): string | undefined {
+  const first = events?.[0];
+  if (!first || !events) return undefined;
+  let tracker = stopReasonTrackers.get(first);
+  if (!tracker) {
+    tracker = createStopReasonTracker();
+    stopReasonTrackers.set(first, tracker);
+  }
+  return tracker.update(events);
 }
 
 export function deriveStatus(

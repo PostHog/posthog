@@ -14,7 +14,7 @@ import {
   deriveStatus,
   deriveTaskCellStatus,
   getRepoName,
-  latestStopReason,
+  trackLatestStopReason,
 } from "./status";
 
 export type CommandCenterSession = Pick<
@@ -44,7 +44,7 @@ export function selectCommandCenterSession(
     agentIdleForRunId: session.agentIdleForRunId,
     lastStopReason: session.isPromptPending
       ? undefined
-      : latestStopReason(session.events),
+      : trackLatestStopReason(session.events),
   };
   projectedSessions.set(session, projected);
   return projected;

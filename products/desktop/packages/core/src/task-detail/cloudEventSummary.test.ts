@@ -66,7 +66,7 @@ describe("getCloudEventSummary", () => {
     expect(summaryA.toolCalls.has("branch-b")).toBe(false);
   });
 
-  it.each(["truncate", "replace", "boundary", "evict"])(
+  it.each(["truncate", "replace", "boundary", "reconcile", "evict"])(
     "rebuilds after %s",
     (change) => {
       const events = [text(1), tool(2, "read-1"), tool(3, "read-2")];
@@ -78,7 +78,11 @@ describe("getCloudEventSummary", () => {
             ? [text(1), tool(2, "new")]
             : change === "boundary"
               ? [...events.slice(0, 2), tool(3, "replacement")]
-              : [];
+              : // A log reconcile swaps a hydrated middle in while keeping the
+                // leading prefix and the live tail, holding the length equal.
+                change === "reconcile"
+                ? [events[0], tool(2, "hydrated"), events[2]]
+                : [];
       expect(getCloudEventSummary(changed)).toEqual(
         buildCloudEventSummary(changed),
       );
