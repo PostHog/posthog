@@ -52454,6 +52454,11 @@
                 "showMultipleYAxes": {
                     "type": "boolean"
                 },
+                "showSeriesNameWithBreakdown": {
+                    "default": false,
+                    "description": "Whether a breakdown series' label carries the series name as well as the breakdown value.",
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "type": "boolean"
                 },
@@ -55039,6 +55044,11 @@
                 },
                 "showPercentStackView": {
                     "default": false,
+                    "type": "boolean"
+                },
+                "showSeriesNameWithBreakdown": {
+                    "default": false,
+                    "description": "Whether a breakdown series' label carries the series name as well as the breakdown value, for example \"Signups: Chrome\". Has no effect when the query defines one series, because the prefix is then the same on every breakdown value.",
                     "type": "boolean"
                 },
                 "showTrendLines": {

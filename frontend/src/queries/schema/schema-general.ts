@@ -1671,6 +1671,11 @@ export type TrendsFilter = {
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
      * @default bottom */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
+    /** Whether a breakdown series' label carries the series name as well as the breakdown value,
+     * for example "Signups: Chrome". Has no effect when the query defines one series, because the
+     * prefix is then the same on every breakdown value.
+     * @default false */
+    showSeriesNameWithBreakdown?: boolean
     /** @default false */
     showAlertThresholdLines?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
@@ -1795,6 +1800,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'display',
     'showLegend',
     'legendPosition',
+    'showSeriesNameWithBreakdown',
     'breakdown_histogram_bin_count',
     'aggregationAxisFormat',
     'aggregationAxisPrefix',
@@ -2422,6 +2428,9 @@ export type StickinessFilter = {
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
      * @default bottom */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
+    /** Whether a breakdown series' label carries the series name as well as the breakdown value.
+     * @default false */
+    showSeriesNameWithBreakdown?: boolean
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
     showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
@@ -2444,6 +2453,7 @@ export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
     'display',
     'showLegend',
     'legendPosition',
+    'showSeriesNameWithBreakdown',
     'showValuesOnSeries',
     'hiddenLegendIndexes',
     'chartStyle',

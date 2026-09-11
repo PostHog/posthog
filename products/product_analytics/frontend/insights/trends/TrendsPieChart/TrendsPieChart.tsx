@@ -79,6 +79,8 @@ export function TrendsPieChart({
         labelGroupType,
         getTrendsColor,
         getTrendsHidden,
+        showSeriesNameWithBreakdown,
+        isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
@@ -103,8 +105,16 @@ export function TrendsPieChart({
                 breakdownFilter,
                 cohorts: allCohorts.results,
                 formatPropertyValueForDisplay,
+                showSeriesNameWithBreakdown,
+                isSingleSeriesDefinition,
             }),
-        [breakdownFilter, allCohorts.results, formatPropertyValueForDisplay]
+        [
+            breakdownFilter,
+            allCohorts.results,
+            formatPropertyValueForDisplay,
+            showSeriesNameWithBreakdown,
+            isSingleSeriesDefinition,
+        ]
     )
 
     const series: Series<TrendsSeriesMeta>[] = useMemo(

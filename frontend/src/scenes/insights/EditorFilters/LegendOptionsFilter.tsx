@@ -19,30 +19,48 @@ const POSITION_OPTIONS: { value: LegendPosition; label: string }[] = [
 
 export function LegendOptionsFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { showLegend, legendPosition } = useValues(insightVizDataLogic(insightProps))
+    const { showLegend, legendPosition, showSeriesNameWithBreakdown, isBreakdownSeries, isSingleSeriesDefinition } =
+        useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
+    const seriesNameDisabledReason = !isBreakdownSeries
+        ? 'Add a breakdown to use this'
+        : isSingleSeriesDefinition
+          ? 'Add a second series to use this'
+          : undefined
+
     return (
-        <div className="flex items-center justify-between gap-2 p-1 px-2">
-            <LemonCheckbox
-                onChange={(checked) =>
-                    updateInsightFilter({
-                        showLegend: checked,
-                        // Seed bottom on first enable — old insights without a saved position render right (chart-config fallback).
-                        ...(checked && legendPosition == null ? { legendPosition: 'bottom' } : {}),
-                    })
-                }
-                checked={!!showLegend}
-                label={<span className="font-normal">Show legend</span>}
-                size="small"
-            />
-            <LemonSelect
-                size="small"
-                value={(legendPosition ?? (showLegend ? 'right' : 'bottom')) as LegendPosition}
-                options={POSITION_OPTIONS}
-                disabledReason={!showLegend ? 'Enable the legend to set its position' : undefined}
-                onChange={(position) => updateInsightFilter({ legendPosition: position })}
-            />
+        <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between gap-2 p-1 px-2">
+                <LemonCheckbox
+                    onChange={(checked) =>
+                        updateInsightFilter({
+                            showLegend: checked,
+                            // Seed bottom on first enable — old insights without a saved position render right (chart-config fallback).
+                            ...(checked && legendPosition == null ? { legendPosition: 'bottom' } : {}),
+                        })
+                    }
+                    checked={!!showLegend}
+                    label={<span className="font-normal">Show legend</span>}
+                    size="small"
+                />
+                <LemonSelect
+                    size="small"
+                    value={(legendPosition ?? (showLegend ? 'right' : 'bottom')) as LegendPosition}
+                    options={POSITION_OPTIONS}
+                    disabledReason={!showLegend ? 'Enable the legend to set its position' : undefined}
+                    onChange={(position) => updateInsightFilter({ legendPosition: position })}
+                />
+            </div>
+            <div className="flex items-center p-1 px-2">
+                <LemonCheckbox
+                    onChange={(checked) => updateInsightFilter({ showSeriesNameWithBreakdown: checked })}
+                    checked={!!showSeriesNameWithBreakdown}
+                    label={<span className="font-normal">Show series name with breakdown value</span>}
+                    disabledReason={seriesNameDisabledReason}
+                    size="small"
+                />
+            </div>
         </div>
     )
 }
