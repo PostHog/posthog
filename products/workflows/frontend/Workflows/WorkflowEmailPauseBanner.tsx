@@ -2,6 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { workflowLogic } from './workflowLogic'
 
 export function WorkflowEmailPauseBanner(): JSX.Element | null {
@@ -11,8 +15,17 @@ export function WorkflowEmailPauseBanner(): JSX.Element | null {
         emailSendingPausedByStaff,
         resumeEmailSendingPending,
         hasUnsavedChanges,
+        workflowUserAccessLevel,
     } = useValues(workflowLogic)
     const { resumeEmailSending } = useActions(workflowLogic)
+
+    // The resume endpoint needs editor access, so a viewer gets a disabled button with the reason
+    // instead of a confirm dialog that can only end in an error.
+    const accessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Workflow,
+        AccessControlLevel.Editor,
+        workflowUserAccessLevel ?? undefined
+    )
 
     if (!emailSendingPaused) {
         return null
@@ -39,7 +52,7 @@ export function WorkflowEmailPauseBanner(): JSX.Element | null {
                 loading: resumeEmailSendingPending,
                 // Resuming reloads the workflow from the server, which resets the editor and would
                 // drop whatever the form still holds.
-                disabledReason: hasUnsavedChanges ? 'Save your changes first' : undefined,
+                disabledReason: accessDisabledReason ?? (hasUnsavedChanges ? 'Save your changes first' : undefined),
                 'data-attr': 'workflow-email-paused-resume',
             }}
         >
