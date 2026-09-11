@@ -9578,6 +9578,8 @@ export const externalDataSources = [
     'GoogleAdSense',
     'Sequenzy',
     'Skio',
+    'Smartlead',
+    'Substack',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
