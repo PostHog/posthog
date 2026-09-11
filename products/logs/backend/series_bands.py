@@ -1,12 +1,13 @@
 """Per-series log volume band charts for one service, read from logs_volume_buckets.
 
 The observed line is the caller's window of volume per (namespace, environment,
-severity) series, at most MAX_WINDOW_DAYS wide. The expected band is a
-time-of-week aligned min/max envelope over the BASELINE_WEEKS weeks before the
-window: each display slot's band comes
-from the same weekly slot in prior weeks. ClickHouse folds the baseline weeks
-onto the display window; Python finishes the envelope (zero-fill, maturity
-gating, widening) where the arithmetic is cheap and unit-testable.
+severity) series, at most MAX_WINDOW_DAYS wide. The expected band is the APM
+detector's count band over time-of-week aligned samples from the BASELINE_WEEKS
+weeks before the window: each display slot pools the same weekly slot, and its
+neighbours within the detector's pool width, from prior weeks. ClickHouse folds
+the baseline weeks onto the display window; Python finishes the band (zero-fill,
+maturity gating, pooling, level adjustment, the band model) where the arithmetic
+is cheap and unit-testable.
 """
 
 import os
@@ -17,6 +18,8 @@ from collections.abc import Collection
 from dataclasses import replace
 from typing import Literal
 from zoneinfo import ZoneInfo
+
+import numpy as np
 
 from posthog.schema import HogQLQueryModifiers
 
@@ -30,6 +33,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.utils import ensure_utc, relative_date_parse
+
+from products.apm.backend.facade.api import BUCKET_MINUTES, DetectionConfig, NegativeBinomialBandModel
 
 WINDOW_DAYS = 7
 MAX_WINDOW_DAYS = 7
@@ -61,14 +66,18 @@ BUCKET_TARGET = int(os.environ.get("LOGS_SERIES_BANDS_BUCKET_TARGET", "168"))
 ALIVE_SLOT_FRACTION = float(os.environ.get("LOGS_SERIES_BANDS_ALIVE_SLOT_FRACTION", "0.2"))
 # A series keeps a grain only where it is dense enough to read there: at least
 # ALIVE_SLOT_FRACTION of its window buckets are non-empty, and those buckets
-# average at least this many records. Below that the band floor, which scales
-# with the grain, sits under most observed values and nearly every bucket marks.
+# average at least this many records. Below that the line is a scatter of single
+# records under a band held open by the detector's rate floor, and reads as nothing.
 MIN_MEAN_PER_ALIVE_BUCKET = float(os.environ.get("LOGS_SERIES_BANDS_MIN_MEAN_PER_ALIVE_BUCKET", "5"))
-# Widening keeps the envelope from reading as a hairline on quiet series: the
-# fraction scales both edges, the floor lifts the upper edge by a per-hour
-# count so a band exists even where every baseline week saw the same value.
-BAND_WIDEN_FRACTION = 0.1
-BAND_FLOOR_PER_HOUR = 2.0
+# The band is the APM detector's, with its dials, so a chart bucket outside its
+# band and a detector verdict on the same rollup agree. Rates in the config are
+# per 5 minute detector bucket and scale to the display grain where used.
+DETECTION = DetectionConfig.from_env()
+MINUTES_PER_DAY = 24 * 60
+# Pool half-width around each display slot. The detector pools this far around
+# a scored slot in its developing stage, which is the stage two to five weeks of
+# history put a series in.
+POOL_HALF_WIDTH_MINUTES = DETECTION.developing_pool_buckets * BUCKET_MINUTES
 
 # ClickHouse time one request may spend, shared across its passes. The
 # coarsening walk costs one pass per rung, so a per-pass cap would let a
@@ -148,9 +157,9 @@ class _SeriesKey:
 class _SlotRow:
     target_time: dt.datetime
     observed: int
-    baseline_samples: int
-    baseline_min: int
-    baseline_max: int
+    # (baseline bucket time, count) for every baseline bucket inside the series'
+    # lifetime that folds onto target_time.
+    baseline: list[tuple[dt.datetime, int]]
 
 
 @frozen
@@ -178,9 +187,9 @@ def fetch_series_slot_rows(
     start.
 
     Rows are sparse — a (series, slot) with no observed and no baseline data has
-    no row. Missing baseline weeks are reconstructed in Python from
-    baseline_samples vs the weeks the series existed. Baseline samples only
-    count slots at or after the lifetime start. With series_keys the pass reads
+    no row. Missing baseline weeks are reconstructed in Python from the baseline
+    samples present vs the weeks the series existed. Baseline samples only
+    include slots at or after the lifetime start. With series_keys the pass reads
     only those series and skips the volume ranking."""
     tag_queries(product=Product.LOGS, feature=Feature.QUERY, source="logs_series_bands", team_id=str(team.id))
 
@@ -266,9 +275,10 @@ def fetch_series_slot_rows(
                 (toUnixTimestamp(slots.slot) - toUnixTimestamp({window_start}) + {baseline_seconds}) % {week_seconds}
             ) AS target_time,
             sumIf(slots.slot_count, slots.slot >= {window_start}) AS observed,
-            countIf(slots.slot < {window_start} AND slots.slot >= lifetimes.lifetime_start) AS baseline_samples,
-            minIf(slots.slot_count, slots.slot < {window_start} AND slots.slot >= lifetimes.lifetime_start) AS baseline_min,
-            maxIf(slots.slot_count, slots.slot < {window_start} AND slots.slot >= lifetimes.lifetime_start) AS baseline_max,
+            groupArrayIf(
+                tuple(toUnixTimestamp(slots.slot), slots.slot_count),
+                slots.slot < {window_start} AND slots.slot >= lifetimes.lifetime_start
+            ) AS baseline,
             lifetimes.lifetime_start AS lifetime_start
         FROM slots
         INNER JOIN lifetimes
@@ -315,14 +325,12 @@ def fetch_series_slot_rows(
         key = _SeriesKey(namespace=row[0], environment=row[1], severity=row[2])
         series = rows.get(key)
         if series is None:
-            series = rows[key] = _SeriesRows(lifetime_start=ensure_utc(row[8]), slots=[])
+            series = rows[key] = _SeriesRows(lifetime_start=ensure_utc(row[6]), slots=[])
         series.slots.append(
             _SlotRow(
                 target_time=ensure_utc(row[3]),
                 observed=int(row[4]),
-                baseline_samples=int(row[5]),
-                baseline_min=int(row[6]),
-                baseline_max=int(row[7]),
+                baseline=[(dt.datetime.fromtimestamp(int(ts), tz=dt.UTC), int(count)) for ts, count in row[5]],
             )
         )
     return rows
@@ -357,6 +365,75 @@ def _band_gate(
     return baseline_weeks, threshold + (window_end - window_start)
 
 
+class _SeriesHistory:
+    """One series' counts on a dense grid from the baseline start to the window
+    end, zero where the rollup has no row, plus the folded rows by display slot.
+
+    Baseline buckets come from the folded rows' sample lists, observed buckets
+    from the rows' observed counts, so the grid is contiguous across the window
+    start and the level component can read a trailing day from either side.
+    """
+
+    def __init__(
+        self, series_rows: _SeriesRows, window_start: dt.datetime, window_end: dt.datetime, step: dt.timedelta
+    ):
+        self.by_time = {row.target_time: row for row in series_rows.slots}
+        self.lifetime_start = series_rows.lifetime_start
+        self.window_start = window_start
+        self.step = step
+        self.grid_start = window_start - dt.timedelta(weeks=BASELINE_WEEKS)
+        self.counts = np.zeros(self._index(window_end), dtype=np.float64)
+        for row in series_rows.slots:
+            if window_start <= row.target_time < window_end:
+                self.counts[self._index(row.target_time)] = row.observed
+            for bucket_time, count in row.baseline:
+                self.counts[self._index(bucket_time)] = count
+        self.cumulative = np.concatenate(([0.0], np.cumsum(self.counts)))
+
+    def _index(self, at: dt.datetime) -> int:
+        return int((at - self.grid_start) / self.step)
+
+    def mean(self, start: dt.datetime, end: dt.datetime) -> float | None:
+        first = max(self._index(start), 0)
+        last = min(self._index(end), self.counts.size)
+        if last <= first:
+            return None
+        return float(self.cumulative[last] - self.cumulative[first]) / (last - first)
+
+    def pooled_samples(self, slot: dt.datetime, half_width: int) -> np.ndarray:
+        """Baseline samples for slot and its neighbours within half_width slots.
+
+        A neighbour outside the display window still folds onto a row of the
+        same week, so the fold rather than the window bounds the lookup. A
+        lifetime week with no row at a pooled slot was a real zero, so the
+        samples pad with zeros to the weeks that slot has existed.
+        """
+        samples: list[float] = []
+        for offset in range(-half_width, half_width + 1):
+            folded = self.window_start + (slot + offset * self.step - self.window_start) % dt.timedelta(weeks=1)
+            row = self.by_time.get(folded)
+            values = [float(count) for _, count in row.baseline] if row else []
+            expected = _baseline_weeks_available(folded, self.lifetime_start)
+            samples.extend(values)
+            samples.extend([0.0] * max(0, expected - len(values)))
+        return np.array(samples, dtype=np.float64)
+
+    def level_factor(self, slot: dt.datetime) -> float:
+        """The detector's slow level component: the mean of a trailing day,
+        lagged by the baseline guard so an ongoing anomaly cannot re-level
+        itself, over the mean of the whole history before that guard."""
+        if not DETECTION.level_adjustment_enabled:
+            return 1.0
+        reference_end = slot - dt.timedelta(minutes=DETECTION.baseline_guard_buckets * BUCKET_MINUTES)
+        recent_start = reference_end - dt.timedelta(minutes=DETECTION.level_window_buckets * BUCKET_MINUTES)
+        history_start = max(self.lifetime_start, self.grid_start)
+        recent = self.mean(max(recent_start, history_start), reference_end)
+        reference = self.mean(history_start, reference_end)
+        if recent is None or reference is None or reference <= 0.0:
+            return 1.0
+        return float(np.clip(recent / reference, 1.0 / DETECTION.level_factor_clamp, DETECTION.level_factor_clamp))
+
+
 def _build_series(
     key: _SeriesKey,
     series_rows: _SeriesRows,
@@ -364,33 +441,37 @@ def _build_series(
     window_end: dt.datetime,
     interval_minutes: int,
 ) -> BandSeries:
-    by_time = {row.target_time: row for row in series_rows.slots}
+    step = dt.timedelta(minutes=interval_minutes)
+    history = _SeriesHistory(series_rows, window_start, window_end, step)
     lifetime_start = series_rows.lifetime_start
     baseline_weeks, band_ready_at = _band_gate(window_start, window_end, lifetime_start)
     banded = band_ready_at is None
-    floor = BAND_FLOOR_PER_HOUR * interval_minutes / 60
+
+    grain = interval_minutes / BUCKET_MINUTES
+    band_model = NegativeBinomialBandModel(
+        rate_floor=DETECTION.band_rate_floor * grain, dispersion_floor=DETECTION.dispersion_floor
+    )
+    alpha = DETECTION.false_flag_budget_per_day / (MINUTES_PER_DAY / interval_minutes)
+    pool_half_width = POOL_HALF_WIDTH_MINUTES // interval_minutes
+    # Below this expected count the detector never calls a zero bucket silence,
+    # so the band's lower edge sits at zero rather than at the rate floor's
+    # quantile, which would mark every quiet hour of a quiet series as a drop.
+    silence_min_expected = DETECTION.silence_min_expected * grain
 
     buckets: list[BandBucket] = []
     total_count = 0
-    step = dt.timedelta(minutes=interval_minutes)
     slot = window_start
     while slot < window_end:
-        row = by_time.get(slot)
+        row = history.by_time.get(slot)
         observed = row.observed if row else 0
         total_count += observed
         lower: float | None = None
         upper: float | None = None
         if banded:
-            # Every slot sits at or after window_start, so a banded series has at
-            # least MIN_BASELINE_WEEKS_FOR_BAND samples to expect at every slot.
-            expected = _baseline_weeks_available(slot, lifetime_start)
-            samples = row.baseline_samples if row else 0
-            # A lifetime week with no row at this slot was a real zero, so any
-            # missing sample drags the envelope floor to zero.
-            low = row.baseline_min if row and samples >= expected else 0
-            high = row.baseline_max if row else 0
-            lower = low * (1 - BAND_WIDEN_FRACTION)
-            upper = high * (1 + BAND_WIDEN_FRACTION) + floor
+            samples = history.pooled_samples(slot, pool_half_width) * history.level_factor(slot)
+            band = band_model.compute(samples, float(observed), alpha)
+            lower = band.lower if band.expected >= silence_min_expected else 0.0
+            upper = band.upper
         buckets.append(BandBucket(time=slot, observed=observed, lower=lower, upper=upper))
         slot += step
 
