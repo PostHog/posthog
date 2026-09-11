@@ -48589,6 +48589,8 @@ export namespace Schemas {
       projects: JiraProject[];
     }
 
+    export interface JsonValue {}
+
     /**
      * * `2.0` - 2.0
      */
@@ -52604,6 +52606,30 @@ export namespace Schemas {
          * @nullable
          */
       readonly duration_ms: number | null;
+    }
+
+    /**
+     * Arguments validated against the selected tool's schema.
+     */
+    export type MCPToolRequestArgs = {[key: string]: JsonValue};
+
+    export interface MCPToolRequest {
+      /** Arguments validated against the selected tool's schema. */
+      args?: MCPToolRequestArgs;
+    }
+
+    /**
+     * Structured tool output for native widgets.
+     */
+    export type MCPToolResponseStructuredContent = {[key: string]: JsonValue} | null;
+
+    export interface MCPToolResponse {
+      /** Formatted tool output for the model. */
+      content: string;
+      /** Structured tool output for native widgets. */
+      structured_content?: MCPToolResponseStructuredContent;
+      /** Whether the tool completed successfully. */
+      success: boolean;
     }
 
     /**
@@ -101043,8 +101069,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type McpToolsCreate200 = { [key: string]: unknown };
 
     export type MessagingCategoriesListParams = {
     /**
