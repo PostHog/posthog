@@ -203,6 +203,8 @@ describe('inboxReportDetailLogic', () => {
         // slot back, so the run has to hold the poll open by itself or the action stays disabled until the
         // pane is reopened. A completed run must not hold it open: it keeps the slot for good, and polling
         // past it would never observe a change.
+        // A research or discussion run has to hold it open for its own reason: it is what `reportTaskToOpen`
+        // returns, so its cached status is what keeps View task in the action row in place of Implement.
         it.each([
             { label: 'no linked tasks', tasks: [], polls: false },
             { label: 'an implementation with no run yet', tasks: [linkedTask('implementation', null)], polls: true },
@@ -224,6 +226,16 @@ describe('inboxReportDetailLogic', () => {
             {
                 label: 'a research task in progress',
                 tasks: [linkedTask('research', TaskRunStatus.IN_PROGRESS)],
+                polls: true,
+            },
+            {
+                label: 'a discussion in progress',
+                tasks: [linkedTask('other', TaskRunStatus.IN_PROGRESS)],
+                polls: true,
+            },
+            {
+                label: 'a completed discussion',
+                tasks: [linkedTask('other', TaskRunStatus.COMPLETED)],
                 polls: false,
             },
         ])('a ready report with $label polls: $polls', ({ tasks, polls }) => {

@@ -144,6 +144,20 @@ export function implementationRunInFlight(reportTasks: ReportTaskEntry[] | null)
     )
 }
 
+/**
+ * Whether any linked run is still moving, which is what the View task button waits on.
+ *
+ * A task with no run yet does not count: the button only opens a task that already has a run, so a
+ * task that never gets one would hold the poll open for nothing. That is the opposite of the Create
+ * PR gate above, where the task itself claims the slot before its run exists.
+ */
+export function openableRunInFlight(reportTasks: ReportTaskEntry[] | null): boolean {
+    return (reportTasks ?? []).some((entry) => {
+        const status = entry.task.latest_run?.status
+        return !!status && !TERMINAL_RUN_STATUSES.includes(status)
+    })
+}
+
 // While the report is still being worked, poll linked tasks every 5s. Mirrors desktop.
 const ACTIVE_STATUSES: SignalReportStatus[] = [
     SignalReportStatus.CANDIDATE,
@@ -973,10 +987,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // hands the Create PR slot back. Without this clause the action stays disabled on a ready report
         // until the pane is reopened, and the server's 429 cannot correct it because the failure runs the
         // other way: the press is refused in the UI that the server would now accept.
+        // A discussion or research run has to hold it open too. Its cached status is what
+        // `reportTaskToOpen` reads, so while that stays non-terminal the action row keeps offering
+        // View task in place of Implement, and nothing else re-reads the task list.
         shouldPollReportTasks: [
             (s) => [s.isReportActive, s.reportTasks],
             (isReportActive: boolean, reportTasks: ReportTaskEntry[] | null): boolean =>
-                isReportActive || implementationRunInFlight(reportTasks),
+                isReportActive || implementationRunInFlight(reportTasks) || openableRunInFlight(reportTasks),
         ],
         // Whether the report has a shipped implementation PR — gates the PR checks/comments fetch + poll.
         hasImplementationPr: [
