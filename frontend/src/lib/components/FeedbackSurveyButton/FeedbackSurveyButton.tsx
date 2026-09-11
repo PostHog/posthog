@@ -6,7 +6,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 export interface FeedbackSurveyButtonProps {
     surveyId: string
     properties?: Properties
-    onClick?: () => void
     'data-attr'?: string
 }
 
@@ -18,7 +17,6 @@ export interface FeedbackSurveyButtonProps {
 export function FeedbackSurveyButton({
     surveyId,
     properties,
-    onClick,
     'data-attr': dataAttr,
 }: FeedbackSurveyButtonProps): JSX.Element {
     const [surveysLoaded, setSurveysLoaded] = useState(false)
@@ -39,7 +37,7 @@ export function FeedbackSurveyButton({
             data-attr={dataAttr}
             tooltip="Have any questions or feedback?"
             disabledReason={surveysLoaded ? undefined : 'Feedback is unavailable right now'}
-            onClick={() => {
+            onClick={() =>
                 // A deliberate click should always bring up the survey, so bypass the
                 // popover's URL/cohort/already-dismissed targeting.
                 posthog.displaySurvey(surveyId, {
@@ -48,8 +46,7 @@ export function FeedbackSurveyButton({
                     ignoreDelay: true,
                     properties,
                 })
-                onClick?.()
-            }}
+            }
         >
             Feedback
         </LemonButton>

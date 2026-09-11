@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
+import { SurveyQuestionType } from 'posthog-js'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonLabel, LemonTextArea } from '@posthog/lemon-ui'
 
-import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { userLogic } from 'scenes/userLogic'
 
-import { MCP_ANALYTICS_FEEDBACK_PROPERTIES, MCP_ANALYTICS_FEEDBACK_SURVEY_ID } from './constants'
 import { mcpAnalyticsFeedbackLogic } from './mcpAnalyticsFeedbackLogic'
 
 export function MCPAnalyticsFeedbackPrompt({ sessionId }: { sessionId: string }): JSX.Element | null {
@@ -15,28 +14,79 @@ export function MCPAnalyticsFeedbackPrompt({ sessionId }: { sessionId: string })
         sessionId,
         isImpersonated: user?.is_impersonated ?? false,
     })
-    const { visible } = useValues(logic)
-    const { dismissPrompt, openSurvey } = useActions(logic)
+    const { visible, survey, answer, detail, completed, submitting, error } = useValues(logic)
+    const { dismissPrompt, setDetail, submitResponse } = useActions(logic)
 
-    if (!visible) {
+    if (!visible || !survey || survey.questions[0].type !== SurveyQuestionType.SingleChoice) {
         return null
     }
 
     return (
         <div className="shrink-0 p-2" data-attr="mcp-analytics-feedback-prompt">
             <LemonBanner type="info" hideIcon onClose={dismissPrompt}>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <div className="flex-1 min-w-48">
-                        <div className="font-semibold">What did you learn from these sessions?</div>
-                        <div>Tell us what you changed or what was missing.</div>
+                {completed ? (
+                    <div role="status">Thanks for your feedback.</div>
+                ) : answer ? (
+                    <div className="space-y-2">
+                        <div className="text-secondary text-xs" role="status">
+                            Thanks for answering.
+                        </div>
+                        <LemonLabel htmlFor="mcp-session-feedback-detail" showOptional>
+                            {survey.questions[1].question}
+                        </LemonLabel>
+                        <LemonTextArea
+                            id="mcp-session-feedback-detail"
+                            value={detail}
+                            onChange={setDetail}
+                            autoFocus
+                            minRows={2}
+                            maxRows={4}
+                            maxLength={2000}
+                            disabled={submitting}
+                            data-attr="mcp-analytics-feedback-detail"
+                        />
+                        <div className="flex flex-wrap gap-2">
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                loading={submitting}
+                                onClick={() => submitResponse(answer, true)}
+                                data-attr="mcp-analytics-feedback-submit"
+                            >
+                                {detail.trim() ? 'Send feedback' : 'Done'}
+                            </LemonButton>
+                        </div>
                     </div>
-                    <FeedbackSurveyButton
-                        surveyId={MCP_ANALYTICS_FEEDBACK_SURVEY_ID}
-                        properties={MCP_ANALYTICS_FEEDBACK_PROPERTIES}
-                        onClick={openSurvey}
-                        data-attr="mcp-analytics-contextual-feedback-button"
-                    />
-                </div>
+                ) : (
+                    <div className="space-y-2">
+                        <div className="font-semibold" id="mcp-session-feedback-question">
+                            {survey.questions[0].question}
+                        </div>
+                        <div
+                            className="flex flex-wrap gap-2"
+                            role="group"
+                            aria-labelledby="mcp-session-feedback-question"
+                        >
+                            {survey.questions[0].choices.map((choice) => (
+                                <LemonButton
+                                    key={choice}
+                                    type="secondary"
+                                    size="small"
+                                    loading={submitting}
+                                    onClick={() => submitResponse(choice, false)}
+                                    data-attr="mcp-analytics-feedback-answer"
+                                >
+                                    {choice}
+                                </LemonButton>
+                            ))}
+                        </div>
+                    </div>
+                )}
+                {error && (
+                    <div className="text-danger mt-2" role="alert">
+                        Couldn't send your feedback. Please try again.
+                    </div>
+                )}
             </LemonBanner>
         </div>
     )
