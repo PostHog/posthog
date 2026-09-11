@@ -227,8 +227,8 @@ def test_run_routes_through_the_engine(
         assert reporter.posthog_urls == []
     else:
         assert batch_post.call_count == 2
-        for run, call in zip(runs, batch_post.call_args_list):
-            event = call.kwargs["batch"][0]
+        for run, upload_call in zip(runs, batch_post.call_args_list):
+            event = upload_call.kwargs["batch"][0]
             assert event["event"] == "$ai_evaluation"
             assert event["properties"]["$ai_metric_name"] == "correctness"
             assert event["properties"]["$ai_score"] == 1.0
@@ -236,10 +236,10 @@ def test_run_routes_through_the_engine(
         assert reporter.posthog_urls == [("one-shot-test", run.experiment_id) for run in runs]
 
     assert len(engine.calls) == 2
-    for call in engine.calls:
-        assert call.project_name == "one-shot-test"
-        assert [case.input["name"] for case in call.cases] == ["c1", "c2"]
-        assert call.metadata == {"agent_model": "claude-test"}
-        assert call.no_send_logs == no_send_logs
+    for experiment in engine.calls:
+        assert experiment.project_name == "one-shot-test"
+        assert [case.input["name"] for case in experiment.cases] == ["c1", "c2"]
+        assert experiment.metadata == {"agent_model": "claude-test"}
+        assert experiment.no_send_logs == no_send_logs
     assert reporter.started == [("one-shot-test", 2)] * 2
     assert reporter.summaries == [("one-shot-test", canned.summary, 0)] * 2
