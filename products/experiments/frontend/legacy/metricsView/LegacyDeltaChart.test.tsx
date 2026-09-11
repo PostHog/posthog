@@ -52,6 +52,56 @@ describe('LegacyDeltaChart', () => {
         )
 
         expect(screen.getAllByText('Not enough data yet')).toHaveLength(2)
+        // The top-level `significant` field is absent on this response, so the view must not
+        // claim a conclusion it has not computed.
+        expect(screen.queryByText('Not significant')).toBeNull()
+    })
+
+    it('keeps the significance badge for a legacy response', () => {
+        initKeaTests()
+
+        const experiment = {
+            id: 1,
+            start_date: '2026-09-01T00:00:00Z',
+            metrics: [{ kind: NodeKind.ExperimentFunnelsQuery, uuid: 'm1' }],
+            metrics_secondary: [],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        const props = { experimentId: 1, experiment }
+        const logic = legacyExperimentLogic(props)
+        logic.mount()
+
+        const result = {
+            kind: NodeKind.ExperimentQuery,
+            metric: { kind: NodeKind.ExperimentMetric, metric_type: 'funnel' },
+            significant: true,
+            variants: [
+                { key: 'control', success_count: 10, failure_count: 90 },
+                { key: 'test', success_count: 30, failure_count: 70 },
+            ],
+        }
+
+        logic.actions.setLegacyPrimaryMetricsResults([result] as unknown as CachedLegacyExperimentQueryResponse[])
+
+        render(
+            <BindLogic logic={legacyExperimentLogic} props={props}>
+                <LegacyDeltaChart
+                    isSecondary={false}
+                    result={result}
+                    error={null}
+                    variants={[{ key: 'control' }, { key: 'test' }]}
+                    metricType={InsightType.FUNNELS}
+                    displayOrder={0}
+                    isFirstMetric={true}
+                    metric={experiment.metrics[0]}
+                    tickValues={[-1, 0, 1]}
+                    chartBound={1}
+                />
+            </BindLogic>
+        )
+
+        expect(screen.getByText('Significant')).toBeTruthy()
     })
 
     it('disables Details for a response in the new ExperimentQuery format', async () => {

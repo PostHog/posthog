@@ -375,21 +375,25 @@ function ChartControls(): JSX.Element {
     const { displayOrder, isSecondary, primaryMetricsLengthWithSharedMetrics, setIsModalOpen, metric, result } =
         useDeltaChartContext()
 
-    // Every child of the details modal reads the legacy per-variant fields. The new
-    // ExperimentQueryResponse reuses this `kind` but carries `baseline` and `variant_results`
-    // instead, so there is nothing for the modal to show.
-    const hasLegacyVariants = Boolean(result?.variants)
+    // The significance badge and every child of the details modal read the legacy per-variant
+    // fields. The new ExperimentQueryResponse reuses this `kind` but carries `baseline` and
+    // `variant_results` instead, so neither has anything to report. The badge reads the
+    // top-level `significant`, which is absent there, and would state "Not significant" for a
+    // metric the statistics engine may have marked significant.
+    const hasLegacyVariants = Array.isArray(result?.variants)
 
     return (
         <>
             {/* Chart is z-index 100, so we need to be above it */}
-            <div className="absolute top-2 left-2 z-[102]">
-                <LegacySignificanceHighlight
-                    displayOrder={displayOrder}
-                    isSecondary={isSecondary}
-                    metricUuid={metric?.uuid}
-                />
-            </div>
+            {hasLegacyVariants && (
+                <div className="absolute top-2 left-2 z-[102]">
+                    <LegacySignificanceHighlight
+                        displayOrder={displayOrder}
+                        isSecondary={isSecondary}
+                        metricUuid={metric?.uuid}
+                    />
+                </div>
+            )}
             {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
                 <div
                     className="absolute bottom-2 left-2 flex justify-center bg-[var(--color-bg-table)] z-[101]"
