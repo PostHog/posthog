@@ -154,23 +154,14 @@ DISABLE_HIVE_PARTITIONING_SETTINGS: dict[str, int] = {"use_hive_partitioning": 0
 # drift is normal there and unreachable for JSON.
 STRUCTURE_KEEPS_TUPLE_ELEMENT_NAMES: frozenset[str] = frozenset({DataWarehouseTableFormat.JSON})
 
-# ClickHouse infers a schema from a bounded sample of the files, by default as little as the first
-# one. Each nested JSON object becomes a named Tuple of exactly the keys that sample held, and
-# `hogql_definition` pins that Tuple as the `structure` of every read, so a key the sample missed is
-# unreadable at query time and not merely absent from the catalog. The `union` mode reads the head of
-# every file and merges the result, which recovers the keys that only later files carry. ClickHouse
-# rejects the mode for a format that cannot read a subset of its columns, which rules out headerless
-# CSV but not CSVWithNames.
-UNION_SCHEMA_INFERENCE_FORMATS: frozenset[str] = frozenset(
-    {DataWarehouseTableFormat.JSON, DataWarehouseTableFormat.CSVWithNames}
-)
 
-# `union` adds a read per file, and introspection runs inside the POST that creates or refreshes a
-# table, so an unbounded read outlives the gateway and returns a 504 that records nothing anywhere.
-DESCRIBE_MAX_EXECUTION_TIME_SECONDS = 30
-DESCRIBE_RETRY_BUDGET_SECONDS = 90
-
-
+# Introspection keeps ClickHouse's default schema inference, which samples as little as the first
+# file and therefore misses a nested key that only later files carry. The `union` mode finds those
+# keys, but it reads the head of every object the pattern matches, and introspection runs inside the
+# POST that creates or refreshes a table. A table whose pattern spans many objects cannot finish that
+# in the time a request has, so the mode belongs on a path that is not a request. Until then the
+# narrow sample stays, and a column the sample missed is reachable by retyping it to String and
+# reading it with JSONExtract.
 def chdb_set_statements(describe_settings: dict[str, str | int]) -> str:
     """Render settings as SET statements to prefix a chdb query with.
 
@@ -569,9 +560,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         settings: dict[str, str | int] = {**DISABLE_HIVE_PARTITIONING_SETTINGS}
         if self._is_csv_format() and self.csv_allow_double_quotes is not None:
             settings["format_csv_allow_double_quotes"] = 1 if self.csv_allow_double_quotes else 0
-        if self.format in UNION_SCHEMA_INFERENCE_FORMATS:
-            settings["schema_inference_mode"] = "union"
-            settings["max_execution_time"] = DESCRIBE_MAX_EXECUTION_TIME_SECONDS
         return settings
 
     def get_columns(
@@ -622,11 +610,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             # The cluster is a little broken right now, and so this can intermittently fail.
             # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
             attempts = 5
-            # Only a bounded DESCRIBE gets a retry deadline, so the widened pass stays inside the
-            # budget of the request that runs it and every other format keeps its retry behavior.
-            retry_deadline = (
-                time.monotonic() + DESCRIBE_RETRY_BUDGET_SECONDS if "max_execution_time" in describe_settings else None
-            )
             for i in range(attempts):
                 try:
                     result = sync_execute(
@@ -636,7 +619,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     )
                     break
                 except Exception as err:
-                    if i >= attempts - 1 or (retry_deadline is not None and time.monotonic() >= retry_deadline):
+                    if i >= attempts - 1:
                         capture_exception(err)
                         if safe_expose_ch_error:
                             self._safe_expose_ch_error(err)
