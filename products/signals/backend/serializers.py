@@ -294,6 +294,14 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "pause until local midnight. Null means unlimited."
         ),
     )
+    default_open_pull_request_ready = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether self-driving pull requests open ready for review instead of draft, so the full CI "
+            "matrix starts when the pull request is created. False by default. A reviewer's own "
+            "github_open_pull_request_ready overrides this for reports that suggest them as reviewer."
+        ),
+    )
     reports_generated_today = serializers.SerializerMethodField(
         help_text=(
             "How many reports first became visible in the inbox during the current project-timezone "
@@ -341,6 +349,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "issue_tracking_integration",
             "issue_tracking_config",
             "max_reports_per_day",
+            "default_open_pull_request_ready",
             "reports_generated_today",
             "daily_report_limit_reached",
             "created_at",
@@ -480,6 +489,7 @@ class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
             "slack_notification_channel",
             "slack_notification_min_priority",
             "github_assign_on_pull_request",
+            "github_open_pull_request_ready",
             "created_at",
             "updated_at",
         ]
@@ -503,6 +513,14 @@ class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
                     "Whether to add this user as a GitHub assignee on implementation pull requests for "
                     "reports that suggest them as reviewer. Off by default. Assignment is additive, so "
                     "turning it off never removes an assignee from a pull request that already has one."
+                )
+            },
+            "github_open_pull_request_ready": {
+                "help_text": (
+                    "Whether implementation pull requests for reports that suggest this user as reviewer "
+                    "open ready for review instead of draft, so the full CI matrix starts right away. "
+                    "Null follows the project's default_open_pull_request_ready. Applies only when the "
+                    "pull request is created; a pull request somebody converts back to draft stays draft."
                 )
             },
         }
@@ -552,6 +570,15 @@ class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
             "Add this user as a GitHub assignee on implementation pull requests for reports that "
             "suggest them as reviewer. Off by default. Turning it off stops future assignment and "
             "never removes an existing assignee."
+        ),
+    )
+    github_open_pull_request_ready = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Open implementation pull requests for reports that suggest this user as reviewer ready "
+            "for review instead of draft, so the full CI matrix runs without anybody clicking Ready. "
+            "Null follows the project default. A ready pull request runs the full matrix on every push."
         ),
     )
 
