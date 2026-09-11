@@ -147,16 +147,18 @@ def _run(job: QueryScanJob, started: float) -> None:
         )
 
     merged = _merge(results, job.executions)
+    # Stored under the flag in force now. A pending claim left under other thresholds expires on its
+    # own key.
     set_done(
         job.team.pk,
         job.cache_key,
-        QueryScanSlot(
+        thresholds=flag.thresholds_fingerprint,
+        slot=QueryScanSlot(
             status=QueryScanStatus.DONE,
             range_share=merged.range_share,
             project_share=merged.project_share,
             findings=tuple(merged.findings),
             killed=job.killed,
-            thresholds=flag.thresholds_fingerprint,
         ),
     )
     _report(job, merged, flag_event_ratio=flag.event_ratio, job_ms=round((perf_counter() - started) * 1000))

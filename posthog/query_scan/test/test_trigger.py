@@ -28,6 +28,7 @@ from posthog.hogql.query_stats import QueryStats, RecordedExecution
 
 from posthog.clickhouse.query_tagging import AccessMethod, Feature, reset_query_tags, tag_queries
 from posthog.query_scan.flag import QueryScanFlag
+from posthog.query_scan.slot import slot_key
 from posthog.query_scan.trigger import MAX_EXECUTION_BYTES, _open_filters_placeholder, maybe_trigger_query_scan
 
 FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
@@ -55,9 +56,7 @@ def _tag_as_api_key(test: "TestQueryScanTrigger") -> None:
 
 
 def _store_a_slot(test: "TestQueryScanTrigger") -> None:
-    test.redis.get.return_value = json.dumps(
-        {"version": 1, "status": "done", "findings": [], "thresholds": FLAG.thresholds_fingerprint}
-    )
+    test.redis.get.return_value = json.dumps({"version": 1, "status": "done", "findings": []})
 
 
 def _spend_the_enqueue_budget(test: "TestQueryScanTrigger") -> None:
@@ -87,7 +86,8 @@ class TestQueryScanTrigger(SimpleTestCase):
         self.addCleanup(reset_query_tags)
 
     def _assert_no_slot_was_claimed(self) -> None:
-        slot_writes = [call for call in self.redis.set.call_args_list if call.args[0] == "query_scan:1:cache_key_1"]
+        key = slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint)
+        slot_writes = [call for call in self.redis.set.call_args_list if call.args[0] == key]
         assert slot_writes == []
 
     def _trigger(self, **overrides: Any):
@@ -159,6 +159,31 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert result == "slot_exists"
         self.delay.assert_not_called()
 
+    def test_a_threshold_change_reanalyzes_under_the_new_key(self) -> None:
+        # A done slot from other thresholds sits under its own key, so a run under the current
+        # thresholds still claims a fresh slot and enqueues, instead of reading the old slot as in
+        # place and never analyzing until it expires.
+        other = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.2, persons_ratio=0.5)
+        other_key = slot_key(1, "cache_key_1", other.thresholds_fingerprint)
+        new_key = slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint)
+        stored = {other_key: json.dumps({"version": 1, "status": "done", "findings": []})}
+        self.redis.get.side_effect = lambda key: stored.get(key)
+
+        def claim(key: str, value: Any, ex: int | None = None, nx: bool = False) -> bool | None:
+            if nx and key in stored:
+                return None
+            stored[key] = value
+            return True
+
+        self.redis.set.side_effect = claim
+
+        result = self._trigger()
+
+        assert result is None
+        assert self.delay.call_count == 1
+        assert new_key in stored
+        assert json.loads(stored[new_key])["status"] == "pending"
+
     def test_a_broker_failure_does_not_fail_the_query(self) -> None:
         # ClickHouse has already done the work and the result is not cached yet, so an optional
         # side effect must not take a successful query down with it.
@@ -167,7 +192,7 @@ class TestQueryScanTrigger(SimpleTestCase):
         result = self._trigger()
 
         assert result == "enqueue_failed"
-        self.redis.delete.assert_called_once_with("query_scan:1:cache_key_1")
+        self.redis.delete.assert_called_once_with(slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint))
 
     def test_the_payload_carries_the_event_filter_classification(self) -> None:
         # The job folds this verdict into the plan, so a payload that stopped carrying it would
@@ -188,19 +213,31 @@ class TestQueryScanTrigger(SimpleTestCase):
         # The job groups the analytics event by the error kind, so it travels on the payload.
         assert self.delay.call_args.kwargs["error_type"] == "ClickHouseQueryTimeOut"
 
-    def test_prints_the_heaviest_executions_and_skips_an_oversized_one(self) -> None:
-        # An insight fans out into several executions; the job explains the heaviest, and one whose
-        # SQL and parameter values together are too large to plan is dropped rather than shipped.
+    def test_an_oversized_selected_execution_aborts_the_whole_scan(self) -> None:
+        # A person reads the advice as if it covered the whole run, so a run with a selected
+        # execution too large to ship is not analyzed in part. The claimed slot is dropped, so a
+        # later run can try again.
+        heavy = _execution(rows_read=100)
         # The values count because one large literal can outweigh the SQL around it.
         oversized = _execution(rows_read=50, values={"hogql_val_0": "x" * (MAX_EXECUTION_BYTES + 1)})
-        heavy = _execution(rows_read=100)
 
         result = self._trigger(stats=_stats(executions=[heavy, oversized]))
 
+        assert result == "too_large"
+        self.delay.assert_not_called()
+        self.redis.delete.assert_called_once_with(slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint))
+
+    def test_ships_several_printable_executions_heaviest_first(self) -> None:
+        # An insight fans out into several executions; the job explains the heaviest, so the payload
+        # carries them ordered by rows read.
+        light = _execution(rows_read=50)
+        heavy = _execution(rows_read=100)
+
+        result = self._trigger(stats=_stats(executions=[light, heavy]))
+
         assert result is None
         enqueued = self.delay.call_args.kwargs["executions"]
-        # Only the printable execution is shipped, with the stubbed SQL and the subquery SQL the job explains.
-        assert len(enqueued) == 1
+        assert [execution["rows_read"] for execution in enqueued] == [100, 50]
         assert enqueued[0]["stubbed_sql"] == "SELECT 1"
         assert enqueued[0]["subqueries"] == ["SELECT 1"]
 
@@ -226,7 +263,7 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert len(enqueued["executions"]) == 1
 
         key, payload = self.redis.set.call_args.args
-        assert key == "query_scan:1:cache_key_1"
+        assert key == slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint)
         assert json.loads(payload)["status"] == "pending"
         assert self.redis.set.call_args.kwargs == {"ex": 600, "nx": True}
         # A count left without a TTL would stand forever and cap the team for good.

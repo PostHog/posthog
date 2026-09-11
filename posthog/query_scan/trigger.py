@@ -124,15 +124,20 @@ def maybe_trigger_query_scan(
         return "slot_exists"
     if not claim_enqueue_budget(team_id):
         return "rate_limited"
-    if not set_pending(team_id, cache_key, killed=killed):
+    if not set_pending(team_id, cache_key, thresholds=flag.thresholds_fingerprint, killed=killed):
         # Another slow run of the same query claimed the slot between the read above and here.
         return "slot_exists"
 
-    executions, dropped_oversized = _print_executions(stats)
+    executions = _print_executions(stats)
+    if executions is None:
+        # A selected execution could not be shipped, so analyzing the rest would advise on a run the
+        # job never saw whole.
+        clear_slot(team_id, cache_key, thresholds=flag.thresholds_fingerprint)
+        return "too_large"
     if not executions:
-        # Nothing printable to analyze: an oversized run, or one that bypassed the executor.
-        clear_slot(team_id, cache_key)
-        return "too_large" if dropped_oversized else "nothing_to_analyze"
+        # The run had no executions to print: it bypassed the executor, or fanned out into none.
+        clear_slot(team_id, cache_key, thresholds=flag.thresholds_fingerprint)
+        return "nothing_to_analyze"
 
     kind = getattr(query, "kind", None)
     query_kind = str(kind) if kind is not None else None
@@ -162,27 +167,27 @@ def maybe_trigger_query_scan(
         # failing here would throw away a run the person already waited for.
         logger.warning("query_scan_enqueue_failed", team_id=team_id, exc_info=True)
         # Left in place, the claim above reports a pending analysis no job is coming to fill.
-        clear_slot(team_id, cache_key)
+        clear_slot(team_id, cache_key, thresholds=flag.thresholds_fingerprint)
         return "enqueue_failed"
     return None
 
 
-def _print_executions(stats: QueryStats) -> tuple[list[dict[str, Any]], bool]:
-    """Print the heaviest executions for the job to EXPLAIN: each with its ``IN`` subqueries stubbed,
-    and each subquery on its own. Also returns whether any was dropped as too large.
+def _print_executions(stats: QueryStats) -> list[dict[str, Any]] | None:
+    """Print the heaviest executions for the job to EXPLAIN: each with its subqueries stubbed, and
+    each subquery on its own. None when any of the heaviest could not be shipped, so the job never
+    analyzes part of a run and advises as if it saw the whole. An empty list means the run carried no
+    executions to print.
     """
     heaviest = sorted(stats.executions, key=lambda execution: execution.rows_read, reverse=True)[:MAX_EXECUTIONS]
     printed: list[dict[str, Any]] = []
-    dropped_oversized = False
     subquery_budget = MAX_SUBQUERIES
     for execution in heaviest:
         entry = _print_execution(execution, subquery_budget)
         if entry is None:
-            dropped_oversized = True
-            continue
+            return None
         subquery_budget -= len(entry["subqueries"])
         printed.append(entry)
-    return printed, dropped_oversized
+    return printed
 
 
 def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict[str, Any] | None:
@@ -208,8 +213,8 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
             return None
         return entry
     except Exception:
-        # A tree that will not print is one the job could not EXPLAIN either. Drop it rather than
-        # fail the run the person already waited for.
+        # A tree that will not print is one the job could not EXPLAIN either. Dropping it drops the
+        # run's analysis, never the query result the person already waited for.
         logger.warning("query_scan_print_failed", exc_info=True)
         return None
 

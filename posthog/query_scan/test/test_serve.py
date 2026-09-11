@@ -24,7 +24,6 @@ class TestServeScanSummary(BaseTest):
             {
                 "version": 1,
                 "status": "done",
-                "thresholds": SHOW.thresholds_fingerprint,
                 "range_share": 0.8,
                 "project_share": 0.25,
                 "findings": [

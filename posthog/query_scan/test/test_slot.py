@@ -32,10 +32,12 @@ class TestQueryScanSlotRoundTrip(SimpleTestCase):
             message="This query read every event.",
             fix="Add an event filter.",
         )
+        thresholds = "0.1:0.5"
         set_done(
             1,
             "cache_key_1",
-            QueryScanSlot(
+            thresholds=thresholds,
+            slot=QueryScanSlot(
                 status=QueryScanStatus.DONE,
                 range_share=0.42,
                 project_share=0.13,
@@ -44,7 +46,7 @@ class TestQueryScanSlotRoundTrip(SimpleTestCase):
             ),
         )
 
-        stored = get_slot(1, "cache_key_1")
+        stored = get_slot(1, "cache_key_1", thresholds=thresholds)
 
         assert stored is not None
         assert stored.status == QueryScanStatus.DONE

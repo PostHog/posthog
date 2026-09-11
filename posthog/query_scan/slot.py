@@ -1,7 +1,8 @@
-"""The scan slot: what the job found for one query, keyed by its cache key.
+"""The scan slot: what the job found for one query, keyed by its cache key and the flag's thresholds.
 
-Written once by the job, read by every response for that cache key, in the query cache's Redis. A
-read returns None on any Redis or JSON failure, and a write logs and swallows.
+Written once by the job, read by every response for that cache key, in the query cache's Redis. The
+thresholds ride in the key, so an analysis run under other gates lives under another key and reads as
+absent here. A read returns None on any Redis or JSON failure, and a write logs and swallows.
 """
 
 from __future__ import annotations
@@ -40,59 +41,53 @@ class QueryScanSlot:
     project_share: float | None = None
     findings: tuple[QueryScanWarning, ...] = ()
     killed: bool = False
-    thresholds: str | None = None
 
 
-def slot_key(team_id: int, cache_key: str) -> str:
-    return f"query_scan:{team_id}:{cache_key}"
+def slot_key(team_id: int, cache_key: str, thresholds: str) -> str:
+    return f"query_scan:{team_id}:{cache_key}:{thresholds}"
 
 
 def enqueue_counter_key(team_id: int) -> str:
     return f"query_scan:enqueues:{team_id}"
 
 
-def get(team_id: int, cache_key: str, *, thresholds: str | None = None) -> QueryScanSlot | None:
-    """The stored slot, or None. A done slot analyzed under other gates than ``thresholds`` reads as
-    absent, so the next slow run analyzes again; a pending slot is never rejected.
+def get(team_id: int, cache_key: str, *, thresholds: str) -> QueryScanSlot | None:
+    """The stored slot for these thresholds, or None. An analysis run under other gates lives under
+    another key, so the next slow run analyzes again instead of serving it.
     """
     try:
         # The primary, not the read replica the query cache reads through. The response that
         # enqueues a scan reads the slot back in the same request, so a replica behind the write
         # would miss it.
-        raw = query_cache_raw_client().get(slot_key(team_id, cache_key))
+        raw = query_cache_raw_client().get(slot_key(team_id, cache_key, thresholds))
         if raw is None:
             return None
-        slot = _deserialize(json.loads(raw))
-        if slot is None:
-            return None
-        if thresholds is not None and slot.status == QueryScanStatus.DONE and slot.thresholds != thresholds:
-            return None
-        return slot
+        return _deserialize(json.loads(raw))
     except Exception:
         logger.warning("query_scan_slot_read_failed", team_id=team_id, exc_info=True)
         return None
 
 
-def set_pending(team_id: int, cache_key: str, *, killed: bool = False) -> bool:
+def set_pending(team_id: int, cache_key: str, *, thresholds: str, killed: bool = False) -> bool:
     """Claim the slot for one job. The write is conditional, so two slow runs of one query enqueue one job."""
     value: dict[str, Any] = {"status": "pending"}
     if killed:
         # The scan endpoint answers from this slot until the job finishes, so a run ClickHouse
         # stopped must not read as one that completed.
         value["killed"] = True
-    return _write(team_id, cache_key, value, PENDING_TTL_SECONDS, nx=True)
+    return _write(team_id, cache_key, value, PENDING_TTL_SECONDS, thresholds=thresholds, nx=True)
 
 
-def set_done(team_id: int, cache_key: str, slot: QueryScanSlot) -> None:
-    _write(team_id, cache_key, _serialize(slot), DONE_TTL_SECONDS)
+def set_done(team_id: int, cache_key: str, *, thresholds: str, slot: QueryScanSlot) -> None:
+    _write(team_id, cache_key, _serialize(slot), DONE_TTL_SECONDS, thresholds=thresholds)
 
 
-def clear(team_id: int, cache_key: str) -> None:
+def clear(team_id: int, cache_key: str, *, thresholds: str) -> None:
     """Drop the slot, for a claim no job is coming to fill; a pending slot nobody answers reads as in
     flight for its whole TTL.
     """
     try:
-        query_cache_raw_client().delete(slot_key(team_id, cache_key))
+        query_cache_raw_client().delete(slot_key(team_id, cache_key, thresholds))
     except Exception:
         logger.warning("query_scan_slot_clear_failed", team_id=team_id, exc_info=True)
 
@@ -115,10 +110,13 @@ def claim_enqueue_budget(team_id: int) -> bool:
         return True
 
 
-def _write(team_id: int, cache_key: str, value: dict[str, Any], ttl_seconds: int, *, nx: bool = False) -> bool:
+def _write(
+    team_id: int, cache_key: str, value: dict[str, Any], ttl_seconds: int, *, thresholds: str, nx: bool = False
+) -> bool:
     try:
         payload = json.dumps({"version": SLOT_VERSION, **value})
-        return bool(query_cache_raw_client().set(slot_key(team_id, cache_key), payload, ex=ttl_seconds, nx=nx))
+        key = slot_key(team_id, cache_key, thresholds)
+        return bool(query_cache_raw_client().set(key, payload, ex=ttl_seconds, nx=nx))
     except Exception:
         logger.warning("query_scan_slot_write_failed", team_id=team_id, exc_info=True)
         return False
@@ -130,7 +128,6 @@ def _serialize(slot: QueryScanSlot) -> dict[str, Any]:
         "range_share": slot.range_share,
         "project_share": slot.project_share,
         "findings": [finding.model_dump(by_alias=True, exclude_none=True) for finding in slot.findings],
-        "thresholds": slot.thresholds,
     }
     if slot.killed:
         value["killed"] = True
@@ -152,5 +149,4 @@ def _deserialize(value: Any) -> QueryScanSlot | None:
         if isinstance(findings, list)
         else (),
         killed=bool(value.get("killed", False)),
-        thresholds=value.get("thresholds"),
     )

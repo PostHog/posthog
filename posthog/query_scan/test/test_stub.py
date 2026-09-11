@@ -53,6 +53,59 @@ class TestStubInSubqueries(SimpleTestCase):
                 1,
             ),
             (
+                "a scalar subquery in the select list",
+                "SELECT (SELECT count() FROM events) AS total FROM events",
+                "SELECT NULL AS total FROM events",
+                1,
+            ),
+            (
+                "a scalar subquery compared with a non-IN operator",
+                "SELECT count() FROM events WHERE timestamp >= (SELECT min(timestamp) FROM events)",
+                "SELECT count() FROM events WHERE 1",
+                1,
+            ),
+            (
+                "a scalar subquery nested in a function inside a comparison",
+                "SELECT count() FROM events WHERE toDate(timestamp) >= toDate((SELECT min(timestamp) FROM events))",
+                "SELECT count() FROM events WHERE 1",
+                1,
+            ),
+            (
+                "NOT wrapping a scalar comparison folds whole",
+                "SELECT count() FROM events WHERE NOT (timestamp >= (SELECT min(timestamp) FROM events))",
+                "SELECT count() FROM events WHERE 1",
+                1,
+            ),
+            (
+                "a scalar subquery inside a JOIN subquery is stubbed while the JOIN subquery stays",
+                "SELECT count() FROM events e "
+                "JOIN (SELECT id FROM persons WHERE created_at >= (SELECT max(created_at) FROM persons)) p "
+                "ON e.person_id = p.id",
+                "SELECT count() FROM events e JOIN (SELECT id FROM persons WHERE 1) p ON e.person_id = p.id",
+                1,
+            ),
+            (
+                "a UNION ALL root keeps both members",
+                "SELECT count() FROM events WHERE event IN (SELECT event FROM events) "
+                "UNION ALL SELECT count() FROM events",
+                "SELECT count() FROM events WHERE 1 UNION ALL SELECT count() FROM events",
+                1,
+            ),
+            (
+                "a subquery CTE body survives",
+                "WITH c AS (SELECT distinct_id FROM events) "
+                "SELECT count() FROM events WHERE distinct_id IN (SELECT distinct_id FROM c)",
+                "WITH c AS (SELECT distinct_id FROM events) SELECT count() FROM events WHERE 1",
+                1,
+            ),
+            (
+                "a column CTE is a scalar and is stubbed",
+                "WITH (SELECT max(timestamp) FROM events) AS latest "
+                "SELECT count() FROM events WHERE timestamp = latest",
+                "WITH NULL AS latest SELECT count() FROM events WHERE timestamp = latest",
+                1,
+            ),
+            (
                 "a literal IN list survives",
                 "SELECT count() FROM events WHERE event IN ('$pageview', '$autocapture')",
                 "SELECT count() FROM events WHERE event IN ('$pageview', '$autocapture')",
@@ -60,7 +113,7 @@ class TestStubInSubqueries(SimpleTestCase):
             ),
         ]
     )
-    def test_stub_replaces_in_subqueries_and_keeps_literal_lists(
+    def test_stub_replaces_subqueries_used_as_values_and_keeps_literal_lists(
         self, _name: str, source: str, expected: str, expected_subqueries: int
     ) -> None:
         result = stub_in_subqueries(parse_select(source))
@@ -99,7 +152,9 @@ class TestStubPrintsAsClickHouse(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         prepared = prepare_ast_for_printing(
             node=parse_select(
-                "SELECT count() FROM events WHERE distinct_id IN (SELECT distinct_id FROM events WHERE event = 'x')"
+                "SELECT count() FROM events "
+                "WHERE distinct_id IN (SELECT distinct_id FROM events WHERE event = 'x') "
+                "AND timestamp >= (SELECT min(timestamp) FROM events)"
             ),
             context=context,
             dialect="clickhouse",
@@ -110,6 +165,6 @@ class TestStubPrintsAsClickHouse(BaseTest):
         sql = print_prepared_ast(stub.stubbed, context, dialect="clickhouse")
         subquery_sql = print_prepared_ast(stub_in_subqueries(stub.subqueries[0]).stubbed, context, dialect="clickhouse")
 
-        assert "IN (SELECT" not in sql.replace("\n", " ")
-        assert len(stub.subqueries) == 1
+        assert "(SELECT" not in sql.replace("\n", " ")
+        assert len(stub.subqueries) == 2
         assert "events" in subquery_sql and "IN (SELECT" not in subquery_sql

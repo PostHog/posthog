@@ -121,11 +121,10 @@ class TestQueryScanJob(BaseTest):
     def test_analyzes_each_execution(self, _name, dispatch, subqueries, expected_kinds, expected_explain_ok) -> None:
         self._run(dispatch, subqueries=subqueries)
 
-        stored = slot.get(self.team.pk, "cache_key_1")
+        stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
         assert stored is not None
         assert stored.status == "done"
         assert [str(finding.kind) for finding in stored.findings] == expected_kinds
-        assert stored.thresholds == FLAG.thresholds_fingerprint
 
         assert self.capture.call_count == 1
         properties = self.capture.call_args.kwargs["properties"]
@@ -140,7 +139,7 @@ class TestQueryScanJob(BaseTest):
         # bound, and both shares reach the slot.
         self._run({"STUBBED_MARKER": "plan_no_event_filter"})
 
-        stored = slot.get(self.team.pk, "cache_key_1")
+        stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
         assert stored is not None
         assert stored.range_share is not None
         assert stored.project_share is not None
@@ -155,7 +154,7 @@ class TestQueryScanJob(BaseTest):
         # The average is a table-wide property, so the query runs once, not per execution or EXPLAIN.
         self._run({"STUBBED_MARKER": "plan_persons_join"})
         assert len([query for query in self._explained() if "system.parts" in query]) == 1
-        stored = slot.get(self.team.pk, "cache_key_1")
+        stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
         assert stored is not None and stored.status == "done"
         assert [str(finding.kind) for finding in stored.findings] == ["persons_join"]
 
@@ -163,6 +162,6 @@ class TestQueryScanJob(BaseTest):
         self.calls.clear()
         self.stored.clear()
         self._run({"STUBBED_MARKER": "plan_persons_join"}, averages_error=_OTHER_ERROR)
-        stored = slot.get(self.team.pk, "cache_key_1")
+        stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
         assert stored is not None and stored.status == "done"
         assert [str(finding.kind) for finding in stored.findings] == ["persons_join"]

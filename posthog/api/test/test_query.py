@@ -1365,7 +1365,6 @@ A_STORED_SCAN = stored_slot(
         range_share=0.8,
         project_share=0.25,
         killed=True,
-        thresholds=SHOW_FLAG.thresholds_fingerprint,
         findings=(build_warning(kind=QueryScanFindingKind.NO_EVENT_FILTER, query_kind="HogQLQuery"),),
     )
 )
