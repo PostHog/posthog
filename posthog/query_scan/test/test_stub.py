@@ -105,6 +105,7 @@ class TestStubPrintsAsClickHouse(BaseTest):
             dialect="clickhouse",
         )
 
+        assert prepared is not None
         stub = stub_in_subqueries(prepared)
         sql = print_prepared_ast(stub.stubbed, context, dialect="clickhouse")
         subquery_sql = print_prepared_ast(stub_in_subqueries(stub.subqueries[0]).stubbed, context, dialect="clickhouse")
