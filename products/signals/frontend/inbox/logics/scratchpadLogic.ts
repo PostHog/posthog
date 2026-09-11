@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -854,8 +855,14 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                     try {
                         const report = await signalsReportsRetrieve(String(teamId), reportId)
                         actions.setReportTitle(reportId, report.title ?? null)
-                    } catch {
-                        actions.setReportTitle(reportId, null)
+                    } catch (error) {
+                        // A stored null asserts the report is gone and stops the key being asked
+                        // for again, so only a 404 earns one. Anything else is transient: leave the
+                        // id unresolved, so the next pass asks again rather than pinning the row to
+                        // its shortened UUID for the rest of the session.
+                        if (error instanceof ApiError && error.status === 404) {
+                            actions.setReportTitle(reportId, null)
+                        }
                     } finally {
                         inFlight.delete(reportId)
                     }
