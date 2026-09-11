@@ -104,14 +104,13 @@ export function measureDetachedPersistence(
             continue
         }
         seenNow.add(element)
-        if (!seenPreviously.has(element)) {
-            continue
-        }
-        persistedCount++
-        // The head of the stack, which is what MemLens itself reports as an element's component name.
-        const component = info.componentStack?.[0]
-        if (component) {
-            persistedComponents.set(component, (persistedComponents.get(component) ?? 0) + 1)
+        if (seenPreviously.has(element)) {
+            persistedCount++
+            // The head of the stack, which is what MemLens itself reports as an element's component name.
+            const component = info.componentStack?.[0]
+            if (component) {
+                persistedComponents.set(component, (persistedComponents.get(component) ?? 0) + 1)
+            }
         }
     }
 
