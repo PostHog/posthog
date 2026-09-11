@@ -8436,6 +8436,14 @@ snapshots:
         hash: v1.k794b7964.223044926f42a8e3a756412aa03a691dd04f5a8d8654db7a325f2260917b9430.cKHx53lUFCmAJnbAXBckDzQnwcxJ_hxsH-GgKgR-3Qg
     scenes-app-max-ai-logs-query-tool--with-rows--light:
         hash: v1.k794b7964.3e04c92daba0b5f213ecd35cd4e5a5eb797b24dc69a9e3c3c0bd7b27a4cef9f9.14ZWrizkHZvyik-SHsQC-lHUDhm-wvlxz25f_9eHfgc
+    scenes-app-max-ai-metrics-query-tool--no-matches--dark:
+        hash: v1.k794b7964.1c3bc1feeddc093ad7593edcbf23405b300456c45883b74f22dcd1de81def16b.rU8yOiOdULU1LqyFgK9tOSEovqSUs0cOwhB8z_H7MvM
+    scenes-app-max-ai-metrics-query-tool--no-matches--light:
+        hash: v1.k794b7964.31c339cd9e743dd317562ee1e23fb8931b7d19ea0b8a1b0613b4015cffdac666.L5wYY4iekjnp3Zkl-Agwem64xH3fYaPlDMbBGLd4p_g
+    scenes-app-max-ai-metrics-query-tool--with-series--dark:
+        hash: v1.k794b7964.2ae5ffb63819d5b5cbc8036a69524863d528ad6e2ec856d66ccb13f898e05963.eE91yTH5c_Rzx4gRwbzpTjOzojlLHK3fckQZyOX2Hac
+    scenes-app-max-ai-metrics-query-tool--with-series--light:
+        hash: v1.k794b7964.d82ecee834e26d6aaa56bbde0b121dd9fd7dffbf5d2acc1cead18465ab017fa6.2rmrIooO0ZfMjXZArIyRz_RsTarRwxQXv-701QurFHg
     scenes-app-max-ai-replay-vision-scan-widget--finished--dark:
         hash: v1.k794b7964.1223f99370d58d32715cc85f7dcee08b5edf77d9b93095b81474c76eb3138f2f.GJOY2COZjRyTv8DY54QNd7uUJ4H7DxTz-8TdiWq3yc8
     scenes-app-max-ai-replay-vision-scan-widget--finished--light:
