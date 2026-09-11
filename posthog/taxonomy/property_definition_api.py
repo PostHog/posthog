@@ -786,6 +786,8 @@ class PropertyDefinitionViewSet(
                 count_span.set_attribute("full_count", full_count)
 
             self.paginator.set_count(full_count)
+            # A capped count is a lower bound already, so `list()` must not add the virtual rows to it.
+            self._count_is_lower_bound = large_project and full_count >= LARGE_PROJECT_COUNT_CAP
             span.set_attribute("full_count", full_count)
 
             # nosemgrep: python.django.security.audit.custom-expression-as-sql.custom-expression-as-sql (all user input goes through query_context.params)
@@ -902,7 +904,10 @@ class PropertyDefinitionViewSet(
             if is_last_page:
                 response.data["results"].extend(matching_virtual_props)
 
-            response.data["count"] = db_count + len(matching_virtual_props)
+            if getattr(self, "_count_is_lower_bound", False):
+                response.data["count"] = db_count
+            else:
+                response.data["count"] = db_count + len(matching_virtual_props)
 
         return response
 

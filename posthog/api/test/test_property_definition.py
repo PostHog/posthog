@@ -249,10 +249,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     def test_large_project_caps_the_count(self):
         PropertyDefinition.objects.bulk_create(
-            [
-                PropertyDefinition(team=self.team, name=f"session_prop_{i}", type=PropertyDefinition.Type.SESSION)
-                for i in range(5)
-            ]
+            [PropertyDefinition(team=self.team, name=f"zz_prop_{i}", property_type="String") for i in range(5)]
         )
         # The large-project flag is cached per project, so an earlier request in this class must not decide it.
         cache.clear()
@@ -260,11 +257,14 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
             patch("posthog.taxonomy.property_definition_api.LARGE_PROJECT_COUNT_CAP", 3),
         ):
-            response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=session")
+            response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=event&search=zz_prop")
 
         assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [r["name"] for r in exclude_virtual_properties(results)] == [f"zz_prop_{i}" for i in range(5)]
+        # The virtual event properties still ride on the last page, but a capped count stays at the cap:
+        # it is a lower bound already, and the UI reads the cap value as "this many or more".
         assert response.json()["count"] == 3
-        assert [r["name"] for r in response.json()["results"]] == [f"session_prop_{i}" for i in range(5)]
 
     def test_cant_see_property_definitions_for_another_team(self):
         org = Organization.objects.create(name="Separate Org")
