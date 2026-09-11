@@ -53,11 +53,13 @@ import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
+import { parseWorkflowTriggerPrefill } from './workflowTriggerPrefill'
 
 export interface WorkflowLogicProps {
     id?: string
     templateId?: string
     editTemplateId?: string
+    triggerPrefill?: string
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -2994,7 +2996,8 @@ export const workflowLogic = kea<workflowLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
     props({ id: 'new' } as WorkflowLogicProps),
     key(
-        (props) => `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}`
+        (props) =>
+            `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}`
     ),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
@@ -3079,6 +3082,16 @@ export const workflowLogic = kea<workflowLogicType>([
                             delete (newWorkflow as any).created_by
 
                             return newWorkflow
+                        }
+                        const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
+                        if (triggerConfig) {
+                            const prefilled: HogFlow = {
+                                ...NEW_WORKFLOW,
+                                actions: NEW_WORKFLOW.actions.map((action) =>
+                                    action.type === 'trigger' ? { ...action, config: triggerConfig } : action
+                                ),
+                            }
+                            return prefilled
                         }
                         return { ...NEW_WORKFLOW }
                     }
