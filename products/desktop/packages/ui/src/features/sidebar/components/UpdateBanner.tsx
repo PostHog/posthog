@@ -102,12 +102,10 @@ export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
                 <button
                   type="button"
                   className="flex items-center gap-1.5 rounded-2 border border-(--green-a5) bg-(--green-a3) px-2.5 py-1 font-medium text-(--green-11) text-[13px] transition-colors hover:bg-(--green-a4)"
-                  onClick={() => void installUpdate()}
+                  onClick={openModal}
                 >
                   <Gift size={14} weight="duotone" />
-                  <span>
-                    {version ? `${version} ready` : "Update ready"} — Restart
-                  </span>
+                  <span>{version ? `${version} ready` : "Update ready"}</span>
                 </button>
                 {canDismiss && (
                   <DismissButton onClick={() => dismissBanner(dismissKey)} />
