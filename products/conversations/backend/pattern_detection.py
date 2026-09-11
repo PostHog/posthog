@@ -427,7 +427,8 @@ def upsert_pattern(
 
 
 def _fallback_title(candidate: TopicCandidate) -> str:
-    return f"{candidate.ticket_count} tickets from {candidate.requester_count} customers about: {candidate.topic}"
+    # The counts sit next to the title everywhere it renders, so the title carries only the topic.
+    return candidate.topic.capitalize()
 
 
 def _sync_evidence(pattern: TicketPattern, ticket_ids: Iterable[UUID], *, team: Team) -> None:
