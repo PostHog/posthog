@@ -332,7 +332,7 @@ jobs:
               if: github.event_name == 'workflow_dispatch'
               shell: pwsh
               run: |
-                  & "$env:GITHUB_WORKSPACE/.github/scripts/desktop/verify-windows-signatures.ps1" -OutDir out
+                  & "$env:GITHUB_WORKSPACE/.github/scripts/desktop/verify-windows-signatures.ps1" -OutDir apps/code/out
 
             - name: Upload artifacts
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
