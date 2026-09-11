@@ -51,6 +51,7 @@ import {
     dataCatalogMetricSceneLogic,
     DataCatalogMetricSceneLogicProps,
     definitionField,
+    MetricSceneTab,
 } from './dataCatalogMetricSceneLogic'
 import type { DataCatalogMetricApi } from './generated/api.schemas'
 import { MetricTestsTab } from './tabs/MetricTestsTab'
@@ -74,6 +75,10 @@ interface MetricAction {
 
 const DRIFT_APPROVE_DISABLED = 'This metric has drifted from its source insight. Refresh it first.'
 
+function tabPanelClassName(tab: MetricSceneTab, activeTab: MetricSceneTab): string {
+    return tab === activeTab ? 'flex flex-col gap-y-4' : 'hidden'
+}
+
 export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps): JSX.Element {
     const {
         metric,
@@ -84,6 +89,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
         editingDefinition,
         draftMarkdown,
         activeTab,
+        mountedTabs,
         metricChecksEnabled,
     } = useValues(dataCatalogMetricSceneLogic)
     const {
@@ -364,10 +370,8 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     ]}
                 />
 
-                {activeTab === 'tests' ? (
-                    <MetricTestsTab />
-                ) : (
-                    <>
+                {mountedTabs.includes('definition') && (
+                    <div className={tabPanelClassName('definition', activeTab)}>
                         <MetricMetadata metric={metric} onSaveUnit={(unit) => confirmAndUpdate({ unit })} />
 
                         <MetricDefinition
@@ -389,7 +393,13 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                                 isMaxAvailable ? undefined : 'PostHog AI is not available on this instance'
                             }
                         />
-                    </>
+                    </div>
+                )}
+
+                {metricChecksEnabled && mountedTabs.includes('tests') && (
+                    <div className={tabPanelClassName('tests', activeTab)}>
+                        <MetricTestsTab />
+                    </div>
                 )}
             </SceneContent>
 
