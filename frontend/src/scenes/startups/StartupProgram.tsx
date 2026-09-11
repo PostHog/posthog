@@ -482,7 +482,8 @@ export function StartupProgram(): JSX.Element {
 
                                                 <LemonField
                                                     name="incorporation_date"
-                                                    label="The date that your company was incorporated"
+                                                    label="The date that your company was founded"
+                                                    help="If your company is not incorporated yet, enter the date that you started the project."
                                                 >
                                                     <LemonCalendarSelectInput
                                                         clearable={false}

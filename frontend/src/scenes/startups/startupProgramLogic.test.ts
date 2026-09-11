@@ -87,6 +87,7 @@ describe('startupProgramLogic', () => {
                     program: StartupProgramType.Startup,
                     organization_id: MOCK_DEFAULT_ORGANIZATION.id,
                     blocked_at: 'form',
+                    reason: 'email_domain',
                 },
             ],
         ])
@@ -154,6 +155,33 @@ describe('startupProgramLogic', () => {
                 }),
             ],
         ])
+    })
+
+    describe('founding date', () => {
+        it('asks for a founding date, not an incorporation date', async () => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com' })
+
+            expect(logic.values.startupProgramValidationErrors.incorporation_date).toEqual(
+                'Please enter your founding date'
+            )
+        })
+
+        it('captures a blocked form event when a required field stops the submission', async () => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com' })
+
+            await expectLogic(logic, () => logic.actions.submitStartupProgram()).toFinishAllListeners()
+
+            expect(blockedEvents()).toEqual([
+                [
+                    'startup program application blocked',
+                    expect.objectContaining({
+                        blocked_at: 'form',
+                        reason: 'validation_failed',
+                        invalid_fields: expect.arrayContaining(['incorporation_date', 'raised']),
+                    }),
+                ],
+            ])
+        })
     })
 
     describe('YC verification link', () => {
