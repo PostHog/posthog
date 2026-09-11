@@ -448,8 +448,12 @@ removes that metadata and retries the size check. Text and status still reach th
 client when the remaining event fits; events that remain oversized are dropped.
 
 Native widgets read app data, existing `structuredContent`, or a direct result object.
-They never decode TOON or JSON from result text or reconstruct an executed query from
-tool arguments. Old transcripts containing only text show the generic tool card.
+They never decode TOON or JSON from result text.
+The `execute-sql` backend returns the executed query in `structured_content` alongside its formatted text.
+The MCP handler forwards that query as widget metadata, preserving resolved saved-variable definitions, `connectionId`, and `sendRawQuery`.
+The widget renders it through the shared Query component in a `DataVisualizationNode`.
+The Query component fetches the results for this visualization.
+All query widgets require the executed query from the tool result. Old transcripts containing only text show the generic tool card.
 Failed calls and missing or malformed widget data also use that fallback.
 The web client resolves tool identity from ACP `_meta.posthog`, with legacy
 `_meta.claudeCode` support. Non-exec MCP tools retain their qualified metadata names
