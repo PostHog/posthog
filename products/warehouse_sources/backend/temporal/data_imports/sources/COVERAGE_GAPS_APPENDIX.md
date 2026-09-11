@@ -259,7 +259,7 @@ Note: Single /query endpoint parameterized by `function=`; the docs page exposes
 
 ## AmazonAds — **thin**
 
-Today (7): `profiles`, `sp_ad_groups`, `sp_campaign_reports`, `sp_campaigns`, `sp_keywords`, `sp_product_ads`, `sp_targets`
+Today (18): `portfolios`, `profiles`, `sb_ad_groups`, `sb_ads`, `sb_campaigns`, `sb_targets`, `sd_ad_groups`, `sd_ads`, `sd_campaigns`, `sd_targets`, `sp_ad_groups`, `sp_campaign_negative_keywords`, `sp_campaign_reports`, `sp_campaigns`, `sp_keywords`, `sp_negative_keywords`, `sp_product_ads`, `sp_targets`
 
 Diffed against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/SponsoredProducts_prod_3p.json>
 
@@ -267,14 +267,16 @@ Diffed against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/Sponso
 - [x] `POST /sp/productAds/list` — the ad (ASIN) level under the ad groups already synced (high)
 - [x] `POST /sp/keywords/list` — keyword-level bids and state, the main optimization object (high)
 - [x] `POST /sp/targets/list` — product and category targeting expressions with bids (high)
-- [ ] `POST /portfolios/list` — lookup resolving the portfolioId carried on the campaigns already synced (high)
-- [ ] `POST /sb/... campaigns, ad groups, ads and targets (AmazonAdsAPISBMerged_prod_3p.json)` — Sponsored Brands entities are entirely absent, so spend coverage is partial (high)
-- [ ] `POST /sd/... campaigns, ad groups, product ads and targets (AmazonAdsAPISDMerged_prod_3p.json)` — Sponsored Display entities are entirely absent (high)
-- [ ] `POST /sp/negativeKeywords/list and /sp/campaignNegativeKeywords/list` — negative keyword coverage, needed to explain traffic exclusions (medium)
+- [x] `POST /portfolios/list` — lookup resolving the portfolioId carried on the campaigns already synced (high)
+- [x] `POST /adsApi/v1/query/... campaigns, adGroups, ads and targets, filtered to SPONSORED_BRANDS (AmazonAdsAPISBMerged_prod_3p.json)` — Sponsored Brands entities, so spend coverage is no longer partial (high)
+- [x] `POST /adsApi/v1/query/... campaigns, adGroups, ads and targets, filtered to SPONSORED_DISPLAY (AmazonAdsAPISDMerged_prod_3p.json)` — Sponsored Display entities (high)
+- [x] `POST /sp/negativeKeywords/list and /sp/campaignNegativeKeywords/list` — negative keyword coverage, needed to explain traffic exclusions (medium)
 - [ ] `POST /sp/negativeTargets/list and /sp/campaignNegativeTargets/list` — negative product/category targets alongside the positive targets (medium)
 - [ ] `POST /history (Change History API)` — state-transition history of bids, budgets and status changes (medium)
 - [ ] `POST /adsAccounts/list` — advertising account lookup above profiles, for multi-account rollups (medium)
 - [ ] `GET /invoices and POST /invoiceSummaries/list (Advertising Billing API)` — billed spend reconciliation against reported spend (medium)
+
+Note: the Sponsored Brands and Sponsored Display rows above were audited as `POST /sb/...` and `POST /sd/...`, but neither merged spec serves those paths. Both products' campaigns, ad groups, ads and targets are served by the unified Ads API at `POST /adsApi/v1/query/{entity}`, which selects between them with a required `adProductFilter`. That is the surface implemented. The per-product alternatives are worse: Sponsored Brands v4 has no targets list endpoint at all, and Sponsored Display v3 is a separate offset-paginated GET surface.
 
 Note: Static schema list. The Amazon Ads docs site is a Redocly SPA; the real spec index is https://d3a0d0y2hgofx6.cloudfront.net/en-us/toc2.json, which links ~130 OpenAPI documents. I also read OfflineReport_prod_3p.json, Portfolios_prod_3p.json, AmazonAdsAPIExports_prod_3p.json, Changehistory_prod_3p.json, AdvertisingBilling_prod_3p.json and AdvertisingAccounts_prod_3p.json. Nearly all list endpoints are POST /.../list rather than GET.
 
