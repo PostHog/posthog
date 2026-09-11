@@ -11,9 +11,9 @@ from django.utils import timezone
 from django.utils.functional import Promise
 
 from asgiref.sync import async_to_sync
-from django_deprecate_fields import deprecate_field
 from pydantic import ValidationError
 
+from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
