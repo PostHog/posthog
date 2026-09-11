@@ -2228,6 +2228,13 @@ class TestMySQLSourceNonRetryableErrors:
             ),
             # Temporal-wrapped str(e.cause) form — different host, same stable phrase.
             "OperationalError: (1130, \"Host '10.0.1.5' is not allowed to connect to this MySQL server\")",
+            # MariaDB renders the same error naming itself, not "MySQL server".
+            str(
+                pymysql.err.OperationalError(
+                    1130,
+                    "Host 'ec2-203-0-113-42.compute-1.amazonaws.com' is not allowed to connect to this MariaDB server",
+                )
+            ),
         ],
     )
     def test_host_not_privileged_is_non_retryable(self, source, error_msg):
