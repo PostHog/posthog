@@ -56,7 +56,10 @@ reply text: the driver posts the verdict's `verification` under it as a collapse
 (`_verification_section`) after the commit link, and inserts the blank line GitHub needs before a `---` the model
 wrote directly under its verdict (`_normalize_reply_divider`). A reply past the shape (more than 5 support lines or
 150 visible words) is folded, not cut: the verdict and the first lines stay visible and the rest lands under a
-collapsed "More detail" block, with a warning logged (`_fold_overlong_reply`). A FIXED verdict's echoed commit SHA is verified
+collapsed "More detail" block, with a warning logged (`_fold_overlong_reply`). The whole posted body is scrubbed of
+credential shapes last (`tools/redaction.py::redact_secrets`: PostHog secret key prefixes, GitHub token shapes, and
+`x-access-token` clone URLs), because the sandbox holds live tokens and the agent may paste command output into
+`verification`. A FIXED verdict's echoed commit SHA is verified
 server-side before delivery (`commit_on_branch`);
 an unproven SHA posts the reply without the commit link and never auto-resolves. A real commit is then checked
 against the hard-floor **path backstop** (`commit_restricted_paths`): one touching `.github/`, CODEOWNERS, or

@@ -222,7 +222,11 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
 
     def test_fixed_reply_links_the_commit_and_records_it_once(self) -> None:
         report = self._report()
-        verdict = _verdict(outcome="fixed", commit_sha="abc123", verification="pytest: 6 passed, ruff clean")
+        verdict = _verdict(
+            outcome="fixed",
+            commit_sha="abc123",
+            verification="pytest: 6 passed, ruff clean (GH_TOKEN=ghs_abcdefghijklmnopqrstuvwxyz0123)",
+        )
         with (
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True),
@@ -239,6 +243,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert "https://github.com/posthog/posthog/commit/abc123" in body
         assert body.index("Fix commit:") < body.index("<summary><strong>How this was verified</strong></summary>")
         assert "pytest: 6 passed, ruff clean" in body
+        assert "ghs_abcdefghijklmnopqrstuvwxyz0123" not in body and "GH_TOKEN=[redacted]" in body
         commits = ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id, type="commit")
         assert commits.count() == 1
         assert json.loads(commits.get().content)["commit_sha"] == "abc123"

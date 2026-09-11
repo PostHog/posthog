@@ -54,8 +54,9 @@ class ThreadResolution(BaseModel):
     verification: str | None = Field(
         default=None,
         description=(
-            "What was run to verify a fix (lint, tests) and the honest result, failures included. "
-            "Posted under the reply as a collapsed block."
+            "A short summary of what was run to verify a fix (lint, tests) and the honest result, failures "
+            "included. Posted under the reply as a collapsed block on a public thread: never raw command "
+            "output, environment values, or URLs that carry a token."
         ),
     )
 

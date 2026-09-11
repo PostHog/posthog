@@ -81,6 +81,7 @@ from products.review_hog.backend.reviewer.tools.github_threads import (
     resolve_thread,
     should_resolve,
 )
+from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
 from products.review_hog.backend.reviewer.tools.thread_resolution import (
     RESOLUTION_SYSTEM_PROMPT,
     build_resolution_followup_prompt,
@@ -487,6 +488,11 @@ def _deliver_side_effects(
                     "The thread stays open."
                 )
         body += _verification_section(updated.verification)
+        body, redacted = redact_secrets(body)
+        if redacted:
+            logger.warning(
+                "Redacted %d credential-shaped value(s) from the reply for thread %s", redacted, updated.thread_id
+            )
         comment_id, comment_url = reply_to_thread(
             token=token, thread_id=updated.thread_id, body=body, installation_id=installation_id
         )

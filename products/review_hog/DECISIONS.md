@@ -211,8 +211,14 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   past the shape (more than 5 support lines or 150 visible words) is folded, not cut or rejected: the verdict and the
   first lines stay visible, the rest goes under a collapsed "More detail" block, and a warning logs the drift
   (`_fold_overlong_reply`). Rejecting was ruled out in review: a schema limit fails the turn parser with no correction
-  path, so a landed fix commit would get no reply. The resolution-criteria skill's step 4 no longer asks for "how it
-  was verified" in the reply (new canonical version).
+  path, so a landed fix commit would get no reply. Review also flagged that publishing `verification` opens a
+  credential channel: the sandbox holds the GitHub token and a PostHog personal API key, the git remote carries the
+  token inline, and nothing inspected the body before it posted (the reply had the same gap on master). The posted
+  body is now scrubbed of credential shapes last (`tools/redaction.py`: PostHog secret prefixes `phx_`/`phs_`/
+  `pha_`/`phr_`, GitHub `gh?_`/`github_pat_` tokens, `x-access-token` clone URLs; `phc_` project tokens are public
+  and stay), with a warning logged, and the prompt asks for a summary rather than raw command output. Comparing
+  against live token values was not done: the delivery step only holds a GitHub token. The resolution-criteria
+  skill's step 4 no longer asks for "how it was verified" in the reply (new canonical version).
 - **Why.** Dogfood feedback on PR #97753: four replies of 5 to 7 paragraphs each, walls of text nobody reads. The
   prompt asked for a self-contained answer plus how it was verified, and the model over-delivered; the
   `verification` field was stored and shown nowhere. The shape lives in the prompt, not the editable criteria
