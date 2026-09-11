@@ -561,6 +561,10 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
 }
 
 
+ENTITY_INCREMENTAL_ENDPOINTS = frozenset(
+    endpoint for endpoint, schema_def in RESOURCE_SCHEMAS.items() if schema_def.get("entity_updated_time_filter")
+)
+
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     **{
         endpoint: _incremental_field("date_start", IncrementalFieldType.Date)
@@ -568,7 +572,6 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     },
     **{
         endpoint: _incremental_field("updated_time", IncrementalFieldType.DateTime)
-        for endpoint, schema_def in RESOURCE_SCHEMAS.items()
-        if schema_def.get("entity_updated_time_filter")
+        for endpoint in ENTITY_INCREMENTAL_ENDPOINTS
     },
 }

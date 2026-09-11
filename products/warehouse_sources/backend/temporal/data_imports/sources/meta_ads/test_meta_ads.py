@@ -1648,6 +1648,7 @@ class TestEntitySchemaIncrementalSupport:
 
         assert schemas[endpoint].supports_incremental
         assert [f["field"] for f in schemas[endpoint].incremental_fields] == ["updated_time"]
+        assert not schemas[endpoint].supports_append
 
 
 class TestGetIntegration:
