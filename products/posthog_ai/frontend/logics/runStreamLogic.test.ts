@@ -1276,6 +1276,72 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toHaveLength(1)
         })
 
+        it.each([false, true])(
+            'displays a pending first message before logs arrive (readOnly=%s)',
+            async (readOnly) => {
+                const content = 'Compare weekly activity.'
+                runStreamLogic({ ...logic.props, replayOnly: readOnly })
+                jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+                jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+                    id: 'run-1',
+                    task: 'task-1',
+                    stage: null,
+                    branch: null,
+                    status: TaskRunStatus.QUEUED,
+                    environment: TaskRunEnvironment.CLOUD,
+                    error_message: null,
+                    output: null,
+                    artifacts: [],
+                    state: {
+                        pending_user_message: wrapWithPosthogContext(content, [
+                            { type: 'text', value: 'Hidden context' },
+                        ]),
+                        pending_user_message_id: 'pending-1',
+                    },
+                })
+                await expectLogic(logic, () =>
+                    logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                ).toFinishAllListeners()
+                expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toEqual([
+                    { id: 'pending-run-1-pending-1', type: 'human_message', text: content, complete: true },
+                ])
+                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+                await expectLogic(logic, () =>
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({
+                            sessionUpdate: 'user_message_chunk',
+                            content: { type: 'text', text: content },
+                        }),
+                        readOnly ? 'replay' : 'live'
+                    )
+                ).toFinishAllListeners()
+                expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toEqual([
+                    { id: 'human-0', type: 'human_message', text: content, complete: true },
+                ])
+            }
+        )
+
+        it('keeps the selected run pending message even if its ancestor contains identical text', () => {
+            const text = 'Continue with the comparison.'
+            const ancestor = { ...notification('_posthog/user_message', { content: text }), source_run_id: 'ancestor' }
+            const selected = { ...notification('_posthog/user_message', { content: text }), source_run_id: 'run-1' }
+            const options = { isResumeRun: true, pendingMessage: { runId: 'run-1', id: 'pending-1', text } }
+            expect(
+                foldLogToThread([{ entry: ancestor, source: 'replay' }], options).threadItems.filter(
+                    (item) => item.type === 'human_message'
+                )
+            ).toHaveLength(2)
+            const items = foldLogToThread(
+                [
+                    { entry: ancestor, source: 'replay' },
+                    { entry: selected, source: 'replay' },
+                ],
+                options
+            ).threadItems.filter((item) => item.type === 'human_message')
+            expect(items).toHaveLength(2)
+            expect(items.every((item) => item.id.startsWith('human-'))).toBe(true)
+        })
+
         // The backend persists the human turn as a session/update `user_message_chunk`, not a
         // `_posthog/user_message` ext-notification — this is the frame a thread actually loads from logs.
         it('renders a persisted user_message_chunk session update on bootstrap replay', async () => {
@@ -2577,35 +2643,164 @@ describe('runStreamLogic', () => {
             ).toEqual(['overlap'])
         })
 
-        it('keeps a genuinely repeated payload when the buffer holds more copies than history (multiset)', async () => {
-            // The agent legitimately emitted the same message twice live; the snapshot captured only
-            // one (the second landed after the snapshot read). One historical copy absorbs one buffered
-            // copy; the surplus survives — counts, not a set.
-            let resolveLogs: (value: unknown) => void = () => {}
-            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
-                new Promise((resolve) => (resolveLogs = resolve)) as any
-            )
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+        test.each([
+            { name: 'one chunk', ids: ['boot-9'], chunks: ['reply'], legacyEnvelope: false },
+            {
+                name: 'a chunk range',
+                ids: ['boot-9', 'boot-10', 'boot-11'],
+                chunks: ['re', 'pl', 'y'],
+                legacyEnvelope: false,
+            },
+            { name: 'an opaque event ID', ids: ['opaque-event'], chunks: ['reply'], legacyEnvelope: false },
+            { name: 'a legacy envelope', ids: ['boot-9'], chunks: ['reply'], legacyEnvelope: true },
+        ])(
+            'reconciles $name compacted in history without dropping the next identical reply',
+            async ({ ids, chunks, legacyEnvelope }) => {
+                let resolveLogs: (value: unknown) => void = () => {}
+                jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                    new Promise((resolve) => (resolveLogs = resolve)) as any
+                )
+                jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
 
-            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
-            await flushPromises()
-            await MockStream.latest().emitOpen()
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
 
-            const repeated = sessionUpdate({
-                sessionUpdate: 'agent_message',
-                messageId: 'm1',
-                content: { text: 'ping' },
-            })
-            await MockStream.latest().emitMessage(repeated, '1-0')
-            await MockStream.latest().emitMessage(repeated, '2-0')
+                for (const [index, eventId] of ids.entries()) {
+                    await MockStream.latest().emitMessage({
+                        ...notification('session/update', {
+                            sessionId: 'session-1',
+                            update: {
+                                sessionUpdate: 'agent_message_chunk',
+                                content: { type: 'text', text: chunks[index] },
+                            },
+                        }),
+                        event_id: eventId,
+                    })
+                }
+                const savedReply = sessionUpdate({
+                    sessionUpdate: 'agent_message',
+                    content: { type: 'text', text: 'reply' },
+                })
 
-            resolveLogs([repeated])
-            await flushPromises()
+                resolveLogs([
+                    {
+                        ...(legacyEnvelope ? { notification: savedReply.notification } : savedReply),
+                        event_id: ids.at(-1),
+                        first_event_id: ids[0],
+                    },
+                ])
+                await flushPromises()
 
-            expect(
-                logic.values.threadItems.filter((item) => item.type === 'assistant_message').map((item) => item.text)
-            ).toEqual(['ping', 'ping'])
-        })
+                expect(
+                    logic.values.threadItems
+                        .filter((item) => item.type === 'assistant_message')
+                        .map((item) => item.text)
+                ).toEqual(['reply'])
+
+                await MockStream.latest().emitMessage({ ...savedReply, event_id: 'boot-12' })
+                expect(
+                    logic.values.threadItems
+                        .filter((item) => item.type === 'assistant_message')
+                        .map((item) => item.text)
+                ).toEqual(['reply', 'reply'])
+            }
+        )
+
+        test.each([
+            {
+                name: 'legacy payloads',
+                historyId: undefined,
+                firstId: undefined,
+                liveIds: [undefined, undefined],
+                ancestor: false,
+                count: 2,
+            },
+            {
+                name: 'legacy history with live event IDs',
+                historyId: undefined,
+                firstId: undefined,
+                liveIds: ['boot-1', 'boot-2'],
+                ancestor: false,
+                count: 2,
+            },
+            {
+                name: 'distinct event IDs',
+                historyId: 'boot-1',
+                firstId: undefined,
+                liveIds: ['boot-2', 'boot-3'],
+                ancestor: false,
+                count: 3,
+            },
+            {
+                name: 'different agent boots',
+                historyId: 'boot-1',
+                firstId: undefined,
+                liveIds: ['other-boot-1'],
+                ancestor: false,
+                count: 2,
+            },
+            {
+                name: 'a different run',
+                historyId: 'boot-1',
+                firstId: undefined,
+                liveIds: ['boot-1'],
+                ancestor: true,
+                count: 2,
+            },
+            {
+                name: 'a malformed event range',
+                historyId: 'boot-11',
+                firstId: 'other-boot-9',
+                liveIds: ['boot-10'],
+                ancestor: false,
+                count: 2,
+            },
+            {
+                name: 'an opaque event range',
+                historyId: 'opaque-z',
+                firstId: 'opaque-a',
+                liveIds: ['opaque-m'],
+                ancestor: false,
+                count: 2,
+            },
+        ])(
+            'keeps genuine repeated $name at the history seam',
+            async ({ historyId, firstId, liveIds, ancestor, count }) => {
+                let resolveLogs: (value: unknown) => void = () => {}
+                jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                    new Promise((resolve) => (resolveLogs = resolve)) as any
+                )
+                jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+                    status: 'in_progress',
+                    state: ancestor ? { resume_from_run_id: 'ancestor-run' } : {},
+                } as any)
+
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                await MockStream.latest().emitOpen()
+
+                const repeated = sessionUpdate({
+                    sessionUpdate: 'agent_message',
+                    messageId: 'm1',
+                    content: { text: 'ping' },
+                })
+                for (const [index, eventId] of liveIds.entries()) {
+                    await MockStream.latest().emitMessage({ ...repeated, event_id: eventId }, `${index + 1}-0`)
+                }
+
+                resolveLogs([
+                    ...(ancestor ? [notification('_posthog/run_started', { runId: 'ancestor-run' })] : []),
+                    { ...repeated, event_id: historyId, first_event_id: firstId },
+                ])
+                await flushPromises()
+
+                expect(
+                    logic.values.threadItems
+                        .filter((item) => item.type === 'assistant_message')
+                        .map((item) => item.text)
+                ).toEqual(Array(count).fill('ping'))
+            }
+        )
     })
 
     describe('replayOnly viewer (read-only)', () => {
@@ -2768,6 +2963,115 @@ describe('runStreamLogic', () => {
     })
 
     describe('_posthog/progress handling', () => {
+        it('folds a failed follow-up delivery into the preceding error card', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('session/update', {
+                        update: {
+                            sessionUpdate: 'error',
+                            errorType: 'agent_error',
+                            message: 'The agent stopped before completing this request: Model at capacity.',
+                        },
+                    })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/error', { message: 'Model at capacity.' }))
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        step: 'followup_delivery',
+                        status: 'failed',
+                        label: "Couldn't deliver your message",
+                        group: 'followup-delivery:m1',
+                        detail: 'send_followup failed: Model at capacity.',
+                    })
+                )
+            })
+            expect(logic.values.threadItems).toEqual([
+                {
+                    id: 'error-0',
+                    type: 'error',
+                    errorMessage: 'Model at capacity.',
+                    variant: 'error',
+                    undeliveredMessage: true,
+                },
+            ])
+        })
+
+        it('folds an earlier undelivered follow-up into the error that arrives after it', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        step: 'followup_delivery',
+                        status: 'failed',
+                        label: "Couldn't deliver your message",
+                        group: 'followup-delivery:m3',
+                        detail: 'send_followup failed: Internal error: bad model',
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    notification('session/update', {
+                        update: { sessionUpdate: 'agent_message', content: { type: 'text', text: 'bad model' } },
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    notification('session/update', {
+                        update: {
+                            sessionUpdate: 'error',
+                            errorType: 'agent_error',
+                            message: 'Internal error: bad model',
+                        },
+                    })
+                )
+            })
+            expect(logic.values.threadItems.filter((item) => item.type === 'error')).toEqual([
+                {
+                    id: 'error-1',
+                    type: 'error',
+                    errorMessage: 'Internal error: bad model',
+                    variant: 'error',
+                    undeliveredMessage: true,
+                },
+            ])
+        })
+
+        it('gives an error the trace id of the turn that completes after it, and none when no turn completes', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { traceId: 'trace-earlier' }))
+                logic.actions.ingestAcpFrame(notification('_posthog/error', { message: 'mid-run' }))
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { traceId: 'trace-of-error' }))
+                logic.actions.ingestAcpFrame(
+                    notification('session/update', {
+                        update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'again' } },
+                    })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/error', { message: 'stopped' }))
+            })
+            const errors = logic.values.threadItems.filter((item) => item.type === 'error')
+            expect(errors.map((item) => logic.values.errorTraceIds.get(item.id))).toEqual(['trace-of-error', undefined])
+        })
+
+        it('turns a failed follow-up delivery on a run without an error into its own card', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        step: 'followup_delivery',
+                        status: 'failed',
+                        label: "Couldn't deliver your message",
+                        group: 'followup-delivery:m2',
+                        detail: 'There is an issue with the selected model.',
+                    })
+                )
+            })
+            expect(logic.values.threadItems).toEqual([
+                {
+                    id: 'error-0',
+                    type: 'error',
+                    errorMessage: 'There is an issue with the selected model.',
+                    variant: 'undelivered',
+                    undeliveredMessage: true,
+                },
+            ])
+        })
+
         it('renders the emitter label as current progress and stores a progress thread item', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(

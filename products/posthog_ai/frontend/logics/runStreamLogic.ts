@@ -378,6 +378,8 @@ function normalizeNotificationEntry(entry: unknown): StoredLogEntry | null {
         type: 'notification',
         ...(typeof entry.timestamp === 'string' ? { timestamp: entry.timestamp } : {}),
         ...(typeof entry.source_run_id === 'string' ? { source_run_id: entry.source_run_id } : {}),
+        ...(typeof entry.event_id === 'string' ? { event_id: entry.event_id } : {}),
+        ...(typeof entry.first_event_id === 'string' ? { first_event_id: entry.first_event_id } : {}),
         notification: entry.notification,
     } as StoredLogEntry
 }
@@ -915,18 +917,17 @@ function isResumeContextPrompt(text: string): boolean {
     return text.startsWith(RESUME_CONTEXT_PREFIX)
 }
 
-/**
- * One-shot multiset reconciliation of the bootstrap seam (port of the reference client's
- * `drainBufferedLogBatches`). While the S3 history loads we connect the live SSE first and buffer
- * its frames; some buffered frames are the same logical entries the history already contains (the
- * live stream and the S3 log overlap around the connect cutoff). This drops each buffered frame a
- * historical frame accounts for, keyed on the ACP `notification` payload — the only field identical
- * across both copies. The SSE `id` is the Redis stream id (absent from S3), and the envelope
- * `timestamp` is stamped independently on the persist and the live-publish paths, so neither can be
- * part of the key. A *multiset* (counts, not a set) so N genuine repeats of an identical payload
- * survive: each historical copy absorbs exactly one buffered copy, and any buffered surplus passes
- * through. Steady-state live frames after the drain are appended directly and never deduped.
- */
+function parseAgentEventId(eventId: string): { boot: string; sequence: number } | null {
+    const match = /^(.+)-(\d+)$/.exec(eventId)
+    if (!match) {
+        return null
+    }
+    const sequence = Number(match[2])
+    return Number.isSafeInteger(sequence) ? { boot: match[1], sequence } : null
+}
+
+// The persisted log coalesces chunks and strips adapter fields, so payload equality cannot identify
+// modern overlap. Agent event IDs survive both paths; SSE IDs and timestamps do not.
 function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: StoredLogEntry[]): StoredLogEntry[] {
     const seamKey = (entry: StoredLogEntry): string =>
         JSON.stringify([
@@ -936,17 +937,67 @@ function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: Store
                 : undefined,
             entry.notification,
         ])
-    const historicalCounts = new Map<string, number>()
-    for (const entry of history) {
+    const historicalEntries = new Map<string, number[]>()
+    const eventIds = new Map<string, number>()
+    const eventRanges = new Map<string, { first: number; last: number; index: number }[]>()
+    const hasEventId = (entry: StoredLogEntry): entry is StoredLogEntry & { event_id: string } =>
+        typeof entry.event_id === 'string' && entry.event_id !== ''
+    for (const [index, entry] of history.entries()) {
         const key = seamKey(entry)
-        historicalCounts.set(key, (historicalCounts.get(key) ?? 0) + 1)
+        const entries = historicalEntries.get(key) ?? []
+        entries.push(index)
+        historicalEntries.set(key, entries)
+        if (!hasEventId(entry) || !entry.source_run_id) {
+            continue
+        }
+        eventIds.set(JSON.stringify([entry.source_run_id, entry.event_id]), index)
+        if (typeof entry.first_event_id !== 'string' || !entry.first_event_id) {
+            continue
+        }
+        eventIds.set(JSON.stringify([entry.source_run_id, entry.first_event_id]), index)
+        const first = parseAgentEventId(entry.first_event_id)
+        const last = parseAgentEventId(entry.event_id)
+        if (first && last && first.boot === last.boot && first.sequence <= last.sequence) {
+            const rangeKey = JSON.stringify([entry.source_run_id, first.boot])
+            const ranges = eventRanges.get(rangeKey) ?? []
+            ranges.push({ first: first.sequence, last: last.sequence, index })
+            eventRanges.set(rangeKey, ranges)
+        }
     }
+    const consumedHistory = new Set<number>()
     const survivors: StoredLogEntry[] = []
     for (const entry of buffered) {
+        let coveredIndex = hasEventId(entry)
+            ? eventIds.get(JSON.stringify([entry.source_run_id, entry.event_id]))
+            : undefined
+        if (coveredIndex === undefined && hasEventId(entry)) {
+            const parsed = parseAgentEventId(entry.event_id)
+            if (parsed) {
+                coveredIndex = eventRanges
+                    .get(JSON.stringify([entry.source_run_id, parsed.boot]))
+                    ?.find(({ first, last }) => first <= parsed.sequence && parsed.sequence <= last)?.index
+            }
+        }
+        if (coveredIndex !== undefined) {
+            consumedHistory.add(coveredIndex)
+            continue
+        }
+
+        // Legacy overlap remains a multiset: each historical copy absorbs only one live copy.
+        // Different stable IDs establish distinct events even when their payloads are identical.
         const key = seamKey(entry)
-        const remaining = historicalCounts.get(key) ?? 0
-        if (remaining > 0) {
-            historicalCounts.set(key, remaining - 1)
+        const matchingIndex = historicalEntries
+            .get(key)
+            ?.find(
+                (index) =>
+                    !consumedHistory.has(index) &&
+                    (!hasEventId(entry) || !hasEventId(history[index])) &&
+                    (!entry.source_run_id ||
+                        !history[index].source_run_id ||
+                        entry.source_run_id === history[index].source_run_id)
+            )
+        if (matchingIndex !== undefined) {
+            consumedHistory.add(matchingIndex)
             continue
         }
         survivors.push(entry)
@@ -1044,6 +1095,26 @@ export interface FoldedThread {
     toolInvocations: Map<string, ToolInvocation>
 }
 
+export interface PendingRunMessage {
+    runId: string
+    id: string
+    text: string
+}
+
+function readPendingRunMessage(state: unknown, runId: string): PendingRunMessage | null {
+    if (!isRecord(state) || typeof state.pending_user_message !== 'string') {
+        return null
+    }
+    const text = unwrapUserMessageContent(state.pending_user_message)
+    return text
+        ? {
+              runId,
+              id: typeof state.pending_user_message_id === 'string' ? state.pending_user_message_id : runId,
+              text,
+          }
+        : null
+}
+
 /**
  * Pure projection: fold the ordered log into the rendered thread (and the tool-invocation map the
  * renderer looks up). The fold rules (chunk buffering with the tail rule, tool-update merge,
@@ -1051,7 +1122,10 @@ export interface FoldedThread {
  * across re-folds. `isResumeRun` drives the §6 resume-context filter; per-entry `source` decides
  * whether a wire user turn renders (replay) or is left to the live echo (live).
  */
-export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: boolean }): FoldedThread {
+export function foldLogToThread(
+    entries: StoredEntry[],
+    options: { isResumeRun: boolean; pendingMessage?: PendingRunMessage | null }
+): FoldedThread {
     let items: ThreadItem[] = []
     const invocations = new Map<string, ToolInvocation>()
     // Texts already rendered by a `_posthog/user_message`, so a later identical `user_message_chunk`
@@ -1069,8 +1143,14 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
     let contextSeq = 0
     let timestamp: number | undefined
     let importedRun = false
+    let entryRunId: string | undefined
+    let pendingMessageSeen = false
+    let pendingInsertionIndex: number | undefined
 
     const pushHuman = (text: string): void => {
+        if (options.pendingMessage?.text === text && entryRunId === options.pendingMessage.runId) {
+            pendingMessageSeen = true
+        }
         items = insertHumanMessageAtTurnStart(items, {
             id: `human-${humanCount++}`,
             type: 'human_message',
@@ -1224,7 +1304,44 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         }
     }
 
+    // Two frames often describe one failure with the same text; keep the shorter, cleaner one.
+    const pushError = (message: string, variant: 'error' | 'crash', sourceRunId?: string): void => {
+        const last = items[items.length - 1]
+        if (last?.type === 'error' && last.errorMessage && variant === 'error' && last.variant !== 'crash') {
+            const a = last.errorMessage.trim()
+            const b = message.trim()
+            if (a.includes(b) || b.includes(a)) {
+                items[items.length - 1] = { ...last, errorMessage: a.length <= b.length ? a : b }
+                return
+            }
+        }
+        // A follow-up that failed to deliver earlier in this turn was a symptom of this error, so the
+        // undelivered card folds into the real one instead of standing next to it.
+        const turnStart = items.findLastIndex((item) => item.type === 'human_message')
+        const undeliveredIdx = items.findIndex(
+            (item, index) => index > turnStart && item.type === 'error' && item.variant === 'undelivered'
+        )
+        if (undeliveredIdx !== -1) {
+            items.splice(undeliveredIdx, 1)
+        }
+        items.push({
+            id: `error-${errorSeq++}`,
+            type: 'error',
+            errorMessage: message,
+            variant,
+            ...(undeliveredIdx !== -1 ? { undeliveredMessage: true } : {}),
+            ...(sourceRunId ? { sourceRunId } : {}),
+        })
+    }
     for (const { entry, source } of entries) {
+        entryRunId = entry.source_run_id ?? options.pendingMessage?.runId
+        if (
+            options.pendingMessage &&
+            entryRunId === options.pendingMessage.runId &&
+            pendingInsertionIndex === undefined
+        ) {
+            pendingInsertionIndex = items.length
+        }
         const notification = entry.notification
         const method = notification.method
         const params = (notification.params ?? {}) as Record<string, unknown>
@@ -1249,12 +1366,11 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             continue
         }
         if (method === '_posthog/error') {
-            items.push({
-                id: `error-${errorSeq++}`,
-                type: 'error',
-                errorMessage: String(params.message ?? notification.error?.message ?? 'Agent error'),
-                variant: 'error',
-            })
+            pushError(
+                String(params.message ?? notification.error?.message ?? 'Agent error'),
+                'error',
+                entry.source_run_id
+            )
             continue
         }
         if (method === '_posthog/turn_complete') {
@@ -1271,6 +1387,25 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             const group = stringifyOptional(params.group)
             const step = stringifyOptional(params.step)
             const label = stringifyOptional(params.label)
+            if (step === 'followup_delivery' && normalizeProgressStatus(params.status) === 'failed') {
+                // The undelivered follow-up is a consequence of the run's error, so it rides the error
+                // card instead of a second failed row. Without a preceding error it becomes the card.
+                items = items.filter((item) => !(item.type === 'progress' && item.progressGroup === group))
+                const last = items[items.length - 1]
+                if (last?.type === 'error' && last.variant !== 'crash') {
+                    items[items.length - 1] = { ...last, undeliveredMessage: true }
+                } else {
+                    items.push({
+                        id: `error-${errorSeq++}`,
+                        type: 'error',
+                        errorMessage: stringifyOptional(params.detail) ?? label ?? 'Message not delivered',
+                        variant: 'undelivered',
+                        undeliveredMessage: true,
+                        ...(entry.source_run_id ? { sourceRunId: entry.source_run_id } : {}),
+                    })
+                }
+                continue
+            }
             if (group && step && label) {
                 const detail = stringifyOptional(params.detail)
                 const nextStep: ProgressStep = {
@@ -1398,6 +1533,16 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             }
             continue
         }
+        if (sessionUpdate === 'error') {
+            // The Claude adapter reports a stopped run only through this frame; Codex sends it and a
+            // `_posthog/error` with the same text, which `pushError` folds into one card.
+            pushError(
+                String(update.message ?? 'The agent stopped before completing this request.'),
+                'error',
+                entry.source_run_id
+            )
+            continue
+        }
         const content = update.content as { text?: string } | undefined
         switch (sessionUpdate) {
             case 'agent_message_chunk':
@@ -1436,6 +1581,15 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         }
     }
 
+    if (options.pendingMessage && !pendingMessageSeen) {
+        // This is a display fallback, not an optimistic send; bootstrap must still read the full log.
+        items.splice(pendingInsertionIndex ?? items.length, 0, {
+            id: `pending-${options.pendingMessage.runId}-${options.pendingMessage.id}`,
+            type: 'human_message',
+            text: options.pendingMessage.text,
+            complete: true,
+        })
+    }
     return { threadItems: items, toolInvocations: invocations }
 }
 
@@ -1479,6 +1633,7 @@ export interface runStreamLogicValues {
     currentProgress: string | null
     currentRunStatus: RunStatus | null
     currentStage: string | null
+    errorTraceIds: Map<string, string>
     foldedThread: FoldedThread
     hasGitArtifacts: boolean
     hasThreadItems: boolean
@@ -1488,6 +1643,7 @@ export interface runStreamLogicValues {
     log: RunLog
     logBootstrapLoading: boolean
     pendingPermissionRequest: PermissionRequestRecord | null
+    pendingRunMessage: PendingRunMessage | null
     permissionResponseRequestIds: Set<string>
     reconnectAttempt: number
     resolvedPermissionRequestIds: Set<string>
@@ -1710,6 +1866,9 @@ export interface runStreamLogicActions {
     setCurrentStage: (stage: string | null) => {
         stage: string | null
     }
+    setPendingRunMessage: (message: PendingRunMessage | null) => {
+        message: PendingRunMessage | null
+    }
     setRunOpening: (opening: boolean) => {
         opening: boolean
     }
@@ -1747,7 +1906,12 @@ export interface runStreamLogicMeta {
             permissionResponseRequestIds: Set<string>,
             pendingPermissionRequest: PermissionRequestRecord | null
         ) => boolean
-        foldedThread: (log: RunLog, isBootstrapResumeRun: boolean) => FoldedThread
+        foldedThread: (
+            log: RunLog,
+            isBootstrapResumeRun: boolean,
+            pendingRunMessage: PendingRunMessage | null
+        ) => FoldedThread
+        errorTraceIds: (threadItems: ThreadItem[]) => Map<string, string>
         latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
         hasThreadItems: (threadItems: ThreadItem[]) => boolean
@@ -1986,6 +2150,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * `pushHumanMessage`.
          */
         startOptimisticRun: (message?: string) => ({ message }),
+        setPendingRunMessage: (message: PendingRunMessage | null) => ({ message }),
         startOptimisticResume: (message: string) => ({ message }),
         appendResumeBoundary: true,
         rollbackOptimisticResume: true,
@@ -2053,6 +2218,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 sseReconnecting: (state) => state + 1,
                 bootstrapRun: () => 0,
                 reset: () => 0,
+            },
+        ],
+        pendingRunMessage: [
+            null as PendingRunMessage | null,
+            {
+                setPendingRunMessage: (_, { message }) => message,
+                reset: () => null,
+                startOptimisticResume: () => null,
             },
         ],
         currentRunStatus: [
@@ -2341,8 +2514,35 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * Memoized on `log` identity, so it recomputes only when a frame is actually appended.
          */
         foldedThread: [
-            (s) => [s.log, s.isBootstrapResumeRun],
-            (log: RunLog, isResumeRun: boolean): FoldedThread => foldLogToThread(log.entries, { isResumeRun }),
+            (s) => [s.log, s.isBootstrapResumeRun, s.pendingRunMessage],
+            (log: RunLog, isResumeRun: boolean, pendingMessage: PendingRunMessage | null): FoldedThread =>
+                foldLogToThread(log.entries, { isResumeRun, pendingMessage }),
+        ],
+        errorTraceIds: [
+            (s) => [s.threadItems],
+            (threadItems: ThreadItem[]): Map<string, string> => {
+                // An error belongs to the turn that completes after it. A turn that never completes
+                // (a failed follow-up, a run that stopped) has no trace id, so the error gets none.
+                const result = new Map<string, string>()
+                threadItems.forEach((item, index) => {
+                    if (item.type !== 'error') {
+                        return
+                    }
+                    for (let j = index + 1; j < threadItems.length; j++) {
+                        const later = threadItems[j]
+                        if (later.type === 'human_message') {
+                            break
+                        }
+                        if (later.type === 'turn_separator') {
+                            if (later.traceId) {
+                                result.set(item.id, later.traceId)
+                            }
+                            break
+                        }
+                    }
+                })
+                return result
+            },
         ],
         latestTurnTraceId: [
             (s) => [s.threadItems],
@@ -2569,6 +2769,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 breakpoint()
                 actions.markBootstrapResumeRun(isResumeRun(replayRun))
                 actions.mergeRunArtifacts(extractRunArtifacts(replayRun))
+                actions.setPendingRunMessage(readPendingRunMessage(replayRun.state, runId))
 
                 const replayResult = await fetchLogEntriesWithRetry(taskId, runId, breakpoint)
                 if (!Array.isArray(replayResult)) {
@@ -2626,6 +2827,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // Flag the run's resume-ness so the projection can drop the synthetic resume-context
             // prompt (§6) before any history frame folds.
             actions.markBootstrapResumeRun(isResumeRun(run))
+            actions.setPendingRunMessage(readPendingRunMessage(run.state, runId))
             // Surface any git artifacts the run already carries (working/base branch, an opened PR)
             // so the pre-turn header and post-turn PR card render immediately on reopen.
             actions.mergeRunArtifacts(extractRunArtifacts(run))
