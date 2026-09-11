@@ -8,6 +8,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save, pre_save
@@ -18,6 +19,7 @@ import structlog
 import posthoganalytics
 
 from posthog.event_usage import groups
+from posthog.models import Team
 
 from products.signals.backend.implementation_pr import PrCloseReason
 from products.signals.backend.models import SignalReport, SignalReportArtefact
@@ -643,6 +645,53 @@ _SNAPSHOT_ARTEFACT_FIELDS = [
     (SignalReportArtefact.ArtefactType.DISMISSAL, "reason", "dismissal_reason"),
     (SignalReportArtefact.ArtefactType.DISMISSAL, "corrected_repository", "dismissal_corrected_repository"),
 ]
+
+
+# One `uses_self_driving` stamp per team per day is enough, because the property is a durable
+# marker. The throttle keeps busy report pipelines from queueing a group_identify on every save.
+_USES_SELF_DRIVING_STAMP_TTL_SECONDS = 24 * 60 * 60
+
+
+@receiver(post_save, sender=SignalReport)
+def stamp_organization_uses_self_driving(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    **kwargs: Any,
+) -> None:
+    """Set `uses_self_driving: true` on the internal `organization` group once a team has a
+    user-visible report (`first_visible_at` is set, so the inbox lists it).
+
+    Internal feature flags target this group property to opt every self-driving organization
+    into a rollout (e.g. `phai-sandbox-mode`, which the inbox's report-to-AI-sidebar flow
+    requires) instead of a manual per-organization condition on each flag.
+    """
+    if instance.first_visible_at is None:
+        return
+    team_id = instance.team_id
+
+    def _stamp() -> None:
+        try:
+            if not cache.add(
+                f"signals_uses_self_driving_stamped/{team_id}",
+                True,
+                _USES_SELF_DRIVING_STAMP_TTL_SECONDS,
+            ):
+                return
+            organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+            if organization_id is None:
+                return
+            posthoganalytics.group_identify(
+                "organization",
+                str(organization_id),
+                properties={"uses_self_driving": True},
+            )
+        except Exception:
+            # Analytics must never break the save that triggered it.
+            logger.exception("Failed to stamp uses_self_driving group property", team_id=team_id)
+
+    # After commit, so a rolled-back save never marks the organization.
+    transaction.on_commit(_stamp)
 
 
 def _is_dismissal_transition(previous_status: str, new_status: str) -> bool:
