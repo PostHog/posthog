@@ -47,6 +47,9 @@ _ALLOWED_ATTRIBUTE_SCOPES: frozenset[str] = frozenset({"resource", "attribute", 
 # the most recent buckets would be the ones dropped).
 _ROW_LIMIT = 10000
 
+# A series record updates every 30 minutes. The one-hour buffer allows late updates.
+_SERIES_LAST_SEEN_BUFFER = dt.timedelta(hours=1)
+
 # Widest queryable range. Counter/histogram queries scan raw samples within
 # the range on the ClickHouse cluster shared with the live logs/traces
 # products, so the span has to be bounded. The bound stays on the requested
@@ -396,21 +399,20 @@ def type_filter_expr(metric_type: str | None) -> ast.Expr:
 
 
 def _active_since_expr(date_from: dt.datetime | None) -> ast.Expr:
-    """Bound a `metric_series` read to series still active at `date_from`.
+    """Bound a `metric_series` read to series that could have later samples.
 
-    A series' `last_seen` is its newest sample time, so a series with any sample
-    in `[date_from, ...]` has `last_seen >= date_from`. A chart, sample list or
-    filter that only covers that window need not read the label rows of series
-    that fell silent before it. `metric_series2` carries a minmax index on
-    `last_seen`, and its rows land in parts by insert time, so the bound skips
-    whole old parts rather than filtering row by row.
+    Keep a one-hour buffer for delayed series updates. `metric_series2` indexes
+    `last_seen`, so the bound skips old parts.
 
     TRUE when `date_from` is None, for callers (the bucket decomposition) that
     want every series regardless of when it was last seen.
     """
     if date_from is None:
         return ast.Constant(value=True)
-    return parse_expr("last_seen >= {date_from}", placeholders={"date_from": ast.Constant(value=date_from)})
+    return parse_expr(
+        "last_seen >= {date_from}",
+        placeholders={"date_from": ast.Constant(value=date_from - _SERIES_LAST_SEEN_BUFFER)},
+    )
 
 
 def series_scope_expr(

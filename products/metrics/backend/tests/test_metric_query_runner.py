@@ -25,6 +25,7 @@ from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.metric_query_runner import (
     _INTERVAL_LADDER,
     MetricQueryRunner,
+    _active_since_expr,
     _align_to_interval,
     _histogram_quantile,
     _pick_interval,
@@ -47,6 +48,17 @@ class TestPickInterval:
     def test_pick_interval(self, _name: str, delta: dt.timedelta, expected: str) -> None:
         start = dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
         assert _pick_interval(start, start + delta) == expected
+
+
+class TestActiveSinceExpr:
+    def test_keeps_series_within_the_last_seen_buffer(self) -> None:
+        date_from = dt.datetime(2026, 1, 1, 12, tzinfo=dt.UTC)
+
+        expr = _active_since_expr(date_from)
+
+        assert isinstance(expr, ast.CompareOperation)
+        assert isinstance(expr.right, ast.Constant)
+        assert expr.right.value == date_from - dt.timedelta(hours=1)
 
 
 class TestAlignToInterval(ClickhouseTestMixin, APIBaseTest):
