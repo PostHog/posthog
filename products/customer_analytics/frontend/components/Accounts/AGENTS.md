@@ -76,8 +76,8 @@ The list query, account search endpoint, and agent entity search share both path
 Ignored accounts (`ignored_at IS NOT NULL`) are excluded from list rows and overview metrics by default. A direct account route sets `includeIgnored` as well as `includeChurned`, so an ignored account still opens by id. `ignored_at` is a selectable account field, but the Accounts UI does not write it.
 
 **Assignment filter (`assignmentStatus`).**
-A single canonical state on `accountsLogic` — `AssignmentStatus = 'all' | 'assigned' | 'unassigned'`, default `all` — drives the assigned/unassigned choice, so the status and the assigned-to user list can never describe contradictory sets.
-The "assigned to" dropdown shows three mutually exclusive checkboxes at the top, in order: **Unassigned only** (`unassigned`), **Assigned to anyone** (`assigned`), **All assignment statuses** (`all`, the default), plus the member picker below.
+A single canonical state on `accountsLogic` drives the assigned/unassigned choice. `AssignmentStatus = 'all' | 'assigned' | 'unassigned'`, with `all` as the default, so the status and user list cannot contradict each other.
+The shared `AccountAssignmentFilter` in `frontend/src/lib/components/` renders three mutually exclusive choices: **Unassigned only** (`unassigned`), **Assigned to anyone** (`assigned`), and **All assignment statuses** (`all`). It also renders the member picker.
 `accountsTableQuery.ts` maps each status to a query filter: `all` omits the assignment filter entirely (both assigned and unassigned show), `assigned` emits `{ kind: 'assigned' }`, and `unassigned` emits `{ kind: 'unassigned' }`.
 Selecting users or checking "My accounts" narrows the assigned status to those user ids (`{ kind: 'assigned_to' }`) — both force the status to `assigned`; leaving the assigned status clears the user list.
 Legacy compatibility: a saved view or shared link created before this field defaulted to assigned-only, so any persisted filters object with no `assignmentStatus` resolves to `assigned` (an old `unassigned: true` resolves to `unassigned`) — they never silently broaden to `all`.
