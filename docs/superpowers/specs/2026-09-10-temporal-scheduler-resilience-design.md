@@ -329,7 +329,9 @@ Every coordinator emits low-cardinality metrics with `scheduler` and `region` la
 Permit, claim-health, and backlog values are authoritative snapshots written by whichever worker ran the latest
 database activity. Companion snapshot-time gauges identify that writer: dashboards select the
 newest live target for each scheduler and region and reject samples older than the coordinator's
-freshness interval. They must not sum identical queue-wide snapshots across worker replicas.
+freshness interval. Alert rules likewise treat an absent or stale companion timestamp as unhealthy
+and must not evaluate its paired snapshot value as current. Consumers must not sum identical
+queue-wide snapshots across worker replicas.
 
 Freshness is the greater of the oldest eligible due-item age and the oldest admitted-but-unfinished
 source-due age. A child that renews its claim therefore remains visible after discovery excludes it.
@@ -347,15 +349,16 @@ The synthetic item belongs to an internal project, cannot notify an external des
 The initial alert set covers:
 
 1. a synthetic scheduled item misses its freshness objective;
-2. oldest-due age consumes half of the freshness objective and rises, or breaches the objective;
-3. a coordinator defers work while running at maximum admission;
-4. task-queue schedule-to-start latency breaches its target;
-5. worker replicas reach their maximum while backlog grows;
-6. worker slot availability stays below 10%;
-7. coordinator timeouts repeat; and
-8. claim cleanup or renewal lag approaches the lease timeout;
-9. any payload-budget or resource-exhausted failure occurs; and
-10. a new quarantine transition occurs or quarantined work remains unresolved.
+2. any required coordinator snapshot timestamp is absent or older than its freshness interval;
+3. oldest-due age consumes half of the freshness objective and rises, or breaches the objective;
+4. a coordinator defers work while running at maximum admission;
+5. task-queue schedule-to-start latency breaches its target;
+6. worker replicas reach their maximum while backlog grows;
+7. worker slot availability stays below 10%;
+8. coordinator timeouts repeat;
+9. claim cleanup or renewal lag approaches the lease timeout;
+10. any payload-budget or resource-exhausted failure occurs; and
+11. a new quarantine transition occurs or quarantined work remains unresolved.
 
 A capacity forecast also alerts before saturation when projected high-percentile demand will consume the recovery envelope within the planning horizon.
 
@@ -465,3 +468,4 @@ If immediate containment is required, responders pause the schedule, wait for or
 - Coincident schedule runs do not duplicate customer-visible effects.
 - One poison item cannot occupy every worker process.
 - Monitoring and notification remain functional when the monitored task queue is unavailable.
+- A stopped coordinator makes its snapshot alert unhealthy before the synthetic item misses its freshness objective.
