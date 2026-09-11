@@ -19,6 +19,7 @@ from products.customer_analytics.backend.facade.api import (
     create_account,
     update_account,
 )
+from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import Account, AccountRelationshipDefinition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -332,22 +333,26 @@ class UpsertAccountTool(MaxTool):
         missing = sorted(user_ids - memberships.keys())
         if missing:
             raise RelationshipAssignmentError(f"User {missing[0]} is not a member of this organization.")
-        for name, user_id in assignments.items():
-            definition = definitions[name]
-            if user_id is None:
-                relationships_logic.end_active(
+        actor = relationships_logic.Actor(source=AccountRelationshipSource.AI, user=self._user)
+        try:
+            for name, user_id in assignments.items():
+                definition = definitions[name]
+                if user_id is None:
+                    relationships_logic.end_active(
+                        team_id=self._team.id, account=account, definition=definition, actor=actor
+                    )
+                    continue
+                relationships_logic.assign(
                     team_id=self._team.id,
                     account=account,
                     definition=definition,
-                    actor=self._user,
+                    user=memberships[user_id].user,
+                    actor=actor,
                 )
-                continue
-            relationships_logic.assign(
-                team_id=self._team.id,
-                account=account,
-                definition=definition,
-                user=memberships[user_id].user,
-                created_by=self._user,
+        except relationships_logic.ManagedRolePolicyError:
+            raise RelationshipAssignmentError(
+                "This account's commercial roles are managed in Customer analytics and are changed from the "
+                "account page, not through this tool."
             )
 
 

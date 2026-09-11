@@ -81,7 +81,11 @@ class TestAccountAudience(ClickhouseTestMixin, NonAtomicBaseTest):
             team_id=self.team.id, name="CSM"
         )
         relationships_logic.assign(
-            team_id=self.team.id, account=assigned, definition=definition, user=holder, created_by=holder
+            team_id=self.team.id,
+            account=assigned,
+            definition=definition,
+            user=holder,
+            actor=relationships_logic.Actor.human(holder),
         )
 
         assert self._list(AccountAudienceFilters(assigned_to_user_ids=(holder.id,))) == ["assigned"]

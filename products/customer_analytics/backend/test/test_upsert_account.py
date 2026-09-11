@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from posthog.test.base import BaseTest
@@ -7,6 +8,7 @@ from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
 from posthog.models import TaggedItem, Team, User
+from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.customer_analytics.backend.max_tools import (
     AccountPropertiesInput,
@@ -14,7 +16,12 @@ from products.customer_analytics.backend.max_tools import (
     UpdateAccountAction,
     UpsertAccountTool,
 )
-from products.customer_analytics.backend.models import Account, AccountRelationship, AccountRelationshipDefinition
+from products.customer_analytics.backend.models import (
+    Account,
+    AccountRelationship,
+    AccountRelationshipDefinition,
+    TeamCustomerAnalyticsConfig,
+)
 
 
 class TestUpsertAccountTool(BaseTest):
@@ -106,6 +113,30 @@ class TestUpsertAccountTool(BaseTest):
         await self._tool()._arun_impl(
             action=UpdateAccountAction(account_id=str(account.id), relationships={"CSM": None})
         )
+        assert await self._active_holder_ids(account) == set()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_update_cannot_change_a_managed_commercial_role(self):
+        definition = await self._create_definition("CSM")
+        account = await sync_to_async(Account.objects.unscoped().create)(
+            team=self.team, name="Acme", csm_ownership_controlled_at=datetime(2026, 1, 1, tzinfo=UTC)
+        )
+
+        @sync_to_async
+        def bind_csm() -> None:
+            config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+            config.csm_relationship_definition = definition
+            config.save(update_fields=["csm_relationship_definition"])
+
+        await bind_csm()
+
+        content, artifact = await self._tool()._arun_impl(
+            action=UpdateAccountAction(account_id=str(account.id), relationships={"CSM": self.user.id})
+        )
+
+        assert artifact["error"] == "invalid_relationship_assignment"
+        assert "managed in Customer analytics" in content
         assert await self._active_holder_ids(account) == set()
 
     @pytest.mark.django_db

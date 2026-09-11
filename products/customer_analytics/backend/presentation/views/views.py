@@ -1212,6 +1212,8 @@ class AccountRelationshipDefinitionViewSet(
             )
         except api.AccountRelationshipDefinitionConflictError as e:
             raise Conflict(str(e))
+        except api.AccountRelationshipDefinitionBoundError:
+            raise Conflict("This relationship carries a commercial role and must stay single-holder.")
         if definition is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipDefinitionSerializer(instance=definition).data)
@@ -1221,7 +1223,11 @@ class AccountRelationshipDefinitionViewSet(
         return self.update(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
-        if not api.delete_account_relationship_definition(team_id=self.team_id, definition_id=self.kwargs["pk"]):
+        try:
+            deleted = api.delete_account_relationship_definition(team_id=self.team_id, definition_id=self.kwargs["pk"])
+        except api.AccountRelationshipDefinitionBoundError:
+            raise Conflict("This relationship carries a commercial role and can't be deleted while it does.")
+        if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -2033,6 +2039,8 @@ class AccountViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.ResourceForbiddenError:
             raise PermissionDenied()
+        except api.AccountOwnershipManagedError:
+            raise Conflict("This account's commercial roles are managed here. Clear them before deleting it.")
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -2428,12 +2436,15 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         )
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        deleted = api.delete_account_relationship(
-            team_id=self.team_id,
-            account_id=account_id,
-            relationship_id=self.kwargs["pk"],
-            actor=cast(User, request.user),
-        )
+        try:
+            deleted = api.delete_account_relationship(
+                team_id=self.team_id,
+                account_id=account_id,
+                relationship_id=self.kwargs["pk"],
+                actor=cast(User, request.user),
+            )
+        except api.AccountRelationshipProtectedError:
+            raise Conflict("Commercial role history cannot be deleted. End the assignment instead.")
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)

@@ -29,6 +29,7 @@ from posthog.models.scoping import team_scope
 from posthog.persons_db import persons_db_connection
 
 from products.customer_analytics.backend.facade.api import create_account
+from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models.account import Account, AccountProperties
 from products.customer_analytics.backend.models.relationship import AccountRelationshipDefinition
@@ -206,7 +207,7 @@ class Command(BaseCommand):
                 account=account,
                 definition=definition,
                 user=user_pool[(index + offset) % len(user_pool)],
-                created_by=creator,
+                actor=relationships_logic.Actor(source=AccountRelationshipSource.MIGRATION, user=creator),
                 emit_event=False,
             )
 

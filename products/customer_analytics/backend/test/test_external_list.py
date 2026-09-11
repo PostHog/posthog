@@ -12,10 +12,15 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_secret
 from posthog.test.api_keys import create_project_secret_api_key
 
-from products.customer_analytics.backend.models import AccountRelationship, AccountRelationshipDefinition
+from products.customer_analytics.backend.models import (
+    AccountRelationship,
+    AccountRelationshipDefinition,
+    TeamCustomerAnalyticsConfig,
+)
 from products.customer_analytics.backend.test.factories import create_account
 
 ENDED_AT = datetime(2026, 1, 1, tzinfo=UTC)
@@ -222,18 +227,9 @@ class TestExternalAccountListAPI(APIBaseTest):
         response = self._get()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json()["results"],
-            [
-                {
-                    "external_id": "org-1",
-                    "name": "Acme",
-                    "churned_at": None,
-                    "ignored_at": None,
-                    "relationships": {},
-                }
-            ],
-        )
+        (row,) = response.json()["results"]
+        self.assertEqual(row["external_id"], "org-1")
+        self.assertEqual(row["relationships"], {})
 
     def test_omits_ended_and_userless_assignments(self):
         account = create_account(team_id=self.team.id, name="Acme", external_id="org-1")
@@ -282,6 +278,37 @@ class TestExternalAccountListAPI(APIBaseTest):
 
         names = [row["name"] for row in response.json()["results"]]
         self.assertEqual(names, ["Listed"])
+
+    def test_managed_only_returns_managed_accounts_including_cleared_roles(self):
+        config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        config.csm_relationship_definition = self.csm_definition
+        config.save(update_fields=["csm_relationship_definition"])
+        assigned = create_account(
+            team_id=self.team.id, name="Assigned", external_id="assigned", csm_ownership_controlled_at=ENDED_AT
+        )
+        self._assign(assigned, self.user)
+        create_account(
+            team_id=self.team.id, name="Cleared", external_id="cleared", csm_ownership_controlled_at=ENDED_AT
+        )
+        create_account(
+            team_id=self.team.id,
+            name="Ignored",
+            external_id="ignored",
+            csm_ownership_controlled_at=ENDED_AT,
+            ignored_at=ENDED_AT,
+        )
+        legacy = create_account(team_id=self.team.id, name="Legacy", external_id="legacy")
+        self._assign(legacy, self.user)
+
+        response = self._get({"managed_only": "true"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        by_external_id = {row["external_id"]: row["ownership"]["csm"] for row in response.json()["results"]}
+        self.assertEqual(set(by_external_id), {"assigned", "cleared", "ignored"})
+        self.assertEqual(by_external_id["assigned"]["state"], "assigned")
+        self.assertEqual(by_external_id["assigned"]["holder"]["email"], self.user.email)
+        self.assertEqual(by_external_id["cleared"]["state"], "cleared")
+        self.assertIsNone(by_external_id["cleared"]["holder"])
 
     def test_assigned_only_filters_to_accounts_with_an_active_assignment(self):
         assigned = create_account(team_id=self.team.id, name="Assigned", external_id="org-1")

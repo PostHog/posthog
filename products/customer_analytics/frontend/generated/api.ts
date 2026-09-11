@@ -154,7 +154,7 @@ export const getCustomerAnalyticsExternalAccountRetrieveUrl = (
 }
 
 /**
- * Fetch one account by external ID with its properties, tags, active relationship assignments and custom property values. Accepts the team secret API token or a project secret API key with the `account:read` scope.
+ * Fetch one account by external ID with its properties, commercial role ownership, tags, active relationship assignments and custom property values. Accepts the team secret API token or a project secret API key with the `account:read` scope.
  * @summary Get an external customer analytics account
  */
 export const customerAnalyticsExternalAccountRetrieve = async (
@@ -186,7 +186,7 @@ export const getCustomerAnalyticsExternalAccountsRetrieveUrl = (
 }
 
 /**
- * List tracked accounts with external IDs, lifecycle timestamps, and active relationship assignments. Set `include_ignored=true` to include ignored accounts. Requires a project secret API key with the `account:read` scope.
+ * List tracked accounts with external IDs, lifecycle timestamps, commercial role ownership, and active relationship assignments. Set `include_ignored=true` to include ignored accounts and `managed_only=true` to read only the accounts customer analytics holds ownership authority for. Requires a project secret API key with the `account:read` scope.
  * @summary List external customer analytics accounts
  */
 export const customerAnalyticsExternalAccountsRetrieve = async (

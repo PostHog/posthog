@@ -81,6 +81,10 @@ class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
     _properties = JSONField(default=dict, db_column="properties")
     # NULL = periodic Slack channel summaries off for this account.
     slack_summary_cadence = models.CharField(max_length=10, choices=SlackSummaryCadence.choices, null=True, blank=True)
+    # Per commercial role: NULL while the role is unmanaged, otherwise the instant of the last
+    # authoritative decision for it. Doubles as the fence an automated initial claim must be newer than.
+    ae_ownership_controlled_at = models.DateTimeField(null=True, blank=True)
+    csm_ownership_controlled_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [

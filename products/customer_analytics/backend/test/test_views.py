@@ -2847,7 +2847,11 @@ class TestAccountRelationshipDefinitionViewSet(APIBaseTest):
         # nosemgrep: idor-lookup-without-team (test setup)
         definition = AccountRelationshipDefinition.objects.unscoped().get(id=definition_id)
         relationships_logic.assign(
-            team_id=self.team.id, account=account, definition=definition, user=self.user, created_by=self.user
+            team_id=self.team.id,
+            account=account,
+            definition=definition,
+            user=self.user,
+            actor=relationships_logic.Actor.human(self.user),
         )
 
         response = self.client.delete(f"{self.endpoint_base}{definition_id}/")
@@ -2887,18 +2891,29 @@ class TestAccountRelationshipViewSet(APIBaseTest):
             team_id=self.team.id, name=name, created_by=self.user
         )
 
+    def _assign(self, definition, user=None) -> AccountRelationship:
+        return relationships_logic.assign(
+            team_id=self.team.id,
+            account=self.account,
+            definition=definition,
+            user=user or self.user,
+            actor=relationships_logic.Actor.human(self.user),
+        )
+
+    def _end(self, relationship: AccountRelationship) -> None:
+        relationships_logic.end_relationship(
+            team_id=self.team.id,
+            account_id=self.account.id,
+            relationship_id=str(relationship.id),
+            actor=relationships_logic.Actor.human(),
+        )
+
     def test_lists_active_relationships_by_default(self):
         csm = self._create_relationship_definition("CSM")
         fde = self._create_relationship_definition("FDE")
-        active = relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=csm, user=self.user, created_by=self.user
-        )
-        ended = relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=fde, user=self.user, created_by=self.user
-        )
-        relationships_logic.end_relationship(
-            team_id=self.team.id, account_id=self.account.id, relationship_id=str(ended.id)
-        )
+        active = self._assign(csm)
+        ended = self._assign(fde)
+        self._end(ended)
 
         response = self.client.get(self.endpoint)
 
@@ -2913,12 +2928,8 @@ class TestAccountRelationshipViewSet(APIBaseTest):
     def test_include_history_returns_full_timeline(self):
         definition = self._create_relationship_definition()
         successor = User.objects.create_and_join(self.organization, "successor@posthog.com", "testtest")
-        relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
-        relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=successor, created_by=self.user
-        )
+        self._assign(definition)
+        self._assign(definition, successor)
 
         response = self.client.get(f"{self.endpoint}?include_history=true")
 
@@ -2975,12 +2986,8 @@ class TestAccountRelationshipViewSet(APIBaseTest):
 
     def test_end_already_ended_relationship_returns_404(self):
         definition = self._create_relationship_definition()
-        rel = relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
-        relationships_logic.end_relationship(
-            team_id=self.team.id, account_id=self.account.id, relationship_id=str(rel.id)
-        )
+        rel = self._assign(definition)
+        self._end(rel)
 
         response = self.client.post(f"{self.endpoint}{rel.id}/end/")
 
@@ -2992,24 +2999,23 @@ class TestAccountRelationshipViewSet(APIBaseTest):
             level=OrganizationMembership.Level.ADMIN
         )
         definition = self._create_relationship_definition()
-        relationship = relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
+        relationship = self._assign(definition)
         if ended:
-            relationships_logic.end_relationship(
-                team_id=self.team.id, account_id=self.account.id, relationship_id=str(relationship.id)
-            )
+            self._end(relationship)
 
         response = self.client.delete(f"{self.endpoint}{relationship.id}/")
 
         self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
+        self.assertTrue(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, activity="relationship_deleted", detail__context__source="human"
+            ).exists()
+        )
         self.assertFalse(AccountRelationship.objects.for_team(self.team.id).filter(id=relationship.id).exists())
 
     def test_non_admin_cannot_hard_delete_relationship(self):
         definition = self._create_relationship_definition()
-        relationship = relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
+        relationship = self._assign(definition)
         member = User.objects.create_and_join(self.organization, "relationship-member@posthog.com", "testtest")
         self.client.force_login(member)
 
@@ -3025,9 +3031,7 @@ class TestAccountRelationshipViewSet(APIBaseTest):
         ]
         self.organization.save()
         definition = self._create_relationship_definition()
-        relationship = relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
+        relationship = self._assign(definition)
         account_viewer = User.objects.create_and_join(
             self.organization, "account-viewer-relationship-editor@example.com", "testtest"
         )
