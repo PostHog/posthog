@@ -18,6 +18,7 @@ from structlog import get_logger
 from posthog.hogql import ast
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.eval_reports.constants import (
@@ -64,6 +65,13 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+@frozen
+class _FetchedDueEvalReports:
+    report_ids: list[str]
+    oldest_due_at: dt.datetime | None
+    has_more: bool
+
+
 @temporalio.activity.defn
 async def fetch_due_eval_reports_activity(
     inputs: ScheduleAllEvalReportsWorkflowInputs,
@@ -71,38 +79,38 @@ async def fetch_due_eval_reports_activity(
     """Return a list of time-based evaluation report IDs that are due for delivery."""
     now_with_buffer = dt.datetime.now(tz=dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
 
-    report_ids, oldest_due_at, has_more = await database_sync_to_async(
+    fetched = await database_sync_to_async(
         _fetch_due_eval_report_ids,
         thread_sensitive=False,
     )(now_with_buffer, inputs.max_reports_per_run)
     await logger.ainfo(
         "llma_eval_reports_coordinator_scheduled_poll",
-        reports_found=len(report_ids),
+        reports_found=len(fetched.report_ids),
         max_reports_per_run=inputs.max_reports_per_run,
-        has_more=has_more,
-        oldest_due_at=oldest_due_at,
+        has_more=fetched.has_more,
+        oldest_due_at=fetched.oldest_due_at,
     )
     from posthog.temporal.ai_observability.eval_reports.metrics import (
         record_coordinator_poll,
         record_coordinator_reports_found,
     )
 
-    record_coordinator_reports_found(len(report_ids), "scheduled")
+    record_coordinator_reports_found(len(fetched.report_ids), "scheduled")
     record_coordinator_poll(
-        selected_count=len(report_ids),
+        selected_count=len(fetched.report_ids),
         trigger_type="scheduled",
-        has_more=has_more,
-        oldest_due_at=oldest_due_at,
+        has_more=fetched.has_more,
+        oldest_due_at=fetched.oldest_due_at,
     )
     return FetchDueEvalReportsOutput(
-        report_ids=report_ids,
+        report_ids=fetched.report_ids,
     )
 
 
 def _fetch_due_eval_report_ids(
     now_with_buffer: dt.datetime,
     max_reports_per_run: int,
-) -> tuple[list[str], dt.datetime | None, bool]:
+) -> _FetchedDueEvalReports:
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
     if max_reports_per_run <= 0:
@@ -125,7 +133,11 @@ def _fetch_due_eval_report_ids(
     has_more = len(rows) > max_reports_per_run
     selected_rows = rows[:max_reports_per_run]
     oldest_due_at = min((next_delivery_date for _, next_delivery_date in selected_rows), default=None)
-    return [str(report_id) for report_id, _ in selected_rows], oldest_due_at, has_more
+    return _FetchedDueEvalReports(
+        report_ids=[str(report_id) for report_id, _ in selected_rows],
+        oldest_due_at=oldest_due_at,
+        has_more=has_more,
+    )
 
 
 @temporalio.activity.defn
