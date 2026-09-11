@@ -25,4 +25,4 @@ nouns through `QueryContext.dataTableNouns`.
 
 Session filters select matching tool calls while preserving the full session's start and end times.
 Tool-neighbor reports keep the full sequence of calls when finding the calls before and after a match.
-The Sessions AI digest is hidden while shared filters are active because the digest summarizes unfiltered sessions.
+The Activity AI digest is hidden while shared filters are active because the digest summarizes unfiltered sessions.
