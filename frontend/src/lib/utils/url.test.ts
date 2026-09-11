@@ -1,6 +1,7 @@
 import {
     getRelativeNextPath,
     isExternalLink,
+    isHttpOrHttpsUrl,
     isHttpsUrl,
     isURL,
     parseNumericArrayFilter,
@@ -377,6 +378,23 @@ describe('url utils', () => {
             ['', false],
         ])('returns %s -> %s', (value, expected) => {
             expect(isHttpsUrl(value)).toBe(expected)
+        })
+    })
+
+    describe('isHttpOrHttpsUrl', () => {
+        it.each([
+            ['https://example.com/webhook', true],
+            ['http://example.com/webhook', true],
+            ['  https://example.com/webhook  ', true],
+            ['https://example.com/webhook?a=%7B%22b%22:1%7D&c=1', true],
+            ['ftp://example.com/webhook', false],
+            ['javascript:alert(1)', false],
+            ['example.com/webhook', false],
+            ['not a URL', false],
+            ['   ', false],
+            ['', false],
+        ])('returns %s -> %s', (value, expected) => {
+            expect(isHttpOrHttpsUrl(value)).toBe(expected)
         })
     })
 })
