@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.db import models
 
-from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.utils import UUIDModel
 
 from products.conversations.backend.models.constants import Priority
@@ -21,12 +21,18 @@ class TicketPatternSource(models.TextChoices):
     EMBEDDINGS = "embeddings", "Embeddings"
 
 
-class TicketPattern(TeamScopedRootMixin, UUIDModel):
+class TicketPattern(UUIDModel):
     """A cluster of tickets from several distinct requesters about one topic inside a short window.
 
     One open row per (team, fingerprint): a still-firing topic updates its open pattern instead of
     minting a new one, and the partial unique constraint below is the backstop against a racing tick.
+
+    Environment-scoped like `SigningSecret`: tickets belong to one environment, so its patterns do too.
+    No `RootTeamMixin`, because its save() would rewrite a child environment's team to the parent while
+    the bulk-created evidence and baseline rows kept the child id.
     """
+
+    objects = EnvironmentScopedManager()
 
     # db_index=False: both indexes below lead with team, so the implicit one only costs writes.
     team = models.ForeignKey(
@@ -87,9 +93,11 @@ class TicketPattern(TeamScopedRootMixin, UUIDModel):
         return f"{self.title} ({self.status}, team {self.team_id})"
 
 
-class TicketPatternEvidence(TeamScopedRootMixin, UUIDModel):
+class TicketPatternEvidence(UUIDModel):
     """A ticket that contributed to a pattern. Capped per pattern by the writer: a pattern points at
     tickets, it does not materialize a report."""
+
+    objects = EnvironmentScopedManager()
 
     # db_index=False: the (team, ticket) index below leads with team.
     team = models.ForeignKey(
@@ -113,12 +121,14 @@ class TicketPatternEvidence(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class TicketTopicBaseline(TeamScopedRootMixin, UUIDModel):
+class TicketTopicBaseline(UUIDModel):
     """What a topic's arrival rate normally looks like for this team, learned from its own history.
 
     Derived, never authored. Confirm and dismiss counts feed back into the bar the detector sets for
     the topic, so a false positive gets quieter and a confirmed topic gets easier to reopen.
     """
+
+    objects = EnvironmentScopedManager()
 
     # db_index=False: the unique (team, topic) below leads with team.
     team = models.ForeignKey(

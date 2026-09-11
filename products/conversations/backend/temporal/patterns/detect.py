@@ -12,8 +12,12 @@ with workflow.unsafe.imports_passed_through():
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
 
-    from products.conversations.backend.models import Ticket, TicketTopicBaseline
-    from products.conversations.backend.pattern_detection import refresh_baselines, run_detection
+    from products.conversations.backend.models import Ticket
+    from products.conversations.backend.pattern_detection import (
+        baselines_refreshed_at,
+        refresh_baselines,
+        run_detection,
+    )
     from products.conversations.backend.temporal.patterns.constants import (
         BASELINE_MIN_HISTORY_DAYS,
         BASELINE_REFRESH_MINUTES,
@@ -26,12 +30,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _baselines_are_stale(team: Team, now: datetime) -> bool:
-    latest = (
-        TicketTopicBaseline.objects.for_team(team.id)
-        .order_by("-refreshed_at")
-        .values_list("refreshed_at", flat=True)
-        .first()
-    )
+    latest = baselines_refreshed_at(team)
     if latest is not None:
         return latest < now - timedelta(minutes=BASELINE_REFRESH_MINUTES)
     oldest_ticket = Ticket.objects.filter(team=team).order_by("created_at").values_list("created_at", flat=True).first()

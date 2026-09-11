@@ -15,7 +15,6 @@ from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.models.comment import Comment
-from posthog.models.scoping import team_scope
 
 from products.conversations.backend.models import (
     Ticket,
@@ -30,6 +29,7 @@ from products.conversations.backend.pattern_detection import (
     MAX_TOPIC_LENGTH,
     PatternSettings,
     TopicCandidate,
+    baselines_refreshed_at,
     load_ticket_texts,
     refresh_baselines,
     required_requesters,
@@ -136,16 +136,36 @@ class TestRunDetection(BaseTest):
         self.now = timezone.now()
         self._number = 0
 
-    def _ticket(self, subject: str, sender: str, *, team: Team | None = None, created_at=None) -> Ticket:
+    def _ticket(
+        self,
+        subject: str,
+        sender: str,
+        *,
+        team: Team | None = None,
+        created_at=None,
+        opened_by: str = "customer",
+        channel_source: str = "email",
+        identity_verified: bool | None = None,
+        widget_session_id: str = "",
+    ) -> Ticket:
         self._number += 1
         ticket = Ticket.objects.create(
             team=team or self.team,
             ticket_number=self._number,
-            channel_source="email",
+            channel_source=channel_source,
             email_subject=subject,
             email_from=sender,
+            identity_verified=identity_verified,
+            widget_session_id=widget_session_id,
         )
         Ticket.objects.filter(id=ticket.id).update(created_at=created_at or self.now - timedelta(minutes=5))
+        Comment.objects.create(
+            team=ticket.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content=subject,
+            item_context={"author_type": opened_by, "is_private": False},
+        )
         return ticket
 
     def _burst(self, subject: str, *, requesters: int, tickets: int, team: Team | None = None) -> list[Ticket]:
@@ -296,7 +316,6 @@ class TestRunDetection(BaseTest):
 
     @parameterized.expand(
         [
-            ("support_wrote_first", [("staff note", {"author_type": "support"})]),
             ("first_is_private", [("internal", {"author_type": "customer", "is_private": True})]),
             ("first_is_empty", [("", {"author_type": "customer"})]),
         ]
@@ -392,14 +411,13 @@ class TestRunDetection(BaseTest):
         assert baseline.mean_per_hour == 2 / (30 * 24)
 
     def test_baseline_refresh_forgets_a_topic_that_left_the_window(self):
-        with team_scope(self.team.id):
-            TicketTopicBaseline.objects.create(
-                team=self.team,
-                topic="printer",
-                mean_per_hour=1.0,
-                distinct_days_seen=4,
-                refreshed_at=self.now - timedelta(days=1),
-            )
+        TicketTopicBaseline.objects.for_team(self.team.id).create(
+            team=self.team,
+            topic="printer",
+            mean_per_hour=1.0,
+            distinct_days_seen=4,
+            refreshed_at=self.now - timedelta(days=1),
+        )
 
         refresh_baselines(self.team, now=self.now, sample_window_days=30)
 
@@ -407,16 +425,15 @@ class TestRunDetection(BaseTest):
 
     def test_baseline_refresh_relearns_a_topic_that_only_survives_on_feedback(self):
         # The delete spares a topic with feedback, so nothing else would ever revisit its rate.
-        with team_scope(self.team.id):
-            TicketTopicBaseline.objects.create(
-                team=self.team,
-                topic="login",
-                mean_per_hour=4.0,
-                spread=2.0,
-                distinct_days_seen=9,
-                dismiss_count=1,
-                refreshed_at=self.now - timedelta(days=1),
-            )
+        TicketTopicBaseline.objects.for_team(self.team.id).create(
+            team=self.team,
+            topic="login",
+            mean_per_hour=4.0,
+            spread=2.0,
+            distinct_days_seen=9,
+            dismiss_count=1,
+            refreshed_at=self.now - timedelta(days=1),
+        )
 
         refresh_baselines(self.team, now=self.now, sample_window_days=30)
 
@@ -435,3 +452,78 @@ class TestRunDetection(BaseTest):
         assert outcome.auto_resolved == (pattern.id,)
         assert pattern.status == TicketPatternStatus.RESOLVED
         assert pattern.evidence["auto_resolved"] is True
+
+    def test_team_composed_tickets_are_not_customer_reports(self):
+        # Compose opens the thread with a team message and stores the recipient as the sender, so
+        # a support blast to five customers would otherwise read as five requesters.
+        for i in range(5):
+            self._ticket("Scheduled maintenance this weekend", f"user{i}@company{i}.example", opened_by="human")
+        # Even when the customer replies later, the thread the team opened stays out.
+        self._ticket_with_comments(
+            ("staff note", {"author_type": "support"}), ("cannot login", {"author_type": "customer"})
+        )
+
+        outcome = run_detection(self.team, now=self.now)
+
+        assert outcome.opened == ()
+        assert load_ticket_texts(self.team, since=self.now - timedelta(hours=1), until=self.now) == []
+
+    @parameterized.expand(
+        [
+            ("one_browser_claiming_five_emails", ["s1"] * 5, None, 0),
+            ("five_browsers", ["s1", "s2", "s3", "s4", "s5"], None, 1),
+            ("verified_identities_count_by_email", ["s1"] * 5, True, 1),
+        ]
+    )
+    def test_unverified_widget_tickets_count_by_session(self, _name, sessions, verified, expected):
+        for i, session in enumerate(sessions):
+            self._ticket(
+                "Cannot login to the dashboard",
+                f"user{i}@company{i}.example",
+                channel_source="widget",
+                identity_verified=verified,
+                widget_session_id=session,
+            )
+
+        outcome = run_detection(self.team, now=self.now)
+
+        assert len(outcome.opened) == expected
+
+    def test_two_specific_bursts_sharing_a_word_stay_separate(self):
+        self._burst("Login fails with password reset", requesters=5, tickets=5)
+        for i in range(5):
+            self._ticket("Login fails with SAML redirect", f"user{i}@saml{i}.example")
+
+        outcome = run_detection(self.team, now=self.now)
+
+        topics = set(TicketPattern.objects.for_team(self.team.id).values_list("topic", flat=True))
+        assert len(outcome.opened) == 2
+        assert "login" not in topics
+
+    def test_sibling_environments_keep_separate_patterns_and_baselines(self):
+        parent = self.team
+        child = Team.objects.create(organization=self.organization, project=parent.project)
+        self._burst("Cannot login to the dashboard", requesters=5, tickets=5, team=parent)
+        self._ticket("Printer on fire", "user@company.example", team=child, created_at=self.now - timedelta(days=1))
+        self._ticket("Printer on fire", "user@company.example", team=child, created_at=self.now - timedelta(days=2))
+
+        run_detection(parent, now=self.now)
+        refresh_baselines(child, now=self.now, sample_window_days=30)
+
+        assert TicketPattern.objects.for_team(parent.id).count() == 1
+        assert TicketPattern.objects.for_team(child.id).count() == 0
+        assert TicketPatternEvidence.objects.for_team(parent.id).count() == 5
+        assert TicketTopicBaseline.objects.for_team(child.id).filter(topic="printer").exists()
+        assert not TicketTopicBaseline.objects.for_team(parent.id).filter(topic="printer").exists()
+
+    def test_an_empty_refresh_still_marks_the_team_fresh(self):
+        # An imported inbox lands every ticket on one day, so no topic recurs and the refresh
+        # writes no rows. Without a team-level mark the 30-day scan would rerun on every tick.
+        self._ticket("Cannot login to the dashboard", "user@company.example")
+
+        assert baselines_refreshed_at(self.team) is None
+        rows = refresh_baselines(self.team, now=self.now, sample_window_days=30)
+        self.team.refresh_from_db()
+
+        assert rows == 0
+        assert baselines_refreshed_at(self.team) == self.now

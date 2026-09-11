@@ -18,14 +18,15 @@ from typing import Any
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import F, Func, JSONField, Q, Value
+from django.db.models.functions import Coalesce
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.comment import Comment
-from posthog.models.scoping import team_scope
 
 from products.conversations.backend.models import (
+    Channel,
     Ticket,
     TicketPattern,
     TicketPatternEvidence,
@@ -193,6 +194,10 @@ def resolve_requester(ticket: Ticket, *, platform_requester: str = "") -> str | 
     """
     if ticket.organization_id:
         return f"org:{ticket.organization_id}"
+    # A public widget stores whatever email the browser claimed, so an unverified widget ticket is
+    # only as distinct as the browser it came from. Five claimed emails from one session stay one.
+    if ticket.channel_source == Channel.WIDGET and ticket.identity_verified is not True:
+        return f"widget:{ticket.widget_session_id}" if ticket.widget_session_id else None
     email = (ticket.email_from or (ticket.anonymous_traits or {}).get("email") or "").strip().lower()
     if "@" in email:
         domain = email.rsplit("@", 1)[1]
@@ -210,18 +215,27 @@ def load_ticket_texts(team: Team, *, since: datetime, until: datetime) -> list[T
     """
     tickets = list(
         Ticket.objects.filter(team=team, created_at__gte=since, created_at__lt=until).only(
-            "id", "email_subject", "email_from", "anonymous_traits", "distinct_id", "organization_id", "created_at"
+            "id",
+            "email_subject",
+            "email_from",
+            "anonymous_traits",
+            "distinct_id",
+            "organization_id",
+            "channel_source",
+            "identity_verified",
+            "widget_session_id",
+            "created_at",
         )
     )
     if not tickets:
         return []
-    needs_comment = [str(t.id) for t in tickets if not (t.email_subject or "").strip()]
-    first_customer_message: dict[str, str] = {}
+    first_message: dict[str, str] = {}
+    customer_opened: set[str] = set()
     platform_requesters: dict[str, str] = {}
-    # Only the email channel carries a subject, so on a widget, Slack or Teams inbox this covers
-    # every ticket. Each chunk asks the database for one comment per ticket rather than reading
-    # whole conversations back to keep the first message of each.
-    for chunk in batched(needs_comment, COMMENT_ID_CHUNK_SIZE, strict=False):
+    # One comment per ticket: the earliest public one. Its author decides whether the customer
+    # opened the ticket, and it is the text for channels without a subject. A team-composed
+    # ticket opens with a team message, and its subject is the team's words, not a report.
+    for chunk in batched([str(t.id) for t in tickets], COMMENT_ID_CHUNK_SIZE, strict=False):
         comments = (
             Comment.objects.filter(
                 team=team,
@@ -232,19 +246,17 @@ def load_ticket_texts(team: Team, *, since: datetime, until: datetime) -> list[T
             .exclude(content__isnull=True)
             .exclude(content="")
             .filter(~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True))
-            # An absent author_type means a customer wrote it, which is why the missing key counts.
-            .filter(
-                Q(item_context__author_type="customer")
-                | Q(item_context__author_type__isnull=True)
-                | Q(item_context__isnull=True)
-            )
             .order_by("item_id", "created_at")
             .distinct("item_id")
             .values_list("item_id", "content", "item_context")
         )
         for item_id, content, item_context in comments:
-            first_customer_message[item_id] = content
             context = item_context or {}
+            # An absent author_type means a customer wrote it, which is why the missing key counts.
+            if context.get("author_type", "customer") != "customer":
+                continue
+            customer_opened.add(item_id)
+            first_message[item_id] = content
             # The chat channels carry no email on the ticket, so the sender's platform id is
             # the only stable thing separating one person from a room full of them.
             if context.get("slack_user_id"):
@@ -253,7 +265,10 @@ def load_ticket_texts(team: Team, *, since: datetime, until: datetime) -> list[T
                 platform_requesters[item_id] = f"teams:{context['teams_user_id']}"
     texts: list[TicketText] = []
     for ticket in tickets:
-        text = (ticket.email_subject or "").strip() or first_customer_message.get(str(ticket.id), "")
+        ticket_id = str(ticket.id)
+        if ticket_id not in customer_opened:
+            continue
+        text = (ticket.email_subject or "").strip() or first_message.get(ticket_id, "")
         if text:
             texts.append(
                 TicketText(
@@ -312,18 +327,29 @@ def find_candidates(
 
 def _collapse_overlapping(candidates: list[TopicCandidate]) -> list[TopicCandidate]:
     """One burst produces many qualifying topics ("login", "password", "login password"). Keep the
-    most specific topic for each distinct ticket set and drop the rest."""
+    most specific topic for each distinct ticket set and drop the rest.
+
+    Overlap is measured against the larger set. Against the smaller one, a generic term that spans
+    two unrelated bursts ("login" over "login password" and "login saml") swallows both, and two
+    incidents read as one vague pattern. The larger set lets both specifics through, so the generic
+    term is then dropped only when the specifics kept alongside it already cover its tickets.
+    """
     ordered = sorted(candidates, key=lambda c: (-c.requester_count, -c.ticket_count, -len(c.topic), c.topic))
     kept: list[TopicCandidate] = []
     for candidate in ordered:
         ids = set(candidate.ticket_ids)
         duplicate = any(
-            len(ids & set(k.ticket_ids)) / max(min(len(ids), len(k.ticket_ids)), 1) > OVERLAP_COLLAPSE_SHARE
-            for k in kept
+            len(ids & set(k.ticket_ids)) / max(len(ids), len(k.ticket_ids), 1) > OVERLAP_COLLAPSE_SHARE for k in kept
         )
         if not duplicate:
             kept.append(candidate)
-    return kept
+    return [c for c in kept if not _covered_by_others(c, kept)]
+
+
+def _covered_by_others(candidate: TopicCandidate, kept: list[TopicCandidate]) -> bool:
+    ids = set(candidate.ticket_ids)
+    covered = set().union(*(set(k.ticket_ids) for k in kept if k is not candidate and set(k.ticket_ids) < ids))
+    return bool(covered) and ids <= covered
 
 
 def upsert_pattern(
@@ -380,7 +406,7 @@ def upsert_pattern(
             # runs in, so without one there would be nothing left to recover into and the retry
             # below would raise instead of finding the winner.
             with transaction.atomic():
-                pattern = TicketPattern.objects.create(
+                pattern = TicketPattern.objects.for_team(team.id).create(
                     team=team,
                     fingerprint=candidate.fingerprint,
                     topic=candidate.topic,
@@ -405,11 +431,11 @@ def _fallback_title(candidate: TopicCandidate) -> str:
 
 
 def _sync_evidence(pattern: TicketPattern, ticket_ids: Iterable[UUID], *, team: Team) -> None:
-    existing = pattern.evidence_tickets.count()
+    existing = TicketPatternEvidence.objects.for_team(team.id).filter(pattern=pattern).count()
     room = MAX_EVIDENCE_TICKETS - existing
     if room <= 0:
         return
-    TicketPatternEvidence.objects.bulk_create(
+    TicketPatternEvidence.objects.for_team(team.id).bulk_create(
         [TicketPatternEvidence(team=team, pattern=pattern, ticket_id=tid) for tid in list(ticket_ids)[:room]],
         ignore_conflicts=True,
     )
@@ -445,11 +471,6 @@ def auto_resolve_quiet_patterns(
 
 
 def run_detection(team: Team, *, now: datetime) -> DetectionOutcome:
-    with team_scope(team.id):
-        return _run_detection(team, now=now)
-
-
-def _run_detection(team: Team, *, now: datetime) -> DetectionOutcome:
     settings = PatternSettings.from_team(team)
     texts = load_ticket_texts(team, since=now - timedelta(minutes=settings.window_minutes), until=now)
     baselines = {b.topic: b for b in TicketTopicBaseline.objects.for_team(team.id)} if texts else {}
@@ -477,11 +498,6 @@ def _run_detection(team: Team, *, now: datetime) -> DetectionOutcome:
 def refresh_baselines(team: Team, *, now: datetime, sample_window_days: int = 30) -> int:
     """Learn each topic's normal hourly rate from the trailing window. Confirm and dismiss counts are
     feedback from humans and survive the refresh."""
-    with team_scope(team.id):
-        return _refresh_baselines(team, now=now, sample_window_days=sample_window_days)
-
-
-def _refresh_baselines(team: Team, *, now: datetime, sample_window_days: int) -> int:
     since = now - timedelta(days=sample_window_days)
     texts = load_ticket_texts(team, since=since, until=now)
     per_topic_hours: dict[str, dict[datetime, int]] = defaultdict(lambda: defaultdict(int))
@@ -532,7 +548,7 @@ def _refresh_baselines(team: Team, *, now: datetime, sample_window_days: int) ->
             )
         )
     with transaction.atomic():
-        TicketTopicBaseline.objects.bulk_create(
+        TicketTopicBaseline.objects.for_team(team.id).bulk_create(
             rows,
             update_conflicts=True,
             update_fields=["mean_per_hour", "spread", "distinct_days_seen", "sample_window_days", "refreshed_at"],
@@ -545,4 +561,36 @@ def _refresh_baselines(team: Team, *, now: datetime, sample_window_days: int) ->
         TicketTopicBaseline.objects.for_team(team.id).filter(
             refreshed_at__lt=now, dismiss_count=0, confirm_count=0
         ).delete()
+        mark_baselines_refreshed(team, now=now)
     return len(rows)
+
+
+BASELINES_REFRESHED_AT_KEY = "pattern_baselines_refreshed_at"
+
+
+def mark_baselines_refreshed(team: Team, *, now: datetime) -> None:
+    """Freshness lives on the team, not on the topic rows: a refresh that learns nothing (an inbox
+    imported on one day, a quiet fortnight) writes no rows, and without this the staleness check
+    would rerun the 30-day scan on every tick."""
+    Team.objects.filter(id=team.id).update(
+        conversations_settings=Func(
+            Coalesce(F("conversations_settings"), Value({}, output_field=JSONField())),
+            Value([BASELINES_REFRESHED_AT_KEY]),
+            Value(now.isoformat(), output_field=JSONField()),
+            function="jsonb_set",
+            output_field=JSONField(),
+        )
+    )
+    settings = dict(team.conversations_settings or {})
+    settings[BASELINES_REFRESHED_AT_KEY] = now.isoformat()
+    team.conversations_settings = settings
+
+
+def baselines_refreshed_at(team: Team) -> datetime | None:
+    raw = (team.conversations_settings or {}).get(BASELINES_REFRESHED_AT_KEY)
+    if not isinstance(raw, str):
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
