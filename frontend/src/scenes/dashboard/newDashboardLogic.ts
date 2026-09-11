@@ -17,6 +17,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -27,11 +28,12 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { legacyEntityToNode, sanitizeRetentionEntity } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { type InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import {
     DashboardTemplateStoredTile,
     DashboardTemplateType,
+    ChartDisplayType,
     DashboardTemplateVariableType,
     DashboardTile,
     DashboardType,
@@ -108,6 +110,59 @@ export function applyTemplate(
         return newObject
     }
     return obj
+}
+
+const METRIC_TEMPLATE_TILES: Record<string, string> = {
+    'Website Metrics': 'Website Unique Users (Total)',
+    'Landing Pages Report': 'Unique Users on Landing Page(s)',
+}
+
+function isMetricTemplate(template: DashboardTemplateType): boolean {
+    return template.scope === 'global' && template.template_name in METRIC_TEMPLATE_TILES
+}
+
+export function applyMetricTemplateVariant(
+    tiles: DashboardTemplateStoredTile[],
+    template: DashboardTemplateType,
+    isTestVariant: boolean
+): DashboardTemplateStoredTile[] {
+    const targetTileName = METRIC_TEMPLATE_TILES[template.template_name]
+    if (!isTestVariant || template.scope !== 'global' || !targetTileName) {
+        return tiles
+    }
+
+    return tiles.map((tile) => {
+        if (tile.type !== 'INSIGHT' || tile.name !== targetTileName) {
+            return tile
+        }
+
+        const query = tile.query
+        if (!query || typeof query !== 'object' || !isInsightVizNode(query)) {
+            return tile
+        }
+
+        const insightVizQuery = query as InsightVizNode
+        if (
+            insightVizQuery.source?.kind !== NodeKind.TrendsQuery ||
+            insightVizQuery.source.trendsFilter?.display !== ChartDisplayType.BoldNumber
+        ) {
+            return tile
+        }
+
+        return {
+            ...tile,
+            query: {
+                ...insightVizQuery,
+                source: {
+                    ...insightVizQuery.source,
+                    trendsFilter: {
+                        ...insightVizQuery.source.trendsFilter,
+                        display: ChartDisplayType.Metric,
+                    },
+                },
+            },
+        }
+    })
 }
 
 function makeTilesUsingVariables(
@@ -365,7 +420,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
     selectors(({ props }) => ({
         isFeatureFlagDashboard: [() => [], () => props.featureFlagId],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         addDashboard: ({ form }) => {
             actions.resetNewDashboard()
             actions.setNewDashboardValues({ ...defaultFormValues, ...form })
@@ -385,7 +440,13 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             creationContext = null,
         }) => {
             actions.setIsLoading(true)
-            const tiles = makeTilesUsingVariables(template.tiles, variables)
+            const isMetricTemplateTestVariant =
+                isMetricTemplate(template) &&
+                values.featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATE_METRIC_CARD] === 'test'
+            const tiles = makeTilesUsingVariables(
+                applyMetricTemplateVariant(template.tiles, template, isMetricTemplateTestVariant),
+                variables
+            )
             const dashboardJSON = {
                 ...template,
                 tiles,
