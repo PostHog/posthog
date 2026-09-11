@@ -16,7 +16,9 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { ApiConfig, ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
@@ -88,7 +90,9 @@ export interface dataCatalogMetricSceneLogicValues {
     draftMarkdown: string
     draftSql: string
     editingDefinition: boolean
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     metric: DataCatalogMetricApi | null
+    metricChecksEnabled: boolean
     metricLoading: boolean
     mutating: boolean
     pendingDefinitionEdit: boolean
@@ -201,6 +205,7 @@ export interface dataCatalogMetricSceneLogicActions {
 export interface dataCatalogMetricSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        metricChecksEnabled: (featureFlags: FeatureFlagsSet) => boolean
         supportsMetricChecks: (metric: DataCatalogMetricApi | null) => boolean
         breadcrumbs: (metric: DataCatalogMetricApi | null, arg: any) => Breadcrumb[]
     }
@@ -217,7 +222,10 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
     props({ name: '' } as DataCatalogMetricSceneLogicProps),
     key((props) => props.name),
     path((key) => ['products', 'data_catalog', 'frontend', 'dataCatalogMetricSceneLogic', key]),
-    connect([dataCatalogAgentSyncLogic]),
+    connect(() => ({
+        logic: [dataCatalogAgentSyncLogic],
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
     actions({
         setActiveTab: (activeTab: MetricSceneTab) => ({ activeTab }),
         // Declared here as well as by the loader: the loader takes a breakpoint, so without this the
@@ -301,6 +309,12 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         ],
     }),
     selectors({
+        // The metric check endpoints are gated on the same flag, so a project outside the rollout
+        // must not reach the Tests tab: every request it makes is rejected.
+        metricChecksEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS],
+        ],
         supportsMetricChecks: [
             (s) => [s.metric],
             (metric: DataCatalogMetricApi | null): boolean => metric?.definition_kind === 'HogQLQuery',
@@ -474,7 +488,12 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             if (name !== props.name) {
                 return
             }
-            const activeTab = searchParams.tab === 'tests' ? 'tests' : 'definition'
+            const requestedTab = searchParams.tab === 'tests' ? 'tests' : 'definition'
+            const activeTab = requestedTab === 'tests' && !values.metricChecksEnabled ? 'definition' : requestedTab
+            if (activeTab !== requestedTab) {
+                // Drop the param so a refresh or a back navigation does not ask for the tab again.
+                router.actions.replace(urls.dataCatalogMetric(props.name, activeTab))
+            }
             if (activeTab !== values.activeTab) {
                 actions.setActiveTab(activeTab)
             }

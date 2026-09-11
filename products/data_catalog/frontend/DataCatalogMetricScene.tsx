@@ -85,6 +85,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
         draftMarkdown,
         activeTab,
         supportsMetricChecks,
+        metricChecksEnabled,
     } = useValues(dataCatalogMetricSceneLogic)
     const {
         approveMetric,
@@ -357,7 +358,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     onChange={setActiveTab}
                     tabs={[
                         { key: 'definition', label: 'Definition' },
-                        {
+                        metricChecksEnabled && {
                             key: 'tests',
                             label: supportsMetricChecks ? <MetricTestsTabLabel metricId={metric.id} /> : 'Tests',
                         },
