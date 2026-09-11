@@ -1,4 +1,8 @@
-import { PostHogAPIClient } from "@posthog/api-client/posthog-client";
+import {
+  type ApiRequestMetricRecorder,
+  type ApiRequestMetricRequest,
+  PostHogAPIClient,
+} from "@posthog/api-client/posthog-client";
 import type { AuthState } from "@posthog/core/auth/schemas";
 import type { HostTrpcClient } from "@posthog/host-router/client";
 import { useHostTRPCClient } from "@posthog/host-router/react";
@@ -35,21 +39,10 @@ export function createAuthenticatedClient(
 function recordApiRequestStart({
   method,
   path,
-}: {
-  method: string;
-  path: string;
-}) {
+}: ApiRequestMetricRequest): ApiRequestMetricRecorder {
   const route = getRouterOrNull()?.state.matches.at(-1)?.routeId ?? "unknown";
 
-  return ({
-    durationMs,
-    status,
-    outcome,
-  }: {
-    durationMs: number;
-    status: number | null;
-    outcome: "success" | "http_error" | "network_error";
-  }) => {
+  return ({ durationMs, status, outcome }) => {
     recordApiRequest(durationMs, route, method, path, status, outcome);
   };
 }
