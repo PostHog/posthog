@@ -9,7 +9,7 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutCostLineParts, scoutCostWindowLabel } from '../../../utils/scoutCosts'
-import { nextRunAt, scoutGroup } from '../../../utils/scoutGroups'
+import { nextRunAt, SCOUT_GROUP_LABEL, ScoutGroupKey, scoutGroup } from '../../../utils/scoutGroups'
 import { filedOrAddedLabel, ScoutRollup, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
 import { ScoutStatusTag } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
@@ -31,6 +31,9 @@ function Segment({ tooltip, children }: { tooltip: string; children: React.React
         </Tooltip>
     )
 }
+
+/** The groups `ScoutStatusTag` cannot tell apart: it reads "On patrol" for each of them. */
+const TAG_SILENT_GROUPS: ScoutGroupKey[] = ['working', 'watching', 'settling_in']
 
 /**
  * Whether a scout is worth keeping on, in one wrapping row: where it stands, how its recent runs
@@ -63,6 +66,7 @@ export function ScoutHealthStrip({
     const reportLabel = filedOrAddedLabel(rollup?.authoredReportIds ?? [], rollup?.editedReportIds ?? [])
     // Only an enabled scout has a next run; a paused one would otherwise carry an empty dash.
     const hasNextRun = nextRunAt(config, currentTeam?.timezone ?? 'UTC', now) !== null
+    const group = scoutRunsLoadedOnce ? scoutGroup(config, rollup, now) : null
 
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-secondary">
@@ -71,7 +75,17 @@ export function ScoutHealthStrip({
                     scout that files plenty as "nothing worth filing", and it would keep saying so
                     for as long as the runs request fails. The tag beside it is config-only, so it
                     stays right either way. */}
-                {scoutRunsLoadedOnce && <ScoutStatusDot group={scoutGroup(config, rollup, now)} />}
+                {group && (
+                    <>
+                        <ScoutStatusDot group={group} />
+                        {/* Named in text, not colour alone: a reader would otherwise have to hover
+                            an 8px dot to tell a producing scout from a quiet or a brand-new one.
+                            The roster pairs the dot with this same label. */}
+                        {TAG_SILENT_GROUPS.includes(group) && (
+                            <span className="whitespace-nowrap">{SCOUT_GROUP_LABEL[group]}</span>
+                        )}
+                    </>
+                )}
                 <ScoutStatusTag config={config} />
                 <ScoutCadenceLabel config={config} />
                 {hasNextRun && (
