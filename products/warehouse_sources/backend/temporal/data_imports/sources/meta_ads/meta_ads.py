@@ -17,6 +17,7 @@ from requests.exceptions import (
     ReadTimeout,
 )
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -187,7 +188,7 @@ def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
     return get_integration_by_id(config.meta_ads_integration_id, team_id)
 
 
-@dataclass
+@frozen
 class MetaAdsSchema:
     name: str
     primary_keys: list[str]

@@ -1567,6 +1567,11 @@ class TestTimeRangeClamping:
 
 
 class TestEntityIncrementalFiltering:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-06-16", tick=False):
+            yield
+
     @pytest.mark.parametrize(
         "resource_name,expected_prefix",
         [
@@ -1633,7 +1638,7 @@ class TestEntityIncrementalFiltering:
         )
 
         assert "filtering" not in captured["params"]
-        assert captured["time_range"] == {"since": "2026-06-16", "until": dt.date.today().strftime("%Y-%m-%d")}
+        assert captured["time_range"] == {"since": "2026-06-16", "until": "2026-06-16"}
 
 
 class TestEntitySchemaIncrementalSupport:
