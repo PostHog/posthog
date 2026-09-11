@@ -92,13 +92,11 @@ class PullRequestDetails:
 def assignment_snapshot(report: SignalReport, assignment: ReportClaim | None) -> AssignmentSnapshot:
     assignee: AssigneeSnapshot | None = None
     if assignment is not None:
-        assignee = {
-            "kind": assignment.actor_kind,
-            "user_id": assignment.actor_user_id,
-            "task_id": str(assignment.actor_task_id) if assignment.actor_task_id else None,
-            "agent": assignment.actor_agent,
-            "claimed_at": assignment.claimed_at.isoformat() if assignment.claimed_at else None,
-        }
+        assignee = AssigneeSnapshot(
+            kind=assignment.actor_kind, user_id=assignment.actor_user_id,
+            task_id=str(assignment.actor_task_id) if assignment.actor_task_id else None,
+            agent=assignment.actor_agent, claimed_at=assignment.claimed_at.isoformat(),
+        )
     from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
 
     implementation_pr: PullRequestSnapshot | None = None

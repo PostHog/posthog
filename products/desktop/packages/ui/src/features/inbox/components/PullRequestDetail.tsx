@@ -17,6 +17,7 @@ import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDet
 import { InboxMetaSeparator } from "@posthog/ui/features/inbox/components/InboxMetaRow";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { PrDiffStats } from "@posthog/ui/features/inbox/components/PrDiffStats";
+import { ReportChatLayout } from "@posthog/ui/features/inbox/components/ReportDetail";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
 import { ReportReviewersSection } from "@posthog/ui/features/inbox/components/ReportReviewersSection";
 import { ReportImplementationPrLink } from "@posthog/ui/features/inbox/components/utils/ReportImplementationPrLink";
@@ -64,69 +65,78 @@ export function PullRequestDetailContent({ report }: { report: SignalReport }) {
   const prUrl = parsePrUrl(selectedPr.url) ? selectedPr.url : null;
 
   return (
-    <InboxDetailFrame
-      report={report}
-      backTo="/inbox/pulls"
-      backLabel="Back to pull requests"
-      fallbackTitle="Untitled pull request"
-      metaSuffix={
-        prUrl ? (
-          <>
-            <InboxMetaSeparator />
-            {prs.length > 1 ? (
-              <Select value={prUrl} onValueChange={setSelectedUrl}>
-                <SelectTrigger
-                  aria-label="Pull request"
-                  data-attr="inbox-report-select-pull-request"
-                >
-                  <SelectValue>
-                    {selectedPr.url} ({selectedPr.state})
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {prs.map((pr) => (
-                    <SelectItem key={pr.url} value={pr.url}>
-                      {pr.url} ({pr.state})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <ReportImplementationPrLink prUrl={prUrl} size="md" />
-            )}
+    <ReportChatLayout report={report}>
+      <InboxDetailFrame
+        report={report}
+        fallbackTitle="Untitled pull request"
+        metaSuffix={
+          prUrl ? (
+            <>
+              <InboxMetaSeparator />
+              {prs.length > 1 ? (
+                <Select value={prUrl} onValueChange={setSelectedUrl}>
+                  <SelectTrigger
+                    aria-label="Pull request"
+                    data-attr="inbox-report-select-pull-request"
+                  >
+                    <SelectValue>
+                      {selectedPr.url} ({selectedPr.state})
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {prs.map((pr) => (
+                      <SelectItem key={pr.url} value={pr.url}>
+                        {pr.url} ({pr.state})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <ReportImplementationPrLink prUrl={prUrl} size="md" />
+              )}
+              <ReportTrackerIssueLink report={report} />
+            </>
+          ) : (
             <ReportTrackerIssueLink report={report} />
-          </>
-        ) : (
-          <ReportTrackerIssueLink report={report} />
-        )
-      }
-      primaryAction={<ReportDetailActions report={report} prUrl={prUrl} />}
-      summarySection={{ Icon: GitPullRequestIcon, title: "Summary" }}
-      secondaryTab={
-        prUrl
-          ? {
-              label: (
-                <>
-                  Changed code
-                  <PrDiffStats prUrl={prUrl} hideWhileLoading />
-                </>
-              ),
-              content: <PrFilesChangedSection key={prUrl} prUrl={prUrl} bare />,
-            }
-          : undefined
-      }
-      belowSummary={
-        prUrl && (
-          <>
-            <PrDecisionBlock key={prUrl} prUrl={prUrl} />
-            <PrCommentsSection key={prUrl} prUrl={prUrl} />
-          </>
-        )
-      }
-      footer={<ReportFeedbackFooter report={report} />}
-      evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
-    >
-      <ReportReviewersSection report={report} />
-    </InboxDetailFrame>
+          )
+        }
+        primaryAction={
+          <ReportDetailActions
+            report={report}
+            prUrl={prUrl}
+            placement="header"
+          />
+        }
+        showDismiss={false}
+        summarySection={{ Icon: GitPullRequestIcon, title: "Summary" }}
+        secondaryTab={
+          prUrl
+            ? {
+                label: (
+                  <>
+                    Changed code
+                    <PrDiffStats prUrl={prUrl} hideWhileLoading />
+                  </>
+                ),
+                content: (
+                  <PrFilesChangedSection key={prUrl} prUrl={prUrl} bare />
+                ),
+              }
+            : undefined
+        }
+        belowSummary={
+          prUrl && (
+            <>
+              <PrDecisionBlock key={prUrl} prUrl={prUrl} />
+              <PrCommentsSection key={prUrl} prUrl={prUrl} />
+            </>
+          )
+        }
+        footer={<ReportFeedbackFooter report={report} />}
+        evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
+      >
+        <ReportReviewersSection report={report} />
+      </InboxDetailFrame>
+    </ReportChatLayout>
   );
 }

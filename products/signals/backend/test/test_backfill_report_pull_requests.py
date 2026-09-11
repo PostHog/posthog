@@ -136,6 +136,8 @@ class TestBackfillReportPullRequests(BaseTest):
         from products.signals.backend.serializers import SignalReportPullRequestSerializer
         from products.signals.backend.views import SignalReportViewSet
 
+        assert prs[1].id is not None
+
         view = SignalReportViewSet(request=Request(APIRequestFactory().get("/", {"pull_request_id": prs[1].id})))
         assert view._resolve_report_pr_reference(report) == ("example/sdk", 2)
         assert SignalReportPullRequestSerializer(prs[1]).data["attached_by"]["task_id"] == str(task.id)

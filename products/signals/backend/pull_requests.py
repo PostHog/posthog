@@ -98,8 +98,12 @@ def link_pull_request(
             .exists()
         ):
             from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
+            from products.signals.backend.reviewer_pr_ready import schedule_open_pull_request_ready
 
             schedule_reviewer_pr_assignment(
+                team_id=report.team_id, report_id=str(report.id), pr_url=pr.url, pr_state=pr.state
+            )
+            schedule_open_pull_request_ready(
                 team_id=report.team_id, report_id=str(report.id), pr_url=pr.url, pr_state=pr.state
             )
     return pr

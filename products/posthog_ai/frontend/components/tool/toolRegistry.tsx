@@ -20,6 +20,8 @@ import {
 import { IconRobot } from 'lib/lemon-ui/icons'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
+import { posthogAiToolRenderers } from '~/posthogAiToolRenderers'
+
 import type { PermissionRequestRecord } from 'products/posthog_ai/frontend/types/streamTypes'
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
@@ -55,20 +57,12 @@ export interface ToolRegistryEntry {
     /** Display name / icon for fallback rendering and for the tool-call header line. */
     displayName: string
     icon: JSX.Element
-    /**
-     * Tool-result card renderer. Optional so a product can register a **preview-only** entry (just a
-     * `renderPermissionPreview`) without also claiming the result card — such entries fall back to the
-     * generic built-in card via `lookupToolRenderer`.
-     */
+    /** Preview-only entries use the generic result card. */
     Renderer?: ToolRendererComponent
-    /**
-     * Optional approval-card preview. When a pending permission request resolves to this tool,
-     * `PermissionInput` calls this with the request and renders the returned node in place of the raw
-     * JSON payload. Returning null falls back to the JSON payload — e.g. the owning scene isn't mounted,
-     * so there's nothing to diff against. The generic surface never enumerates products here; a product
-     * registers its own preview via `registerToolRenderers` from its scene entrypoint.
-     */
-    renderPermissionPreview?: (record: PermissionRequestRecord) => ReactNode | null
+    /** Return fallback when the product has no matching state to preview. */
+    PermissionPreview?:
+        | ComponentType<PermissionPreviewProps>
+        | LazyExoticComponent<ComponentType<PermissionPreviewProps>>
     /**
      * When set, this entry only matches a call that came through the trusted single-exec PostHog
      * server — one whose inner tool name we parsed out of the exec command. The product data-tool
@@ -86,21 +80,13 @@ export interface ResolvedToolRegistryEntry extends ToolRegistryEntry {
     Renderer: ToolRendererComponent
 }
 
-export interface ToolRegistry {
-    register: (entry: ToolRegistryEntry) => void
-    lookup: (toolName: string) => ToolRegistryEntry | null
+export interface PermissionPreviewProps {
+    request: PermissionRequestRecord
+    fallback: ReactNode
 }
 
-class MapBackedRegistry implements ToolRegistry {
-    private entries = new Map<string, ToolRegistryEntry>()
-
-    register(entry: ToolRegistryEntry): void {
-        this.entries.set(entry.key, entry)
-    }
-
-    lookup(toolName: string): ToolRegistryEntry | null {
-        return this.entries.get(toolName) ?? null
-    }
+export interface ToolRegistry {
+    lookup: (toolName: string) => ToolRegistryEntry | null
 }
 
 // Renderers are code-split: the static graph below carries only icons, types, and lazy factories, so a
@@ -119,29 +105,6 @@ const QuestionRenderer = lazyWithRetry(() =>
 const PostHogCodeToolRenderer = lazyWithRetry(() =>
     import('./posthogCodeToolRenderers').then((m) => ({ default: m.PostHogCodeToolRenderer }))
 )
-
-/**
- * Single module-level registry of tool-name → renderer entry. All entries are registered at module
- * load — no dynamic registration, no hooks, no scene callbacks. Custom adapters are registered per
- * tool; any tool without one falls through to the built-in renderer's generic MCP card.
- */
-export const toolRegistry: ToolRegistry = new MapBackedRegistry()
-
-/**
- * Bulk-register tool renderers into the shared registry. The generic per-product seam: a product
- * registers its tool cards from its own entrypoint (the surface itself does this for the PostHog data
- * tools via `widgets/registerDataToolRenderers`). `toolRegistry.register` stays available for single-entry use.
- */
-export function registerToolRenderers(entries: ToolRegistryEntry[]): void {
-    for (const entry of entries) {
-        toolRegistry.register(entry)
-    }
-}
-
-// Product-specific data-tool renderers (insight, dashboard, session recordings, error tracking,
-// notebooks, query wrappers) are NOT registered in this module — that keeps the base registry a light
-// string+lazy side effect. They live in `./widgets` and self-register via `registerDataToolRenderers`,
-// which `ToolCallCard` side-effect-imports, so every surface that renders a tool card gets them.
 
 // --- Claude built-in tools ---
 // Keyed by the stable SDK tool name (reachable via `_meta.claudeCode.toolName`). Bash/Read/Search/Web
@@ -165,23 +128,6 @@ const BUILTIN_TOOLS: { keys: string[]; displayName: string; icon: JSX.Element }[
     { keys: ['ToolSearch'], displayName: 'Tool search', icon: <IconSearch /> },
     { keys: ['ExitPlanMode'], displayName: 'Plan', icon: <IconDocument /> },
 ]
-for (const { keys, displayName, icon } of BUILTIN_TOOLS) {
-    for (const key of keys) {
-        toolRegistry.register({
-            key,
-            displayName,
-            icon,
-            Renderer: BuiltinToolRenderer,
-            keepVisible: key === 'ExitPlanMode',
-        })
-    }
-}
-
-// File-editing built-ins render an inline visual diff when the agent attaches `type: "diff"` content
-// blocks; EditDiffRenderer falls back to the generic card when none are present.
-for (const key of ['Edit', 'Write', 'NotebookEdit', 'MultiEdit']) {
-    toolRegistry.register({ key, displayName: 'Edit', icon: <IconPencil />, Renderer: EditToolRenderer })
-}
 
 // PostHog single-exec discovery verbs. `resolveToolKey` parses `exec tools|search|info|schema` into
 // these sentinel keys; PostHogExecRenderer (inside the built-in chunk) derives the friendly label and
@@ -193,9 +139,6 @@ const POSTHOG_EXEC_VERBS: { key: string; displayName: string; icon: JSX.Element 
     { key: '__posthog_exec_schema__', displayName: 'Inspect schema', icon: <IconDocument /> },
     { key: '__posthog_exec_unknown__', displayName: 'Run command', icon: <IconWrench /> },
 ]
-for (const { key, displayName, icon } of POSTHOG_EXEC_VERBS) {
-    toolRegistry.register({ key, displayName, icon, Renderer: BuiltinToolRenderer })
-}
 
 // posthog-code-tools — the coding agent's git/repo MCP tools. Registered under both the bare name and
 // the `mcp__<server>__` qualified name because `resolveToolKey` yields the qualified form on the
@@ -211,21 +154,40 @@ const POSTHOG_CODE_TOOLS: { name: string; displayName: string; icon: JSX.Element
     { name: 'clone_repo', displayName: 'Clone repository', icon: <IconGithub /> },
     { name: 'list_repos', displayName: 'List repositories', icon: <IconGithub /> },
 ]
-for (const { name, displayName, icon } of POSTHOG_CODE_TOOLS) {
-    for (const key of [name, `mcp__${POSTHOG_CODE_TOOLS_SERVER}__${name}`]) {
-        toolRegistry.register({ key, displayName, icon, Renderer: PostHogCodeToolRenderer })
-    }
-}
 
-// AskUserQuestion (the agent asking the user to pick between options) gets a bespoke renderer that
-// lays the question + options out like the LangGraph question recap, rather than the generic JSON card.
-toolRegistry.register({
-    key: 'AskUserQuestion',
-    keepVisible: true,
-    displayName: 'Question',
-    icon: <IconAI />,
-    Renderer: QuestionRenderer,
-})
+const entries = new Map<string, ToolRegistryEntry>(
+    [
+        ...BUILTIN_TOOLS.flatMap(({ keys, ...entry }) =>
+            keys.map((key) => ({ key, ...entry, Renderer: BuiltinToolRenderer, keepVisible: key === 'ExitPlanMode' }))
+        ),
+        ...['Edit', 'Write', 'NotebookEdit', 'MultiEdit'].map((key) => ({
+            key,
+            displayName: 'Edit',
+            icon: <IconPencil />,
+            Renderer: EditToolRenderer,
+        })),
+        ...POSTHOG_EXEC_VERBS.map((entry) => ({ ...entry, Renderer: BuiltinToolRenderer })),
+        ...POSTHOG_CODE_TOOLS.flatMap(({ name, ...entry }) =>
+            [name, `mcp__${POSTHOG_CODE_TOOLS_SERVER}__${name}`].map((key) => ({
+                key,
+                ...entry,
+                Renderer: PostHogCodeToolRenderer,
+            }))
+        ),
+        {
+            key: 'AskUserQuestion',
+            displayName: 'Question',
+            icon: <IconAI />,
+            Renderer: QuestionRenderer,
+            keepVisible: true,
+        },
+        ...posthogAiToolRenderers,
+    ].map((entry) => [entry.key, entry])
+)
+
+export const toolRegistry: ToolRegistry = {
+    lookup: (toolName) => entries.get(toolName) ?? null,
+}
 
 /**
  * Looks up the renderer entry for a resolved tool key, falling back to the generic built-in card.
@@ -233,7 +195,7 @@ toolRegistry.register({
  * tool name was parsed out of the exec command). An entry marked `requiresPostHogOrigin` only matches a
  * trusted call, so a third-party tool whose bare name collides with a product-widget key can't spoof a
  * first-party card — it falls through to the generic card here. A registered preview-only entry (no
- * `Renderer`) resolves to the same generic card, so its `renderPermissionPreview` is preserved while the
+ * `Renderer`) resolves to the same generic card, so its `PermissionPreview` is preserved while the
  * result card stays the built-in one.
  */
 export function lookupToolRenderer(resolvedKey: string, fromPostHogExec: boolean): ResolvedToolRegistryEntry {

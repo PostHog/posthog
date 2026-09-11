@@ -3,6 +3,8 @@ import {
   CheckCircleIcon,
   CopyIcon,
   DesktopIcon,
+  EnvelopeSimpleIcon,
+  EnvelopeSimpleOpenIcon,
   EyeSlashIcon,
   GitPullRequestIcon,
   GlobeIcon,
@@ -34,6 +36,7 @@ import type { SignalReport } from "@posthog/shared/types";
 import { ReviewerSearchList } from "@posthog/ui/features/inbox/components/ReviewerSearchList";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
+import { useInboxReportReadState } from "@posthog/ui/features/inbox/hooks/useInboxReportReadState";
 import { useInboxReportResolveAction } from "@posthog/ui/features/inbox/hooks/useInboxReportResolveAction";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxRestoreReport } from "@posthog/ui/features/inbox/hooks/useInboxRestoreReport";
@@ -52,6 +55,11 @@ export function InboxReportContextMenuContent({
   report: SignalReport;
   open: boolean;
 }): React.JSX.Element {
+  const {
+    isUnread,
+    enabled: readStateEnabled,
+    setRead,
+  } = useInboxReportReadState(report.id);
   const [reviewersOpen, setReviewersOpen] = useState(false);
   const openedDialogRef = useRef(false);
   const fireAction = useReportActionTracker(report, "context_menu");
@@ -79,6 +87,8 @@ export function InboxReportContextMenuContent({
   });
 
   const isDismissed = report.status === "suppressed";
+  const readOnly =
+    report.status === "resolved" || (isDismissed && report.refund != null);
   const hasOpenPr = hasActiveReportPullRequest(report);
   const canCreatePr = canCreateImplementationPr(report, {
     hasLiveImplementationTask: continuableTask !== null,
@@ -120,7 +130,19 @@ export function InboxReportContextMenuContent({
           return undefined;
         }}
       >
-        {isDismissed ? (
+        <ContextMenuItem
+          disabled={!readStateEnabled}
+          onClick={() => setRead(isUnread)}
+        >
+          {isUnread ? (
+            <EnvelopeSimpleOpenIcon size={14} />
+          ) : (
+            <EnvelopeSimpleIcon size={14} />
+          )}
+          {isUnread ? "Mark as read" : "Mark as unread"}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        {readOnly ? null : isDismissed ? (
           <ContextMenuGroup>
             <ContextMenuItem
               disabled={restore.isPending}

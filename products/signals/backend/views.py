@@ -4690,6 +4690,8 @@ class SignalUserAutonomyConfigView(APIView):
             defaults["slack_notification_min_priority"] = validated.get("slack_notification_min_priority")
         if "github_assign_on_pull_request" in serializer.initial_data:
             defaults["github_assign_on_pull_request"] = validated.get("github_assign_on_pull_request", False)
+        if "github_open_pull_request_ready" in serializer.initial_data:
+            defaults["github_open_pull_request_ready"] = validated.get("github_open_pull_request_ready")
         if "slack_notification_channel" in serializer.initial_data:
             defaults["slack_notification_channel"] = validated.get("slack_notification_channel") or None
         integration_in_request = "slack_notification_integration_id" in serializer.initial_data

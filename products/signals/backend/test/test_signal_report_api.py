@@ -809,8 +809,8 @@ class TestSignalReportListAPI(APIBaseTest):
         unclaimed = self.client.get(self._list_url(unclaimed="true"))
         assert str(report.id) not in {item["id"] for item in unclaimed.json()["results"]}
 
-    @parameterized.expand([("legacy", True, 42), ("migrated", False, 7)])
-    def test_assignment_pr_is_only_a_legacy_fallback(self, _name, legacy, expected_number):
+    @parameterized.expand([("legacy", True, 42), ("migrated", False, 42)])
+    def test_distinct_legacy_pr_remains_visible_alongside_task_pr(self, _name, legacy, expected_number):
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
         report = self._create_report()
@@ -844,6 +844,7 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
 
         assert row["implementation_pr_url"] == f"https://github.com/org/repo/pull/{expected_number}"
+        assert {pr["url"] for pr in row["pull_requests"]} == {"https://github.com/org/repo/pull/7", "https://github.com/org/repo/pull/42"}
 
     @parameterized.expand(
         [
