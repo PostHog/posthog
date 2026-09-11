@@ -165,7 +165,7 @@ export interface scratchpadLogicActions {
         entries: ScratchpadEntryApi[]
         hasMore: boolean
     }
-    clearFilters: () => void
+    clearFilters: () => {}
     loadEntries: () => any
     loadEntriesFailure: (
         error: string,
@@ -194,8 +194,8 @@ export interface scratchpadLogicActions {
         content: string
         key: string
     }
-    loadOlderEntries: () => void
-    loadOlderEntriesFailure: () => void
+    loadOlderEntries: () => {}
+    loadOlderEntriesFailure: () => {}
     loadSearchResults: (_payload: void) => void
     loadSearchResultsFailure: (
         error: string,
@@ -211,7 +211,7 @@ export interface scratchpadLogicActions {
         searchResults: ScratchpadEntryApi[] | null
         payload?: void
     }
-    resolveReportTitles: () => void
+    resolveReportTitles: () => {}
     setHideBookkeeping: (hideBookkeeping: boolean) => {
         hideBookkeeping: boolean
     }

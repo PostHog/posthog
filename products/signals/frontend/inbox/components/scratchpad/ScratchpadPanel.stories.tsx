@@ -116,6 +116,12 @@ export const PopulatedNarrow: Story = {
 }
 
 export const Loading: Story = {
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '.LemonSkeleton',
+        },
+    },
     render: () => {
         useStorybookMocks({ get: { [SCRATCHPAD_URL]: () => new Promise(() => {}) } })
         return <Panel />
@@ -123,6 +129,7 @@ export const Loading: Story = {
 }
 
 export const LoadingNarrow: Story = {
+    parameters: Loading.parameters,
     render: () => {
         useStorybookMocks({ get: { [SCRATCHPAD_URL]: () => new Promise(() => {}) } })
         return <Panel width={NARROW_WIDTH} />
