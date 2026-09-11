@@ -50,7 +50,7 @@ function checkDisableDirectives(filename) {
     if (removals.length) {
         let fixed = text
         for (const { pos, end } of removals.sort((a, b) => b.pos - a.pos)) {
-            fixed = fixed.slice(0, pos) + fixed.slice(end)
+            fixed = fixed.slice(0, pos) + fixed.slice(pos, end).replace(/[^\r\n]/g, ' ') + fixed.slice(end)
         }
         writeFileSync(filename, fixed)
     }
