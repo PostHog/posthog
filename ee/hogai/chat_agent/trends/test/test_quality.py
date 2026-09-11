@@ -94,6 +94,36 @@ class TestFindTrendsQualityIssues(SimpleTestCase):
                 "No series produces a length of time",
             ),
             (
+                "seconds_formatted_as_scaled_percentage",
+                AssistantTrendsQuery(
+                    series=[
+                        AssistantTrendsEventsNode(event="$pageview", math="avg", math_property="$session_duration")
+                    ],
+                    trendsFilter=AssistantTrendsFilter(aggregationAxisFormat="percentage_scaled"),
+                ),
+                "is not a unit of time",
+            ),
+            (
+                "seconds_formatted_as_percentage",
+                AssistantTrendsQuery(
+                    series=[
+                        AssistantTrendsEventsNode(event="$pageview", math="avg", math_property="$session_duration")
+                    ],
+                    trendsFilter=AssistantTrendsFilter(aggregationAxisFormat="percentage"),
+                ),
+                "is not a unit of time",
+            ),
+            (
+                "seconds_formatted_as_currency",
+                AssistantTrendsQuery(
+                    series=[
+                        AssistantTrendsEventsNode(event="$pageview", math="avg", math_property="$session_duration")
+                    ],
+                    trendsFilter=AssistantTrendsFilter(aggregationAxisFormat="currency"),
+                ),
+                "is not a unit of time",
+            ),
+            (
                 "count_series_beside_a_duration_series",
                 AssistantTrendsQuery(
                     series=[
@@ -170,6 +200,27 @@ class TestFindTrendsQualityIssues(SimpleTestCase):
                 "group_math_with_index",
                 AssistantTrendsQuery(
                     series=[AssistantTrendsEventsNode(event="$pageview", math="unique_group", math_group_type_index=0)]
+                ),
+            ),
+            (
+                "seconds_formatted_as_short",
+                AssistantTrendsQuery(
+                    series=[
+                        AssistantTrendsEventsNode(event="$pageview", math="avg", math_property="$session_duration")
+                    ],
+                    trendsFilter=AssistantTrendsFilter(aggregationAxisFormat="short"),
+                ),
+            ),
+            (
+                "formula_ratio_of_seconds_formatted_as_scaled_percentage",
+                AssistantTrendsQuery(
+                    series=[
+                        AssistantTrendsEventsNode(event="$pageview", math="avg", math_property="$session_duration"),
+                        AssistantTrendsEventsNode(event="$pageview", math="sum", math_property="$session_duration"),
+                    ],
+                    trendsFilter=AssistantTrendsFilter(
+                        aggregationAxisFormat="percentage_scaled", formulaNodes=[TrendsFormulaNode(formula="A/B")]
+                    ),
                 ),
             ),
             (

@@ -28,6 +28,11 @@ DURATION_AXIS_FORMATS = frozenset(
     {AggregationAxisFormat.DURATION, AggregationAxisFormat.DURATION_MS, AggregationAxisFormat.DURATION_NS}
 )
 
+SECONDS_SAFE_AXIS_FORMATS = frozenset(
+    {AggregationAxisFormat.DURATION, AggregationAxisFormat.NUMERIC, AggregationAxisFormat.SHORT}
+)
+"""Axis formats that keep a seconds value readable. `numeric` and `short` print the number without changing it."""
+
 PROPERTY_MATH_TYPES = frozenset(PropertyMathType)
 
 MATH_COMPANION_FIELDS: tuple[tuple[frozenset[str], str, str], ...] = (
@@ -98,6 +103,15 @@ def _check_axis_format(query: AssistantTrendsQuery) -> list[str]:
             issues.append(
                 f"Series {labels} aggregates a property measured in seconds, but the value axis uses "
                 f"`{axis_format}`. That renders the value in the wrong unit. "
+                f"Use the `duration` format, which reads the value as seconds."
+            )
+        # A formula replaces the series it reads, and its result can be a ratio that these formats render correctly.
+        elif (
+            axis_format is not None and axis_format not in SECONDS_SAFE_AXIS_FORMATS and not trends_filter.formulaNodes
+        ):
+            issues.append(
+                f"Series {labels} aggregates a property measured in seconds, but the value axis uses "
+                f"`{axis_format}`, which is not a unit of time. That reports a wrong number. "
                 f"Use the `duration` format, which reads the value as seconds."
             )
         if NON_SECOND_TIME_UNIT.search(postfix):
