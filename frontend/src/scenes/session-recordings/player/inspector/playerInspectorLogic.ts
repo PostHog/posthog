@@ -607,7 +607,7 @@ export interface playerInspectorLogicActions {
     } // sessionRecordingPlayerLogic
     setSkippingToMatchingEvent: (
         isSkippingToMatchingEvent: boolean,
-        target?: MatchingEventSkipTarget
+        target?: MatchingEventSkipTarget | undefined
     ) => {
         isSkippingToMatchingEvent: boolean
         target: MatchingEventSkipTarget

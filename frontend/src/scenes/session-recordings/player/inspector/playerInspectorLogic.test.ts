@@ -460,7 +460,7 @@ describe('playerInspectorLogic', () => {
         // default recording_meta mock resolves the window (14:46:20.877, 11s).
         const EXPERIMENT_ID = 777
 
-        const mockExperimentContext = (
+        const useExperimentContextMock = (
             sessionRecordingId: string,
             firstExposureTimestamp: string,
             gate?: Promise<void>
@@ -504,7 +504,7 @@ describe('playerInspectorLogic', () => {
             // nothing to seek to and use up the one-shot skip before the exposure is known.
             let releaseContext: () => void = () => {}
             const gate = new Promise<void>((resolve) => (releaseContext = resolve))
-            mockExperimentContext('exposure-wait', '2023-05-01T14:46:26.000Z', gate)
+            useExperimentContextMock('exposure-wait', '2023-05-01T14:46:26.000Z', gate)
 
             const { playerLogic, inspectorLogic } = mount({
                 sessionRecordingId: 'exposure-wait',
@@ -534,7 +534,7 @@ describe('playerInspectorLogic', () => {
             ['the exposure comes before a filtered event', '2023-05-01T14:46:29.000Z', 5000],
         ])('seeks to the earlier moment when %s', async (_label, filteredEventTimestamp, expectedSeekMs) => {
             const sessionRecordingId = `exposure-earliest-${expectedSeekMs}`
-            mockExperimentContext(sessionRecordingId, '2023-05-01T14:46:26.000Z')
+            useExperimentContextMock(sessionRecordingId, '2023-05-01T14:46:26.000Z')
 
             const { playerLogic, inspectorLogic } = mount({
                 sessionRecordingId,
@@ -558,7 +558,7 @@ describe('playerInspectorLogic', () => {
             // The replay page, notebooks and the other embeds must keep starting at the beginning.
             let releaseContext: () => void = () => {}
             const gate = new Promise<void>((resolve) => (releaseContext = resolve))
-            mockExperimentContext('exposure-no-target', '2023-05-01T14:46:26.000Z', gate)
+            useExperimentContextMock('exposure-no-target', '2023-05-01T14:46:26.000Z', gate)
 
             const { playerLogic, inspectorLogic } = mount({
                 sessionRecordingId: 'exposure-no-target',
