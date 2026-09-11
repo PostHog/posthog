@@ -25,10 +25,12 @@ from products.visual_review.backend.facade.enums import (
 )
 from products.visual_review.backend.logic import artifact_store, debt_digest, runs
 from products.visual_review.backend.models import Repo, RunSnapshot, ToleratedHash
+from products.visual_review.backend.tasks import tasks
 from products.visual_review.backend.tasks.tasks import (
     post_approval_comment,
     process_run_diffs,
     send_visual_review_debt_digest,
+    send_visual_review_debt_digests,
 )
 from products.visual_review.backend.tests.conftest import (
     PRODUCT_DATABASES,
@@ -565,6 +567,16 @@ class TestDebtDigestTask(VisualReviewTeamScopedTestMixin, BaseTest):
 
         # Nothing records what was sent, so an overlapping run would post every reminder twice.
         assert send.call_count == 0
+
+    def test_the_fan_out_gives_each_child_a_deadline(self) -> None:
+        repo = Repo.objects.create(team_id=self.team.id, repo_external_id=55513, repo_full_name="org/fanned-out")
+
+        with patch("products.visual_review.backend.tasks.tasks.send_visual_review_debt_digest.apply_async") as enqueue:
+            send_visual_review_debt_digests()
+
+        # A child without a deadline lets a drained backlog post yesterday's digest next to today's.
+        enqueued = {(call.kwargs["args"], call.kwargs["expires"]) for call in enqueue.call_args_list}
+        assert ((repo.team_id, str(repo.id)), tasks._DEBT_DIGEST_EXPIRY_SECONDS) in enqueued
 
     def test_the_scheduled_run_posts_rather_than_previews(self) -> None:
         repo = Repo.objects.create(team_id=self.team.id, repo_external_id=55512, repo_full_name="org/scheduled")

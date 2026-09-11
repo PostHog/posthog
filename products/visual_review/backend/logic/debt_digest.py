@@ -497,6 +497,11 @@ def send_debt_digest(repo: Repo, mode: str) -> list[str]:
         return []
 
     ownership = resolve_path_owners(repo.repo_full_name, paths_to_resolve(debt))
+    if not ownership.resolved:
+        # A blind answer names no team and carries no registry, so every item would read as
+        # unowned and be dropped. Say so instead, and send the same items tomorrow.
+        logger.warning("visual_review.debt_digest_ownership_unavailable", repo_id=str(repo.id), team_id=repo.team_id)
+        return []
     digests = split_by_team(debt, ownership)
 
     if mode == MODE_PREVIEW:

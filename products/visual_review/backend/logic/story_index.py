@@ -114,7 +114,8 @@ def _parse_story_index(raw: bytes, package_dir: str) -> dict[str, str]:
             continue
         path = posixpath.normpath(posixpath.join(package_dir, import_path))
         # A story imported from outside the checkout has no repository path, so no team can own it.
-        if path.startswith(".."):
+        # An absolute import path drops the package directory on the join, so it lands here too.
+        if path.startswith("..") or posixpath.isabs(path):
             continue
         paths[story_id] = path
     return paths

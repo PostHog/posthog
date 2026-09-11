@@ -13,7 +13,7 @@ from posthog_owners.schema import TeamEntry
 from posthog.models.team.team import Team
 from posthog.team_notifications.slack import MAX_SECTION_CHARS, SlackChannel, SlackPostRefused
 
-from products.engineering_analytics.backend.facade.contracts import PathOwnership
+from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
 from products.visual_review.backend.facade.contracts import (
     FLAKINESS_EXPIRY_SOON_DAYS,
     CreateRunInput,
@@ -370,6 +370,23 @@ class TestCollectAndSend:
         assert channel_map.call_count == 0
         assert len(rendered) == 1
         assert rendered[0].startswith("Visual review debt for team-devex in org/test-debt: ")
+
+    def test_an_unreadable_owners_file_sends_nothing(self, repo, mocker):
+        self._completed_run(repo, mocker)
+        self._pile_up(repo)
+        # Every path reads as unowned when the owners files could not be read, which would
+        # otherwise drop the whole repo's debt as nobody's.
+        blind = PathOwnership(
+            team_by_path={_SOURCE_PATH: UNOWNED_TEAM, _PRODUCT_PATH: UNOWNED_TEAM}, registry={}, resolved=False
+        )
+        with (
+            _with_index(_INDEX),
+            patch("products.visual_review.backend.logic.debt_digest.resolve_path_owners", return_value=blind),
+            patch("products.visual_review.backend.logic.debt_digest.post_with_join") as post,
+        ):
+            assert debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_LIVE) == []
+
+        assert post.call_count == 0
 
     def test_one_team_failing_does_not_stop_the_next(self, repo, mocker):
         self._completed_run(repo, mocker, (_IDENTIFIER, _ABSENT_IDENTIFIER))

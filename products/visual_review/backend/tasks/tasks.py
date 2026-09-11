@@ -35,6 +35,10 @@ TRACER = trace.get_tracer(__name__)
 # which the next run resends.
 _DEBT_DIGEST_LOCK_SECONDS = 900
 
+# A child task worth running is a child task worth running today. A worker draining a backlog past
+# this drops it, and the next morning's run recomputes what is still owed.
+_DEBT_DIGEST_EXPIRY_SECONDS = 60 * 60
+
 
 @shared_task(
     name="products.visual_review.backend.tasks.emit_run_processing_metrics",
@@ -233,7 +237,9 @@ def send_visual_review_debt_digests() -> None:
     from ..logic import debt_digest  # noqa: PLC0415 — avoids the logic/tasks circular import
 
     for repo in debt_digest.repos_in_scope():
-        send_visual_review_debt_digest.delay(repo.team_id, str(repo.id))
+        send_visual_review_debt_digest.apply_async(
+            args=(repo.team_id, str(repo.id)), expires=_DEBT_DIGEST_EXPIRY_SECONDS
+        )
 
 
 @shared_task(

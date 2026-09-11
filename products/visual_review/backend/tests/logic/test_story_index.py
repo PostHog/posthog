@@ -78,6 +78,8 @@ class TestFetchStoryIndex:
             "scenes-app-button--docs": {"type": "docs", "importPath": "../../frontend/src/scenes/Button.mdx"},
             # A story imported from outside the checkout has no repository path to own.
             "vendor-thing--default": {"type": "story", "importPath": "../../../vendor/Thing.stories.tsx"},
+            # An absolute path leaves the checkout too, and it drops the package directory on join.
+            "root-thing--default": {"type": "story", "importPath": "/etc/Thing.stories.tsx"},
         }
         zip_bytes = _zip_bytes({"index.json": _index_document(entries)})
         with patch(
