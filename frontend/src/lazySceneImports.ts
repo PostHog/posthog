@@ -38,6 +38,8 @@ export const lazySceneImports = {
         import('../../products/ai_observability/frontend/clusters/AIObservabilityClusterScene'),
     Alerts: () => import('../../products/alerts/frontend/AlertsScene'),
     BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/BusinessKnowledgeScene'),
+    BusinessKnowledgeSettings: () =>
+        import('../../products/business_knowledge/frontend/scenes/BusinessKnowledgeSettingsScene'),
     Transformations: () => import('scenes/data-pipelines/TransformationsScene'),
     EventFiltering: () => import('scenes/data-pipelines/event-filtering/EventFilterScene'),
     CohortsStaffTools: () => import('../../products/cohorts/frontend/staff/CohortsStaffToolsScene'),

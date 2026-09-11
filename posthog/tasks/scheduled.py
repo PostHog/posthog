@@ -9,6 +9,7 @@ from celery.schedules import crontab
 
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs, publish_cohort_backfill_run_gauges
@@ -136,6 +137,7 @@ from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
 from products.workflows.backend.tasks.ses_account_reputation import poll_ses_account_reputation
 from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tenant_states
+from products.workflows.backend.tasks.workflow_email_health import sweep_workflow_email_deliverability
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -444,6 +446,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         poll_ses_account_reputation.s(),
         name="poll SES account reputation",
         expires_seconds=10 * 60,
+    )
+
+    # Pause the email of any workflow whose complaint or hard bounce rate breaches a threshold
+    # Hourly rather than a tight poll: the tier system's hourly send bucket bounds how much a
+    # breaching workflow can send between runs, and the detection windows are 1h and 24h anyway.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="35"),
+        sweep_workflow_email_deliverability.s(),
+        name="sweep workflow email deliverability",
+        expires_seconds=30 * 60,
     )
 
     # Flags cache sync - hourly
@@ -820,19 +833,23 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="mark stale pulse briefs failed",
     )
 
-    if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
-        sender.add_periodic_task(
-            clear_clickhouse_crontab,
-            clickhouse_clear_removed_data.s(),
-            name="clickhouse clear removed data",
-        )
+    # Self-hosted only; cloud runs clickhouse_deletion_sweep_job instead.
+    if celery_sweeps_enabled():
+        if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
+            sender.add_periodic_task(
+                clear_clickhouse_crontab,
+                clickhouse_clear_removed_data.s(),
+                name="clickhouse clear removed data",
+            )
 
-    if clear_clickhouse_deleted_person_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON):
-        sender.add_periodic_task(
-            clear_clickhouse_deleted_person_crontab,
-            clear_clickhouse_deleted_person.s(),
-            name="clickhouse clear deleted person data",
-        )
+        if clear_clickhouse_deleted_person_crontab := get_crontab(
+            settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON
+        ):
+            sender.add_periodic_task(
+                clear_clickhouse_deleted_person_crontab,
+                clear_clickhouse_deleted_person.s(),
+                name="clickhouse clear deleted person data",
+            )
 
     sender.add_periodic_task(
         crontab(hour="*", minute="0"),

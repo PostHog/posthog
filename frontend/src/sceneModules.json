@@ -21,6 +21,7 @@
     "AIObservabilityCluster": "../../products/ai_observability/frontend/clusters/AIObservabilityClusterScene",
     "Alerts": "../../products/alerts/frontend/AlertsScene",
     "BusinessKnowledge": "../../products/business_knowledge/frontend/scenes/BusinessKnowledgeScene",
+    "BusinessKnowledgeSettings": "../../products/business_knowledge/frontend/scenes/BusinessKnowledgeSettingsScene",
     "Transformations": "scenes/data-pipelines/TransformationsScene",
     "EventFiltering": "scenes/data-pipelines/event-filtering/EventFilterScene",
     "CohortsStaffTools": "../../products/cohorts/frontend/staff/CohortsStaffToolsScene",
