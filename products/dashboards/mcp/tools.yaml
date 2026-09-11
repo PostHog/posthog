@@ -96,6 +96,38 @@ tools:
                 - tiles.*.insight.last_viewed_at
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+                - tiles.*.insight.filter_override_context
+                - created_by.uuid
+                - created_by.distinct_id
+                - created_by.is_email_verified
+                - created_by.hedgehog_config
+                - tiles.*.insight.created_by.uuid
+                - tiles.*.insight.created_by.distinct_id
+                - tiles.*.insight.created_by.is_email_verified
+                - tiles.*.insight.created_by.hedgehog_config
+                - tiles.*.insight.last_modified_by.uuid
+                - tiles.*.insight.last_modified_by.distinct_id
+                - tiles.*.insight.last_modified_by.is_email_verified
+                - tiles.*.insight.last_modified_by.hedgehog_config
+                - tiles.*.text.dashboard_tiles
+                - tiles.*.text.created_by.uuid
+                - tiles.*.text.created_by.distinct_id
+                - tiles.*.text.created_by.is_email_verified
+                - tiles.*.text.created_by.hedgehog_config
+                - tiles.*.text.last_modified_by.uuid
+                - tiles.*.text.last_modified_by.distinct_id
+                - tiles.*.text.last_modified_by.is_email_verified
+                - tiles.*.text.last_modified_by.hedgehog_config
+                - tiles.*.widget.dashboard_tiles
+                - tiles.*.widget.created_by.uuid
+                - tiles.*.widget.created_by.distinct_id
+                - tiles.*.widget.created_by.is_email_verified
+                - tiles.*.widget.created_by.hedgehog_config
+                - tiles.*.widget.last_modified_by.uuid
+                - tiles.*.widget.last_modified_by.distinct_id
+                - tiles.*.widget.last_modified_by.is_email_verified
+                - tiles.*.widget.last_modified_by.hedgehog_config
+            strip_nulls: true
     dashboard-create-tile:
         operation: dashboards_create_text_tile_create
         enabled: true
@@ -212,6 +244,38 @@ tools:
                 - tiles.*.insight.alerts
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+                - tiles.*.insight.filter_override_context
+                - created_by.uuid
+                - created_by.distinct_id
+                - created_by.is_email_verified
+                - created_by.hedgehog_config
+                - tiles.*.insight.created_by.uuid
+                - tiles.*.insight.created_by.distinct_id
+                - tiles.*.insight.created_by.is_email_verified
+                - tiles.*.insight.created_by.hedgehog_config
+                - tiles.*.insight.last_modified_by.uuid
+                - tiles.*.insight.last_modified_by.distinct_id
+                - tiles.*.insight.last_modified_by.is_email_verified
+                - tiles.*.insight.last_modified_by.hedgehog_config
+                - tiles.*.text.dashboard_tiles
+                - tiles.*.text.created_by.uuid
+                - tiles.*.text.created_by.distinct_id
+                - tiles.*.text.created_by.is_email_verified
+                - tiles.*.text.created_by.hedgehog_config
+                - tiles.*.text.last_modified_by.uuid
+                - tiles.*.text.last_modified_by.distinct_id
+                - tiles.*.text.last_modified_by.is_email_verified
+                - tiles.*.text.last_modified_by.hedgehog_config
+                - tiles.*.widget.dashboard_tiles
+                - tiles.*.widget.created_by.uuid
+                - tiles.*.widget.created_by.distinct_id
+                - tiles.*.widget.created_by.is_email_verified
+                - tiles.*.widget.created_by.hedgehog_config
+                - tiles.*.widget.last_modified_by.uuid
+                - tiles.*.widget.last_modified_by.distinct_id
+                - tiles.*.widget.last_modified_by.is_email_verified
+                - tiles.*.widget.last_modified_by.hedgehog_config
+            strip_nulls: true
     dashboard-insights-run:
         operation: dashboards_run_insights_retrieve
         enabled: true
@@ -415,6 +479,38 @@ tools:
                 - tiles.*.insight.alerts
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+                - tiles.*.insight.filter_override_context
+                - created_by.uuid
+                - created_by.distinct_id
+                - created_by.is_email_verified
+                - created_by.hedgehog_config
+                - tiles.*.insight.created_by.uuid
+                - tiles.*.insight.created_by.distinct_id
+                - tiles.*.insight.created_by.is_email_verified
+                - tiles.*.insight.created_by.hedgehog_config
+                - tiles.*.insight.last_modified_by.uuid
+                - tiles.*.insight.last_modified_by.distinct_id
+                - tiles.*.insight.last_modified_by.is_email_verified
+                - tiles.*.insight.last_modified_by.hedgehog_config
+                - tiles.*.text.dashboard_tiles
+                - tiles.*.text.created_by.uuid
+                - tiles.*.text.created_by.distinct_id
+                - tiles.*.text.created_by.is_email_verified
+                - tiles.*.text.created_by.hedgehog_config
+                - tiles.*.text.last_modified_by.uuid
+                - tiles.*.text.last_modified_by.distinct_id
+                - tiles.*.text.last_modified_by.is_email_verified
+                - tiles.*.text.last_modified_by.hedgehog_config
+                - tiles.*.widget.dashboard_tiles
+                - tiles.*.widget.created_by.uuid
+                - tiles.*.widget.created_by.distinct_id
+                - tiles.*.widget.created_by.is_email_verified
+                - tiles.*.widget.created_by.hedgehog_config
+                - tiles.*.widget.last_modified_by.uuid
+                - tiles.*.widget.last_modified_by.distinct_id
+                - tiles.*.widget.last_modified_by.is_email_verified
+                - tiles.*.widget.last_modified_by.hedgehog_config
+            strip_nulls: true
     dashboard-update-text-tile:
         operation: dashboards_update_text_tile_create
         enabled: true

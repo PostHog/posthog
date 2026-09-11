@@ -34,7 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
     SSHTunnelMixin,
+    TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
     is_team_allowlisted_for_internal_hosts,
 )
@@ -90,7 +92,7 @@ _REDIRECTED = (
 ClickHouseErrors: dict[str, str] = {
     "authentication failed": "Invalid user or password",
     "code: 516": "Invalid user or password",  # AUTHENTICATION_FAILED
-    "code: 81": "Database does not exist",  # UNKNOWN_DATABASE
+    "code: 81": "Database does not exist. Check the database name is correct.",  # UNKNOWN_DATABASE
     "code: 60": "Table does not exist",  # UNKNOWN_TABLE
     "code: 192": "Permission denied on the requested database or table",  # UNKNOWN_USER
     "code: 497": "Permission denied on the requested database or table",  # ACCESS_DENIED
@@ -518,6 +520,10 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
 
         try:
             self.get_schemas(config, team_id, names=[schema_name] if schema_name else None, api_version=api_version)
+        except (HostNotAllowedError, TemporaryHostResolutionError) as e:
+            # The host policy refused the host, or its lookup never answered. Both carry their own
+            # user-facing wording and neither is a PostHog defect, so they are not captured.
+            return False, str(e)
         except BaseSSHTunnelForwarderError as e:
             return (
                 False,

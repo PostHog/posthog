@@ -42,6 +42,15 @@ def _response(data_key: str, items: list[dict[str, Any]], total_pages: int = 1) 
     return resp
 
 
+def _lookup_response(data_key: str, items: list[dict[str, Any]]) -> mock.MagicMock:
+    # The stage lookups answer with just the rows: no page params echoed, no pagination object.
+    resp = mock.MagicMock()
+    resp.json.return_value = {data_key: items}
+    resp.status_code = 200
+    resp.ok = True
+    return resp
+
+
 def _rate_limited(retry_after: str | None = None) -> mock.MagicMock:
     resp = mock.MagicMock()
     resp.status_code = 429
@@ -147,6 +156,38 @@ class TestGetRows:
 
         body = mock_session.return_value.post.call_args.kwargs["json"]
         assert "sort_by_field" not in body
+
+    @pytest.mark.parametrize("endpoint", ["contact_stages", "account_stages", "opportunity_stages"])
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_lookup_endpoints_read_one_unpaginated_page(self, mock_session, endpoint):
+        # Without the single-page stop these would loop forever: the response carries no
+        # total_pages to break on, so every pass re-yields the same rows.
+        mock_session.return_value.get.return_value = _lookup_response(endpoint, [{"id": "s1"}])
+
+        manager = _make_manager()
+        batches = list(get_rows("key", endpoint, mock.MagicMock(), manager))
+
+        assert [item["id"] for batch in batches for item in batch] == ["s1"]
+        assert mock_session.return_value.get.call_count == 1
+        assert mock_session.return_value.post.call_count == 0
+        assert mock_session.return_value.get.call_args.kwargs["params"] == {}
+        manager.save_state.assert_not_called()
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_users_paginates_with_query_params(self, mock_session):
+        # Page params have to ride the query string on this GET; sent as a body they are
+        # ignored and every page comes back as page 1.
+        mock_session.return_value.get.side_effect = [
+            _response("users", [{"id": "u1"}], total_pages=2),
+            _response("users", [{"id": "u2"}], total_pages=2),
+        ]
+
+        batches = list(get_rows("key", "users", mock.MagicMock(), _make_manager()))
+
+        assert [item["id"] for batch in batches for item in batch] == ["u1", "u2"]
+        pages = [call.kwargs["params"]["page"] for call in mock_session.return_value.get.call_args_list]
+        assert pages == [1, 2]
+        assert mock_session.return_value.get.call_args.kwargs["params"]["per_page"] == PAGE_SIZE
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resumes_from_saved_page(self, mock_session):

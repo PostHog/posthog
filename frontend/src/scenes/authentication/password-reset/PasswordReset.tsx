@@ -1,7 +1,7 @@
 /*
 Scene to request a password reset email.
 */
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
@@ -14,6 +14,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { loginTelemetryLogic } from 'scenes/authentication/shared/loginTelemetryLogic'
 import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -26,6 +27,8 @@ export const scene: SceneExport = {
 }
 
 export function PasswordReset(): JSX.Element {
+    // Mounted here so the login funnel is only reported from the auth scenes
+    useMountedLogic(loginTelemetryLogic)
     const { preflight, preflightLoading } = useValues(preflightLogic)
     const { requestPasswordResetSucceeded, requestPasswordResetManualErrors } = useValues(passwordResetLogic)
     const { resetRequestPasswordReset } = useActions(passwordResetLogic)

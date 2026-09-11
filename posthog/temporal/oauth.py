@@ -17,6 +17,7 @@ from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
     MCP_BUILT_IN_AGENT_SCOPE,
     OAUTH_HIDDEN_SCOPE_OBJECTS,
+    SLACK_RUN_SCOPE,
     resolve_ceiling,
 )
 from posthog.utils import get_instance_region
@@ -206,7 +207,9 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          An update can also move an organization annotation to the scout's team.
 #   alert:write            Every insight alert in the scout's project. Delete is PERMANENT: the
 #                          viewset has no soft-delete, so it removes the alert and its check
-#                          history for good.
+#                          history for good. It also attaches and removes the alert's Slack
+#                          destinations, bounded to workspaces the project already connected, so a
+#                          scout still reaches no URL of its own choosing.
 #   llm_skill:write        Every shared skill on the scout's project: body, description, and
 #                          bundled files. Custom scouts are skills in that same store, so this
 #                          reaches a sibling scout's prompt and the scout's own. Archive marks
@@ -566,6 +569,7 @@ def create_oauth_access_token_for_user(
     include_internal_scopes: bool = True,
     include_mcp_builtin_agent_scope: bool = False,
     include_interactive_run_scope: bool = False,
+    include_slack_run_scope: bool = False,
     application: SandboxOAuthApplication = "array",
     sandbox_task_id: UUID | None = None,
 ) -> str:
@@ -579,6 +583,8 @@ def create_oauth_access_token_for_user(
         # Provenance marker only — it grants no access. The LLM gateway meters a run
         # carrying it against the interactive budget instead of the pipeline's.
         resolved.append(INTERACTIVE_RUN_SCOPE)
+    if include_slack_run_scope:
+        resolved.append(SLACK_RUN_SCOPE)
     app = get_sandbox_oauth_app(application)
     return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
 
@@ -602,11 +608,13 @@ class WizardIdentityBlockedError(Exception):
     a transient token failure must not retry this one."""
 
 
-def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
+def create_wizard_oauth_access_token_for_user(user, team_id: int, *, scopes: list[str] | None = None) -> str:
     """Mint an OAuth access token under the wizard's own app for a cloud wizard run.
 
     Deliberately separate from the sandbox/agent token (`create_oauth_access_token_for_user`) so the
-    wizard's scopes stay independent of the agent's. Uses the wizard app's configured scope ceiling.
+    wizard's scopes stay independent of the agent's. Defaults to the wizard app's
+    configured scope ceiling; `scopes` narrows within it, for a credential whose
+    purpose needs less than the whole ceiling.
 
     Gated here rather than only at the HTTP kickoff, which a workflow retry or
     resume reaches with no request in front of it.
@@ -627,4 +635,11 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     if ceiling is None or len(ceiling) == 0:
         raise RuntimeError("Wizard app has no scope ceiling. Must be configured in the database.")
 
-    return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))
+    if scopes is None:
+        return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))
+    if not scopes:
+        raise RuntimeError("Refusing to mint a wizard token with no scopes.")
+    outside = sorted(set(scopes) - set(ceiling))
+    if outside:
+        raise RuntimeError(f"Wizard app cannot grant {', '.join(outside)}.")
+    return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(set(scopes)))

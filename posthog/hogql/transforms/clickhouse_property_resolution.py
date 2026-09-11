@@ -32,7 +32,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
-from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
+from posthog.hogql.restricted_properties import mirrored_property_for_column, restricted_property_keys_for_table_type
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
     comparison_compatibility,
@@ -891,6 +891,31 @@ class ClickHousePropertyResolver(CloningVisitor):
         if substituted is not None:
             return substituted
         return super().visit_property_access(node)
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        if (
+            self.context.restricted_properties
+            and isinstance(node.type, ast.FieldType)
+            and (masked := self._masked_mirrored_column(node.type)) is not None
+        ):
+            return masked
+        return super().visit_field(node)
+
+    def _masked_mirrored_column(self, field_type: ast.FieldType) -> ast.Constant | None:
+        """The NULL constant a restricted mirror column reads as, or None if it is unrestricted.
+
+        Must match what `_substitute_value_read` builds for the source property, so the mirror column and
+        its source property become the same AST node and agree on nullability and comparison printing.
+        """
+        resolved_field = field_type.resolve_database_field(self.context)
+        if not isinstance(resolved_field, DatabaseField):
+            return None
+        source_property = mirrored_property_for_column(field_type.table_type, resolved_field.name, self.context)
+        if source_property is None:
+            return None
+        if source_property not in restricted_property_keys_for_table_type(field_type.table_type, self.context):
+            return None
+        return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
     # --- comparison / call rewrites ---
 

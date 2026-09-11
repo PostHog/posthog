@@ -1,6 +1,6 @@
 from typing import Optional
 
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -38,7 +38,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     EVENT_TIMESTAMP = "2024-12-01"
 
     def _create_person(self):
-        with freeze_time(self.EVENT_TIMESTAMP):
+        with time_machine.travel(self.EVENT_TIMESTAMP, tick=False):
             distinct_id = self._uuid()
             session_id = self._uuid()
             p = _create_person(
@@ -59,7 +59,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             return p, session_id
 
     def _visit_web_analytics(self, person: Person, session_id: Optional[str] = None):
-        with freeze_time(self.EVENT_TIMESTAMP):
+        with time_machine.travel(self.EVENT_TIMESTAMP, tick=False):
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -73,7 +73,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
     def _click_pay(self, person: Person, session_id: Optional[str] = None):
-        with freeze_time(self.EVENT_TIMESTAMP):
+        with time_machine.travel(self.EVENT_TIMESTAMP, tick=False):
             _create_event(
                 team=self.team,
                 event="$autocapture",
@@ -84,7 +84,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
     def _create_actions(self):
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             a0 = Action.objects.create(
                 team=self.team,
                 name="Clicked Pay",
@@ -135,7 +135,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
         filter_test_accounts: Optional[bool] = False,
     ):
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
             query = WebGoalsQuery(
                 dateRange=DateRange(date_from=date_from, date_to=date_to),
@@ -149,7 +149,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             return runner.calculate()
 
     def _uuid(self):
-        with freeze_time(self.EVENT_TIMESTAMP):
+        with time_machine.travel(self.EVENT_TIMESTAMP, tick=False):
             return str(uuid7())
 
     def test_no_crash_when_no_data_or_actions(self):
@@ -272,7 +272,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_aggregate_function_in_where_error(self):
         """Test cohort with multiple actions that produced the aggregate function in WHERE clause error:
         Aggregate function any(if(NOT empty(events__override.distinct_id), events__override.person_id, events.person_id))AS person_id is found in WHERE in query."""
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             cohort = Cohort.objects.create(
                 team=self.team,
                 filters={
@@ -292,7 +292,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
         # Create multiple actions to generate complex query
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             Action.objects.create(
                 team=self.team,
                 name="Test Action 1",
@@ -372,7 +372,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
         # Create persons with distinct_id overrides to trigger the error
-        with freeze_time(self.EVENT_TIMESTAMP):
+        with time_machine.travel(self.EVENT_TIMESTAMP, tick=False):
             # Create persons with different distinct_ids but insert overrides that create conflicts
             distinct_id_1 = self._uuid()
             distinct_id_2 = self._uuid()

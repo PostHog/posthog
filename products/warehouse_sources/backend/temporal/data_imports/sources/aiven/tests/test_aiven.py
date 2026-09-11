@@ -159,6 +159,38 @@ class TestFanOut:
         ]
 
     @patch(CLIENT_SESSION_PATCH)
+    def test_two_level_injects_both_org_and_group(self, MockSession: MagicMock) -> None:
+        # user_group_members fans out organization -> user-groups -> members; the child rows carry
+        # neither id, so both must be injected to keep the composite key unique table-wide.
+        session = MockSession.return_value
+        _wire(
+            session,
+            {
+                "/organizations": _response(200, {"organizations": [{"organization_id": "org1"}]}),
+                "/organization/org1/user-groups": _response(200, {"user_groups": [{"user_group_id": "g1"}]}),
+                "/organization/org1/user-groups/g1/members": _response(200, {"members": [{"user_id": "u1"}]}),
+            },
+        )
+        assert _rows("user_group_members") == [
+            {"user_id": "u1", "organization_id": "org1", "user_group_id": "g1"},
+        ]
+
+    @patch(CLIENT_SESSION_PATCH)
+    def test_two_level_single_placeholder_injects_only_declared_param(self, MockSession: MagicMock) -> None:
+        # billing_group_projects binds only {billing_group_id}, so only that id is injected — the
+        # grandparent organization_id must not leak onto the row.
+        session = MockSession.return_value
+        _wire(
+            session,
+            {
+                "/organizations": _response(200, {"organizations": [{"organization_id": "org1"}]}),
+                "/organization/org1/billing-groups": _response(200, {"billing_groups": [{"billing_group_id": "bg1"}]}),
+                "/billing-group/bg1/projects": _response(200, {"projects": [{"project_name": "p1"}]}),
+            },
+        )
+        assert _rows("billing_group_projects") == [{"project_name": "p1", "billing_group_id": "bg1"}]
+
+    @patch(CLIENT_SESSION_PATCH)
     def test_empty_child_batches_are_not_yielded(self, MockSession: MagicMock) -> None:
         session = MockSession.return_value
         _wire(

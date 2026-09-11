@@ -51,7 +51,12 @@ from .agentsh import (
     generate_policy_yaml,
     read_gh_guard_script,
 )
-from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache, snapshot_local_task_skills
+from .local_skills import (
+    ENV_LOCAL_SKILLS_HOST_PATH,
+    LocalSkillsCache,
+    bundled_skills_disabled,
+    snapshot_local_task_skills,
+)
 from .sandbox import (
     WORKING_DIR,
     AgentServerResult,
@@ -525,7 +530,12 @@ class DockerSandbox(SandboxBase):
             # the baked-in rendered skills in the image stay visible — only
             # the specific skills the user has on disk get overlaid.
             local_skills_host = os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
-            if skill_source != "local" and local_skills_host and os.path.isdir(local_skills_host):
+            if (
+                skill_source != "local"
+                and not bundled_skills_disabled(config.environment_variables)
+                and local_skills_host
+                and os.path.isdir(local_skills_host)
+            ):
                 for entry in sorted(os.listdir(local_skills_host)):
                     if entry.startswith(".") or entry == "__pycache__":
                         continue
@@ -932,6 +942,7 @@ class DockerSandbox(SandboxBase):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         context_window: str | None = None,
         fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
@@ -961,6 +972,7 @@ class DockerSandbox(SandboxBase):
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
+            service_tier=service_tier,
             context_window=context_window,
             fast_mode=fast_mode,
             initial_permission_mode=initial_permission_mode,
@@ -1052,6 +1064,7 @@ class DockerSandbox(SandboxBase):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         context_window: str | None = None,
         fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
@@ -1079,6 +1092,8 @@ class DockerSandbox(SandboxBase):
 
         if self._host_port is None:
             raise RuntimeError("Sandbox was not created with port exposure.")
+
+        self.clear_bundled_skills_if_disabled()
 
         repo_path: str | None = None
         if repository:
@@ -1133,6 +1148,7 @@ class DockerSandbox(SandboxBase):
             provider,
             model,
             reasoning_effort,
+            service_tier=service_tier,
             context_window=context_window,
             fast_mode=fast_mode,
             initial_permission_mode=initial_permission_mode,
@@ -1192,6 +1208,7 @@ class DockerSandbox(SandboxBase):
                 provider=provider,
                 model=model,
                 reasoning_effort=reasoning_effort,
+                service_tier=service_tier,
                 context_window=context_window,
                 fast_mode=fast_mode,
                 initial_permission_mode=initial_permission_mode,
