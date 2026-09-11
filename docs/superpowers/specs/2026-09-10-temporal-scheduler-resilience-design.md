@@ -329,9 +329,11 @@ Every coordinator emits low-cardinality metrics with `scheduler` and `region` la
 Permit, claim-health, and backlog values are authoritative snapshots written by whichever worker ran the latest
 database activity. Companion snapshot-time gauges identify that writer: dashboards select the
 newest live target for each scheduler and region and reject samples older than the coordinator's
-freshness interval. Alert rules likewise treat an absent or stale companion timestamp as unhealthy
-and must not evaluate its paired snapshot value as current. Consumers must not sum identical
-queue-wide snapshots across worker replicas.
+freshness interval. Each gauge holds its last written value while the worker process lives, so a
+stopped coordinator keeps exporting its final healthy sample. Alert rules therefore apply the same
+freshness check: an absent or stale companion timestamp is unhealthy, and its paired snapshot value
+must not be evaluated as current. Consumers must not sum identical queue-wide snapshots across
+worker replicas.
 
 Freshness is the greater of the oldest eligible due-item age and the oldest admitted-but-unfinished
 source-due age. A child that renews its claim therefore remains visible after discovery excludes it.
@@ -349,7 +351,7 @@ The synthetic item belongs to an internal project, cannot notify an external des
 The initial alert set covers:
 
 1. a synthetic scheduled item misses its freshness objective;
-2. any required coordinator snapshot timestamp is absent or older than its freshness interval;
+2. any required permit, claim-health, or backlog snapshot timestamp is absent or older than its freshness interval;
 3. oldest-due age consumes half of the freshness objective and rises, or breaches the objective;
 4. a coordinator defers work while running at maximum admission;
 5. task-queue schedule-to-start latency breaches its target;
