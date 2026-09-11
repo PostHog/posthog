@@ -27,6 +27,9 @@ interface MockState {
     // Cells the sql_v2 state endpoint reports. Supplied per test: the spans are the backend's
     // job, and `test_sql_v2_state.py` covers how it derives them.
     stateCells?: any[]
+    // Version the state endpoint reports. Set it apart from `version` to model a notebook that
+    // moved between the caller's read and its write.
+    stateVersion?: number
 }
 
 function markdownContent(markdown: string): Record<string, unknown> {
@@ -47,7 +50,12 @@ function createMockContext(state: MockState): Context {
             return next
         }
         if (opts.method === 'GET' && path.endsWith('/sql_v2/state/')) {
-            return { notebook_id: 'aBcD1234', markdown: state.markdown, cells: state.stateCells ?? [] }
+            return {
+                notebook_id: 'aBcD1234',
+                version: state.stateVersion ?? state.version,
+                markdown: state.markdown,
+                cells: state.stateCells ?? [],
+            }
         }
         if (opts.method === 'GET') {
             return {
@@ -643,6 +651,23 @@ describe('notebook cell tools', () => {
             expect(state.saveBodies).toHaveLength(0)
         })
 
+        it('refuses a fence opened behind a control character', async () => {
+            // Python strips U+001C, so this opens a code block there and reads as prose here,
+            // which swallows the cells that follow it.
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            await expect(
+                updateCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    node_id: FIRST.node_id,
+                    markdown: 'Intro.\n\n\x1c```',
+                })
+            ).rejects.toThrow(/fence open/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
         it('accepts a component tag shown inside a code fence', async () => {
             // Both walkers read fenced content as inert, so this opens no cell.
             const state = makeState(DOC)
@@ -673,54 +698,6 @@ describe('notebook cell tools', () => {
             expect(state.saveBodies).toHaveLength(0)
         })
 
-        it('falls back to the block text when the document moved under the offsets', async () => {
-            const state = makeState(`Inserted above.\n\n${DOC}`)
-            state.stateCells = [FIRST]
-            const context = createMockContext(state)
-
-            await updateCellHandler(context, {
-                notebook_id: 'aBcD1234',
-                node_id: FIRST.node_id,
-                markdown: 'Rewritten paragraph.',
-            })
-
-            const saved = state.saveBodies[0].content.content[0].attrs.markdown
-            expect(saved).toContain('Rewritten paragraph.')
-            expect(saved).toContain('Second paragraph.')
-        })
-
-        it('refuses when the only remaining match sits inside a component tag', async () => {
-            // The reported exploit: the prose is gone by write time and the same text survives
-            // inside a cell's code, so a bare substring search would rewrite that SQL.
-            const state = makeState('# Title\n\n<SQLV2 nodeId="s1" code="select \'Revenue\'" />')
-            state.stateCells = [{ ...FIRST, code: 'Revenue', start: 9, end: 16 }]
-            const context = createMockContext(state)
-
-            await expect(
-                updateCellHandler(context, {
-                    notebook_id: 'aBcD1234',
-                    node_id: FIRST.node_id,
-                    markdown: 'Profit',
-                })
-            ).rejects.toThrow(/moved or changed/)
-            expect(state.saveBodies).toHaveLength(0)
-        })
-
-        it('refuses when the block text is only part of a longer paragraph', async () => {
-            const state = makeState('# Title\n\nRevenue rose sharply.')
-            state.stateCells = [{ ...FIRST, code: 'Revenue', start: 9, end: 16 }]
-            const context = createMockContext(state)
-
-            await expect(
-                updateCellHandler(context, {
-                    notebook_id: 'aBcD1234',
-                    node_id: FIRST.node_id,
-                    markdown: 'Profit',
-                })
-            ).rejects.toThrow(/moved or changed/)
-            expect(state.saveBodies).toHaveLength(0)
-        })
-
         it('refuses a node_id that names more than one block', async () => {
             const state = makeState(DOC)
             state.stateCells = [FIRST, { ...FIRST, code: 'A different block that hashed the same.' }]
@@ -736,27 +713,30 @@ describe('notebook cell tools', () => {
             expect(state.saveBodies).toHaveLength(0)
         })
 
-        it('refuses when another markdown cell holds the same text', async () => {
-            const state = makeState(`First paragraph.\n\n${DOC}`)
+        it('edits the right one of two blocks that read the same', async () => {
+            const doc = ['Same text.', '', 'Middle.', '', 'Same text.'].join('\n')
+            const state = makeState(doc)
             state.stateCells = [
-                { node_id: FIRST.node_id, cell_type: 'markdown', code: 'First paragraph.', start: 0, end: 16 },
-                { ...FIRST, node_id: 'mdp-abc-1', start: 27, end: 43 },
+                { node_id: 'mdp-a-0', cell_type: 'markdown', code: 'Same text.', start: 0, end: 10 },
+                { node_id: 'mdp-a-1', cell_type: 'markdown', code: 'Same text.', start: 21, end: 31 },
             ]
             const context = createMockContext(state)
 
-            await expect(
-                updateCellHandler(context, {
-                    notebook_id: 'aBcD1234',
-                    node_id: FIRST.node_id,
-                    markdown: 'Rewritten.',
-                })
-            ).rejects.toThrow(/same text as 1 other markdown cell/)
-            expect(state.saveBodies).toHaveLength(0)
+            await updateCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                node_id: 'mdp-a-1',
+                markdown: 'Rewritten.',
+            })
+
+            expect(state.saveBodies[0].content.content[0].attrs.markdown).toBe(
+                ['Same text.', '', 'Middle.', '', 'Rewritten.'].join('\n')
+            )
         })
 
-        it('refuses to guess when the block text is no longer unique', async () => {
-            const state = makeState(`${DOC}\n\nFirst paragraph.`)
-            state.stateCells = [{ ...FIRST, start: 999, end: 1015 }]
+        it('refuses when the notebook moved between the read and the write', async () => {
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            state.stateVersion = state.version - 1
             const context = createMockContext(state)
 
             await expect(
@@ -765,7 +745,7 @@ describe('notebook cell tools', () => {
                     node_id: FIRST.node_id,
                     markdown: 'Rewritten.',
                 })
-            ).rejects.toThrow(/Re-read the notebook/)
+            ).rejects.toThrow(/changed since cell/)
             expect(state.saveBodies).toHaveLength(0)
         })
 

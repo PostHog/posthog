@@ -17,10 +17,11 @@ import {
     findCellTag,
     parseCellTags,
     replaceCellTag,
+    normalizeForTagScan,
     startsComponentTag,
     upsertProp,
 } from './cellTags'
-import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor } from './markdownDoc'
+import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor, saveMarkdown } from './markdownDoc'
 import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
 
 /**
@@ -68,7 +69,10 @@ function assertNoComponentTag(markdown: string): void {
     // payload split only on `\n` hides a tag from this guard that the backend later reads as a
     // live cell.
     for (const line of markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')) {
-        if (line.trim().startsWith('```')) {
+        // Fence detection normalizes the same characters as the tag check. Python strips them,
+        // so a control-prefixed fence opens a block there and reads as prose here, which moves
+        // every tag after it in or out of the fence.
+        if (normalizeForTagScan(line).startsWith('```')) {
             insideFence = !insideFence
             continue
         }
@@ -88,46 +92,6 @@ function assertNoComponentTag(markdown: string): void {
     }
 }
 
-/**
- * A bare substring search is not enough. The same text can sit inside a component tag, where
- * replacing it rewrites that cell's code, and it can sit inside a longer paragraph. A match
- * therefore has to start and end at a line boundary and fall outside every tag block.
- */
-function wholeBlockMatches(current: string, source: string): number[] {
-    const tags = parseCellTags(current)
-    const matches: number[] = []
-    for (let index = current.indexOf(source); index !== -1; index = current.indexOf(source, index + 1)) {
-        const end = index + source.length
-        const startsLine = index === 0 || current[index - 1] === '\n'
-        const endsLine = end === current.length || current[end] === '\n'
-        if (startsLine && endsLine && !tags.some((tag) => index < tag.end && tag.start < end)) {
-            matches.push(index)
-        }
-    }
-    return matches
-}
-
-/**
- * The recorded offsets belong to the state read, and the document can move between that read and
- * this write. They are therefore a hint, not an answer: the span is confirmed against `current`
- * every time, and an absent or ambiguous block is reported rather than guessed, because either
- * one silently rewrites something the caller never saw.
- */
-function resolveProseSpan(current: string, block: Schemas.NotebookCellState): { start: number; end: number } {
-    const matches = wholeBlockMatches(current, block.code)
-    if (matches.length === 0) {
-        throw new Error(
-            `Cell ${block.node_id} moved or changed since it was read. Re-read the notebook with notebooks-get and retry with the id it returns.`
-        )
-    }
-    if (matches.length > 1) {
-        throw new Error(
-            `Cell ${block.node_id} now reads the same as ${matches.length - 1} other block(s) in this notebook, so an id cannot name one of them. Re-read the notebook with notebooks-get.`
-        )
-    }
-    return { start: matches[0]!, end: matches[0]! + block.code.length }
-}
-
 async function updateProseCell(
     context: Context,
     params: z.infer<typeof NotebooksUpdateCellSchema>
@@ -144,7 +108,7 @@ async function updateProseCell(
     assertNoComponentTag(next)
 
     const projectId = await context.stateManager.getProjectId()
-    const state = await context.api.request<{ cells: Schemas.NotebookCellState[] }>({
+    const state = await context.api.request<{ version: number | null; cells: Schemas.NotebookCellState[] }>({
         method: 'GET',
         path: `${notebookPathFor(projectId, params.notebook_id)}sql_v2/state/`,
     })
@@ -168,17 +132,24 @@ async function updateProseCell(
             `Cell ${params.node_id} names ${sameId.length} blocks in notebook ${params.notebook_id}, so it cannot name one of them. Re-read the notebook with notebooks-get.`
         )
     }
-    const sameText = state.cells.filter((cell) => cell.cell_type === 'markdown' && cell.code === block.code)
-    if (sameText.length > 1) {
+    // The edit is bound to the document the caller read, rather than hunted for again in a newer
+    // one. Re-resolving needs the backend's block grammar, and this side does not have it: a tag
+    // `parseCellTags` cannot see is prose here and a live cell there, so a miss rewrites a cell.
+    // A changed document is therefore reported, and the caller reads again.
+    const notebook = await fetchMarkdownNotebook(context, params.notebook_id)
+    if (notebook.version !== state.version) {
         throw new Error(
-            `Cell ${params.node_id} has the same text as ${sameText.length - 1} other markdown cell(s) in notebook ${params.notebook_id}, so an id cannot name one of them. Edit this block in the notebook, or make the blocks differ first.`
+            `Notebook ${params.notebook_id} changed since cell ${params.node_id} was read. Read it again with notebooks-get and retry with the id it returns.`
+        )
+    }
+    if (notebook.markdown.slice(block.start, block.end) !== block.code) {
+        throw new Error(
+            `Cell ${params.node_id} is not where the read placed it in notebook ${params.notebook_id}. Read it again with notebooks-get and retry with the id it returns.`
         )
     }
 
-    await applyMarkdownEdit(context, params.notebook_id, (current) => {
-        const span = resolveProseSpan(current, block)
-        return current.slice(0, span.start) + next.trim() + current.slice(span.end)
-    })
+    const nextMarkdown = notebook.markdown.slice(0, block.start) + next.trim() + notebook.markdown.slice(block.end)
+    await saveMarkdown(context, notebook, nextMarkdown)
     return { node_id: params.node_id, updated: true }
 }
 

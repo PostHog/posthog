@@ -132,8 +132,13 @@ export function buildCellTag(tagName: string, props: Record<string, unknown>): s
  */
 const PYTHON_ONLY_WHITESPACE = /[\x1c-\x1f\x85]/g
 
+/** A line as the backend's whitespace grammar sees it, so both sides agree on what it opens. */
+export function normalizeForTagScan(line: string): string {
+    return line.replace(PYTHON_ONLY_WHITESPACE, ' ').trim()
+}
+
 export function startsComponentTag(line: string): boolean {
-    const normalized = line.replace(PYTHON_ONLY_WHITESPACE, ' ').trim()
+    const normalized = normalizeForTagScan(line)
     // The backend recovers a multiline tag written as `\<Tag …>`, so the escaped form opens a
     // runnable cell exactly like the bare one.
     return TAG_START_REGEX.test(normalized) || ESCAPED_TAG_START_REGEX.test(normalized)

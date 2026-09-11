@@ -375,9 +375,7 @@ def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> 
     the cap without building the extra prose, because component tags carry the cells that run
     and must stay addressable wherever they sit in the document.
     """
-    document = _split_markdown_lines(markdown)
-    lines = document.lines
-    terminators = document.terminators
+    lines = _split_markdown_lines(markdown)
     occurrences: dict[str, int] = {}
     line_index = 0
     prose_built = 0
@@ -389,13 +387,22 @@ def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> 
     def prose_budget_left() -> bool:
         return max_prose_blocks is None or prose_built < max_prose_blocks
 
+    def span_code_points(start_line: int, end_line: int) -> int:
+        """Width of lines `[start_line, end_line)`, each with the terminator that closes it."""
+        width = 0
+        for index in range(start_line, end_line):
+            width += len(lines[index])
+            width += _markdown_terminator_width(markdown, code_points + width)
+        return width
+
     def block_source(start_line: int, end_line: int) -> str:
-        width = _line_span_code_points(document, start_line, end_line)
-        return markdown[code_points : code_points + width - len(terminators[end_line - 1])]
+        width = span_code_points(start_line, end_line)
+        closing = _markdown_terminator_width(markdown, code_points + width - 1)
+        return markdown[code_points : code_points + width - closing]
 
     def consume(start_line: int, end_line: int) -> None:
         nonlocal code_points, utf16
-        width = _line_span_code_points(document, start_line, end_line)
+        width = span_code_points(start_line, end_line)
         utf16 += _utf16_length(markdown[code_points : code_points + width])
         code_points += width
 
@@ -458,31 +465,26 @@ def _opens_markdown_component_block(lines: list[str], line_index: int) -> bool:
     return _read_markdown_component_block(lines, line_index) is not None
 
 
-_MARKDOWN_LINE_SPLIT_REGEX = re.compile(r"(\r\n|\r|\n)")
+_MARKDOWN_LINE_SPLIT_REGEX = re.compile(r"\r\n|\r|\n")
 
 
-@frozen
-class _MarkdownLines:
-    """A document split into lines, each paired with the terminator that closed it."""
+def _split_markdown_lines(markdown: str) -> list[str]:
+    """Lines, split on the terminators `_iter_markdown_component_blocks` collapses before it splits.
 
-    lines: list[str]
-    terminators: list[str]
+    A walk that split on `\n` alone would read different block boundaries than the component
+    walker, so a tag after a lone `\r` would be prose here and a live cell there.
 
-
-def _split_markdown_lines(markdown: str) -> _MarkdownLines:
-    """Lines and the terminator that closed each, with an empty one for the last.
-
-    `_iter_markdown_component_blocks` collapses `\r\n` and a lone `\r` before it splits, so a
-    walk that split on `\n` alone would read different boundaries than the component walker: a
-    tag after a lone `\r` would be prose here and a live cell there. Keeping the terminators
-    rather than normalizing leaves every offset true to the stored document.
+    Only the lines are materialized, matching what the component walker already allocates. A
+    terminator's width comes from `_markdown_terminator_width` at the offset the walk holds,
+    because a second list of that length costs as much again on a document of millions of lines.
     """
-    parts = _MARKDOWN_LINE_SPLIT_REGEX.split(markdown)
-    return _MarkdownLines(lines=parts[0::2], terminators=[*parts[1::2], ""])
+    return _MARKDOWN_LINE_SPLIT_REGEX.split(markdown)
 
 
-def _line_span_code_points(document: _MarkdownLines, start_line: int, end_line: int) -> int:
-    return sum(len(document.lines[index]) + len(document.terminators[index]) for index in range(start_line, end_line))
+def _markdown_terminator_width(markdown: str, offset: int) -> int:
+    if offset >= len(markdown):
+        return 0
+    return 2 if markdown.startswith("\r\n", offset) else 1
 
 
 def _utf16_length(text: str) -> int:
