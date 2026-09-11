@@ -425,9 +425,27 @@ jobs:
               if: steps.release-approval-token.outputs.token != ''
               env:
                   GH_TOKEN: ${{ steps.release-approval-token.outputs.token }}
+                  RELEASE_COMMIT: ${{ steps.commit-release.outputs.commit-hash }}
                   RELEASE_PR: ${{ steps.release-pr.outputs.url }}
+                  REPOSITORY: ${{ github.repository }}
               run: |
-                  gh pr review "$RELEASE_PR" --approve --body 'Automated approval for the generated CLI release version bump.'
+                  # The automated approval must cover the generated commit only. Another head means
+                  # something else pushed to the release branch, so stop instead of approving it.
+                  pr_data=$(gh pr view "$RELEASE_PR" --json number,headRefOid)
+                  pr_number=$(printf '%s' "$pr_data" | jq -r '.number')
+                  pr_head=$(printf '%s' "$pr_data" | jq -r '.headRefOid')
+                  if [ "$pr_head" != "$RELEASE_COMMIT" ]; then
+                      echo "::error::The release pull request head $pr_head is not the generated release commit $RELEASE_COMMIT"
+                      exit 1
+                  fi
+
+                  # commit_id binds the approval to that commit, so a later push leaves an
+                  # outdated review rather than an approval of the new head.
+                  gh api "repos/$REPOSITORY/pulls/$pr_number/reviews" \
+                      -f event=APPROVE \
+                      -f commit_id="$RELEASE_COMMIT" \
+                      -f body='Automated approval for the generated CLI release version bump.' >/dev/null
+
                   gh pr comment "$RELEASE_PR" --body '/trunk merge'
 
             - name: Send failure event to PostHog
