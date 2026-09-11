@@ -39,6 +39,9 @@ PATCH /api/projects/:project_id/business_knowledge/settings/
 `PATCH` requires `business_knowledge:write`.
 Business knowledge must be enabled for the project.
 
+A personal API key or OAuth token scoped to specific environments must include the project's canonical team.
+A token scoped only to a child environment cannot read or change this setting.
+
 A `PATCH` is partial.
 Send only the fields you want to change.
 An empty body leaves the stored setting unchanged and still returns the current values.

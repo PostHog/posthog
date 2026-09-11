@@ -1,29 +1,69 @@
-from typing import Any
+from functools import cached_property
+from typing import Any, cast
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.models.user import User
+from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from .. import learning_settings
 from .serializers import BusinessKnowledgeSettingsSerializer, BusinessKnowledgeSettingsUpdateSerializer
 
 
+class CanonicalTeamTokenPermission(BasePermission):
+    """A token scoped only to a child environment cannot touch the parent-owned setting."""
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        authenticator = getattr(request, "successful_authenticator", None)
+        if authenticator is None:
+            return True
+        scoped_teams = get_authenticator_scoped_team_ids(authenticator)
+        if not scoped_teams:
+            return True
+        canonical_id = view.team.parent_team_id or view.team.id
+        if canonical_id not in scoped_teams:
+            self.message = f"API key does not have access to the requested project: ID {canonical_id}."
+            return False
+        return True
+
+
 class BusinessKnowledgeSettingsViewSet(TeamAndOrgViewSetMixin, ViewSet):
     scope_object = "business_knowledge"
+    # Without this, AccessControlPermission falls through to has_any_specific_access_for_resource,
+    # so editor access to one knowledge source would let a member whose resource-level access is
+    # "none" read and flip this project-wide setting. Nothing catches it later: this is a plain
+    # ViewSet with no queryset and no get_object, so has_object_permission never runs as a second
+    # gate.
+    requires_resource_level_access = True
     serializer_class = BusinessKnowledgeSettingsSerializer
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    permission_classes = [
+        IsAuthenticated,
+        APIScopePermission,
+        PostHogFeatureFlagPermission,
+        CanonicalTeamTokenPermission,
+    ]
     posthog_feature_flag = "product-business-knowledge"
     throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
     pagination_class = None
     http_method_names = ["get", "patch", "head", "options"]
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        # AccessControlPermission reads its resource-level check from here. Bind it to the
+        # canonical team: the config row belongs to the parent project, so a child environment's
+        # own `business_knowledge` grant must not read or change it when the parent grants `none`.
+        team = self.team.parent_team or self.team
+        return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         # Combined GET+PATCH is neither list nor partial_update, so the default

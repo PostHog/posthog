@@ -9,13 +9,18 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
-from posthog.models.organization import Organization
+from posthog.constants import AvailableFeature
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.business_knowledge.backend.api.serializers import BusinessKnowledgeSettingsUpdateSerializer
 from products.business_knowledge.backend.api.settings import BusinessKnowledgeSettingsViewSet
-from products.business_knowledge.backend.models import TeamBusinessKnowledgeConfig
+from products.business_knowledge.backend.models import KnowledgeSource, TeamBusinessKnowledgeConfig
 
 SUPPORT_OFF_ERROR = "Turn on Support to learn from resolved tickets."
 
@@ -66,8 +71,18 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
         team.conversations_enabled = True
         team.save(update_fields=["conversations_enabled"])
 
-    def _auth_with_pak(self, scopes: list[str]) -> None:
-        key = self.create_personal_api_key_with_scopes(scopes)
+    def _auth_with_pak(self, scopes: list[str], *, scoped_teams: list[int] | None = None) -> None:
+        if scoped_teams is None:
+            key = self.create_personal_api_key_with_scopes(scopes)
+        else:
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="Test Key",
+                user=self.user,
+                secure_value=hash_key_value(key),
+                scopes=scopes,
+                scoped_teams=scoped_teams,
+            )
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
 
@@ -217,3 +232,109 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
         self._auth_with_pak(["business_knowledge:write"])
         response = self.client.patch(self.url, {"learn_from_support_enabled": True}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.content
+
+    @parameterized.expand(
+        [
+            ("child_only_get", "child", "GET", status.HTTP_403_FORBIDDEN),
+            ("child_only_patch", "child", "PATCH", status.HTTP_403_FORBIDDEN),
+            ("parent_and_child_get", "both", "GET", status.HTTP_200_OK),
+            ("parent_and_child_patch", "both", "PATCH", status.HTTP_200_OK),
+        ]
+    )
+    def test_scoped_key_must_cover_canonical_parent(
+        self, _ff, _name: str, scope_kind: str, method: str, expected: int
+    ) -> None:
+        self._enable_support()
+        child = Team.objects.create(
+            organization=self.organization,
+            parent_team=self.team,
+            project=self.team.project,
+            name="Child environment",
+            conversations_enabled=True,
+        )
+        scoped_teams = [child.id] if scope_kind == "child" else [self.team.id, child.id]
+        self._auth_with_pak(["business_knowledge:write"], scoped_teams=scoped_teams)
+        url = f"/api/projects/{child.id}/business_knowledge/settings/"
+
+        if method == "GET":
+            response = self.client.get(url)
+        else:
+            response = self.client.patch(url, {"learn_from_support_enabled": True}, format="json")
+
+        assert response.status_code == expected, response.content
+        if expected == status.HTTP_403_FORBIDDEN:
+            assert (
+                get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig).learn_from_support_enabled is False
+            )
+
+
+@patch("posthoganalytics.feature_enabled", return_value=True)
+class TestBusinessKnowledgeSettingsResourceLevelAccess(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.url = f"/api/projects/{self.team.id}/business_knowledge/settings/"
+        source = KnowledgeSource.objects.unscoped().create(
+            team=self.team, name="Granted source", source_type="text", status="ready"
+        )
+        member = User.objects.create_and_join(self.organization, "source-editor@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="business_knowledge",
+            access_level="none",
+            organization_member=membership,
+        )
+        # Editor on one source clears has_any_specific_access_for_resource at both the viewer
+        # level GET needs and the editor level PATCH needs, so both actions reach
+        # requires_resource_level_access instead of being turned away for a lesser reason.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="business_knowledge",
+            resource_id=str(source.id),
+            access_level="editor",
+            organization_member=membership,
+        )
+        self.membership = membership
+        self.client.force_login(member)
+
+    @parameterized.expand([("get", "GET"), ("patch", "PATCH")])
+    def test_a_grant_on_one_source_does_not_open_the_project_setting(self, _ff, _name: str, method: str) -> None:
+        if method == "GET":
+            response = self.client.get(self.url)
+        else:
+            response = self.client.patch(self.url, {"learn_from_support_enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig).learn_from_support_enabled is False
+
+    @parameterized.expand([("get", "GET"), ("patch", "PATCH")])
+    def test_a_child_environment_grant_does_not_open_the_parent_setting(self, _ff, _name: str, method: str) -> None:
+        # The config row is the parent project's, so RBAC on the child environment's URL must
+        # answer for the parent, where this member's `business_knowledge` access is `none`.
+        environment = Team.objects.create(
+            organization=self.organization,
+            parent_team=self.team,
+            project=self.team.project,
+            name="Child environment",
+            conversations_enabled=True,
+        )
+        AccessControl.objects.create(
+            team=environment,
+            resource="business_knowledge",
+            access_level="editor",
+            organization_member=self.membership,
+        )
+        url = f"/api/projects/{environment.id}/business_knowledge/settings/"
+
+        if method == "GET":
+            response = self.client.get(url)
+        else:
+            response = self.client.patch(url, {"learn_from_support_enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig).learn_from_support_enabled is False
