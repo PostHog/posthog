@@ -1041,7 +1041,7 @@ class TestBuildFrozenPrompt(APIBaseTest):
             # schema change nor an AI_QUERY_PLAN_VERSION bump can brick a frozen subscription.
             (
                 "malformed_plan",
-                {"version": AI_QUERY_PLAN_VERSION, "plan": {"overall_intent": "i", "steps": []}},
+                {"version": AI_QUERY_PLAN_VERSION, "plan": {"overall_intent": "i", "steps": [{}]}},
                 "malformed",
             ),
             ("stale_version", {"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, "stale"),

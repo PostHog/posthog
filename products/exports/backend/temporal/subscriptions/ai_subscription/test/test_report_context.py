@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -263,7 +263,11 @@ class TestReportContextPureFunctions(SimpleTestCase):
         assert _saved_query_events(insight) == ("signup", "purchase")
 
 
-class TestResolveReportContext(BaseTest):
+class TestResolveReportContext(NonAtomicBaseTest):
+    # Context loading intentionally runs on a worker thread in production. TestCase's outer
+    # transaction is invisible to that thread, so these integration tests need committed fixtures.
+    CLASS_DATA_LEVEL_SETUP = False
+
     def _subscription(self) -> Subscription:
         return Subscription.objects.create(
             team=self.team,
