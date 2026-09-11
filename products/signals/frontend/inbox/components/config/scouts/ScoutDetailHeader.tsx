@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconExternal, IconRefresh } from '@posthog/icons'
+import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
@@ -18,6 +18,7 @@ import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { LeaveScoutNoteButton } from './ScoutNotesPanel'
 import { ScoutOwners } from './ScoutOwners'
+import { ScoutRunNowButton } from './ScoutRunNowButton'
 import { ScoutSettingsButton } from './ScoutSettingsModal'
 
 function Metric({ value, label }: { value: React.ReactNode; label: string }): JSX.Element {
@@ -86,11 +87,10 @@ export function ScoutDetailHeader({
     noteCount: number
     learnedCount: number
 }): JSX.Element {
-    const { updatingScoutIds, manualRunScoutIds } = useValues(scoutFleetLogic)
-    const { updateScoutConfig, runScoutNow } = useActions(scoutFleetLogic)
+    const { updatingScoutIds } = useValues(scoutFleetLogic)
+    const { updateScoutConfig } = useActions(scoutFleetLogic)
 
     const updating = updatingScoutIds.includes(config.id)
-    const running = manualRunScoutIds.includes(config.id)
     // Filed and edited stay separate — adding the weak-signal count on top produced a total of two
     // different things, which is exactly what made the old "filed" number unreadable. A report the
     // scout filed and later added to counts once, as filed.
@@ -108,18 +108,7 @@ export function ScoutDetailHeader({
                 <ScoutStatusTag config={config} />
                 <ScoutOwners config={config} />
                 <span className="flex-1" />
-                <Tooltip title="Dispatch a run now, outside the schedule. Counts against the project's daily run budget.">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconRefresh />}
-                        loading={running}
-                        disabledReason={running ? 'Starting a run' : undefined}
-                        onClick={() => runScoutNow(config.id)}
-                    >
-                        Run now
-                    </LemonButton>
-                </Tooltip>
+                <ScoutRunNowButton configId={config.id} />
                 <ScoutSettingsButton config={config} surface="scout_detail" showLabel />
                 {/* Captured on the way down: Link swallows Cmd/Ctrl-clicks before its onClick runs, and
                     those opens count too. */}

@@ -440,8 +440,12 @@ export interface scoutFleetLogicActions {
     removeScoutConfigLocally: (configId: string) => {
         configId: string
     }
-    runScoutNow: (configId: string) => {
+    runScoutNow: (
+        configId: string,
+        note?: string
+    ) => {
         configId: string
+        note?: string
     }
     runScoutNowFinished: (configId: string) => {
         configId: string
@@ -634,7 +638,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             tags,
             owner,
         }),
-        runScoutNow: (configId: string) => ({ configId }),
+        runScoutNow: (configId: string, note?: string) => ({ configId, note }),
         runScoutNowFinished: (configId: string) => ({ configId }),
         // Started/stopped by the fleet-list component so the always-mounted setup widget
         // (which only reads configs) doesn't trigger the paginated runs-window polling.
@@ -1368,7 +1372,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 extra: { search_length: query.length, filter_match_count: values.rosterScouts.length },
             })
         },
-        runScoutNow: async ({ configId }) => {
+        runScoutNow: async ({ configId, note }) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 actions.runScoutNowFinished(configId)
@@ -1376,11 +1380,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             }
             const config = values.scoutConfigs?.find((candidate) => candidate.id === configId)
             try {
-                await signalsScoutConfigRun(String(teamId), configId)
+                await signalsScoutConfigRun(String(teamId), configId, note ? { note } : undefined)
                 captureScoutAction({
                     actionType: 'run_now',
                     surface: 'scout_detail',
                     skillName: config?.skill_name ?? null,
+                    extra: { with_note: Boolean(note) },
                 })
                 lemonToast.success('Run started. It shows up in this scout’s runs when it finishes.')
                 // The run row appears on the next poll; pull once now so the page reacts immediately.

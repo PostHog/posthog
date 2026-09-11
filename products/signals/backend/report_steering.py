@@ -39,9 +39,11 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 # The notes share a prompt with the report itself, so both caps sit well under what `leave_note`
-# accepts. One long note must not push the report out of the run's attention.
+# accepts. One long note must not push the report out of the run's attention. The per-note cap is
+# public because the scout `run` endpoint holds a one-off note to the same bar, for the same
+# reason: it is rendered beside the run it steers.
 _MAX_STEERING_NOTES = 10
-_MAX_STEERING_NOTE_CHARS = 1_000
+MAX_STEERING_NOTE_CHARS = 1_000
 
 _DERIVED_ORIGINS = SignalScoutNote.derived_origins()
 
@@ -206,7 +208,7 @@ def _load_fleet_notes(
                 team_id=team_id,
                 skill_name=skill_name,
                 limit=_MAX_STEERING_NOTES,
-                content_max_chars=_MAX_STEERING_NOTE_CHARS,
+                content_max_chars=MAX_STEERING_NOTE_CHARS,
                 exclude_origins=exclude_origins,
             )
             pipeline_notes = 0
@@ -216,7 +218,7 @@ def _load_fleet_notes(
                     skill_name=PIPELINE_AUDIENCE_REPORT_RESEARCH,
                     include_general=False,
                     limit=_MAX_STEERING_NOTES,
-                    content_max_chars=_MAX_STEERING_NOTE_CHARS,
+                    content_max_chars=MAX_STEERING_NOTE_CHARS,
                     exclude_origins=exclude_origins,
                 )
                 merged = sorted(

@@ -967,6 +967,24 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .describe('Editable display name, schedule, enablement, and emit posture for one scout config.')
 
 /**
+ * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if self-driving is paused at the project's pull request limit, or the project is over its daily report limit or daily run budget (429), or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Pass an optional `note` to steer this one run without leaving a durable scout note behind; it is rendered into the run's prompt as advisory context and stored on the run's `metadata.run_note`. Returns immediately with the workflow id — poll the scout's runs for the result.
+ * @summary Run a scout now
+ */
+export const signalsScoutConfigRunBodyNoteMax = 1000
+
+export const SignalsScoutConfigRunBody = /* @__PURE__ */ zod
+    .object({
+        note: zod
+            .string()
+            .max(signalsScoutConfigRunBodyNoteMax)
+            .optional()
+            .describe(
+                'One-off steering for this run only, rendered into the run\'s prompt as advisory context beside the durable notes left with `scout-note-leave`. Use it for a nudge that should not outlive the run — \"focus on the checkout regression\" — instead of leaving a note and remembering to delete it. Advisory, never a command: it directs the scout\'s attention and never lowers its evidence bar. Capped at 1000 characters, and read verbatim by a privileged agent, so a run carrying one needs `llm_skill:write` and editor access to skills on top of `signal_scout:write` — the same bar as leaving a note. Omit it (or send it blank) to dispatch with no steering, which needs no extra access.'
+            ),
+    })
+    .describe('Body for an on-demand (`run now`) scout dispatch. Every field is optional.')
+
+/**
  * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (a configured scout), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
  * @summary Leave a note for the scouts
  */

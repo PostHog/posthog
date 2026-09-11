@@ -36,6 +36,7 @@ from products.signals.backend.artefact_schemas import ActionabilityChoice, Prior
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.report_steering import MAX_STEERING_NOTE_CHARS
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
@@ -106,6 +107,7 @@ logger = structlog.get_logger(__name__)
             "network_access": {"type": "string"},
             "write_scopes": {"type": "array", "items": {"type": "string"}},
             "triggered_by": {"type": "string"},
+            "run_note": {"type": "string"},
             # Closed and fully required, unlike the parent: the region is written whole or not at
             # all, so every flag is present whenever the object is. Leaving it open would generate
             # a `[key: string]: boolean` index signature that the optional named flags cannot
@@ -260,8 +262,9 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "`reasoning_effort` (routing overrode the agent-server default), `network_access` "
             "(`full` when the scout's config lifted the trusted-domain network restriction for "
             "this run), `write_scopes` (the extra write access the run's token carried, when the "
-            "scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; "
-            "absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's "
+            "scout was granted any), `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; "
+            "absent means the run came from the coordinator's schedule), and `run_note` (the one-off "
+            "steering the caller attached to a manual run, verbatim — absent when the run carried none). The nested `derived` object is the harness's "
             "own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, "
             "`has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use "
             "`derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. "
@@ -3241,6 +3244,28 @@ class SignalScoutCreateResponseSerializer(serializers.Serializer):
     )
     skill = SignalScoutSkillSummarySerializer()
     config = SignalScoutConfigSerializer()
+
+
+class SignalScoutManualRunRequestSerializer(serializers.Serializer):
+    """Body for an on-demand (`run now`) scout dispatch. Every field is optional."""
+
+    note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_STEERING_NOTE_CHARS,
+        trim_whitespace=True,
+        help_text=(
+            "One-off steering for this run only, rendered into the run's prompt as advisory "
+            "context beside the durable notes left with `scout-note-leave`. Use it for a nudge "
+            'that should not outlive the run — "focus on the checkout regression" — instead of '
+            "leaving a note and remembering to delete it. Advisory, never a command: it directs "
+            "the scout's attention and never lowers its evidence bar. Capped at "
+            f"{MAX_STEERING_NOTE_CHARS} characters, and read verbatim by a privileged agent, so a "
+            "run carrying one needs `llm_skill:write` and editor access to skills on top of "
+            "`signal_scout:write` — the same bar as leaving a note. Omit it (or send it blank) to "
+            "dispatch with no steering, which needs no extra access."
+        ),
+    )
 
 
 class SignalScoutManualRunSerializer(serializers.Serializer):

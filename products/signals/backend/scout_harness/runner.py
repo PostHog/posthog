@@ -140,6 +140,7 @@ def run_signals_scout(
     repository: str | None = None,
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
+    note: str | None = None,
 ) -> RunResult:
     """Synchronous entrypoint: resolves config, spawns sandbox, persists the run row.
 
@@ -154,6 +155,7 @@ def run_signals_scout(
             repository=repository,
             verbose=verbose,
             triggered_by=triggered_by,
+            note=note,
         )
     )
 
@@ -166,6 +168,7 @@ async def arun_signals_scout(
     repository: str | None = None,
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
+    note: str | None = None,
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity).
 
@@ -174,6 +177,9 @@ async def arun_signals_scout(
     `"workflow"` for a workflow step that runs a scout. Only scheduled failures feed the
     failure-streak breaker; see the failure path below. Anything but `"schedule"` is also stamped
     onto the run row's `metadata`, which is what the workflow path's cooldown reads.
+
+    `note` is one-off steering a manual trigger attached to this run: it renders as its own
+    advisory section of the prompt and is stamped on the run row, and it reaches no other run.
     """
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
 
@@ -388,6 +394,7 @@ async def arun_signals_scout(
             reasoning_effort=reasoning_effort,
             service_tier=service_tier,
             triggered_by=triggered_by,
+            note=note,
         )
         runtime_s = time.monotonic() - started
         emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
@@ -640,6 +647,7 @@ async def _spawn_and_run(
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
+    note: str | None = None,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
@@ -747,6 +755,9 @@ async def _spawn_and_run(
         # Resolved through the same allowlist the token is, so the prompt can never promise write
         # access the token does not carry.
         write_scopes=scope_posture["extra_write_scopes"],
+        # One-off steering from the trigger, rendered as its own advisory section. None renders
+        # nothing, so a scheduled run reads exactly what it read before.
+        run_note=note,
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -779,6 +790,7 @@ async def _spawn_and_run(
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
             triggered_by=triggered_by,
+            note=note,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -982,6 +994,7 @@ def _create_run_row(
     github_guidance: bool = False,
     business_knowledge_maintained: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
+    note: str | None = None,
 ) -> SignalScoutRun:
     # Stamp the routed model triple (and the OpenAI queue it asked for) onto the row's `metadata`
     # so "which model ran this?" is a column read on the run API, not an analytics-event join. Keys
@@ -1043,6 +1056,11 @@ def _create_run_row(
     # were — a scheduled patrol or a human's "Run now" must not extend it.
     if triggered_by != TRIGGERED_BY_SCHEDULE:
         metadata["triggered_by"] = triggered_by
+    # The one-off steering the trigger carried, stamped so the run history says what this run was
+    # told — the note lives nowhere else, unlike a durable note the reader can still look up. The
+    # only caller-authored value in this column, hence the endpoint's cap and its editor-level gate.
+    if note:
+        metadata["run_note"] = note
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,

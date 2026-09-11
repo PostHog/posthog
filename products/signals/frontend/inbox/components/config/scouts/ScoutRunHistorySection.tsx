@@ -86,7 +86,11 @@ const ScoutRunRow = memo(function ScoutRunRow({
     const emitted = run.emitted_count ?? 0
     const reportActivityLabel = scoutReportActivityLabel(run)
     const { authored: authoredReportIds, edited: editedReportIds } = runReportActivity(run)
-    const hasBody = Boolean(run.summary) || status === 'failed' || expanded
+    // Steering somebody attached when they dispatched the run by hand. It exists nowhere else — a
+    // durable note stays on the scout, this one lives only on the run — so the history is the only
+    // place a reader can find out what this run was told.
+    const runNote = typeof run.metadata?.run_note === 'string' ? run.metadata.run_note : null
+    const hasBody = Boolean(run.summary) || Boolean(runNote) || status === 'failed' || expanded
 
     return (
         <div className="flex flex-col border-b border-primary last:border-b-0">
@@ -129,6 +133,15 @@ const ScoutRunRow = memo(function ScoutRunRow({
 
             {hasBody && (
                 <div className="px-3 pb-2.5 pl-9">
+                    {runNote && (
+                        <p
+                            className={`mb-1 text-[13px] leading-snug italic text-tertiary ${
+                                expanded ? '' : 'line-clamp-1'
+                            }`}
+                        >
+                            Run note: {runNote}
+                        </p>
+                    )}
                     {run.summary ? (
                         <LemonMarkdown
                             disableImages

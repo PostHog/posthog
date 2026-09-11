@@ -749,6 +749,11 @@ tools:
             the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout
             in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not
             change the scout's schedule, and a disabled scout can still be run this way (to test before enabling).
+            Pass the optional `note` to steer this one run — "focus on the checkout regression" — instead of leaving a
+            durable note with `scout-note-leave` and having to delete it afterwards: the note reaches this run's prompt
+            as advisory context, is stored on the run's `metadata.run_note`, and no later run reads it. A run carrying a
+            note needs `llm_skill:write` and editor access to skills on top of `signal_scout:write`, the same bar as
+            leaving a note, because the text is read verbatim by the agent.
             Returns the workflow id immediately — poll `scout-runs-list` for the resulting run and its findings.
     scout-runs-emission-reports:
         operation: signals_scout_runs_emission_reports
