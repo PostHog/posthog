@@ -13,7 +13,7 @@ _AC = {
 }
 _SCAN_FINDING = {
     "type": "query_scan",
-    "kind": "event_filter_not_used",
+    "kind": "no_event_filter",
     "reason": "in_or",
     "message": (
         "This query has an event filter, but it is inside an OR with another condition, so ClickHouse "

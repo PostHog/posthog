@@ -334,7 +334,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn(failure_text, message)
         self.assertLess(message.index(failure_text), message.index("<query_scan_warning>"))
         self.assertIn("ClickHouse stopped this query after 12.3 s", message)
-        self.assertIn("- This query has no event filter, so it reads every event.", message)
+        self.assertIn("- no_event_filter: Add an event filter naming the events this question is about.", message)
         # The agent reads the summary, not the message, and the summary is capped.
         self.assertIn(failure_text, context.exception.to_summary())
 
@@ -402,8 +402,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             AssistantHogQLQuery(query="SELECT count() FROM events")
         )
 
-        self.assertIn("This query read 4.2 billion rows in 12.3 s, far more than it needs.", result)
-        self.assertIn("- This query has no event filter, so it reads every event.", result)
+        self.assertIn("This query read 4.2 billion rows in 12.3 s.", result)
+        self.assertIn("- no_event_filter: Add an event filter naming the events this question is about.", result)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_generic_exception(self, mock_process_query):
