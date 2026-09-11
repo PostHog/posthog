@@ -10,6 +10,7 @@ objects, not data, per the wiring pattern. Heavy by import, so it lives here rat
 
 from products.tasks.backend.constants import EVAL_INTERACTION_ORIGIN, MCP_EXEC_SKILLS_FEATURE_FLAG
 from products.tasks.backend.logic.services.custom_prompt_internals import (
+    AgentTerminalError,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     OutputFn,
@@ -47,6 +48,7 @@ __all__ = [
     "EVAL_INTERACTION_ORIGIN",
     "MCP_EXEC_SKILLS_FEATURE_FLAG",
     "ENV_LOCAL_SKILLS_HOST_PATH",
+    "AgentTerminalError",
     "CustomPromptSandboxContext",
     "EmptyAgentTurnError",
     "LocalSkillsCache",

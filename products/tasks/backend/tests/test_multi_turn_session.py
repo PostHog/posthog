@@ -17,6 +17,7 @@ from posthog.storage.object_storage import ObjectStorageError
 
 from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentError,
+    AgentTerminalError,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     TurnPollResult,
@@ -971,19 +972,21 @@ class TestExtractAgentError:
 
 class TestPollForTurnSurfacesAgentError:
     """On a FAILED terminal status, the drain must surface the agent's classified error
-    (category + raw message) on both TaskRun.error_message and the raised RuntimeError
-    that Temporal records — never the opaque 'Activity task failed' wrapper."""
+    (category + raw message) on TaskRun.error_message, on the raised error that Temporal
+    records, and as typed attributes a caller can branch on — never the opaque
+    'Activity task failed' wrapper, and never a bare RuntimeError."""
 
     @parameterized.expand(
         [
-            ("upstream_provider_failure", "API Error: 429 rate_limit_error"),
-            ("upstream_connection_error", "API Error: Connection error"),
-            ("upstream_stream_terminated", "API Error: terminated"),
-            ("agent_error", "Unhandled exception in agent loop"),
+            ("upstream_provider_failure", "API Error: 429 rate_limit_error", True, False),
+            ("upstream_connection_error", "API Error: Connection error", True, False),
+            ("upstream_stream_terminated", "API Error: terminated", True, False),
+            ("task_spend_limit", "This agent run reached its spend limit", False, True),
+            ("agent_error", "Unhandled exception in agent loop", False, False),
         ]
     )
     @pytest.mark.asyncio
-    async def test_surfaces_classified_error(self, category, message):
+    async def test_surfaces_classified_error(self, category, message, retryable, spend_limited):
         turn_1 = [_agent_message_line("turn-1-response"), _end_turn_line()]
         # Turn 2 died with a classified error and no agent_message / end_turn.
         turn_2 = [_user_message_line("followup"), _usage_update_line(0), _agent_error_line(message, category=category)]
@@ -1003,7 +1006,7 @@ class TestPollForTurnSurfacesAgentError:
                 new=persist,
             ),
         ):
-            with pytest.raises(RuntimeError) as exc_info:
+            with pytest.raises(AgentTerminalError) as exc_info:
                 await poll_for_turn(fake_task_run, skip_lines=skip)
 
         expected = f"{category}: {message}"
@@ -1012,6 +1015,17 @@ class TestPollForTurnSurfacesAgentError:
         assert "Activity task failed" not in str(exc_info.value)
         # The same classified error is persisted onto TaskRun.error_message.
         persist.assert_awaited_once_with(str(fake_task_run.id), expected)
+        # A caller branches on the attributes, not on the message text.
+        error = exc_info.value
+        assert error.category == category
+        assert error.retryable is retryable
+        assert error.spend_limited is spend_limited
+        assert error.diagnostics() == {
+            "agent_error_category": category,
+            "agent_error_retryable": retryable,
+            "agent_error_spend_limited": spend_limited,
+            "task_run_terminal_status": "failed",
+        }
 
     @pytest.mark.asyncio
     async def test_acceptance_provider_failure_429(self):
@@ -1083,12 +1097,17 @@ class TestPollForTurnSurfacesAgentError:
                 new=persist,
             ),
         ):
-            with pytest.raises(RuntimeError, match="no agent message") as exc_info:
+            with pytest.raises(AgentTerminalError, match="no agent message") as exc_info:
                 await poll_for_turn(fake_task_run, skip_lines=0)
 
         assert "Activity task failed" in str(exc_info.value)
         persist.assert_not_awaited()
         assert fake_task_run.error_message == "Activity task failed"
+        # Unclassified failures still reach the caller typed, in their own analytics bucket.
+        error = exc_info.value
+        assert error.category is None
+        assert error.retryable is False
+        assert error.diagnostics()["agent_error_category"] == "unclassified"
 
     @pytest.mark.asyncio
     async def test_cancelled_status_does_not_surface_agent_error(self):
