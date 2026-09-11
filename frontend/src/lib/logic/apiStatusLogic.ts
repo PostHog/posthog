@@ -24,8 +24,8 @@ export interface apiStatusLogicActions {
         error: any
         response: Response | undefined
     }
-    resolveSensitiveAction: (outcome: 'success' | 'failure') => {
-        outcome: 'success' | 'failure'
+    resolveSensitiveAction: (outcome: 'failure' | 'success') => {
+        outcome: 'failure' | 'success'
     }
     setInternetConnectionIssue: (issue: boolean) => {
         issue: boolean
