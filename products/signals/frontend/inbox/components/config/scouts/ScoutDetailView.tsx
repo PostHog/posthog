@@ -74,6 +74,12 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     const config = scoutConfigs?.find((c) => c.skill_name === skillName) ?? null
     const rollup = rollups.get(skillName)
     const learnedCount = entriesForSkill(entries, skillName).length
+    const reportCount = touchedReports.length
+    // Reports leads for a scout that files them, because that is what the scout is for; Runs leads
+    // for the rest. Held until the runs window settles, so the default doesn't move under a reader
+    // a beat after the page opens.
+    const defaultMainTab: ScoutDetailTab = !scoutRunsLoadedOnce || reportCount > 0 ? 'reports' : 'runs'
+    const tab = scoutDetailTab ?? defaultMainTab
 
     // Once per scout opened, as soon as its config resolves — the run rollup fills in a beat later
     // off the polled window, so the counts are whatever had loaded by then.
@@ -94,6 +100,24 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
             emittedSignalCount: rollup?.emittedCount ?? 0,
         })
     }, [skillName, config, rollup])
+
+    // A scout that files nothing opens Runs with no click, so counting switch_detail_tab alone
+    // would miss the pane most readers land on. Held until the runs window settles, because the
+    // default reads Reports until then. Same property key as the switch, so one breakdown covers
+    // both ways of arriving at a pane.
+    const openTabCapturedForRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (!config || !scoutRunsLoadedOnce || openTabCapturedForRef.current === skillName) {
+            return
+        }
+        openTabCapturedForRef.current = skillName
+        captureScoutAction({
+            actionType: 'open_detail_tab',
+            surface: 'scout_detail',
+            skillName,
+            extra: { filter: tab },
+        })
+    }, [skillName, config, scoutRunsLoadedOnce, tab])
 
     if (scoutConfigs === null) {
         // Configs unresolved — never an empty fleet, which is `[]`. While the fetch is in flight
@@ -136,15 +160,9 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
         )
     }
 
-    const reportCount = touchedReports.length
     const signalCount = emissionRows.length
     const runCount = rollup?.runs.length ?? 0
     const windowEmittedCount = rollup?.emittedCount ?? 0
-    // Reports leads for a scout that files them, because that is what the scout is for; Runs leads
-    // for the rest. Held until the runs window settles, so the default doesn't move under a reader
-    // a beat after the page opens.
-    const defaultMainTab: ScoutDetailTab = !scoutRunsLoadedOnce || reportCount > 0 ? 'reports' : 'runs'
-    const tab = scoutDetailTab ?? defaultMainTab
     const mainTab = isRailTab(tab) ? (mainColumnTab ?? defaultMainTab) : tab
     const railTab = isRailTab(tab) ? tab : railColumnTab
 

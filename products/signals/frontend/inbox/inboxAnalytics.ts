@@ -192,6 +192,7 @@ export type ScoutActionType =
     | 'open_task_run'
     | 'open_linked_report'
     | 'switch_detail_tab'
+    | 'open_detail_tab'
     | 'open_create_modal'
     | 'create_scout'
     | 'delete_scout'
