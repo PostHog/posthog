@@ -507,6 +507,7 @@ export interface ChangedFileInfo {
 
 export interface GetChangedFilesDetailedOptions extends CreateGitClientOptions {
   excludePatterns?: string[];
+  throwOnError?: boolean;
 }
 
 function matchesExcludePattern(filePath: string, patterns: string[]): boolean {
@@ -579,7 +580,7 @@ export async function getChangedFilesDetailed(
   baseDir: string,
   options?: GetChangedFilesDetailedOptions,
 ): Promise<ChangedFileInfo[]> {
-  const { excludePatterns, ...gitOptions } = options ?? {};
+  const { excludePatterns, throwOnError, ...gitOptions } = options ?? {};
   const manager = getGitOperationManager();
 
   return manager.executeRead(
@@ -673,7 +674,8 @@ export async function getChangedFilesDetailed(
         }
 
         return files;
-      } catch {
+      } catch (error) {
+        if (throwOnError) throw error;
         return [];
       }
     },

@@ -65,6 +65,7 @@ import {
   discardFileChangesOutput,
   filePathInput,
   getBranchChangedFilesInput,
+  getChangedFilesHeadInput,
   getCommitChangedFilesInput,
   getCommitConventionsInput,
   getCommitConventionsOutput,
@@ -336,10 +337,13 @@ export function createAppRouter({
         ),
 
       getChangedFilesHead: t.procedure
-        .input(directoryPathInput)
+        .input(getChangedFilesHeadInput)
         .output(changedFilesOutput)
         .query(({ input, signal }) =>
-          gitService().getChangedFilesHead(input.directoryPath, signal),
+          gitService().getChangedFilesHead(input.directoryPath, {
+            includeAgentFiles: input.includeAgentFiles,
+            signal,
+          }),
         ),
 
       getFileAtHead: t.procedure
