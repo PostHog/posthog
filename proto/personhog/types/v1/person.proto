@@ -310,6 +310,40 @@ message FencePersonResponse {
   Person sealed = 1;
 }
 
+// FencePersonsRequest freezes many persons of one op in one call (see
+// PersonHogLeader.FencePersons). The saga sends one call per op; the
+// router splits it by owning leader and each leader fences the persons
+// on the partitions it serves.
+message FencePersonsRequest {
+  int64 team_id = 1;
+  string op_id = 2;
+  LifecycleOpType op_type = 3;
+  repeated int64 person_ids = 4;
+}
+
+// Every requested person id lands in exactly one of the two lists; a
+// failure any single FencePerson reports through its status, other than
+// NOT_FOUND, fails the whole call the same way.
+message FencePersonsResponse {
+  // The sealed scalars of every person fenced. The batch carries what the
+  // delete saga reads from a seal and not the document: a batch of full
+  // documents would not fit a message, and the merge saga, which folds
+  // the document, fences one person at a time.
+  repeated FencedPersonSeal sealed = 1;
+  // The persons a single FencePerson answers NOT_FOUND for: destroyed, so
+  // no fence was installed.
+  repeated int64 not_found = 2;
+}
+
+message FencedPersonSeal {
+  int64 person_id = 1;
+  // See FencePersonResponse.sealed: the version the fence made final.
+  int64 version = 2;
+  // The person's creation time in epoch milliseconds, as the death
+  // document carries it (see ReleaseFenceRequest.created_at).
+  int64 created_at = 3;
+}
+
 // ReleaseFenceRequest closes a fence (see PersonHogLeader.ReleaseFence).
 // person_uuid, sealed_version, and created_at travel in the request so a
 // leader with no cache entry — after a restart — re-derives the death

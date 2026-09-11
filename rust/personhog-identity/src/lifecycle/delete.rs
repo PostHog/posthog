@@ -3,10 +3,11 @@
 //! was mutated). Each step is one transaction that commits its work together
 //! with the step advance — see the engine's correctness model.
 //!
-//! Sealing fences each victim on its owning leader — `FencePerson` rejects
-//! writes while the op lives and returns the exact sealed version, so no
-//! margin is needed — and completion releases the victims with the
-//! committed outcome, one `ReleaseFences` per partition, which makes each
+//! Sealing fences the victims on their owning leaders, one `FencePersons`
+//! per op that the router splits by leader — a fence rejects writes while
+//! the op lives and returns the exact sealed version, so no margin is
+//! needed — and completion releases the victims with the committed
+//! outcome the same way, one `ReleaseFences` per op, which makes each
 //! leader produce the death documents into the changelog and evict its
 //! cache entries. The unmapped transaction still
 //! writes the person tombstone directly: it is the durable revival floor
@@ -21,6 +22,7 @@
 //! leader was never fenced for them, and their tombstone version already
 //! carries the old margin.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -32,8 +34,8 @@ use tonic::{Code, Status};
 use uuid::Uuid;
 
 use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, LifecycleOpType, ReleaseFenceItem, ReleaseFenceRequest,
-    ReleaseFencesRequest, ReleaseOutcome,
+    FencePersonRequest, FencePersonsRequest, FencePersonsResponse, LifecycleOpType,
+    ReleaseFenceItem, ReleaseFenceRequest, ReleaseFencesRequest, ReleaseOutcome,
 };
 
 use crate::config::IdentityTables;
@@ -48,10 +50,11 @@ use crate::storage::postgres::begin_timed;
 // the leader's fence records or the lifecycle_op CHECK constraint.
 pub const OP_TYPE_DELETE: &str = LifecycleOpType::Delete.as_op_type_str();
 
-/// Persons per `ReleaseFences` call. Kept under the leader's batch cap,
-/// which refuses larger batches outright, and small enough that one
-/// leader's share of produces finishes within the leader call timeout.
-pub const RELEASE_BATCH_SIZE: usize = 100;
+/// Persons per `FencePersons` or `ReleaseFences` call. Kept under the
+/// leader's batch cap, which refuses larger batches outright, and small
+/// enough that one leader's share of produces finishes within the leader
+/// call timeout.
+pub const LIFECYCLE_BATCH_SIZE: usize = 100;
 
 /// The delete saga's non-terminal steps, in order. Stored as text in
 /// `lifecycle_op.step` (the engine is generic over op types, so its API is
@@ -374,7 +377,7 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
     Ok(())
 }
 
-/// `marked → sealed`: fence every victim's owning leader and
+/// `marked → sealed`: fence every victim on its owning leader and
 /// persist the exact sealed versions. The fences are the step's only
 /// external effect and a same-op re-fence is a re-seal returning fresh
 /// state, so the fan-out is safe to repeat; the sealed values and the step
@@ -382,7 +385,7 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
 /// (epoch milliseconds, as the leader seals it) alongside `version`; its
 /// presence is what marks a victim as fenced when the release runs.
 ///
-/// A victim the leader reports NOT_FOUND vanished between the claim
+/// A victim the leader reports not found vanished between the claim
 /// recheck and its fence (destroyed by another actor) — its mark row is
 /// removed so it settles as `not_found`, mirroring the merge driver's
 /// vanished-source handling. A definitive refusal propagates and parks the
@@ -395,7 +398,7 @@ async fn seal(
     op: &OpRow,
     leader_call_concurrency: usize,
 ) -> Result<(), SagaError> {
-    let victims = sqlx::query!(
+    let victims: Vec<i64> = sqlx::query_scalar!(
         r#"
         SELECT person_id FROM lifecycle_op_person
         WHERE op_id = $1 AND status IN ('marked', 'sealed')
@@ -405,42 +408,24 @@ async fn seal(
     )
     .fetch_all(pool)
     .await?;
+    let fenced = fence_victims(leader, op, &victims, leader_call_concurrency).await?;
 
-    let fence_calls: Vec<_> = victims
-        .iter()
-        .map(|victim| {
-            let request = FencePersonRequest {
-                team_id: op.team_id,
-                person_id: victim.person_id,
-                op_id: op.op_id.to_string(),
-                op_type: LifecycleOpType::Delete.into(),
-            };
-            let person_id = victim.person_id;
-            async move { (person_id, leader.fence_person(request).await) }
-        })
-        .collect();
-    let fence_results: Vec<_> = stream::iter(fence_calls)
-        .buffer_unordered(leader_call_concurrency)
-        .collect()
-        .await;
-
-    let mut sealed_ids: Vec<i64> = Vec::with_capacity(fence_results.len());
-    let mut sealed_versions: Vec<i64> = Vec::with_capacity(fence_results.len());
-    let mut sealed_created_ats: Vec<i64> = Vec::with_capacity(fence_results.len());
+    let mut sealed_ids: Vec<i64> = Vec::with_capacity(fenced.len());
+    let mut sealed_versions: Vec<i64> = Vec::with_capacity(fenced.len());
+    let mut sealed_created_ats: Vec<i64> = Vec::with_capacity(fenced.len());
     let mut vanished: Vec<i64> = Vec::new();
-    for (person_id, result) in fence_results {
-        match result {
-            Ok(response) => {
-                let sealed = response.sealed.ok_or_else(|| {
-                    SagaError::CorruptState(format!(
-                        "fence response for person {person_id} carries no sealed state"
-                    ))
-                })?;
+    for outcome in fenced {
+        match outcome {
+            Fenced::Sealed {
+                person_id,
+                version,
+                created_at,
+            } => {
                 sealed_ids.push(person_id);
-                sealed_versions.push(sealed.version);
-                sealed_created_ats.push(sealed.created_at);
+                sealed_versions.push(version);
+                sealed_created_ats.push(created_at);
             }
-            Err(status) if status.code() == Code::NotFound => {
+            Fenced::Vanished(person_id) => {
                 tracing::error!(
                     op_id = %op.op_id,
                     person_id,
@@ -448,9 +433,6 @@ async fn seal(
                 );
                 vanished.push(person_id);
             }
-            // FencePerson mints no semantic refusal today; adding one
-            // needs an abort path first (see the merge driver's).
-            Err(status) => return Err(SagaError::leader(status)),
         }
     }
 
@@ -498,6 +480,148 @@ async fn seal(
     tx.commit().await?;
     record_transition(DeleteStep::Marked.as_str(), DeleteStep::Sealed.as_str());
     Ok(())
+}
+
+enum Fenced {
+    Sealed {
+        person_id: i64,
+        version: i64,
+        created_at: i64,
+    },
+    Vanished(i64),
+}
+
+/// One `FencePersons` call's outcome: the victims it answered for, and the
+/// victims left to single calls because the fleet does not serve the batch
+/// RPC yet.
+type BatchFenced<'a> = Result<(Vec<Fenced>, &'a [i64]), SagaError>;
+
+/// Fence the victims in `FencePersons` calls of at most
+/// [`LIFECYCLE_BATCH_SIZE`] persons. The router splits each call by owning
+/// leader. A router or leader that predates the batch RPC answers
+/// UNIMPLEMENTED; those victims are then fenced one call each, so a mixed
+/// fleet mid-roll still seals its deletes.
+async fn fence_victims(
+    leader: &dyn LifecycleLeader,
+    op: &OpRow,
+    person_ids: &[i64],
+    leader_call_concurrency: usize,
+) -> Result<Vec<Fenced>, SagaError> {
+    let batch_calls: Vec<_> = person_ids
+        .chunks(LIFECYCLE_BATCH_SIZE)
+        .map(|chunk| async move {
+            let batch = FencePersonsRequest {
+                team_id: op.team_id,
+                op_id: op.op_id.to_string(),
+                op_type: LifecycleOpType::Delete.into(),
+                person_ids: chunk.to_vec(),
+            };
+            match leader.fence_persons(batch).await {
+                Ok(response) => fenced_from_batch(chunk, response).map(|fenced| (fenced, &[][..])),
+                Err(status) if status.code() == Code::Unimplemented => Ok((Vec::new(), chunk)),
+                Err(status) => Err(SagaError::leader(status)),
+            }
+        })
+        .collect();
+    let batch_results: Vec<BatchFenced<'_>> = stream::iter(batch_calls)
+        .buffer_unordered(leader_call_concurrency)
+        .collect()
+        .await;
+    let mut fenced: Vec<Fenced> = Vec::with_capacity(person_ids.len());
+    let mut singles: Vec<i64> = Vec::new();
+    for result in batch_results {
+        let (batch_fenced, unsupported) = result?;
+        fenced.extend(batch_fenced);
+        singles.extend_from_slice(unsupported);
+    }
+    if !singles.is_empty() {
+        fenced.extend(fence_victims_singly(leader, op, &singles, leader_call_concurrency).await?);
+    }
+    Ok(fenced)
+}
+
+/// The batch's answer as per-victim outcomes. Every requested person must
+/// be in one of its lists: one the leader left out was neither fenced nor
+/// found destroyed, and sealing without it would leave that person
+/// unfenced through the delete.
+fn fenced_from_batch(
+    person_ids: &[i64],
+    response: FencePersonsResponse,
+) -> Result<Vec<Fenced>, SagaError> {
+    let mut by_person: HashMap<i64, Fenced> = HashMap::with_capacity(person_ids.len());
+    for seal in response.sealed {
+        by_person.insert(
+            seal.person_id,
+            Fenced::Sealed {
+                person_id: seal.person_id,
+                version: seal.version,
+                created_at: seal.created_at,
+            },
+        );
+    }
+    for person_id in response.not_found {
+        by_person.insert(person_id, Fenced::Vanished(person_id));
+    }
+    person_ids
+        .iter()
+        .map(|person_id| {
+            by_person.remove(person_id).ok_or_else(|| {
+                SagaError::CorruptState(format!(
+                    "fence batch response carries no outcome for person {person_id}"
+                ))
+            })
+        })
+        .collect()
+}
+
+async fn fence_victims_singly(
+    leader: &dyn LifecycleLeader,
+    op: &OpRow,
+    person_ids: &[i64],
+    leader_call_concurrency: usize,
+) -> Result<Vec<Fenced>, SagaError> {
+    let fence_calls: Vec<_> = person_ids
+        .iter()
+        .map(|person_id| {
+            let request = FencePersonRequest {
+                team_id: op.team_id,
+                person_id: *person_id,
+                op_id: op.op_id.to_string(),
+                op_type: LifecycleOpType::Delete.into(),
+            };
+            let person_id = *person_id;
+            async move { (person_id, leader.fence_person(request).await) }
+        })
+        .collect();
+    let fence_results: Vec<_> = stream::iter(fence_calls)
+        .buffer_unordered(leader_call_concurrency)
+        .collect()
+        .await;
+
+    let mut fenced = Vec::with_capacity(fence_results.len());
+    for (person_id, result) in fence_results {
+        match result {
+            Ok(response) => {
+                let sealed = response.sealed.ok_or_else(|| {
+                    SagaError::CorruptState(format!(
+                        "fence response for person {person_id} carries no sealed state"
+                    ))
+                })?;
+                fenced.push(Fenced::Sealed {
+                    person_id,
+                    version: sealed.version,
+                    created_at: sealed.created_at,
+                });
+            }
+            Err(status) if status.code() == Code::NotFound => {
+                fenced.push(Fenced::Vanished(person_id));
+            }
+            // FencePerson mints no semantic refusal today; adding one
+            // needs an abort path first (see the merge driver's).
+            Err(status) => return Err(SagaError::leader(status)),
+        }
+    }
+    Ok(fenced)
 }
 
 /// `sealed → unmapped`: the destroying transaction. Tombstone the victims'
@@ -762,9 +886,9 @@ impl FencedVictim {
 }
 
 /// Release the fenced victims with the committed outcome in `ReleaseFences`
-/// calls of at most [`RELEASE_BATCH_SIZE`] persons. The router splits each
-/// call by owning leader, and each leader verifies its share of the marks
-/// in a single query. A router or leader that predates the batch RPC
+/// calls of at most [`LIFECYCLE_BATCH_SIZE`] persons. The router splits
+/// each call by owning leader, and each leader verifies its share of the
+/// marks in a single query. A router or leader that predates the batch RPC
 /// answers UNIMPLEMENTED; those victims are then released one call each,
 /// so a mixed fleet mid-roll still completes its deletes.
 async fn release_fenced(
@@ -774,7 +898,7 @@ async fn release_fenced(
     leader_call_concurrency: usize,
 ) -> Result<(), SagaError> {
     let batch_calls: Vec<_> = victims
-        .chunks(RELEASE_BATCH_SIZE)
+        .chunks(LIFECYCLE_BATCH_SIZE)
         .map(|chunk| async move {
             let batch = ReleaseFencesRequest {
                 team_id: op.team_id,

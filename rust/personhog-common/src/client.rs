@@ -19,10 +19,10 @@ use crate::grpc::{code_as_str, CLIENT_NAME_HEADER};
 
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
-    ConsistencyLevel, FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest,
-    FoldPersonDocumentResponse, GetPersonRequest, Person, ReadOptions, ReleaseFenceRequest,
-    ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    ConsistencyLevel, FencePersonRequest, FencePersonResponse, FencePersonsRequest,
+    FencePersonsResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse, GetPersonRequest,
+    Person, ReadOptions, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest,
+    ReleaseFencesResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 
 /// Routing headers for leader-bound calls through the router.
@@ -176,6 +176,24 @@ impl RouterClient {
         let mut request = self.request(request);
         stamp_person_routing_headers(&mut request, team_id, person_id);
         Self::timed("FencePerson", self.client().fence_person(request)).await
+    }
+
+    /// Leader-routed batch fence (saga runner only). The router decodes
+    /// the batch and splits it by owning leader; the routing headers name
+    /// the first person only so the router admits the call as leader-bound.
+    pub async fn fence_persons(
+        &self,
+        request: FencePersonsRequest,
+    ) -> Result<FencePersonsResponse, Status> {
+        let Some(first) = request.person_ids.first() else {
+            return Err(Status::invalid_argument(
+                "FencePersons needs at least one person",
+            ));
+        };
+        let (team_id, person_id) = (request.team_id, *first);
+        let mut request = self.request(request);
+        stamp_person_routing_headers(&mut request, team_id, person_id);
+        Self::timed("FencePersons", self.client().fence_persons(request)).await
     }
 
     /// Leader-routed fence release (saga runner only): committed produces

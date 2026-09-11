@@ -13,7 +13,9 @@ use personhog_common::grpc::{
     current_caller_tag, current_client_name, ClientInFlightGuard, GZIP_OVERHEAD_HEADER,
     PROCESSING_TIME_HEADER, SEMANTIC_REFUSAL_METADATA_KEY,
 };
-use personhog_proto::personhog::types::v1::{ReleaseFenceItem, ReleaseFencesRequest};
+use personhog_proto::personhog::types::v1::{
+    FencePersonsRequest, FencePersonsResponse, ReleaseFenceItem, ReleaseFencesRequest,
+};
 use rand::Rng;
 use tonic::body::BoxBody;
 use tonic::Code;
@@ -22,8 +24,8 @@ use tower::{Service, ServiceExt};
 use crate::backend::{ForwardDecision, ForwardPath, LeaderBackend, ReplicaBackend};
 use crate::config::RetryConfig;
 use crate::grpc_http::{
-    decode_unary_frame, encode_unary_frame, grpc_error_response, grpc_status_code,
-    is_grpc_error_response,
+    decode_unary_frame, decode_unary_response, encode_unary_frame, encode_unary_response,
+    grpc_error_response, grpc_status_code, is_grpc_error_response,
 };
 
 const SERVICE_PREFIX: &str = "/personhog.service.v1.PersonHogService/";
@@ -43,6 +45,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "DeletePersons",
     "DeletePersonsBatchForTeam",
     "FencePerson",
+    "FencePersons",
     "FoldPersonDocument",
     "GetDistinctIdsForPerson",
     "GetDistinctIdsForPersons",
@@ -175,12 +178,30 @@ impl RawProxyInner {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "FencePerson").await;
                 (resp, "leader", call_ms)
             }
+            "FencePersons" => {
+                let (resp, call_ms) = match self
+                    .split_batch_to_leaders::<FencePersonsRequest>(req, "FencePersons")
+                    .await
+                {
+                    Ok(outcomes) => {
+                        merge_fence_responses(outcomes, self.max_recv_message_size).await
+                    }
+                    Err(resp) => (resp, None),
+                };
+                (resp, "leader", call_ms)
+            }
             "ReleaseFence" => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "ReleaseFence").await;
                 (resp, "leader", call_ms)
             }
             "ReleaseFences" => {
-                let (resp, call_ms) = self.split_release_fences_to_leaders(req).await;
+                let (resp, call_ms) = match self
+                    .split_batch_to_leaders::<ReleaseFencesRequest>(req, "ReleaseFences")
+                    .await
+                {
+                    Ok(outcomes) => aggregate_release_responses(outcomes),
+                    Err(resp) => (resp, None),
+                };
                 (resp, "leader", call_ms)
             }
             // The merge saga's document write: leader-routed like every
@@ -480,69 +501,62 @@ impl RawProxyInner {
             .await
     }
 
-    /// The one leader-bound method whose body the router decodes: the
-    /// router is what knows which pod owns which partition, so the saga's
-    /// per-op batch is split into one sub-request per owning pod here. A
-    /// pod that already released its persons stays released when a
-    /// sibling fails, and the saga's retry absorbs that per person.
-    async fn split_release_fences_to_leaders(
+    /// The leader-bound methods whose bodies the router decodes: the router
+    /// is what knows which pod owns which partition, so a saga's per-op
+    /// batch is split into one sub-request per owning pod here. A pod that
+    /// already applied its share stays applied when a sibling fails, and
+    /// the saga's retry absorbs that per person. Yields every
+    /// sub-request's outcome for the method's own aggregation, or the one
+    /// response that ended the call before anything was forwarded.
+    async fn split_batch_to_leaders<B: PodSplitBatch>(
         &self,
         req: http::Request<BoxBody>,
-    ) -> (http::Response<BoxBody>, Option<f64>) {
+        method: &'static str,
+    ) -> Result<Vec<(http::Response<BoxBody>, Option<f64>)>, http::Response<BoxBody>> {
         let leader = match &self.leader {
             Some(l) => l.clone(),
             None => {
-                return (
-                    grpc_error_response(
-                        Code::Unimplemented,
-                        "leader backend not configured for this router",
-                    ),
-                    None,
-                )
+                return Err(grpc_error_response(
+                    Code::Unimplemented,
+                    "leader backend not configured for this router",
+                ))
             }
         };
 
         let (parts, body) = req.into_parts();
         let collect_start = Instant::now();
-        let body_bytes = match collect_body_limited(body, self.max_recv_message_size).await {
-            Ok(b) => b,
-            Err(resp) => return (resp, None),
-        };
+        let body_bytes = collect_body_limited(body, self.max_recv_message_size).await?;
         histogram!(
             "personhog_router_body_collect_ms",
-            "method" => "ReleaseFences",
+            "method" => method,
             "client" => current_client_name(),
         )
         .record(collect_start.elapsed().as_secs_f64() * 1000.0);
 
-        let request: ReleaseFencesRequest = match decode_unary_frame(&body_bytes) {
-            Ok(request) => request,
-            Err(resp) => return (resp, None),
-        };
-        if request.persons.is_empty() {
-            return (
-                grpc_error_response(
-                    Code::InvalidArgument,
-                    "ReleaseFences needs at least one person",
-                ),
-                None,
-            );
+        let mut request: B = decode_unary_frame(&body_bytes)?;
+        let items = request.take_items();
+        if items.is_empty() {
+            return Err(grpc_error_response(
+                Code::InvalidArgument,
+                &format!("{method} needs at least one person"),
+            ));
         }
 
-        let team_id = request.team_id;
+        let team_id = request.team_id();
         let mut owners: HashMap<u32, Option<String>> = HashMap::new();
-        for person in &request.persons {
-            let partition = leader.partition_for_person(team_id, person.person_id);
+        for item in &items {
+            let partition = leader.partition_for_person(team_id, B::person_id(item));
             if let std::collections::hash_map::Entry::Vacant(entry) = owners.entry(partition) {
                 entry.insert(leader.owner_of_partition(partition).await);
             }
         }
-        let groups = group_release_persons(
-            request.persons,
+        let groups = group_by_owning_pod(
+            items,
+            B::person_id,
             |person_id| leader.partition_for_person(team_id, person_id),
             |partition| owners[&partition].clone(),
         );
-        histogram!("personhog_router_release_fences_pods").record(groups.len() as f64);
+        histogram!("personhog_router_batch_pods", "method" => method).record(groups.len() as f64);
 
         // The client's content-length describes its frame, not the
         // re-encoded sub-batches.
@@ -550,40 +564,91 @@ impl RawProxyInner {
         headers.remove(http::header::CONTENT_LENGTH);
 
         let _in_flight = ClientInFlightGuard::new("leader");
-        let forwards = groups.into_iter().map(|group| {
-            forward_release_group(
-                Arc::clone(&leader),
-                team_id,
-                &request.op_id,
-                request.outcome,
-                group,
-                &headers,
-            )
-        });
+        let forwards = groups
+            .into_iter()
+            .map(|group| forward_group(Arc::clone(&leader), method, &request, group, &headers));
         let outcomes = futures::future::join_all(forwards).await;
-        aggregate_release_responses(outcomes.into_iter().flatten().collect())
+        Ok(outcomes.into_iter().flatten().collect())
     }
 }
 
-/// The persons of one saga batch grouped by the pod that owns their
+/// A saga batch the router splits by owning pod: its per-person items, and
+/// how to rebuild a sub-batch that carries the same op fields.
+trait PodSplitBatch: prost::Message + Default + Sync {
+    type Item: Clone + Send + Sync;
+
+    fn team_id(&self) -> i64;
+    fn take_items(&mut self) -> Vec<Self::Item>;
+    fn person_id(item: &Self::Item) -> i64;
+    fn with_items(&self, items: Vec<Self::Item>) -> Self;
+}
+
+impl PodSplitBatch for FencePersonsRequest {
+    type Item = i64;
+
+    fn team_id(&self) -> i64 {
+        self.team_id
+    }
+
+    fn take_items(&mut self) -> Vec<i64> {
+        std::mem::take(&mut self.person_ids)
+    }
+
+    fn person_id(item: &i64) -> i64 {
+        *item
+    }
+
+    fn with_items(&self, person_ids: Vec<i64>) -> Self {
+        Self {
+            person_ids,
+            ..self.clone()
+        }
+    }
+}
+
+impl PodSplitBatch for ReleaseFencesRequest {
+    type Item = ReleaseFenceItem;
+
+    fn team_id(&self) -> i64 {
+        self.team_id
+    }
+
+    fn take_items(&mut self) -> Vec<ReleaseFenceItem> {
+        std::mem::take(&mut self.persons)
+    }
+
+    fn person_id(item: &ReleaseFenceItem) -> i64 {
+        item.person_id
+    }
+
+    fn with_items(&self, persons: Vec<ReleaseFenceItem>) -> Self {
+        Self {
+            persons,
+            ..self.clone()
+        }
+    }
+}
+
+/// The items of one saga batch grouped by the pod that owns their
 /// partitions, each group keyed by partition. A partition with no owner
 /// forms its own group, so its bounce-and-retry does not hold up the
 /// persons that can proceed.
-fn group_release_persons(
-    persons: Vec<ReleaseFenceItem>,
+fn group_by_owning_pod<T>(
+    items: Vec<T>,
+    person_id_of: impl Fn(&T) -> i64,
     partition_of: impl Fn(i64) -> u32,
     owner_of: impl Fn(u32) -> Option<String>,
-) -> Vec<BTreeMap<u32, Vec<ReleaseFenceItem>>> {
-    let mut groups: BTreeMap<String, BTreeMap<u32, Vec<ReleaseFenceItem>>> = BTreeMap::new();
-    for person in persons {
-        let partition = partition_of(person.person_id);
+) -> Vec<BTreeMap<u32, Vec<T>>> {
+    let mut groups: BTreeMap<String, BTreeMap<u32, Vec<T>>> = BTreeMap::new();
+    for item in items {
+        let partition = partition_of(person_id_of(&item));
         let key = owner_of(partition).unwrap_or_else(|| format!("unassigned:{partition}"));
         groups
             .entry(key)
             .or_default()
             .entry(partition)
             .or_default()
-            .push(person);
+            .push(item);
     }
     groups.into_values().collect()
 }
@@ -593,24 +658,18 @@ fn group_release_persons(
 /// partition; the leader refuses it whole if any of them is not its own or
 /// is fenced for handoff, and the router then falls back to one
 /// sub-request per partition, each riding its own partition's stash and
-/// retry loop, the same discipline a single release gets. A handoff on any
-/// partition of the pod therefore costs the batching, never the op.
-async fn forward_release_group(
+/// retry loop, the same discipline a single fence or release gets. A
+/// handoff on any partition of the pod therefore costs the batching, never
+/// the op.
+async fn forward_group<B: PodSplitBatch>(
     leader: Arc<LeaderBackend>,
-    team_id: i64,
-    op_id: &str,
-    outcome: i32,
-    group: BTreeMap<u32, Vec<ReleaseFenceItem>>,
+    method: &'static str,
+    batch: &B,
+    group: BTreeMap<u32, Vec<B::Item>>,
     headers: &http::HeaderMap,
 ) -> Vec<(http::Response<BoxBody>, Option<f64>)> {
-    let frame_for = |persons: Vec<ReleaseFenceItem>| {
-        encode_unary_frame(&ReleaseFencesRequest {
-            team_id,
-            op_id: op_id.to_string(),
-            outcome,
-            persons,
-        })
-    };
+    let team_id = batch.team_id();
+    let frame_for = |items: Vec<B::Item>| encode_unary_frame(&batch.with_items(items));
 
     if group.len() > 1
         && group
@@ -622,7 +681,7 @@ async fn forward_release_group(
         match leader
             .forward_classified(
                 ForwardPath::Direct,
-                "ReleaseFences",
+                method,
                 header_partition,
                 headers,
                 &frame,
@@ -634,34 +693,39 @@ async fn forward_release_group(
             }
             // A transport bounce may have applied the grouped frame; the
             // per-partition replays below are at-least-once, which every
-            // release absorbs.
-            _ => counter!("personhog_router_release_fences_group_splits_total").increment(1),
+            // fence and release absorbs.
+            _ => counter!("personhog_router_batch_group_splits_total", "method" => method)
+                .increment(1),
         }
     }
 
-    let forwards = group.into_iter().map(|(partition, persons)| {
-        let key = (team_id, persons[0].person_id);
-        let frame = frame_for(persons);
+    let forwards = group.into_iter().map(|(partition, items)| {
+        let key = (team_id, B::person_id(&items[0]));
+        let frame = frame_for(items);
         let headers = headers.clone();
         let leader = Arc::clone(&leader);
         async move {
             leader
-                .forward_or_stash("ReleaseFences", partition, key, headers, frame)
+                .forward_or_stash(method, partition, key, headers, frame)
                 .await
         }
     });
     futures::future::join_all(forwards).await
 }
 
-/// One answer for the caller out of every sub-request's: a semantic
-/// refusal first, since it is a final answer the saga must not retry past
-/// a sibling's transient error; then any other error; else one success
-/// stands for all.
-fn aggregate_release_responses(
-    outcomes: Vec<(http::Response<BoxBody>, Option<f64>)>,
-) -> (http::Response<BoxBody>, Option<f64>) {
+/// Every sub-request's outcome sorted for the caller's one answer: the
+/// error that stands for the batch, if any, the successes, and the slowest
+/// call's time. A semantic refusal outranks any other error, since it is a
+/// final answer the saga must not retry past a sibling's transient error.
+struct BatchOutcomes {
+    error: Option<http::Response<BoxBody>>,
+    successes: Vec<http::Response<BoxBody>>,
+    call_ms: Option<f64>,
+}
+
+fn sort_batch_outcomes(outcomes: Vec<(http::Response<BoxBody>, Option<f64>)>) -> BatchOutcomes {
     let mut call_ms: Option<f64> = None;
-    let mut success: Option<http::Response<BoxBody>> = None;
+    let mut successes = Vec::new();
     let mut error: Option<(http::Response<BoxBody>, bool)> = None;
     for (response, ms) in outcomes {
         call_ms = match (call_ms, ms) {
@@ -669,7 +733,7 @@ fn aggregate_release_responses(
             (a, b) => a.or(b),
         };
         if !is_grpc_error_response(&response) {
-            success.get_or_insert(response);
+            successes.push(response);
             continue;
         }
         let semantic = response
@@ -679,13 +743,53 @@ fn aggregate_release_responses(
             error = Some((response, semantic));
         }
     }
-    match error {
-        Some((response, _)) => (response, call_ms),
+    BatchOutcomes {
+        error: error.map(|(response, _)| response),
+        successes,
+        call_ms,
+    }
+}
+
+/// One answer for a release batch: its error, else one success stands for
+/// all, since a release answers nothing.
+fn aggregate_release_responses(
+    outcomes: Vec<(http::Response<BoxBody>, Option<f64>)>,
+) -> (http::Response<BoxBody>, Option<f64>) {
+    let sorted = sort_batch_outcomes(outcomes);
+    match sorted.error {
+        Some(response) => (response, sorted.call_ms),
         None => (
-            success.expect("a non-empty batch forwards to at least one pod"),
-            call_ms,
+            sorted
+                .successes
+                .into_iter()
+                .next()
+                .expect("a non-empty batch forwards to at least one pod"),
+            sorted.call_ms,
         ),
     }
+}
+
+/// One answer for a fence batch: its error, else the pods' answers
+/// concatenated, since each pod fenced a disjoint share of the persons.
+async fn merge_fence_responses(
+    outcomes: Vec<(http::Response<BoxBody>, Option<f64>)>,
+    max_bytes: usize,
+) -> (http::Response<BoxBody>, Option<f64>) {
+    let sorted = sort_batch_outcomes(outcomes);
+    if let Some(response) = sorted.error {
+        return (response, sorted.call_ms);
+    }
+    let mut merged = FencePersonsResponse::default();
+    for response in sorted.successes {
+        match decode_unary_response::<FencePersonsResponse>(response, max_bytes).await {
+            Ok(part) => {
+                merged.sealed.extend(part.sealed);
+                merged.not_found.extend(part.not_found);
+            }
+            Err(response) => return (response, sorted.call_ms),
+        }
+    }
+    (encode_unary_response(&merged), sorted.call_ms)
 }
 
 /// Static label for an error response's gRPC status, separating expected
@@ -903,7 +1007,7 @@ mod tests {
     /// same pod share a group, while an unassigned partition stands alone
     /// so its retry cannot hold the others up.
     #[test]
-    fn release_persons_group_by_owning_pod() {
+    fn batch_items_group_by_owning_pod() {
         let person = |person_id| ReleaseFenceItem {
             person_id,
             ..Default::default()
@@ -914,8 +1018,9 @@ mod tests {
             3 => Some("pod-b".to_string()),
             _ => None,
         };
-        let groups = group_release_persons(
+        let groups = group_by_owning_pod(
             vec![person(1), person(2), person(3), person(4), person(1)],
+            ReleaseFencesRequest::person_id,
             |person_id| person_id as u32,
             owner,
         );
@@ -928,6 +1033,61 @@ mod tests {
         assert_eq!(partitions_per_group, vec![vec![1, 2], vec![3], vec![4]]);
         let pod_a = groups.iter().find(|group| group.len() == 2).unwrap();
         assert_eq!(pod_a[&1].len(), 2, "both persons on partition 1");
+    }
+
+    /// Each pod answers for its own share, so the caller's one answer is
+    /// every pod's seals and not-founds together; and a pod's error stands
+    /// for the batch, with a semantic refusal outranking a transient one
+    /// whatever order the pods answered in.
+    #[tokio::test]
+    async fn fence_responses_merge_every_pod_and_keep_the_semantic_refusal() {
+        use personhog_proto::personhog::types::v1::FencedPersonSeal;
+
+        let seal = |person_id| FencedPersonSeal {
+            person_id,
+            version: 1,
+            created_at: 1,
+        };
+        let pod_a = encode_unary_response(&FencePersonsResponse {
+            sealed: vec![seal(1), seal(2)],
+            not_found: vec![3],
+        });
+        let pod_b = encode_unary_response(&FencePersonsResponse {
+            sealed: vec![seal(4)],
+            not_found: vec![],
+        });
+        let (merged, call_ms) =
+            merge_fence_responses(vec![(pod_a, Some(2.0)), (pod_b, Some(5.0))], 1 << 20).await;
+        assert_eq!(
+            call_ms,
+            Some(5.0),
+            "the batch took as long as its slowest pod"
+        );
+        let merged: FencePersonsResponse = decode_unary_response(merged, 1 << 20)
+            .await
+            .expect("the merged response decodes");
+        let mut sealed: Vec<i64> = merged.sealed.iter().map(|s| s.person_id).collect();
+        sealed.sort_unstable();
+        assert_eq!(sealed, vec![1, 2, 4]);
+        assert_eq!(merged.not_found, vec![3]);
+
+        let transient = grpc_error_response(Code::Unavailable, "leader down");
+        let mut semantic = grpc_error_response(Code::FailedPrecondition, "refused");
+        semantic.headers_mut().insert(
+            SEMANTIC_REFUSAL_METADATA_KEY,
+            "no-lifecycle-db".parse().unwrap(),
+        );
+        let ok = encode_unary_response(&FencePersonsResponse::default());
+        let (answer, _) = merge_fence_responses(
+            vec![(transient, None), (ok, None), (semantic, None)],
+            1 << 20,
+        )
+        .await;
+        assert_eq!(
+            grpc_status_code(&answer),
+            Some(Code::FailedPrecondition as i32)
+        );
+        assert!(answer.headers().contains_key(SEMANTIC_REFUSAL_METADATA_KEY));
     }
     use futures::stream;
     use http_body_util::{Empty, StreamBody};

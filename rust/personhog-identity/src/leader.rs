@@ -3,8 +3,9 @@ use tonic::Status;
 
 use personhog_common::client::RouterClient;
 use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
-    ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
+    FencePersonRequest, FencePersonResponse, FencePersonsRequest, FencePersonsResponse,
+    FoldPersonDocumentRequest, FoldPersonDocumentResponse, ReleaseFenceRequest,
+    ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
     UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 
@@ -38,6 +39,11 @@ pub trait LifecycleLeader: Send + Sync {
         request: FencePersonRequest,
     ) -> Result<FencePersonResponse, Status>;
 
+    async fn fence_persons(
+        &self,
+        request: FencePersonsRequest,
+    ) -> Result<FencePersonsResponse, Status>;
+
     async fn release_fence(
         &self,
         request: ReleaseFenceRequest,
@@ -61,6 +67,13 @@ impl LifecycleLeader for RouterClient {
         request: FencePersonRequest,
     ) -> Result<FencePersonResponse, Status> {
         RouterClient::fence_person(self, request).await
+    }
+
+    async fn fence_persons(
+        &self,
+        request: FencePersonsRequest,
+    ) -> Result<FencePersonsResponse, Status> {
+        RouterClient::fence_persons(self, request).await
     }
 
     async fn release_fence(
