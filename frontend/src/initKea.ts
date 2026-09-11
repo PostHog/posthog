@@ -10,6 +10,7 @@ import posthog from 'posthog-js'
 
 import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isUserInitiatedError } from 'lib/utils/kea-logic-builders'
 import {
     addProjectIdIfMissing,
     ensureRoutablePathname,
@@ -198,14 +199,10 @@ export function initKea({
                         lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
                     }
                 }
-                // Cooperative cancellation (an aborted fetch, or a query superseded via
-                // `abortController.abort('new query started')` as in the logs/tracing data
-                // logics) is expected control flow, not a failure worth logging or reporting.
-                const isCancellation =
-                    error?.name === 'AbortError' ||
-                    error === 'new query started' ||
-                    error?.message === 'new query started'
-                if (isCancellation) {
+                // Cooperative cancellation (an aborted fetch, or a query superseded as in the
+                // logs/tracing data logics) is expected control flow, not a failure worth logging
+                // or reporting.
+                if (isUserInitiatedError(error)) {
                     return
                 }
                 if (!errorsSilenced) {
