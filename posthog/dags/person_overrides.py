@@ -8,7 +8,12 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog import settings
-from posthog.clickhouse.cluster import ClickhouseCluster, MutationWaiter, wait_for_mutations_on_shards
+from posthog.clickhouse.cluster import (
+    ClickhouseCluster,
+    MutationWaiter,
+    wait_for_mutations_on_all_hosts,
+    wait_for_mutations_on_shards,
+)
 from posthog.dags.common import JobOwners
 from posthog.dags.common.overrides_manager import OverridesSnapshotDictionary, OverridesSnapshotTable
 from posthog.dags.common.staged_dictionary import (
@@ -310,7 +315,7 @@ def wait_for_overrides_delete_mutations(
 ) -> PersonOverridesSnapshotDictionary:
     """Wait for all hosts to complete the mutation to remove overrides contained within the snapshot from the overrides table."""
     [dictionary, mutation] = inputs
-    cluster.map_all_hosts(mutation.wait).result()
+    wait_for_mutations_on_all_hosts(cluster, mutation)
     return dictionary
 
 

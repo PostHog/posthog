@@ -797,6 +797,11 @@ class MutationWaiters:
             waiter.wait(client)
 
 
+# during periods of elevated replication lag, it may take some time for mutations to become available on
+# the hosts they replicate to, so give them a little bit of breathing room with retries
+_MUTATION_VISIBILITY_RETRY = RetryPolicy(max_attempts=3, delay=10.0, exceptions=(MutationNotFound,))
+
+
 def wait_for_mutations_on_shards(
     cluster: ClickhouseCluster, shard_mutations: Mapping[int, MutationWaiter | MutationWaiters]
 ) -> None:
@@ -804,12 +809,19 @@ def wait_for_mutations_on_shards(
 
     A shard's value can bundle several mutations, which is how a sweep spanning tables waits on one.
     """
-    # during periods of elevated replication lag, it may take some time for mutations to become available on
-    # the shards, so give them a little bit of breathing room with retries
-    retry_policy = RetryPolicy(max_attempts=3, delay=10.0, exceptions=(MutationNotFound,))
     cluster.map_all_hosts_in_shards(
-        {shard_num: retry_policy(waiter) for shard_num, waiter in shard_mutations.items()}
+        {shard_num: _MUTATION_VISIBILITY_RETRY(waiter) for shard_num, waiter in shard_mutations.items()}
     ).result()
+
+
+def wait_for_mutations_on_all_hosts(cluster: ClickhouseCluster, mutation: MutationWaiter | MutationWaiters) -> None:
+    """Block until ``mutation`` is complete on every host in the cluster.
+
+    This is the counterpart for a replicated, non-sharded table: the mutation is enqueued on one
+    host and reaches the rest by replication, so a host that has not pulled the entry yet reports
+    it missing rather than pending.
+    """
+    cluster.map_all_hosts(_MUTATION_VISIBILITY_RETRY(mutation)).result()
 
 
 class MutationCapacityTimeout(Exception):

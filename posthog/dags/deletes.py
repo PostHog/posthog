@@ -23,6 +23,7 @@ from posthog.clickhouse.cluster import (
     NodeRole,
     Query,
     Workload,
+    wait_for_mutations_on_all_hosts,
     wait_for_mutations_on_shards,
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
@@ -678,7 +679,7 @@ def wait_for_delete_mutations_in_all_hosts(
     pending_deletes_dict, mutation = delete_mutations
 
     if mutation:
-        cluster.map_all_hosts(mutation.wait).result()
+        wait_for_mutations_on_all_hosts(cluster, mutation)
 
     return pending_deletes_dict
 

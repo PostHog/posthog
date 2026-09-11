@@ -3,6 +3,7 @@ import json
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
+from concurrent.futures import Future
 
 import pytest
 from posthog.test.base import materialized
@@ -16,6 +17,7 @@ from posthog.clickhouse.cluster import (
     TOO_MANY_MUTATIONS,
     AlterTableMutationRunner,
     ClickhouseCluster,
+    FuturesMap,
     HostInfo,
     LightweightDeleteMutationRunner,
     MutationCapacityTimeout,
@@ -26,6 +28,7 @@ from posthog.clickhouse.cluster import (
     T,
     get_cluster,
     redact_sql_secrets,
+    wait_for_mutations_on_all_hosts,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
@@ -71,6 +74,28 @@ def test_mutation_runner_waits_for_capacity_and_retries_rejected_enqueue() -> No
     assert waiter == MutationWaiter(runner.table, {"0000000042"})
     assert len(alter_attempts) == 2
     assert next(capacity_results, None) is None  # polled through the busy table before each enqueue attempt
+
+
+def test_wait_for_mutations_on_all_hosts_retries_while_the_mutation_is_invisible() -> None:
+    # A mutation on a replicated, non-sharded table is enqueued on one host and reaches the rest by
+    # replication, so a host that has not pulled the entry yet reports it missing rather than
+    # pending. Waiting without the retry fails the run over lag the next poll would have cleared.
+    lookup_results = iter([[], [("0000000042", 1)]])
+    client = Mock()
+    client.execute = Mock(side_effect=lambda *args, **kwargs: next(lookup_results))
+
+    def run_on_one_host(fn: Callable[[Client], T], *args: object, **kwargs: object) -> FuturesMap[object, T]:
+        future: Future[T] = Future()
+        future.set_result(fn(client))
+        return FuturesMap({sentinel.host: future})
+
+    cluster = Mock(spec=ClickhouseCluster)
+    cluster.map_all_hosts = Mock(side_effect=run_on_one_host)
+
+    with patch("posthog.clickhouse.cluster.time.sleep"):
+        wait_for_mutations_on_all_hosts(cluster, MutationWaiter("table", {"0000000042"}))
+
+    assert next(lookup_results, None) is None  # polled again once the mutation became visible
 
 
 def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
