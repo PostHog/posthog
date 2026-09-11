@@ -21,6 +21,7 @@ import {
     metricsValuesRetrieve,
 } from 'products/metrics/frontend/generated/api'
 
+import { MetricsGroupByButton } from './MetricsGroupByButton'
 import { MetricsViewer } from './MetricsViewer'
 import { metricsViewerLogic } from './metricsViewerLogic'
 
@@ -67,6 +68,26 @@ describe('MetricsViewer', () => {
     afterEach(() => {
         cleanup()
         logic?.unmount()
+    })
+
+    it('shows series counts in the group-by dropdown and selects the attribute key', async () => {
+        jest.mocked(metricsAttributesRetrieve).mockResolvedValue({
+            results: [
+                { name: 'service_name', series_count: 20 },
+                { name: 'env', series_count: 2 },
+            ],
+            count: 2,
+        })
+        const onChange = jest.fn()
+        render(<MetricsGroupByButton groupByKeys={[]} onChange={onChange} disabledReason={null} />)
+        fireEvent.click(screen.getByRole('button', { name: 'Group by' }))
+        const serviceOption = await screen.findByRole('button', { name: /service_name\s*20/ })
+        const envOption = screen.getByRole('button', { name: /env\s*2/ })
+        expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        fireEvent.change(screen.getByPlaceholderText('Group by attribute…'), { target: { value: 'e' } })
+        expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        fireEvent.click(envOption)
+        expect(onChange).toHaveBeenCalledWith(['env'])
     })
 
     // The formula input only means something once a second series can feed it; showing it

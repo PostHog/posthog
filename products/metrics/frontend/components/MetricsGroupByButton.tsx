@@ -39,9 +39,19 @@ export function MetricsGroupByButton({
                         mode="multiple"
                         size="small"
                         allowCustomValues
+                        disableFiltering
+                        popoverClassName="[&_.whitespace-nowrap]:w-full"
                         value={groupByKeys}
                         onChange={onChange}
-                        options={attributeKeyOptions}
+                        options={attributeKeyOptions.map((option) => ({
+                            ...option,
+                            labelComponent: (
+                                <span className="flex items-center justify-between gap-2">
+                                    <span className="truncate">{option.label}</span>
+                                    <span className="text-muted tabular-nums shrink-0">{option.seriesCount}</span>
+                                </span>
+                            ),
+                        }))}
                         loading={attributeKeyOptionsLoading}
                         onInputChange={setGroupBySearch}
                         onFocus={() => loadAttributeKeyOptions({})}

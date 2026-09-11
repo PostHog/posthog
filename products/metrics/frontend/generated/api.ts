@@ -124,9 +124,7 @@ export const getMetricsAttributesRetrieveUrl = (projectId: string, params?: Metr
 }
 
 /**
- * Distinct attribute keys seen on the team's metrics (datapoint and
- * resource attributes merged), most frequent first. Backs the filter
- * bar's key autocomplete.
+ * Attribute keys ordered by distinct series count, from highest to lowest.
  */
 export const metricsAttributesRetrieve = async (
     projectId: string,

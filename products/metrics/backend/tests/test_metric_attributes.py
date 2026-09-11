@@ -27,7 +27,7 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
             service_name="checkout",
             points=recent,
             labels={"env": "prod", "region": "us"},
-            resource_labels={"k8s.pod.name": "pod-1"},
+            resource_labels={"k8s.pod.name": "pod-1", "region": "us"},
         )
         seed_metric(
             team_id=cls.team.id,
@@ -52,14 +52,12 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         response = self._get("attributes")
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
-        # service_name is synthesized (it lives in its own column, never as an
-        # attribute row); the rest order by total count desc, then name asc.
-        assert [r["name"] for r in body["results"]] == [
-            "service_name",
-            "env",
-            "k8s.pod.name",
-            "region",
-            "stale_key",
+        assert body["results"] == [
+            {"name": "service_name", "series_count": 3},
+            {"name": "env", "series_count": 2},
+            {"name": "k8s.pod.name", "series_count": 1},
+            {"name": "region", "series_count": 1},
+            {"name": "stale_key", "series_count": 1},
         ]
         assert body["count"] == 5
 
@@ -67,6 +65,8 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         [
             ("substring_of_attribute_key", "env", ["env"]),
             ("substring_of_synthetic_service_name", "serv", ["service_name"]),
+            ("dotted_service_name", "service.name", ["service_name"]),
+            ("series_count_order", "e", ["service_name", "env", "k8s.pod.name", "region", "stale_key"]),
         ]
     )
     def test_attributes_search_filters_keys(self, _name: str, search: str, expected: list[str]) -> None:

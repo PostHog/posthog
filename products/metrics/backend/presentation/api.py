@@ -551,12 +551,15 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
     name = serializers.CharField(
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
     )
+    series_count = serializers.IntegerField(
+        help_text="Number of distinct series with this attribute in the time window."
+    )
 
 
 class _MetricAttributeKeysResponseSerializer(serializers.Serializer):
     results = _MetricAttributeKeySerializer(
         many=True,
-        help_text="Distinct attribute keys (datapoint and resource attributes merged), most frequent first.",
+        help_text="Distinct attribute keys (datapoint and resource attributes merged), ordered by series count descending.",
     )
     count = serializers.IntegerField(help_text="Number of keys returned.")
 
@@ -920,9 +923,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
     def attributes(self, request: Request, *args, **kwargs) -> Response:
-        """Distinct attribute keys seen on the team's metrics (datapoint and
-        resource attributes merged), most frequent first. Backs the filter
-        bar's key autocomplete."""
+        """Attribute keys ordered by distinct series count, from highest to lowest."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         params = _MetricAttributeKeysParamsSerializer(data=request.query_params)

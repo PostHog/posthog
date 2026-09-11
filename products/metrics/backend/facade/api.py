@@ -256,13 +256,12 @@ def list_metric_attribute_keys(
     date_to: dt.datetime | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    """List distinct attribute keys seen on the team's metrics, most frequent
-    first, for the filter bar's key autocomplete.
+    """List attribute keys by distinct series count, from highest to lowest.
 
     Datapoint and resource attributes are merged into one list (filters run
     with scope 'auto', so the split doesn't matter to callers); `service_name`
     is always surfaced when it matches the search. The window defaults to the
-    last 7 days. Returns `{"name": str}` dicts. Raises `ValueError` for an
+    last 7 days. Returns `{"name": str, "series_count": int}` dicts. Raises `ValueError` for an
     out-of-range limit or an inverted window.
     """
     runner = MetricAttributeKeysQueryRunner(team=team, search=search, date_from=date_from, date_to=date_to, limit=limit)
