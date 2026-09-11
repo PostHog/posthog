@@ -7,6 +7,33 @@ import { initKeaTests } from '~/test/init'
 import { CheckRunsTable } from './CheckRunsTable'
 import type { DataQualityCheckRunApi } from './generated/api.schemas'
 
+const PASSING_METRIC_RUN: DataQualityCheckRunApi = {
+    id: 'pass',
+    quality_check: 'check-1',
+    check_name: 'Signups stay positive',
+    suite_run: 'suite-1',
+    subject_type: 'metric',
+    subject_uuid: '018f2a1c-0000-7000-8000-000000000001',
+    subject_name: 'signups',
+    check_type: 'custom_sql',
+    column_name: '',
+    check_config: null,
+    check_severity: 'error',
+    status: 'passed',
+    failed_row_count: 0,
+    observed_value: 0,
+    compiled_query: 'SELECT count() FROM signups',
+    error: '',
+    duration_ms: 20,
+    started_at: null,
+    finished_at: null,
+    created_at: '2026-09-01T00:00:00Z',
+}
+
+function metricRun(overrides: Partial<DataQualityCheckRunApi>): DataQualityCheckRunApi {
+    return { ...PASSING_METRIC_RUN, ...overrides }
+}
+
 describe('CheckRunsTable', () => {
     afterEach(cleanup)
     it('shows metric failures and execution errors without an observed metric value', () => {
@@ -14,34 +41,24 @@ describe('CheckRunsTable', () => {
         render(
             <CheckRunsTable
                 subjectType="metric"
-                runs={
-                    [
-                        {
-                            id: 'pass',
-                            status: 'passed',
-                            failed_row_count: 0,
-                            duration_ms: 20,
-                            observed_value: 0,
-                            error: '',
-                        },
-                        {
-                            id: 'fail',
-                            status: 'failed',
-                            failed_row_count: 7,
-                            duration_ms: 30,
-                            observed_value: 7,
-                            error: '',
-                        },
-                        {
-                            id: 'error',
-                            status: 'errored',
-                            failed_row_count: null,
-                            duration_ms: 40,
-                            observed_value: null,
-                            error: 'Unknown column signups',
-                        },
-                    ] as DataQualityCheckRunApi[]
-                }
+                runs={[
+                    PASSING_METRIC_RUN,
+                    metricRun({
+                        id: 'fail',
+                        status: 'failed',
+                        failed_row_count: 7,
+                        observed_value: 7,
+                        duration_ms: 30,
+                    }),
+                    metricRun({
+                        id: 'error',
+                        status: 'errored',
+                        failed_row_count: null,
+                        observed_value: null,
+                        duration_ms: 40,
+                        error: 'Unknown column signups',
+                    }),
+                ]}
             />
         )
         expect(screen.getByText('passed')).toBeInTheDocument()
