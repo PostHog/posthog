@@ -15,6 +15,8 @@ from pathlib import Path
 
 def relativize(out_dir: Path) -> None:
     roots = sorted(p.name for p in out_dir.iterdir() if p.is_dir() and p.name != "__pycache__")
+    if not roots:
+        raise SystemExit(f"{out_dir}: no generated package directories found")
     root_pattern = re.compile(rf"^from ({'|'.join(map(re.escape, roots))})(\.|\s)", re.MULTILINE)
     bare_import = re.compile(rf"^import ({'|'.join(map(re.escape, roots))})(\.|\s|$)", re.MULTILINE)
 

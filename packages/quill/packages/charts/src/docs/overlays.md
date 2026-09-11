@@ -35,6 +35,8 @@ The formatter gets `(value, seriesIndex, dataIndex, context)`.
 In percent layouts `value` is a 0..1 fraction; `context.rawValue` holds the original.
 `context.bandValues` is the stack's values at this index and `context.previousBandValues` the same for the preceding index (empty at the first), so a formatter can compute a segment's share of the current or the previous band.
 `mode="stack-total"` labels only the stack top.
+For per-segment bar labels, `position="center"` places each label inside its segment, including in horizontal percent stacks.
+The default `position="end"` preserves labels at bar ends.
 `series.visibility.valueLabel: false` skips a series.
 On the time-series charts, prefer `config.valueLabels` so the chart sizes its margins for the labels.
 

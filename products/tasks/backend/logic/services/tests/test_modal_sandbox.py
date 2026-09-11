@@ -2087,24 +2087,52 @@ class TestResourceCreateKwargs:
         assert kwargs == {"cpu": (2.0, 8.0), "memory": (4096, 16384)}
 
     @pytest.mark.parametrize(
-        "config_kwargs, expected_cpu",
+        "config_kwargs, expected_cpu, expected_memory",
         [
-            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (4.0, 8.0)),
-            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6}, (6.0, 8.0)),
+            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (4.0, 8.0), (32768, 32768)),
+            (
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6},
+                (6.0, 8.0),
+                (32768, 32768),
+            ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6, "cpu_cores": 4},
                 (4.0, 4.0),
+                (32768, 32768),
             ),
-            ({"vm_runtime": True, "custom_image_name": "posthog-sandbox-custom-other"}, (0.5, 8.0)),
-            ({"custom_image_name": "posthog-dev-stack"}, (0.5, 8.0)),
+            ({"vm_runtime": True, "custom_image_name": "posthog-sandbox-custom-other"}, (0.5, 8.0), (16384, 16384)),
+            ({"custom_image_name": "posthog-dev-stack"}, (0.5, 8.0), (1024, 16384)),
+            (
+                {"template": SandboxTemplate.VM_BASE, "custom_image_name": "posthog-dev-stack"},
+                (4.0, 8.0),
+                (32768, 32768),
+            ),
+            (
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 16},
+                (4.0, 8.0),
+                (32768, 32768),
+            ),
+            (
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 48},
+                (4.0, 8.0),
+                (49152, 49152),
+            ),
+            (
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "burstable_resources": False},
+                8.0,
+                32768,
+            ),
         ],
     )
-    def test_dev_stack_image_raises_the_cpu_request_floor(
-        self, config_kwargs: dict[str, Any], expected_cpu: tuple[float, float]
+    def test_dev_stack_image_resource_floors(
+        self,
+        config_kwargs: dict[str, Any],
+        expected_cpu: float | tuple[float, float],
+        expected_memory: int | tuple[int, int],
     ) -> None:
-        config = SandboxConfig(name="t", memory_gb=16, burstable_resources=True, **{"cpu_cores": 8, **config_kwargs})
+        config = SandboxConfig(name="t", **{"cpu_cores": 8, "burstable_resources": True, **config_kwargs})
 
-        assert _resource_create_kwargs(config)["cpu"] == expected_cpu
+        assert _resource_create_kwargs(config) == {"cpu": expected_cpu, "memory": expected_memory}
 
     def test_vm_runtime_uses_equal_memory_request_and_limit(self):
         config = SandboxConfig(name="t", cpu_cores=4, memory_gb=16, burstable_resources=True, vm_runtime=True)
