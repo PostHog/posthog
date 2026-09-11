@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode, useRef } from 'react'
+import { ReactNode } from 'react'
 
-import { LemonButton, LemonCheckbox, LemonDialog } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -10,6 +11,7 @@ import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings
 import { SurveyConditionsList } from 'scenes/surveys/components/SurveyConditions'
 import { getSurveyUrl } from 'scenes/surveys/CopySurveyLink'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { openSurveysSettingsDialog } from 'scenes/surveys/SurveySettings'
 import { getSurveyDisplayConditionsSummary } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -19,13 +21,11 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
     const { survey, surveyWarnings } = useValues(surveyLogic)
     const { launchSurvey } = useActions(surveyLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
 
     const isHostedSurvey = survey.type === SurveyType.ExternalSurvey
     // PostHog hosts and renders these surveys, so they do not depend on the project's surveys_opt_in setting.
-    const needsOptIn = !currentTeam?.surveys_opt_in && !isHostedSurvey
+    const surveysAreOff = !currentTeam?.surveys_opt_in && !isHostedSurvey
     const conditionsSummary = isHostedSurvey ? [] : getSurveyDisplayConditionsSummary(survey)
-    const shouldOptIn = useRef(true)
 
     return (
         <AccessControlAction
@@ -38,7 +38,6 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                 data-attr="launch-survey"
                 size="small"
                 onClick={() => {
-                    shouldOptIn.current = true
                     LemonDialog.open({
                         title: 'Launch this survey?',
                         content: (
@@ -64,22 +63,19 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                                         This survey will be shown to all users.
                                     </div>
                                 )}
-                                {needsOptIn && (
-                                    <div className="flex flex-col gap-1">
-                                        <LemonCheckbox
-                                            defaultChecked
-                                            onChange={(checked) => {
-                                                shouldOptIn.current = checked
-                                            }}
-                                            label="Enable surveys for this project"
-                                            data-attr="launch-survey-surveys-opt-in"
-                                            size="small"
-                                        />
-                                        <div className="text-xs text-muted">
-                                            Surveys are off for this project. Your app cannot show any survey until they
-                                            are on.
-                                        </div>
-                                    </div>
+                                {surveysAreOff && (
+                                    <LemonBanner
+                                        type="warning"
+                                        action={{
+                                            type: 'secondary',
+                                            icon: <IconGear />,
+                                            onClick: () => openSurveysSettingsDialog(),
+                                            children: 'Configure',
+                                        }}
+                                    >
+                                        Surveys are off for this project, so your app will not show this survey
+                                        automatically. Launching does not change the setting.
+                                    </LemonBanner>
                                 )}
                             </div>
                         ),
@@ -87,9 +83,6 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                             children: isHostedSurvey ? 'Launch and copy link' : 'Launch',
                             type: 'primary',
                             onClick: () => {
-                                if (needsOptIn && shouldOptIn.current) {
-                                    updateCurrentTeam({ surveys_opt_in: true })
-                                }
                                 if (isHostedSurvey) {
                                     void copyToClipboard(getSurveyUrl(survey.id), 'survey link')
                                 }
