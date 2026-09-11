@@ -166,7 +166,7 @@ tools:
         title: Update this task's context wiki page
         description: >
             Replace a shared Markdown page under org/, areas/, or decisions/, or the current task channel's context
-            page. Read it first and pass head_sha as base_head. The server validates and commits the edit; no local
-            Git commit or scripts/publish is needed. Instruction files, generated indexes, scripts, and other
-            channels' pages cannot be edited. Shared pages must not include channel_id frontmatter.
+            page. Read it first and pass head_sha as base_head. The server validates and commits the edit; no local Git
+            commit or scripts/publish is needed. Instruction files, generated indexes, scripts, and other channels'
+            pages cannot be edited. Shared pages must not include channel_id frontmatter.
         feature_flag: context-layer
