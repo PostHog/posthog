@@ -94,6 +94,18 @@ class TestFindTrendsQualityIssues(SimpleTestCase):
                 "No series produces a length of time",
             ),
             (
+                "rescaled_seconds_formatted_as_duration",
+                AssistantTrendsQuery(
+                    series=[
+                        AssistantTrendsEventsNode(
+                            event="$pageview", math="avg", math_property="$session_duration", math_multiplier=1 / 60
+                        )
+                    ],
+                    trendsFilter=AssistantTrendsFilter(aggregationAxisFormat="duration"),
+                ),
+                "no longer in seconds",
+            ),
+            (
                 "seconds_formatted_as_scaled_percentage",
                 AssistantTrendsQuery(
                     series=[
@@ -200,6 +212,19 @@ class TestFindTrendsQualityIssues(SimpleTestCase):
                 "group_math_with_index",
                 AssistantTrendsQuery(
                     series=[AssistantTrendsEventsNode(event="$pageview", math="unique_group", math_group_type_index=0)]
+                ),
+            ),
+            (
+                "rescaled_seconds_labeled_with_the_matching_unit",
+                AssistantTrendsQuery(
+                    series=[
+                        AssistantTrendsEventsNode(
+                            event="$pageview", math="avg", math_property="$session_duration", math_multiplier=1 / 60
+                        )
+                    ],
+                    trendsFilter=AssistantTrendsFilter(
+                        aggregationAxisFormat="numeric", aggregationAxisPostfix=" minutes"
+                    ),
                 ),
             ),
             (

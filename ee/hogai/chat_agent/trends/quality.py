@@ -75,6 +75,11 @@ def _active_math_property(series: TrendsSeries) -> str | None:
     return series.math_property if series.math in PROPERTY_MATH_TYPES else None
 
 
+def _rescales_the_value(series: TrendsSeries) -> bool:
+    """The engine multiplies the property before it aggregates, so any multiplier other than 1 changes the unit."""
+    return series.math_multiplier is not None and series.math_multiplier != 1
+
+
 def _never_produces_a_duration(series: TrendsSeries) -> bool:
     """True when we know the series value is a count or a flag rather than a length of time."""
     math_property = _active_math_property(series)
@@ -91,11 +96,23 @@ def _check_axis_format(query: AssistantTrendsQuery) -> list[str]:
     issues: list[str] = []
     axis_format = trends_filter.aggregationAxisFormat
     postfix = trends_filter.aggregationAxisPostfix or ""
-    seconds_series = [
-        _series_label(index)
-        for index, series in enumerate(query.series)
-        if _active_math_property(series) in SECONDS_VALUED_MATH_PROPERTIES
-    ]
+    seconds_series: list[str] = []
+    rescaled_seconds_series: list[str] = []
+    for index, series in enumerate(query.series):
+        if _active_math_property(series) not in SECONDS_VALUED_MATH_PROPERTIES:
+            continue
+        if _rescales_the_value(series):
+            rescaled_seconds_series.append(_series_label(index))
+        else:
+            seconds_series.append(_series_label(index))
+
+    if rescaled_seconds_series and axis_format == AggregationAxisFormat.DURATION and not trends_filter.formulaNodes:
+        labels = ", ".join(rescaled_seconds_series)
+        issues.append(
+            f"Series {labels} multiplies a property measured in seconds by `math_multiplier`, so the value is no "
+            f"longer in seconds, but the value axis uses `duration`, which reads it as seconds. "
+            f"That reports a wrong number. Drop `math_multiplier` and keep the value in seconds."
+        )
 
     if seconds_series:
         labels = ", ".join(seconds_series)
