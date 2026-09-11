@@ -55,7 +55,6 @@ export const urls = {
     webScripts: (): string => '/web-scripts',
     webScriptsNew: (): string => '/web-scripts/new',
     destinations: (): string => '/data-management/destinations',
-    models: (): string => '/models',
     transformations: (): string => '/data-management/transformations',
     eventFiltering: (): string => '/data-management/event-filtering',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
