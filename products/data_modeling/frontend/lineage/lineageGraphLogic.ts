@@ -1,11 +1,9 @@
 import { MarkerType, Position, type Edge as ReactFlowEdge, type Node as ReactFlowNode } from '@xyflow/react'
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 
-import { getFormattedNodes } from 'scenes/data-warehouse/scene/modeling/autolayout'
-import { ElkDirection, NodeHandle } from 'scenes/data-warehouse/scene/modeling/types'
-
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
+import { ElkDirection, NodeHandle, getFormattedNodes } from './autolayout'
 import { LineageNodeData, LineageVariant } from './LineageNode'
 
 const NODE_SIZES: Record<LineageVariant, { width: number; height: number }> = {
@@ -115,11 +113,14 @@ export const lineageGraphLogic = kea<lineageGraphLogicType>([
             },
         ],
     }),
-    listeners(({ actions, props }) => ({
+    listeners((logic) => ({
         computeLayout: async (_, breakpoint) => {
-            const layout = await layoutGraph(props.nodes, props.edges, props.variant, props.direction)
+            // Read logic.props, not a destructured copy: the copy is frozen at build time, so a
+            // relayout after propsChanged would still lay out the original nodes and edges
+            const { nodes, edges, variant, direction } = logic.props
+            const layout = await layoutGraph(nodes, edges, variant, direction)
             breakpoint()
-            actions.layoutComputed(layout)
+            logic.actions.layoutComputed(layout)
         },
     })),
     propsChanged(({ actions, props }, oldProps) => {
