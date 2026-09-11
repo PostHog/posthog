@@ -471,8 +471,7 @@ def defer_scheduler_claim_recovery(
     _validate_lease_duration(lease_duration)
     transition_time = _resolve_time(now)
     deferred_until = transition_time + lease_duration
-    with transaction.atomic():
-        _set_scheduler_lock_timeout()
+    with transaction.atomic(), _scheduler_lock_timeout():
         claim = (
             TemporalSchedulerClaim.objects.select_for_update()
             .filter(
