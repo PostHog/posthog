@@ -1844,7 +1844,7 @@ class LLMSkillViewSet(
         Backs the tag filter on the Skills page, which needs the team's whole vocabulary rather than
         the tags of the skills on the current page.
         """
-        return Response({"tags": team_skill_tag_names(self.team)})
+        return Response(LLMSkillTagOptionsSerializer({"tags": team_skill_tag_names(self.team)}).data)
 
     @extend_schema(parameters=[LLMSkillListQuerySerializer])
     @llma_track_latency("llma_skills_list")

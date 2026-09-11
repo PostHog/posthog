@@ -29,7 +29,7 @@ const skillArchive = (): ToolBase<ReturnType<typeof SkillArchiveSchema>, unknown
 
 const SkillCreateSchema = () => {
     const LlmSkillsCreateBody = orvalSchemas.LlmSkillsCreateBody()
-    return LlmSkillsCreateBody.omit({ tags: true })
+    return LlmSkillsCreateBody
 }
 
 const skillCreate = (): ToolBase<ReturnType<typeof SkillCreateSchema>, Schemas.LLMSkill> => ({
@@ -58,6 +58,9 @@ const skillCreate = (): ToolBase<ReturnType<typeof SkillCreateSchema>, Schemas.L
         }
         if (params.metadata !== undefined) {
             body['metadata'] = params.metadata
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         if (params.owners !== undefined) {
             body['owners'] = params.owners
@@ -323,9 +326,7 @@ const skillStoreInstallCommand = (): ToolBase<
 const SkillUpdateSchema = () => {
     const LlmSkillsNamePartialUpdateBody = orvalSchemas.LlmSkillsNamePartialUpdateBody()
     const LlmSkillsNamePartialUpdateParams = orvalSchemas.LlmSkillsNamePartialUpdateParams()
-    return LlmSkillsNamePartialUpdateParams.omit({ project_id: true }).extend(
-        LlmSkillsNamePartialUpdateBody.omit({ tags: true }).shape
-    )
+    return LlmSkillsNamePartialUpdateParams.omit({ project_id: true }).extend(LlmSkillsNamePartialUpdateBody.shape)
 }
 
 const skillUpdate = (): ToolBase<ReturnType<typeof SkillUpdateSchema>, Schemas.LLMSkill> => ({
@@ -363,6 +364,9 @@ const skillUpdate = (): ToolBase<ReturnType<typeof SkillUpdateSchema>, Schemas.L
         }
         if (params.owners !== undefined) {
             body['owners'] = params.owners
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         if (params.base_version !== undefined) {
             body['base_version'] = params.base_version
