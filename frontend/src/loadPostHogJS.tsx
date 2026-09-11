@@ -6,6 +6,7 @@ import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
+import { dropExtensionOriginExceptions } from './dropExtensionExceptions'
 import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
@@ -25,8 +26,9 @@ const shouldTrackFramerate = (loadedInstance: PostHogInterface): boolean => {
 export interface LoadPostHogJSOptions {
     /**
      * Hook posthog-js's `before_send` so the caller can mutate or drop events before they leave
-     * the browser. Used by the exporter app to redact the SharingConfiguration access token from
-     * URL-shaped properties on the interview share page — see `frontend/src/exporter/index.tsx`.
+     * the browser. Runs after `dropExtensionOriginExceptions`, which every caller gets. Used by
+     * the exporter app to redact the SharingConfiguration access token from URL-shaped properties
+     * on the interview share page — see `frontend/src/exporter/index.tsx`.
      */
     beforeSend?: BeforeSendFn | BeforeSendFn[]
     /**
@@ -56,7 +58,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            before_send: [dropExtensionOriginExceptions, ...[options.beforeSend ?? []].flat()],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
