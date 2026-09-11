@@ -2,8 +2,14 @@ import hashlib
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 from posthog.models.utils import UUIDTModel
+
+# Dedup only ever needs recent campaign keys, so `cleanup_old_messaging_records` prunes
+# rows past this age. Long enough that a resent invite or a re-clicked "request access"
+# button still dedups against the original send.
+MESSAGING_RECORD_RETENTION_DAYS = 90
 
 
 def _hash_email(email: str, salt: str) -> str:
@@ -82,4 +88,16 @@ class MessagingRecord(UUIDTModel):
             "email_hash",
             "campaign_key",
         )  # can only send campaign once to each email
-        indexes = [models.Index(fields=["campaign_key"], name="messagingrecord_campaign_idx")]
+        indexes = [
+            # Partial because every campaign_key lookup also filters `sent_at IS NOT NULL`.
+            # A row is written with `sent_at` NULL, so the insert stays out of this index and
+            # only the later delivery stamp pays for it.
+            models.Index(
+                fields=["campaign_key"],
+                name="messagingrecord_campaign_sent",
+                condition=Q(sent_at__isnull=False),
+            ),
+            # Drives the retention sweep. `created_at` only grows, so inserts land on the
+            # rightmost leaf page instead of scattering like the hashed unique index does.
+            models.Index(fields=["created_at"], name="messagingrecord_created_idx"),
+        ]

@@ -26,6 +26,7 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
+from posthog.tasks.messaging import cleanup_old_messaging_records
 from posthog.tasks.remote_config import (
     cleanup_stale_remote_config_expiry_tracking_task,
     refresh_expiring_remote_config_cache_entries,
@@ -412,6 +413,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(day_of_week="mon", hour="5", minute="35"),
         refresh_signal_repository_activity.s(),
         name="refresh signals repository activity",
+    )
+
+    # Messaging record retention sweep - hourly. Hourly rather than daily so the rows
+    # written before any retention existed drain steadily instead of over months.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="50"),
+        cleanup_old_messaging_records.s(),
+        name="clean up old messaging records",
     )
 
     # Loop task retention sweep - daily at 4:30 AM
