@@ -5,11 +5,6 @@
 CONTRIBUTING.md export-ignore
 CODE_OF_CONDUCT.md export-ignore
 
-# Vendored skill sources keep upstream whitespace so byte comparisons remain exact.
-.agents/skills/flox-debug/SKILL.md -whitespace
-.agents/skills/flox/SKILL.md -whitespace
-.agents/skills/flox/references/** -whitespace
-
 # Generated code: exclude from GitHub Linguist stats and suppress diffs.
 frontend/src/generated/** linguist-generated
 frontend/src/lib/posthog-typed.ts linguist-generated

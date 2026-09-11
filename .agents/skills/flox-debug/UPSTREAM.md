@@ -15,7 +15,7 @@ No files are omitted from `flox-plugin/skills/flox-debug/`. This repository does
 
 `SKILL.md` and all other files from `flox-plugin/skills/flox-debug/` are unchanged.
 
-`UPSTREAM.md` and `LICENSE` are local additions outside the upstream skill directory. No discovery-description adjustment is applied. Repository checks exclude the upstream `SKILL.md` from formatting and Markdown lint. Git whitespace attributes preserve its bytes.
+`UPSTREAM.md` and `LICENSE` are local additions outside the upstream skill directory. No discovery-description adjustment is applied. Repository checks exclude the upstream `SKILL.md` from formatting and Markdown lint.
 
 ## Manual resync
 
