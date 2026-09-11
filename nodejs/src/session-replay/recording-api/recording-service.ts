@@ -31,8 +31,9 @@ export type DeleteRecordingResult =
     | { sessionId: string; ok: true; status: 'already_deleted'; deletedAt: number; deletedBy: string }
     | { sessionId: string; ok: false; status: 'delete_failed' }
 
-// Rows written per activity-log insert. Bounds one statement so a large delete batch
-// cannot become one giant write on the shared common write primary.
+// Rows written per activity-log insert. Callers cap a delete batch at 100 session ids today,
+// so this splits nothing now; it is a ceiling that keeps one statement bounded on the shared
+// common write primary if that cap ever grows.
 const ACTIVITY_LOG_CHUNK_SIZE = 1000
 // Per-statement cap for the non-fatal activity-log write, in milliseconds.
 const ACTIVITY_LOG_STATEMENT_TIMEOUT_MS = 5000
@@ -448,9 +449,9 @@ export class RecordingService {
 
         const postgres = this.postgres
         const detail = JSON.stringify({ type: 'recording_shredded', deleted_by: deletedBy })
-        // One delete batch can carry thousands of session ids. Chunk the insert so a single
-        // statement stays small, and cap each chunk with a statement timeout so this non-fatal
-        // cleanup write fails fast instead of holding a connection on the shared write primary.
+        // Callers cap a delete batch at 100 session ids, so the chunk size is a defensive ceiling
+        // rather than a split that happens today. Each chunk also runs under a statement timeout, so
+        // this non-fatal cleanup write fails fast instead of holding a connection on the shared write primary.
         for (let i = 0; i < sessionIds.length; i += ACTIVITY_LOG_CHUNK_SIZE) {
             const chunk = sessionIds.slice(i, i + ACTIVITY_LOG_CHUNK_SIZE)
             await postgres.transaction(PostgresUse.COMMON_WRITE, 'logRecordingDeletion', async (tx) => {
