@@ -793,11 +793,15 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
 
             # Capture per-recipient results for the delivery record
             delivery_recipient_results = _to_recipient_dicts(deliver_result.recipient_results)
-            final_status = DeliveryStatus.SKIPPED if deliver_result.skipped else (
-                DeliveryStatus.FAILED
-                if delivery_recipient_results
-                and all(result["status"] == "failed" for result in delivery_recipient_results)
-                else DeliveryStatus.COMPLETED
+            final_status = (
+                DeliveryStatus.SKIPPED
+                if deliver_result.skipped
+                else (
+                    DeliveryStatus.FAILED
+                    if delivery_recipient_results
+                    and all(result["status"] == "failed" for result in delivery_recipient_results)
+                    else DeliveryStatus.COMPLETED
+                )
             )
 
         except Exception as e:
