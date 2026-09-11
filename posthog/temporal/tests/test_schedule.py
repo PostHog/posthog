@@ -50,7 +50,7 @@ async def test_subscription_schedule_has_bounded_inputs_and_explicit_recovery_po
             region="eu",
         )
     ]
-    assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
+    assert schedule.policy.overlap == ScheduleOverlapPolicy.ALLOW_ALL
     assert schedule.policy.catchup_window == timedelta(minutes=30)
     assert schedule.policy.pause_on_failure is False
 
