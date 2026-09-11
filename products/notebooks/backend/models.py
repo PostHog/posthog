@@ -202,6 +202,70 @@ class KernelRuntime(UUIDTModel):
         ]
 
 
+class NotebookRun(TeamScopedRootMixin, UUIDModel):
+    """One execution of a whole markdown notebook: every runnable cell, in document order.
+
+    The orchestrator owns this row. Each cell it starts is a `NotebookNodeRun` pointing back
+    here, so the status endpoint reads the whole run with one join.
+    """
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "running"
+        DONE = "done", "done"
+        FAILED = "failed", "failed"
+        INTERRUPTED = "interrupted", "interrupted"
+
+    class Trigger(models.TextChoices):
+        UI = "ui", "ui"
+        MCP = "mcp", "mcp"
+
+    # db_constraint=False on both FKs to hot tables, for the reasons NotebookNodeRun states below.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # No related_name, like NotebookNodeRun: a named reverse accessor on Notebook would join the
+    # fields the activity log walks, and reading it outside a team scope raises.
+    notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE)
+    user = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
+    # Which surface started the run. Read as a metric label, so the outcome of a person's click
+    # and of an agent's tool call can be told apart.
+    trigger = models.CharField(choices=Trigger, max_length=20)
+    status = models.CharField(choices=Status, default=Status.RUNNING, max_length=20)
+    # The variable values this run bound, snapshotted at start. The notebook's own list can
+    # change while the run works, and the results have to stay readable against what produced them.
+    variables: JSONField = JSONField(default=list, blank=True)
+    # The cells to run, as [{node_id, cell_type, dataframe_name}] in document order, frozen at
+    # start. An edit during the run does not add or remove cells from it.
+    cell_plan: JSONField = JSONField(default=list, blank=True)
+    # How far through `cell_plan` the orchestrator is; the status endpoint reads it.
+    current_index = models.IntegerField(default=0, db_default=0)
+    failed_node_id = models.CharField(max_length=128, null=True, blank=True)
+    error = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_notebookrun"
+        indexes = [
+            models.Index(fields=["team", "notebook", "-created_at"]),
+        ]
+        constraints = [
+            # One whole-notebook run at a time, enforced by the database rather than by a lock.
+            models.UniqueConstraint(
+                fields=["notebook"],
+                condition=models.Q(status="running"),
+                name="unique_running_notebook_run",
+            )
+        ]
+
+
 class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     """A single execution of a revamped-notebooks (SQLV2) node.
     The primary key is the run_id referenced by the run/callback/stream endpoints.
@@ -242,6 +306,12 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
         related_name="+",
     )
     node_id = models.CharField(max_length=128)
+    # The whole-notebook run that dispatched this cell, or null for a single-cell run. SET_NULL
+    # rather than CASCADE: a run record is bookkeeping, and deleting one must not take the
+    # results it produced with it.
+    notebook_run = models.ForeignKey(
+        "notebooks.NotebookRun", on_delete=models.SET_NULL, null=True, blank=True, related_name="node_runs"
+    )
     # How the run executed: hogql pushed to ClickHouse (pages re-query by `code`); python and
     # duckdb ran in the sandbox kernel (pages slice the on-sandbox result frame by `result_id`).
     node_type = models.CharField(choices=NodeType, default=NodeType.HOGQL, max_length=20)

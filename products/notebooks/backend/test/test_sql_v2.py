@@ -17,11 +17,12 @@ from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
+from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -35,13 +36,15 @@ from posthog.clickhouse.client.execute_async import QueryNotFoundError
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
+from posthog.uuidt import uuid7
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.notebooks.backend import sql_v2_concurrency
 from products.notebooks.backend.kernel_package import kernel_package_bytes_and_hash
-from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.sandbox.kernel import (
     auth as kernel_auth,
     envelope as kernel_envelope,
@@ -76,6 +79,7 @@ from products.notebooks.backend.sql_v2_direct import (
     notebook_direct_query_id,
     sync_direct_run,
 )
+from products.notebooks.backend.sql_v2_dispatch import NodeRunRequest, dispatch_node_run
 from products.notebooks.backend.sql_v2_runs import finish_node_run, touch_run_progress
 from products.notebooks.backend.temporal.sql_v2 import (
     SQLV2RunInput,
@@ -430,8 +434,8 @@ class TestSQLV2Run(APIBaseTest):
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbrun01")
         self.run_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/run/"
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_sql_run_takes_the_direct_lane_not_the_sandbox(self, _mock_enabled, mock_enqueue, mock_start):
         # A pure-SQL run must never require a sandbox: no Temporal workflow, no kernel.
@@ -456,8 +460,8 @@ class TestSQLV2Run(APIBaseTest):
         client = redis.get_client()
         client.zadd(key, {run_id: time.time() + sql_v2_concurrency._NOTEBOOK_SLOT_TTL_SECONDS - 7200})
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_one_run_at_a_time_per_notebook(self, _mock_enabled, _mock_enqueue, _mock_start):
         # The editor has always shown one run at a time per notebook, but that rule was kea
@@ -483,8 +487,8 @@ class TestSQLV2Run(APIBaseTest):
         third = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
         self.assertEqual(third.status_code, 200, third.content)
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_a_slot_left_behind_by_an_abandoned_run_does_not_block_the_notebook(
         self, _mock_enabled, _mock_enqueue, _mock_start
@@ -503,8 +507,8 @@ class TestSQLV2Run(APIBaseTest):
         second = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
         self.assertEqual(second.status_code, 200, second.content)
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_a_slot_taken_moments_ago_is_not_mistaken_for_a_leak(self, _mock_enabled, _mock_enqueue, _mock_start):
         # The race three reviewers found: the run row is written after the slot is taken, so a
@@ -556,8 +560,8 @@ class TestSQLV2Run(APIBaseTest):
         self.assertFalse(sql_v2_concurrency._evict_if_unchanged(limiter, key, "holder", observed_score))
         self.assertEqual(client.zrange(key, 0, -1), [b"holder"])
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_a_working_run_keeps_its_slot_from_expiring(self, _mock_enabled, _mock_enqueue, _mock_start):
         # No fixed TTL outlasts a working run: a python cell materializes one input per upstream
@@ -588,8 +592,8 @@ class TestSQLV2Run(APIBaseTest):
 
         self.assertEqual(client.zrange(team_key, 0, -1), [])
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_a_run_abandoned_in_running_stops_blocking_its_notebook(self, _mock_enabled, _mock_enqueue, _mock_start):
         # A direct (hogql) run only turns terminal when a client polls it, and nothing sweeps
@@ -608,8 +612,8 @@ class TestSQLV2Run(APIBaseTest):
         second = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
         self.assertEqual(second.status_code, 200, second.content)
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_a_busy_notebook_does_not_block_another_notebook(self, _mock_enabled, _mock_enqueue, _mock_start):
         # The ceiling is keyed per notebook, so one busy notebook must not stop the rest. If the
@@ -660,7 +664,7 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual(mock_status.call_args.kwargs["query_id"], notebook_direct_query_id(str(run.id)))
         self.assertNotEqual(mock_status.call_args.kwargs["query_id"], str(run.id))
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_sql_run_completes_direct_with_no_kernel(self, _mock_enabled, mock_start):
         # End to end through the real async query manager (inline in tests): run a SQL
@@ -686,7 +690,7 @@ class TestSQLV2Run(APIBaseTest):
         mock_start.assert_not_called()
         self.assertFalse(KernelRuntime.objects.filter(team=self.team).exists())
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_query_restricted_member_cannot_run(self, _mock_enabled, mock_start):
         # A notebook editor whose query access is denied must not execute HogQL through the node.
@@ -696,7 +700,7 @@ class TestSQLV2Run(APIBaseTest):
         mock_start.assert_not_called()
         self.assertFalse(NotebookNodeRun.objects.for_team(self.team.id).exists())
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_blank_code_is_rejected_before_dispatch(self, _mock_enabled, mock_start):
         # A stale-attribute FE bug once sent empty code all the way into the sandbox; fail fast here instead.
@@ -715,7 +719,7 @@ class TestSQLV2Run(APIBaseTest):
                 status=NotebookNodeRun.Status.DONE,
             )
 
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_run_inlines_referenced_nodes_last_run_query_as_ctes(self, _mock_enabled, mock_enqueue):
         # The direct lane executes run.code verbatim, so the stored query must already carry
@@ -737,7 +741,7 @@ class TestSQLV2Run(APIBaseTest):
         self.assertIn("df2 AS (SELECT id FROM persons)", run.code)
         mock_enqueue.assert_called_once()
 
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_run_uses_the_latest_done_run_of_a_referenced_node(self, _mock_enabled, _mock_enqueue):
         # An edited-then-rerun upstream: only its most recent run should be inlined.
@@ -761,7 +765,7 @@ class TestSQLV2Run(APIBaseTest):
             ("python_consumer", "python", "print(sql_df)", NotebookNodeRun.NodeType.PYTHON),
         ]
     )
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_ref_whose_latest_run_was_duckdb_reads_it_as_a_kernel_frame(
         self, _name, consumer_node_type, code, expected_node_type, _mock_enabled, mock_start
@@ -800,7 +804,7 @@ class TestSQLV2Run(APIBaseTest):
         dispatched = mock_start.call_args.args[0]
         self.assertEqual([(i["name"], i["kind"]) for i in dispatched.inputs], [("sql_df", "local")])
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_hogql_typo_with_refs_present_is_a_400_not_a_500(self, _mock_enabled, mock_start):
         # With refs present the user's code is parsed at dispatch, so a plain typo raises
@@ -814,7 +818,7 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         mock_start.assert_not_called()
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_run_rejects_referencing_a_never_run_node(self, _mock_enabled, mock_start):
         response = self.client.post(
@@ -826,7 +830,7 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual(NotebookNodeRun.objects.for_team(self.team.id).filter(node_id="c").count(), 0)
         mock_start.assert_not_called()
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_python_node_dispatches_with_materialization_inputs(self, _mock_enabled, mock_start):
         # A python node keeps its code verbatim and ships the frames it reads as materialization inputs.
@@ -851,7 +855,7 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual([i["name"] for i in dispatched.inputs], ["df1"])
         self.assertEqual(dispatched.inputs[0]["query"], "select id from events")
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_python_node_referencing_a_never_run_node_is_rejected(self, _mock_enabled, mock_start):
         response = self.client.post(
@@ -867,7 +871,7 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         mock_start.assert_not_called()
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_sql_node_referencing_a_local_frame_reroutes_to_duckdb(self, _mock_enabled, mock_start):
         # Journey 5: a local (Python-made) frame can't push to ClickHouse, so the join runs in
@@ -897,7 +901,7 @@ class TestSQLV2Run(APIBaseTest):
         )
 
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.enqueue_direct_run",
+        "products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run",
         side_effect=RuntimeError("redis unavailable"),
     )
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
@@ -920,12 +924,15 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
         # only ever reaches it through core's resolver, so stub that seam: what this suite owns is
         # whether notebooks calls it with the right arguments and honors its verdict. The
         # resolver's own RBAC behavior is covered by the direct-connection tests in core.
-        patcher = patch(
+        # Dispatch resolves the source, and so does the run-result read, from two modules.
+        self.mock_resolve_source = MagicMock(return_value=SimpleNamespace(id=self.source_id))
+        for target in (
+            "products.notebooks.backend.sql_v2_dispatch.get_direct_connection_source",
             "products.notebooks.backend.presentation.views.notebook.get_direct_connection_source",
-            return_value=SimpleNamespace(id=self.source_id),
-        )
-        self.mock_resolve_source = patcher.start()
-        self.addCleanup(patcher.stop)
+        ):
+            patcher = patch(target, new=self.mock_resolve_source)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _post(self, **data: Any):
         return self.client.post(self.run_url, data={"node_id": "n1", **data}, format="json")
@@ -976,7 +983,7 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
         self.assertEqual(resolve_kwargs["user"], self.user)
         self.assertTrue(resolve_kwargs["require_pure_direct"])
 
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     def test_unknown_connection_fails_the_dispatch(self, mock_enqueue, _mock_enabled):
         # Fail here rather than stranding a run that can only report an opaque error later.
         self.mock_resolve_source.return_value = None
@@ -992,7 +999,7 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
             ("posthog_cell_reading_a_connection_cell", False),
         ]
     )
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     def test_cross_engine_reference_is_rejected(self, _name, run_on_connection, mock_enqueue, _mock_enabled):
         # Both directions: a cell's stored SQL only means anything on the engine that ran it, so
         # inlining it as a CTE elsewhere would silently ship the wrong query.
@@ -1008,7 +1015,7 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
         self.assertIn("last ran on a different connection", response.json()["detail"])
         mock_enqueue.assert_not_called()
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     def test_python_reading_a_connection_cell_says_what_to_do(self, mock_start, _mock_enabled):
         # A Python cell materializes upstream results through the data plane, which only reaches
         # PostHog — so it must say that, not tell the user to move a Python cell onto a warehouse.
@@ -1083,8 +1090,8 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
         self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
 
     @parameterized.expand([("python_frame", False), ("duckdb_node_frame", True)])
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     def test_a_local_frame_never_reroutes_a_connection_run_to_the_sandbox(
         self, _name, from_duckdb_run, mock_enqueue, mock_start, _mock_enabled
     ):
@@ -3109,7 +3116,7 @@ class TestSQLV2RunWithNotebookVariables(APIBaseTest):
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbvars01")
         self.run_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/run/"
 
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_a_sql_run_stores_the_query_with_its_variables_bound(self, _mock_enabled, _mock_enqueue):
         # The stored code is what the direct lane executes and what paging re-queries, so an
@@ -3129,7 +3136,7 @@ class TestSQLV2RunWithNotebookVariables(APIBaseTest):
         self.assertNotIn("{country}", run.code)
 
     @parameterized.expand([("relative", "-7d"), ("relative_boundary", "mStart"), ("not_a_date", "yesterday")])
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_a_date_variable_must_be_an_absolute_date(self, _name, value, _mock_enabled, mock_enqueue):
         # The editor's picker only writes absolute dates, and a relative one would re-resolve
@@ -3147,7 +3154,7 @@ class TestSQLV2RunWithNotebookVariables(APIBaseTest):
         self.assertIn("absolute date", str(response.json()))
         mock_enqueue.assert_not_called()
 
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_reading_an_undeclared_variable_is_a_400(self, _mock_enabled, mock_enqueue):
         response = self.client.post(
@@ -3159,7 +3166,7 @@ class TestSQLV2RunWithNotebookVariables(APIBaseTest):
         self.assertIn("not a notebook variable", response.json()["detail"])
         mock_enqueue.assert_not_called()
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_a_python_run_carries_the_variables_to_the_kernel_unsubstituted(self, _mock_enabled, mock_start):
         # Python reads them as globals, so the code must reach the kernel untouched with the
@@ -3183,7 +3190,7 @@ class TestSQLV2RunWithNotebookVariables(APIBaseTest):
         self.assertEqual(run.code, code)
         self.assertEqual(mock_start.call_args.args[0].variables, {"country": "US", "days": 30})
 
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_a_run_without_variables_is_unchanged(self, _mock_enabled, _mock_enqueue):
         response = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
@@ -3191,9 +3198,9 @@ class TestSQLV2RunWithNotebookVariables(APIBaseTest):
         run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
         self.assertEqual(run.code, "select 1")
 
-    @patch("products.notebooks.backend.presentation.views.notebook.get_direct_connection_source")
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.sql_v2_dispatch.get_direct_connection_source")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_a_raw_connection_query_refuses_variables(
         self, _mock_enabled, mock_enqueue, mock_start, mock_source
@@ -3216,3 +3223,73 @@ class TestSQLV2RunWithNotebookVariables(APIBaseTest):
         self.assertIn("raw query", response.json()["detail"])
         mock_enqueue.assert_not_called()
         mock_start.assert_not_called()
+
+
+class TestNotebookRunUniqueness(APIBaseTest):
+    def test_a_second_running_row_for_one_notebook_is_refused(self) -> None:
+        # The partial unique constraint is what stops two orchestrators driving the same
+        # notebook at once, so a dropped condition must fail here rather than in production.
+        notebook = Notebook.objects.create(team=self.team, short_id="nbrun01")
+        with team_scope(self.team.id):
+            NotebookRun.objects.create(team=self.team, notebook=notebook, trigger=NotebookRun.Trigger.UI)
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                NotebookRun.objects.create(team=self.team, notebook=notebook, trigger=NotebookRun.Trigger.MCP)
+
+    def test_a_finished_run_leaves_room_for_the_next_one(self) -> None:
+        notebook = Notebook.objects.create(team=self.team, short_id="nbrun02")
+        with team_scope(self.team.id):
+            first = NotebookRun.objects.create(team=self.team, notebook=notebook, trigger=NotebookRun.Trigger.UI)
+            first.status = NotebookRun.Status.DONE
+            first.save(update_fields=["status"])
+            NotebookRun.objects.create(team=self.team, notebook=notebook, trigger=NotebookRun.Trigger.UI)
+
+
+class TestDispatchNodeRunDirectly(APIBaseTest):
+    """`dispatch_node_run` is the seam the whole-notebook orchestrator calls, so these cover
+    the two parts of its contract no HTTP request can reach: the view always pairs a notebook
+    with its own team, and never sets `notebook_run_id`."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbdisp01")
+
+    def _request(self, **overrides: Any) -> NodeRunRequest:
+        return NodeRunRequest(
+            node_id="n1",
+            node_type="hogql",
+            code="select 1",
+            output_name="df",
+            refs={},
+            variables=[],
+            **overrides,
+        )
+
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
+    def test_the_notebook_run_link_reaches_the_row(self, _mock_enqueue: MagicMock) -> None:
+        # The status endpoint joins on this column, and only the orchestrator ever sets it.
+        notebook_run_id = uuid7()
+        with team_scope(self.team.id):
+            NotebookRun.objects.create(
+                id=notebook_run_id, team=self.team, notebook=self.notebook, trigger=NotebookRun.Trigger.UI
+            )
+
+        with team_scope(self.team.id):
+            dispatch = dispatch_node_run(
+                self.notebook, self.user, self.team, self._request(notebook_run_id=notebook_run_id)
+            )
+
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=dispatch.run_id)
+        self.assertEqual(run.notebook_run_id, notebook_run_id)
+
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
+    def test_a_notebook_from_another_team_is_refused(self, mock_enqueue: MagicMock) -> None:
+        # The row stores team and notebook as separate columns, so a caller that paired them
+        # wrong would file a run under one tenant against another tenant's notebook.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        stranger = Notebook.objects.create(team=other_team, short_id="nbdisp02")
+
+        with self.assertRaises(ValueError), team_scope(self.team.id):
+            dispatch_node_run(stranger, self.user, self.team, self._request())
+
+        mock_enqueue.assert_not_called()
+        self.assertFalse(NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=stranger).exists())
