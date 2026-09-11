@@ -114,8 +114,11 @@ export function applyTemplate(
 
 const METRIC_CARD_TEMPLATE_NAME = 'Website Metrics'
 
+// A global scope alone does not identify the built-in: staff can promote a project template, which keeps its team_id.
 function isMetricTemplate(template: DashboardTemplateType): boolean {
-    return template.scope === 'global' && template.template_name === METRIC_CARD_TEMPLATE_NAME
+    return (
+        template.scope === 'global' && template.team_id == null && template.template_name === METRIC_CARD_TEMPLATE_NAME
+    )
 }
 
 export function applyMetricTemplateVariant(
