@@ -172,8 +172,8 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
     let hasEnoughData: boolean
 
     if (metricType === InsightType.TRENDS) {
-        const controlVariant = result.variants.find((v: any) => v.key === 'control')
-        const variantData = result.variants.find((v: any) => v.key === variant.key)
+        const controlVariant = result.variants?.find((v: any) => v.key === 'control')
+        const variantData = result.variants?.find((v: any) => v.key === variant.key)
 
         if (
             !variantData?.count ||
@@ -186,7 +186,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
             hasEnoughData = hasEnoughDataForResults(variantData.absolute_exposure, variantData.count)
         }
     } else {
-        const variantData = result.variants.find((v: any) => v.key === variant.key)
+        const variantData = result.variants?.find((v: any) => v.key === variant.key)
         if (!variantData) {
             hasEnoughData = false
         } else {
