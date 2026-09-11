@@ -69,15 +69,18 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["pipeline", "status", "finished_at"],
                 name="idx_extdatajob_pipe_stat_fin",
             ),
-            # Serves the per-organization billing sum (`_rows_synced_in_billing_period`):
-            # equality on team/status/billable, then the finished_at range. The range column
-            # comes last so that every equality column bounds the scan, because a B-tree stops
-            # using columns as scan boundaries after the first range column. Without this index
-            # the team/pipeline index cannot skip past `pipeline`, so the read walks every job
-            # the organization's teams ever synced.
+            # Serves the per-organization billing sum (`_rows_synced_in_billing_period`): the
+            # team plus a finished_at range, over the completed billable jobs that query reads.
+            # `status` and `billable` sit in the predicate rather than the key, so a Running or
+            # Failed job never takes an entry, and the terminal transition adds one entry
+            # instead of replacing one. The predicate repeats the `ExternalDataJobStatus` value
+            # as a literal because Postgres stores it, so a change to that value needs a new
+            # index. Without this index the team/pipeline index cannot skip past `pipeline`, so
+            # the read walks every job the organization's teams ever synced.
             models.Index(
-                fields=["team", "status", "billable", "finished_at"],
+                fields=["team", "finished_at"],
                 name="idx_extdatajob_team_stat_fin",
+                condition=models.Q(status="Completed", billable=True),
             ),
         ]
 
