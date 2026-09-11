@@ -1,7 +1,7 @@
 import { decodeJwt } from 'jose'
 
 import { type Region, regionForBaseUrl } from './constants'
-import { type SigningKeyEnv, reissueIdToken } from './idtoken'
+import { IdTokenReissueError, type SigningKeyEnv, reissueIdToken } from './idtoken'
 
 /** Replace the regional ID token in a token response with one this proxy issued. */
 export async function reissueIdTokenInResponse(
@@ -43,7 +43,6 @@ export async function reissueIdTokenInResponse(
             audience: options.audience,
             env: options.env,
         })
-        console.info(JSON.stringify({ handler: 'token', id_token: 'reissued', region }))
         return rebuildResponse(response, JSON.stringify({ ...payload, id_token: reissued }))
     } catch (error) {
         // Serving the regional token instead would quietly restore the issuer mismatch.
@@ -52,7 +51,7 @@ export async function reissueIdTokenInResponse(
                 handler: 'token',
                 id_token: 'reissue_failed',
                 region,
-                error: error instanceof Error ? error.message : 'unknown error',
+                error: error instanceof IdTokenReissueError ? error.message : (error as Error)?.constructor?.name,
             })
         )
         return serverError('Unable to issue an ID token')

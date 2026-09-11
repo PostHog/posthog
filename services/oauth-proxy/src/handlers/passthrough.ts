@@ -105,14 +105,16 @@ export async function handleJwks(request: Request, _kv: KVNamespace, env: Signin
 async function regionalKeys(request: Request, region: Region): Promise<unknown[]> {
     try {
         const response = await proxyToRegion(request, region, '/.well-known/jwks.json')
-        if (!response.ok) {
-            return []
+        if (response.ok) {
+            const body = (await response.json()) as { keys?: unknown[] }
+            return body.keys ?? []
         }
-        const body = (await response.json()) as { keys?: unknown[] }
-        return body.keys ?? []
+        console.error(JSON.stringify({ handler: 'jwks', region, status: response.status }))
     } catch {
-        return []
+        console.error(JSON.stringify({ handler: 'jwks', region, error: 'unreachable' }))
     }
+
+    return []
 }
 
 function dedupeByKid(keys: unknown[]): unknown[] {

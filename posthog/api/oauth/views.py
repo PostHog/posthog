@@ -2433,7 +2433,6 @@ class _PublicMetadataView(APIView):
 
     def document(self, metadata: dict) -> JsonResponse:
         response = JsonResponse(metadata)
-        # A browser-based client reads discovery cross-origin before it holds any credential.
         response["Access-Control-Allow-Origin"] = "*"
         return response
 
