@@ -107,18 +107,10 @@ function getTaggerProviderKeyIssue(tagger: Tagger, providerKeys: LLMProviderKey[
 
 function AIObservabilityTagsContent(): JSX.Element {
     const taggersLogic = llmTaggersLogic()
-    const {
-        filteredTaggers,
-        taggersLoading,
-        taggersFilter,
-        dateFilter,
-        runStatsMap,
-        tagDistributionMap,
-        seedingDefaults,
-    } = useValues(taggersLogic)
+    const { filteredTaggers, taggersLoading, taggersFilter, dateFilter, runStatsMap, tagDistributionMap } =
+        useValues(taggersLogic)
     const { providerKeys } = useValues(llmProviderKeysLogic)
-    const { setTaggersFilter, toggleTaggerEnabled, loadTaggers, setDates, seedDefaultTaggers } =
-        useActions(taggersLogic)
+    const { setTaggersFilter, toggleTaggerEnabled, loadTaggers, setDates } = useActions(taggersLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
@@ -318,26 +310,7 @@ function AIObservabilityTagsContent(): JSX.Element {
                     pageSize: 50,
                 }}
                 nouns={['tagger', 'taggers']}
-                emptyState={
-                    <div className="text-center p-8 text-muted flex flex-col items-center gap-2">
-                        <span>No taggers found.</span>
-                        {!taggersFilter && (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Tagger}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={seedDefaultTaggers}
-                                    loading={seedingDefaults}
-                                    data-attr="seed-default-taggers-button"
-                                >
-                                    Add the default taggers
-                                </LemonButton>
-                            </AccessControlAction>
-                        )}
-                    </div>
-                }
+                emptyState={<div className="text-center p-8 text-muted">No taggers found.</div>}
             />
         </div>
     )
