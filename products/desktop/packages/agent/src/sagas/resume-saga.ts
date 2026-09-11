@@ -336,9 +336,10 @@ function isEmptyRecord(value: unknown): boolean {
  * carries the id and the payloads on the update itself, and every adapter
  * emits them there; `_meta.claudeCode` only reliably carries `toolName` (and
  * sometimes `toolResponse`), so it is a per-field fallback for older logs
- * rather than an alternative source. Codex and pi name their calls on
- * `_meta.posthog`, and a plain shell call carries no meta at all, leaving
- * `title` as the only name.
+ * rather than an alternative source. Codex names its calls on `_meta.posthog`,
+ * and a plain shell call carries no meta at all, leaving `title` as the only
+ * name. Pi never arrives here: it persists its own `pi_event` entries, and
+ * `rebuildConversation` reads only `session/update` notifications.
  */
 function readToolCall(update: Record<string, unknown>): PartialToolCall {
   const meta = update._meta as Record<string, unknown> | undefined;
