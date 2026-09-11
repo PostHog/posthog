@@ -110,6 +110,8 @@ Every recurring coordinator defines and tests these values:
 | `retry_policy`                    | Bounded retries that cannot occupy the full worker pool                |
 | `freshness_objective`             | Maximum acceptable oldest-due age                                      |
 
+`max_concurrent_pages_per_parent` scopes page concurrency within a single coordinator run. It is 1 for fire-and-forget coordinators, which serialize pages through continue-as-new, and exceeds 1 only for result-aggregating coordinators that keep `execute_child_workflow`, such as the Error Tracking weekly digest. Aggregate downstream load across overlapping runs is bounded by the durable item permits (`max_in_flight_items` and `max_in_flight_per_tenant`), not by a page count.
+
 Each coordinator must also answer:
 
 1. How does it fairly select work across teams or organisations?
@@ -221,8 +223,6 @@ Retries for one logical occurrence stay inside the original workflow execution a
 A coordinator attempts the remainder of its bounded page after one child fails to start. It reports all start failures after the page has been processed.
 
 Workflows that must aggregate child results keep `execute_child_workflow`, but enforce both page-level and item-level concurrency limits.
-
-`max_concurrent_pages_per_parent` is workflow-local. Durable item permits are the aggregate bound across overlapping parents, so coordinators do not acquire a second global page permit for the same downstream work.
 
 ## Adaptive capacity
 
