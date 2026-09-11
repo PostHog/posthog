@@ -68,8 +68,7 @@ const ROOTS = [
         label: 'logged-out boot: index + App + bootApp (preloaded by every page, including /login)',
         // The backend preloads the App closure for logged-out pages too (preload-manifest.json
         // `js`), so this is the whole JS cost of /login. 2026-09-11: 3.51 MiB eager output = 2.14 MiB
-        // JS (608 files) + the 1.36 MiB linked stylesheet, after taking the tool cards and the taxonomy
-        // JSON off the boot path.
+        // JS (608 files) + the 1.36 MiB linked stylesheet.
         // ~15% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
         budgetBytes: 4_225_000,
         forbidden: [
@@ -78,9 +77,8 @@ const ROOTS = [
             // logged-out pages render has grown a static import into the logged-in app.
             'src/layout/navigation-3000/navigationLogic.tsx',
             'src/scenes/dashboard/dashboardLogic.tsx',
-            // Nothing a logged-out page renders shows markdown, rich text or a code block. A hit means a
-            // tool declaration list or a shared logic has grown a static import into a card component;
-            // keep declaration lists on type-only `api/tools` imports and lazy renderers instead.
+            // Nothing a logged-out page renders shows markdown, rich text or a code block; a hit means a
+            // PostHog AI tool card component became a static import.
             'src/lib/lemon-ui/LemonMarkdown/',
             'src/lib/components/RichContentEditor/',
             'src/lib/components/CodeSnippet/',
@@ -267,11 +265,8 @@ function eagerChunkClosure(entry) {
     return seen
 }
 
-// The page links exactly one stylesheet: the one esbuild emits for the src/index.tsx entry (see
-// writePreloadManifest in build.mjs). esbuild also attaches a `cssBundle` to every other chunk that
-// imports styles, but nothing ever requests those files, and the app only renders correctly because
-// the linked sheet already carries their rules. Counting them would charge a root for bytes the
-// browser never downloads, so only the linked sheet is an eager stylesheet.
+// The page links only the src/index.tsx entry's stylesheet (writePreloadManifest in build.mjs). esbuild
+// gives other chunks a `cssBundle` too, but the browser never downloads those files.
 const linkedStylesheet = outputs[entryChunk('src/index.tsx')]?.cssBundle
 
 const summaryLines = ['## Eager graph check', '', '| Root | Eager size | Budget | Files |', '| --- | --- | --- | --- |']
@@ -335,10 +330,7 @@ for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
             }
         }
     }
-    // esbuild attaches a chunk's stylesheet via `cssBundle`, not an `imports` edge, so the chunk walk
-    // never reaches it — but every page links the sheet, so it is downloaded before any root renders.
-    // Without this, adding a large eager .scss moves real bytes onto the critical path while the
-    // metric stays flat.
+    // `cssBundle` is not an `imports` edge, so the chunk walk never reaches the sheet every page links.
     if (linkedStylesheet) {
         totalBytes += outputs[linkedStylesheet].bytes
     }
