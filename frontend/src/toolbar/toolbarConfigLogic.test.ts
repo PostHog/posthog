@@ -232,6 +232,18 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.uiHost).toBe('http://localhost:8000')
         })
+
+        it.each([
+            [{ uiHost: 'https://us.posthog.com' }, 'toolbar_props'],
+            [{ posthog: { requestRouter: { uiHost: 'https://us.posthog.com' }, config: {} } }, 'request_router'],
+            [{ posthog: { config: { ui_host: 'https://us.posthog.com' } } }, 'posthog_config'],
+            [{ apiURL: 'https://selfhosted.example.com' }, 'api_url'],
+            [{}, 'window_origin'],
+        ])('labels where the host came from: %s', (props, expectedSource) => {
+            const logic = toolbarConfigLogic.build(props as any)
+            logic.mount()
+            expect(logic.values.uiHostResolution.source).toBe(expectedSource)
+        })
     })
 
     describe('authenticate confirm modal gating', () => {

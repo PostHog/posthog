@@ -25,15 +25,15 @@ Fired once when the toolbar finishes initialization.
 
 Fired after the CORS reachability check to the PostHog app.
 
-| Property           | Type              | Description                                                          |
-| ------------------ | ----------------- | -------------------------------------------------------------------- |
-| `ui_host`          | `string`          | Host being checked                                                   |
-| `api_host`         | `string`          | API host for reference                                               |
-| `ui_host_source`   | `string`          | How the UI host was resolved                                         |
-| `is_authenticated` | `boolean`         | Auth state at time of check                                          |
-| `status`           | `'ok' \| 'error'` | Check result                                                         |
-| `error_type`       | `string`          | Only on error: `timeout`, `network_or_cors`, `http_error`, `unknown` |
-| `duration_ms`      | `number`          | Time taken for the check                                             |
+| Property           | Type              | Description                                                                                                                                      |
+| ------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ui_host`          | `string`          | Host being checked                                                                                                                               |
+| `api_host`         | `string`          | API host for reference                                                                                                                           |
+| `ui_host_source`   | `string`          | How the UI host was resolved: `toolbar_props`, `request_router`, `posthog_config`, `api_url`, or `window_origin` (nothing named the PostHog app) |
+| `is_authenticated` | `boolean`         | Auth state at time of check                                                                                                                      |
+| `status`           | `'ok' \| 'error'` | Check result                                                                                                                                     |
+| `error_type`       | `string`          | Only on error: `timeout`, `network_or_cors`, `http_error`, `unknown`                                                                             |
+| `duration_ms`      | `number`          | Time taken for the check                                                                                                                         |
 
 **File:** `toolbarConfigLogic.ts`
 
@@ -91,9 +91,10 @@ No properties.
 
 Fired when the UI host configuration modal is shown (auth error state).
 
-| Property  | Type     | Description           |
-| --------- | -------- | --------------------- |
-| `ui_host` | `string` | Current UI host value |
+| Property         | Type     | Description                                                           |
+| ---------------- | -------- | --------------------------------------------------------------------- |
+| `ui_host`        | `string` | Current UI host value                                                 |
+| `ui_host_source` | `string` | How the UI host was resolved (same values as `toolbar ui host check`) |
 
 **File:** `toolbarConfigLogic.ts`
 

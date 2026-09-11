@@ -31,6 +31,7 @@ import {
 } from './utils'
 
 export type ApiHostSource = 'posthog_api_host' | 'api_url' | 'fallback_rejected' | 'fallback_absent'
+export type UiHostSource = 'toolbar_props' | 'request_router' | 'posthog_config' | 'api_url' | 'window_origin'
 
 const VALID_USER_INTENTS: ReadonlySet<ToolbarUserIntent> = new Set(TOOLBAR_USER_INTENTS)
 
@@ -63,6 +64,10 @@ export interface toolbarConfigLogicValues {
     toolbarFlagsKey: string | undefined
     uiHost: string
     uiHostConfigModalVisible: boolean
+    uiHostResolution: {
+        host: string
+        source: UiHostSource
+    }
     userIntent: ToolbarUserIntent | null
 }
 
@@ -122,7 +127,11 @@ export interface toolbarConfigLogicActions {
 export interface toolbarConfigLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         posthog: (props: ToolbarProps) => PostHog | null
-        uiHost: (props: ToolbarProps) => string
+        uiHostResolution: (props: ToolbarProps) => {
+            host: string
+            source: UiHostSource
+        }
+        uiHost: (uiHostResolution: { host: string; source: UiHostSource }) => string
         apiHostResolution: (props: ToolbarProps) => {
             host: string
             source: ApiHostSource
@@ -221,12 +230,17 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         // returns the canonical `origin` (lowercased hostname, no trailing slash, no
         // path/query/hash). This keeps every downstream comparison and display string
         // byte-for-byte consistent regardless of which branch resolved.
-        uiHost: [
+        //
+        // uiHostResolution carries the value plus a `source` label. Only the
+        // `window_origin` source is a guess: it means nothing named the PostHog app,
+        // so the value is the page the toolbar runs on. User-facing troubleshooting
+        // copy must not present a guess as the configured host.
+        uiHostResolution: [
             (s) => [s.props],
-            (props: ToolbarProps): string => {
+            (props: ToolbarProps): { host: string; source: UiHostSource } => {
                 const propsUiHost = canonicalizeUiHost(props.uiHost)
                 if (propsUiHost) {
-                    return propsUiHost
+                    return { host: propsUiHost, source: 'toolbar_props' }
                 }
                 if (props.uiHost) {
                     toolbarLogger.warn('config', 'Invalid uiHost URL provided', { uiHost: props.uiHost })
@@ -238,20 +252,26 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                     (props.posthog as any)?.requestRouter?.uiHost as string | undefined
                 )
                 if (fromRouter) {
-                    return fromRouter
+                    return { host: fromRouter, source: 'request_router' }
                 }
 
                 // Fallback for old posthog-js without requestRouter.
                 const fromConfig = canonicalizeUiHost(props.posthog?.config?.ui_host)
                 if (fromConfig) {
-                    return fromConfig
+                    return { host: fromConfig, source: 'posthog_config' }
                 }
                 const fromApi = canonicalizeUiHost(props.apiURL)
                 if (fromApi) {
-                    return fromApi
+                    return { host: fromApi, source: 'api_url' }
                 }
-                return window.location.origin
+                // An opaque origin (sandboxed iframe, `data:` document) stringifies to the
+                // literal "null", so canonicalize the origin too and keep it out of the UI.
+                return { host: canonicalizeUiHost(window.location.origin) ?? '', source: 'window_origin' }
             },
+        ],
+        uiHost: [
+            (s) => [s.uiHostResolution],
+            (resolution: { host: string; source: UiHostSource }): string => resolution.host,
         ],
         // Host for static assets (the toolbar CSS `<link href>`) and for the
         // `api_host` property emitted on toolbar telemetry. NEVER use for
@@ -313,7 +333,10 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
             // If the uiHost check found a problem, open the config modal instead of proceeding.
             if (values.authStatus === 'error') {
-                toolbarPosthogJS.capture('toolbar ui host config modal opened', { ui_host: values.uiHost })
+                toolbarPosthogJS.capture('toolbar ui host config modal opened', {
+                    ui_host: values.uiHost,
+                    ui_host_source: values.uiHostResolution.source,
+                })
                 actions.openUiHostConfigModal()
                 return
             }
@@ -338,7 +361,10 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             // reachability check may have flipped to 'error' while the user read the
             // dialog, and we must not redirect to an unreachable host.
             if (values.authStatus === 'error') {
-                toolbarPosthogJS.capture('toolbar ui host config modal opened', { ui_host: values.uiHost })
+                toolbarPosthogJS.capture('toolbar ui host config modal opened', {
+                    ui_host: values.uiHost,
+                    ui_host_source: values.uiHostResolution.source,
+                })
                 actions.openUiHostConfigModal()
                 return
             }
@@ -480,7 +506,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         if (values.isAuthenticated && !authParams) {
             return
         }
-        verifyUiHostReachability(props, values, actions, authParams)
+        verifyUiHostReachability(values, actions, authParams)
     }),
 
     beforeUnmount(({ cache }) => {
@@ -744,25 +770,21 @@ function classifyFetchError(error: unknown): string {
  * (or shows the config modal on failure).
  */
 function verifyUiHostReachability(
-    props: ToolbarProps,
-    values: { uiHost: string; apiHost: string; isAuthenticated: boolean },
+    values: {
+        uiHost: string
+        uiHostResolution: { host: string; source: UiHostSource }
+        apiHost: string
+        isAuthenticated: boolean
+    },
     actions: CheckActions,
     authParams: { code: string; clientId: string } | null
 ): void {
     actions.setAuthStatus('checking')
 
-    const uiHostSource = (props.posthog as any)?.requestRouter?.uiHost
-        ? 'request_router'
-        : props.posthog?.config?.ui_host
-          ? 'posthog_config'
-          : props.posthog?.config?.api_host
-            ? 'posthog_api_host'
-            : 'window_origin'
-
     const checkBaseProps = {
         ui_host: values.uiHost,
         api_host: values.apiHost,
-        ui_host_source: uiHostSource,
+        ui_host_source: values.uiHostResolution.source,
         is_authenticated: values.isAuthenticated,
     }
 
