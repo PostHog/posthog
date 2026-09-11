@@ -45,6 +45,7 @@ import type { SubscriptionResourceType, UserBasicType } from '../../../../../fro
 import type { AIPromptConfigApi } from '../../generated/api.schemas'
 import type { SubscriptionAIWindowModeEnumApi } from '../../generated/api.schemas'
 import type { DeliveryConfigApi } from '../../generated/api.schemas'
+import type { AIQueryPlanStatusEnumApi } from '../../generated/api.schemas'
 import { newSubscriptionTargetLogic } from '../../scenes/newSubscriptionTargetLogic'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import { SUBSCRIPTION_PREFILL_PARAMS } from './subscriptionNudge'
@@ -348,6 +349,7 @@ export interface subscriptionLogicActions {
     loadSubscriptionSuccess: (
         subscription: {
             ai_prompt_config?: AIPromptConfigApi | null | undefined
+            ai_query_plan_status: AIQueryPlanStatusEnumApi | null
             bysetpos: number | null
             byweekday: WeekdayType[] | null
             contexts: SubscriptionContextApi[]
@@ -384,6 +386,7 @@ export interface subscriptionLogicActions {
     ) => {
         subscription: {
             ai_prompt_config?: AIPromptConfigApi | null | undefined
+            ai_query_plan_status: AIQueryPlanStatusEnumApi | null
             bysetpos: number | null
             byweekday: WeekdayType[] | null
             contexts: SubscriptionContextApi[]
