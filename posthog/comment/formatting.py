@@ -147,6 +147,23 @@ def _slack_emoji_name_to_char(name: str) -> str | None:
         return None
 
 
+# A message built from these blocks carries only a short notification summary in its `text`
+# field, so ignoring the blocks leaves the summary as the whole message.
+_SLACK_TEXT_CARRYING_BLOCK_TYPES = frozenset({"section", "header", "context"})
+
+
+def _slack_block_text_objects(block: JSON) -> list[JSON]:
+    """The text objects a Block Kit block holds, in the order Slack renders them."""
+    candidates = [block.get("text"), *(block.get("fields") or []), *(block.get("elements") or [])]
+    return [
+        candidate for candidate in candidates if isinstance(candidate, dict) and isinstance(candidate.get("text"), str)
+    ]
+
+
+def _is_slack_mrkdwn_text_object(text_object: JSON) -> bool:
+    return text_object.get("type") != "plain_text"
+
+
 def _collect_user_ids(elements: list[JSON], ids: set[str]) -> None:
     for element in elements:
         if element.get("type") == "user":
@@ -167,9 +184,15 @@ def extract_slack_user_ids(text: str, blocks: list[JSON] | None = None) -> set[s
 
     if blocks:
         for block in blocks:
-            if block.get("type") != "rich_text":
-                continue
-            _collect_user_ids(block.get("elements", []), ids)
+            block_type = block.get("type")
+            if block_type == "rich_text":
+                _collect_user_ids(block.get("elements", []), ids)
+            elif block_type in _SLACK_TEXT_CARRYING_BLOCK_TYPES:
+                # Slack renders a `<@U…>` token in a `plain_text` object literally, so resolving
+                # one would cost a user lookup that nothing goes on to use.
+                for text_object in _slack_block_text_objects(block):
+                    if _is_slack_mrkdwn_text_object(text_object):
+                        ids.update(_RE_SLACK_USER_MENTION.findall(text_object["text"]))
 
     return ids
 
@@ -822,6 +845,56 @@ def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool
     return [{"type": "rich_text", "elements": rich_text_elements}]
 
 
+def _slack_text_object_to_markdown(text_object: JSON, user_names: dict[str, str] | None) -> str:
+    raw = text_object["text"]
+    # Slack renders `plain_text` literally, so markdown syntax inside it is content and has to
+    # be escaped to survive as written.
+    markdown = (
+        slack_mrkdwn_to_content(raw, user_names) if _is_slack_mrkdwn_text_object(text_object) else _escape_markdown(raw)
+    )
+    # Strip here rather than at the caller, because a `header` body gets wrapped in `**` and the
+    # whitespace then sits inside the wrap where a later strip cannot reach it.
+    return _normalize_single_newlines_to_markdown(markdown).strip()
+
+
+def _slack_text_carrying_block_to_markdown(block: JSON, user_names: dict[str, str] | None) -> str:
+    parts = [_slack_text_object_to_markdown(obj, user_names) for obj in _slack_block_text_objects(block)]
+    body = "\n\n".join(part for part in parts if part)
+    if not body:
+        return ""
+    # Our rich content vocabulary has no heading node, so bold carries a header's emphasis.
+    return f"**{body}**" if block.get("type") == "header" else body
+
+
+def _slack_blocks_to_markdown(blocks: list[JSON] | None, user_names: dict[str, str] | None) -> tuple[str, bool]:
+    """Render a whole Block Kit message as markdown, with whether any block produced text.
+
+    The caller needs that second value because holding a text-carrying block does not mean a
+    message has Block Kit text: an image-only `context` block is valid Block Kit, and a message
+    that adds one to its rich_text has to keep the rich_text path.
+
+    An `image` block produces nothing because its URL comes from the sender and has to go
+    through the file rehosting path before anything renders it.
+    """
+    parts: list[str] = []
+    block_kit_text_rendered = False
+
+    for block in blocks or []:
+        block_type = block.get("type")
+        if block_type == "rich_text":
+            block_rich_content = slack_blocks_to_rich_content([block], user_names)
+            part = rich_content_to_markdown(block_rich_content) if block_rich_content else ""
+        elif block_type in _SLACK_TEXT_CARRYING_BLOCK_TYPES:
+            part = _slack_text_carrying_block_to_markdown(block, user_names)
+            block_kit_text_rendered = block_kit_text_rendered or bool(part)
+        else:
+            part = ""
+        if part:
+            parts.append(part)
+
+    return "\n\n".join(parts), block_kit_text_rendered
+
+
 def slack_to_content_and_rich_content(
     text: str, blocks: list[JSON] | None = None, user_names: dict[str, str] | None = None
 ) -> tuple[str, JSON | None]:
@@ -830,8 +903,16 @@ def slack_to_content_and_rich_content(
 
     Priority:
     1. Slack rich_text blocks (for style fidelity including underline and nested marks)
-    2. text/mrkdwn fallback
+    2. Block Kit text blocks, rendered as markdown
+    3. text/mrkdwn fallback
     """
+    # A mixed message goes through the markdown walk whole. rich_content cannot hold the Block
+    # Kit part, so a reader that prefers rich_content would hide everything except the rich_text.
+    if any(block.get("type") in _SLACK_TEXT_CARRYING_BLOCK_TYPES for block in blocks or []):
+        block_markdown, block_kit_text_rendered = _slack_blocks_to_markdown(blocks, user_names)
+        if block_kit_text_rendered:
+            return block_markdown, None
+
     parsed_rich_content = slack_blocks_to_rich_content(blocks, user_names)
     if parsed_rich_content:
         markdown_content = rich_content_to_markdown(parsed_rich_content)
