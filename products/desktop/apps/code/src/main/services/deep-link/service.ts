@@ -78,15 +78,13 @@ export class DeepLinkService implements IDeepLinkRegistry {
    * in production only, legacy twig:// and array:// protocols.
    */
   public handleUrl(url: string): boolean {
-    log.info("Received deep link:", url);
-
     const primary = getDeeplinkProtocol(isDevBuild());
     const isPrimaryProtocol = url.startsWith(`${primary}://`);
     const isLegacyProtocol =
       !isDevBuild() && LEGACY_PROTOCOLS.some((p) => url.startsWith(`${p}://`));
 
     if (!isPrimaryProtocol && !isLegacyProtocol) {
-      log.warn("URL does not match protocol:", url);
+      log.warn("URL does not match a registered deep link protocol");
       return false;
     }
 
@@ -97,25 +95,28 @@ export class DeepLinkService implements IDeepLinkRegistry {
       const mainKey = parsedUrl.hostname;
 
       if (!mainKey) {
-        log.warn("Deep link has no main key:", url);
+        log.warn("Deep link has no main key");
         return false;
       }
 
       const handler = this.handlers.get(mainKey);
       if (!handler) {
-        log.warn("No handler registered for deep link key:", mainKey);
+        log.warn("No handler registered for deep link key");
         return false;
       }
+
+      log.info("Received deep link", {
+        protocol: parsedUrl.protocol,
+        mainKey,
+      });
 
       // Extract path segments after the main key (strip leading slash)
       const pathSegments = parsedUrl.pathname.slice(1);
 
-      log.info(
-        `Routing deep link to '${mainKey}' handler with path: ${pathSegments || "(empty)"}`,
-      );
+      log.info(`Routing deep link to '${mainKey}' handler`);
       return handler(pathSegments, parsedUrl.searchParams);
-    } catch (error) {
-      log.error("Failed to parse deep link URL:", error);
+    } catch {
+      log.error("Failed to parse deep link URL");
       return false;
     }
   }

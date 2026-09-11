@@ -32,6 +32,7 @@ describe("NewTaskLinkResolver", () => {
       repo: "acme/web",
       model: "sonnet",
       mode: "plan",
+      source: "agent_action",
     };
 
     const result = await resolver.resolve(payload);
@@ -46,7 +47,10 @@ describe("NewTaskLinkResolver", () => {
     });
     expect(result.analytics.event).toBe(ANALYTICS_EVENTS.DEEP_LINK_NEW_TASK);
     if (result.analytics.event !== ANALYTICS_EVENTS.DEEP_LINK_NEW_TASK) return;
-    expect(result.analytics.properties.has_prompt).toBe(true);
+    expect(result.analytics.properties).toMatchObject({
+      has_prompt: true,
+      source: "agent_action",
+    });
   });
 
   it.each([
