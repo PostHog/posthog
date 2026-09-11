@@ -4,7 +4,7 @@ from functools import partial
 from uuid import UUID
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from django.conf import settings as django_settings
 
@@ -27,7 +27,7 @@ from posthog.dags.person_overrides import (
 )
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.deletion_targets import EVENTS, EVENTS_JSON, EVENTS_TARGETS, FLAG_EVALUATIONS, TargetPlacement
+from posthog.models.deletion_targets import EVENTS, EVENTS_JSON, FLAG_EVALUATIONS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE
 
@@ -135,6 +135,7 @@ def test_a_person_deletion_after_a_merge_reaches_flag_evaluations(cluster: Click
     # keeps the absorbed uuid and the sweep never matches those rows, permanently, because the
     # override that recorded the mapping is deleted in the same squash run. This runs both dags
     # because the regression lives at the seam between them, which neither dag's own test covers.
+    # nosemgrep: test-datetime-now-without-freeze (every timestamp here is an offset from this base, so no assertion reads a day bucket)
     timestamp = (datetime.now() + timedelta(days=31)).replace(microsecond=0)
     team_id = 4242
     absorbed_person, surviving_person = UUID(int=9001), UUID(int=9002)
@@ -282,11 +283,19 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
         TargetPlacement(target=FLAG_EVALUATIONS, cluster=sibling),
     ]
     calls = Mock()
+    enqueued = {
+        EVENTS_DATA_TABLE(): {0: Mock()},
+        EVENTS_JSON_DATA_TABLE: {0: Mock()},
+        FLAG_EVALUATIONS_DATA_TABLE: {0: Mock()},
+    }
 
     with (
         patch("posthog.dags.person_overrides.resolve_placements", return_value=placements) as resolve_placements,
         patch.object(
-            AlterTableMutationRunner, "enqueue_on_shards", autospec=True, return_value={}
+            AlterTableMutationRunner,
+            "enqueue_on_shards",
+            autospec=True,
+            side_effect=lambda runner, handle, shards=None: enqueued[runner.table],
         ) as enqueue_on_shards,
         patch("posthog.dags.person_overrides.wait_for_mutations_on_shards") as wait_for_mutations,
     ):
@@ -294,14 +303,24 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
         calls.attach_mock(wait_for_mutations, "wait")
         run_person_id_update_mutations(cluster, dictionary)
 
-    # This assertion names the targets literally instead of reusing SQUASH_TARGETS.
-    # The constant would still match after someone drops FLAG_EVALUATIONS from its definition.
-    resolve_placements.assert_called_once_with(cluster, (*EVENTS_TARGETS, FLAG_EVALUATIONS))
-    assert {call.args[0].table: call.args[1] for call in enqueue_on_shards.call_args_list} == {
+    # This assertion names the targets literally instead of reusing SQUASH_TARGETS or EVENTS_TARGETS.
+    # Either constant would still match after someone drops a target from its definition.
+    resolve_placements.assert_called_once_with(cluster, (EVENTS, EVENTS_JSON, FLAG_EVALUATIONS))
+    assert {enqueue.args[0].table: enqueue.args[1] for enqueue in enqueue_on_shards.call_args_list} == {
         EVENTS_DATA_TABLE(): cluster,
         EVENTS_JSON_DATA_TABLE: sibling,
         FLAG_EVALUATIONS_DATA_TABLE: sibling,
     }
+    # Each wait has to receive the mutations its own enqueue returned. A wait handed an empty set
+    # returns at once, and the next op deletes the overrides that record the mapping.
+    wait_for_mutations.assert_has_calls(
+        [
+            call(cluster, enqueued[EVENTS_DATA_TABLE()]),
+            call(sibling, enqueued[EVENTS_JSON_DATA_TABLE]),
+            call(sibling, enqueued[FLAG_EVALUATIONS_DATA_TABLE]),
+        ],
+        any_order=True,
+    )
     # Waiting on each mutation as it is enqueued would cost the sum of their completion times
     # rather than the longest, which is the whole reason the op enqueues in one pass.
     assert [name for name, *_ in calls.mock_calls] == ["enqueue"] * 3 + ["wait"] * 3
