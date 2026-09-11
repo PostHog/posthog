@@ -22903,6 +22903,54 @@ export namespace Schemas {
     }
 
     /**
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     */
+    export type DataQualityScheduleIntervalEnum = typeof DataQualityScheduleIntervalEnum[keyof typeof DataQualityScheduleIntervalEnum];
+
+
+    export const DataQualityScheduleIntervalEnum = {
+      '1hour': '1hour',
+      '6hour': '6hour',
+      '12hour': '12hour',
+      '24hour': '24hour',
+      '7day': '7day',
+    } as const;
+
+    export interface DataQualityCheckSchedule {
+      /** Schedule identifier. */
+      readonly id: string;
+      /** How often the checks run.
+       *
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day */
+      readonly interval: DataQualityScheduleIntervalEnum;
+      /** Whether the schedule runs automatically. */
+      readonly enabled: boolean;
+      /**
+         * Next scheduled execution time, if enabled.
+         * @nullable
+         */
+      readonly next_run_at: string | null;
+      /**
+         * Most recent visible scheduled suite execution time.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /**
+         * Most recent visible scheduled suite.
+         * @nullable
+         */
+      readonly last_suite_run: string | null;
+    }
+
+    /**
      * JSON schema the config object is validated against.
      */
     export type DataQualityCheckTypeConfigSchema = { [key: string]: unknown };
@@ -31006,6 +31054,145 @@ export namespace Schemas {
     }
 
     /**
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom
+     */
+    export type ReportMetricKindEnum = typeof ReportMetricKindEnum[keyof typeof ReportMetricKindEnum];
+
+
+    export const ReportMetricKindEnum = {
+      AffectedUsers: 'affected_users',
+      AffectedSessions: 'affected_sessions',
+      Occurrences: 'occurrences',
+      ConversionRate: 'conversion_rate',
+      ErrorRate: 'error_rate',
+      Duration: 'duration',
+      Revenue: 'revenue',
+      Custom: 'custom',
+    } as const;
+
+    /**
+     * * `primary` - primary
+     * * `supporting` - supporting
+     */
+    export type RoleEnum = typeof RoleEnum[keyof typeof RoleEnum];
+
+
+    export const RoleEnum = {
+      Primary: 'primary',
+      Supporting: 'supporting',
+    } as const;
+
+    /**
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency
+     */
+    export type ValueFormatEnum = typeof ValueFormatEnum[keyof typeof ValueFormatEnum];
+
+
+    export const ValueFormatEnum = {
+      Number: 'number',
+      Count: 'count',
+      Percentage: 'percentage',
+      PercentageScaled: 'percentage_scaled',
+      Duration: 'duration',
+      Currency: 'currency',
+    } as const;
+
+    export interface ReportMetricComparison {
+      /** Baseline or previous value, formatted like the current value. */
+      value: number;
+      /**
+         * Short context for the comparison, such as `Previous period`.
+         * @maxLength 40
+         */
+      label: string;
+    }
+
+    /**
+     * Authoring shape: unlike a read response, the live query cannot be absent or redacted.
+     */
+    export interface ReportMetricWrite {
+      /**
+         * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
+         * @maxLength 100
+         */
+      metric_id: string;
+      /**
+         * Short human-readable label for the measurement.
+         * @maxLength 200
+         */
+      title: string;
+      /** What the value measures, independent of how it is formatted or drawn.
+       *
+       * * `affected_users` - affected_users
+       * * `affected_sessions` - affected_sessions
+       * * `occurrences` - occurrences
+       * * `conversion_rate` - conversion_rate
+       * * `error_rate` - error_rate
+       * * `duration` - duration
+       * * `revenue` - revenue
+       * * `custom` - custom */
+      kind: ReportMetricKindEnum;
+      /** `primary` for the report's key observation, otherwise `supporting`.
+       *
+       * * `primary` - primary
+       * * `supporting` - supporting */
+      role?: RoleEnum;
+      /**
+         * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+         * @nullable
+         */
+      value?: number | null;
+      /**
+         * When the visible snapshot value was measured; null when value is null.
+         * @nullable
+         */
+      value_at?: string | null;
+      /**
+         * Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.
+         * @maxItems 14
+         * @nullable
+         */
+      series?: number[] | null;
+      /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
+       *
+       * * `number` - number
+       * * `count` - count
+       * * `percentage` - percentage
+       * * `percentage_scaled` - percentage_scaled
+       * * `duration` - duration
+       * * `currency` - currency */
+      value_format?: ValueFormatEnum;
+      /**
+         * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
+         * @maxLength 40
+         * @nullable
+         */
+      unit?: string | null;
+      /** Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition. */
+      query: unknown;
+      /**
+         * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
+         * @maxLength 500
+         * @nullable
+         */
+      caption?: string | null;
+      /** Legacy optional comparison. New report metrics must omit it. */
+      comparison?: ReportMetricComparison | null;
+    }
+
+    /**
      * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
      */
     export interface EditReportRequest {
@@ -31047,6 +31234,12 @@ export namespace Schemas {
          */
       charts?: ReportChart[] | null;
       /**
+         * The report's full impact-metric set. Omit or send null to preserve it; send an empty list to clear it. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes; a snapshot is only an optional cached fallback. Snapshot-only/queryless payloads are invalid, and legacy rows of that shape are always redacted.
+         * @maxItems 6
+         * @nullable
+         */
+      metrics?: ReportMetricWrite[] | null;
+      /**
          * The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report.
          * @maxItems 3
          * @nullable
@@ -31071,6 +31264,11 @@ export namespace Schemas {
          * @nullable
          */
       charts_set: number | null;
+      /**
+         * How many impact metrics the report now shows, or null when untouched/unchanged. 0 means the edit removed every metric.
+         * @nullable
+         */
+      metrics_set: number | null;
       /**
          * How many prompts the report now suggests, or null if the edit left them as they were (the field omitted, or a re-send of what was already stored). 0 means the edit took the report's suggested prompts down.
          * @nullable
@@ -31472,6 +31670,11 @@ export namespace Schemas {
          * @maxItems 20
          */
       charts?: ReportChart[];
+      /**
+         * Optional typed impact measurements. Use one primary metric for the key observation and supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes. A value/value_at snapshot is an optional cached fallback. Affected users must use one series with `math: dau`. Snapshot-only/queryless payloads are invalid; legacy rows of that shape are always redacted.
+         * @maxItems 6
+         */
+      metrics?: ReportMetricWrite[];
       /**
          * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.
          * @maxItems 3
@@ -36506,9 +36709,9 @@ export namespace Schemas {
       considered_metrics: ExperimentSessionBucketMetric[];
       /** Requested metrics left out of the bucket because they can never match a recording, with the reason. They are reported rather than silently producing an empty result. */
       excluded_metrics: ExperimentSessionBucketExcludedMetric[];
-      /** Start of the window scanned: the experiment's run window, clamped to its most recent 30 days. Matches outside it are not returned. */
+      /** Start of the window scanned, never before the experiment started. At most 30 days before date_to when the scan found an exposure to anchor on. When it found none, how far back the search for one reached, which the project's recording retention bounds. Matches outside the window are not returned. */
       date_from: string;
-      /** End of the window scanned: the experiment's end date, or now while it runs. */
+      /** End of the window scanned: 24 hours after the latest exposure captured in a session, capped at the experiment's end date or now. The pad covers the metric events a session fires after its exposure. The scan ends at the experiment's end date, or now while it runs, when that exposure can't be located, so an experiment whose exposures stopped long ago is still scanned where its sessions are. */
       date_to: string;
       /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
       filter_test_accounts: boolean;
@@ -46684,6 +46887,8 @@ export namespace Schemas {
     export interface MCPModelBreakdownQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** Whether another page of individual model identifiers is available. */
+      hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -46706,9 +46911,15 @@ export namespace Schemas {
     export interface MCPModelBreakdownQuery {
       dateRange?: DateRange | null;
       filterTestAccounts?: boolean | null;
+      /** Return individual reported models, excluding Unknown, instead of the top-six grouping. */
+      includeAllModels?: boolean | null;
       kind?: 'MCPModelBreakdownQuery';
+      /** Page size when includeAllModels is enabled. */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Number of individual models to skip when includeAllModels is enabled. */
+      offset?: number | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       response?: MCPModelBreakdownQueryResponse | null;
       tags?: QueryLogTags | null;
@@ -50811,6 +51022,18 @@ export namespace Schemas {
       notes: string;
     }
 
+    /**
+     * * `above` - Above the band
+     * * `below` - Below the band
+     */
+    export type LogsSeriesBandVerdictEnum = typeof LogsSeriesBandVerdictEnum[keyof typeof LogsSeriesBandVerdictEnum];
+
+
+    export const LogsSeriesBandVerdictEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
     export interface LogsSeriesBandBucket {
       /** Start of the display bucket (UTC). */
       time: string;
@@ -50826,6 +51049,11 @@ export namespace Schemas {
          * @nullable
          */
       upper: number | null;
+      /** Where the observed count sits against the band: above when it exceeds upper, below when it falls under lower. Null while it sits inside the band, or while the band is not ready.
+       *
+       * * `above` - Above the band
+       * * `below` - Below the band */
+      verdict: LogsSeriesBandVerdictEnum | null;
     }
 
     export interface LogsSeriesBandSeries {
@@ -53871,8 +54099,17 @@ export namespace Schemas {
       readonly downstream_count: number;
       /** @nullable */
       readonly last_run_at: string | null;
-      /** @nullable */
+      /**
+         * Skipped runs are written straight to the job table and never reach the stored status,
+       * so a blocked model would keep reporting the success before it.
+         * @nullable
+         */
       readonly last_run_status: string | null;
+      /**
+         * Error of the run that last_run_status describes, so the two never disagree.
+         * @nullable
+         */
+      readonly last_run_error: string | null;
       /** @nullable */
       readonly user_tag: string | null;
       /** @nullable */
@@ -58931,6 +59168,77 @@ export namespace Schemas {
       Suppressed: 'suppressed',
     } as const;
 
+    /**
+     * Snapshot-only metric shape for report lists.
+     *
+     * Omitting query definitions keeps the paginated inbox payload bounded.
+     */
+    export interface ReportMetricList {
+      /**
+         * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
+         * @maxLength 100
+         */
+      metric_id: string;
+      /**
+         * Short human-readable label for the measurement.
+         * @maxLength 200
+         */
+      title: string;
+      /** What the value measures, independent of how it is formatted or drawn.
+       *
+       * * `affected_users` - affected_users
+       * * `affected_sessions` - affected_sessions
+       * * `occurrences` - occurrences
+       * * `conversion_rate` - conversion_rate
+       * * `error_rate` - error_rate
+       * * `duration` - duration
+       * * `revenue` - revenue
+       * * `custom` - custom */
+      kind: ReportMetricKindEnum;
+      /** `primary` for the report's key observation, otherwise `supporting`.
+       *
+       * * `primary` - primary
+       * * `supporting` - supporting */
+      role?: RoleEnum;
+      /**
+         * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+         * @nullable
+         */
+      value?: number | null;
+      /**
+         * When the visible snapshot value was measured; null when value is null.
+         * @nullable
+         */
+      value_at?: string | null;
+      /**
+         * Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.
+         * @maxItems 14
+         * @nullable
+         */
+      series?: number[] | null;
+      /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
+       *
+       * * `number` - number
+       * * `count` - count
+       * * `percentage` - percentage
+       * * `percentage_scaled` - percentage_scaled
+       * * `duration` - duration
+       * * `currency` - currency */
+      value_format?: ValueFormatEnum;
+      /**
+         * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
+         * @maxLength 40
+         * @nullable
+         */
+      unit?: string | null;
+      /**
+         * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
+         * @maxLength 500
+         * @nullable
+         */
+      caption?: string | null;
+    }
+
     export type SignalReportAssignmentPrStateEnum = typeof SignalReportAssignmentPrStateEnum[keyof typeof SignalReportAssignmentPrStateEnum];
 
 
@@ -59049,7 +59357,7 @@ export namespace Schemas {
       PosthogSystem: 'posthog_system',
     } as const;
 
-    export interface SignalReport {
+    export interface SignalReportList {
       readonly id: string;
       /** @nullable */
       readonly title: string | null;
@@ -59064,6 +59372,8 @@ export namespace Schemas {
       readonly artefact_count: number;
       /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
       readonly charts: readonly ReportChart[];
+      /** Snapshot-only impact measurements for inbox rows. Live query definitions and authored comparisons are available from the report detail endpoint. */
+      readonly metrics: readonly ReportMetricList[];
       /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
       readonly suggested_prompts: readonly string[];
       /**
@@ -59154,13 +59464,13 @@ export namespace Schemas {
       readonly channel_id: string | null;
     }
 
-    export interface PaginatedSignalReportList {
+    export interface PaginatedSignalReportListList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: SignalReport[];
+      results: SignalReportList[];
     }
 
     /**
@@ -62115,6 +62425,32 @@ export namespace Schemas {
       results: WebExperimentsAPI[];
     }
 
+    export interface WikiPageProposal {
+      /** Immutable suggested edit ID. Only its author can apply it through the user API. */
+      id: string;
+      /** Task that proposed the edit. */
+      task_id: string;
+      /** Shared wiki page to review. */
+      path: string;
+      /** Page content at the revision the proposal is based on. */
+      original_content: string;
+      /** Proposed page content. This is not published wiki content. */
+      content: string;
+      /** Wiki revision the proposal is based on. */
+      base_head: string;
+      /** When the edit was proposed. */
+      created_at: string;
+    }
+
+    export interface PaginatedWikiPageProposalList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WikiPageProposal[];
+    }
+
     /**
      * * `local` - local
      * * `cloud` - cloud
@@ -63831,6 +64167,19 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    export interface PatchedDataQualityCheckScheduleUpdate {
+      /** How often all enabled checks on the metric run.
+       *
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day */
+      interval?: DataQualityScheduleIntervalEnum;
+      /** Whether checks run automatically on this schedule. */
+      enabled?: boolean;
     }
 
     /**
@@ -66827,8 +67176,17 @@ export namespace Schemas {
       readonly downstream_count?: number;
       /** @nullable */
       readonly last_run_at?: string | null;
-      /** @nullable */
+      /**
+         * Skipped runs are written straight to the job table and never reach the stored status,
+       * so a blocked model would keep reporting the success before it.
+         * @nullable
+         */
       readonly last_run_status?: string | null;
+      /**
+         * Error of the run that last_run_status describes, so the two never disagree.
+         * @nullable
+         */
+      readonly last_run_error?: string | null;
       /** @nullable */
       readonly user_tag?: string | null;
       /** @nullable */
@@ -68891,7 +69249,7 @@ export namespace Schemas {
      */
     export type PatchedSignalScoutConfigUpdateStructuredOutputSchema = { [key: string]: unknown } | null;
 
-    export interface SignalScoutSlackDestination {
+    export interface SignalScoutSlackDestinationUpdate {
       /**
          * ID of the Slack integration whose bot posts this scout's findings and reports.
          * @minimum 1
@@ -68912,7 +69270,7 @@ export namespace Schemas {
          * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
          */
       users?: string[] | null;
-      /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
+      /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post. */
       thread_reports?: boolean;
     }
 
@@ -68921,9 +69279,9 @@ export namespace Schemas {
       hog_function_id: string;
     }
 
-    export interface SignalScoutOutputDestinations {
+    export interface SignalScoutOutputDestinationsUpdate {
       /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
-      slack?: SignalScoutSlackDestination | null;
+      slack?: SignalScoutSlackDestinationUpdate | null;
       /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
       webhook?: SignalScoutWebhookDestination | null;
     }
@@ -68966,7 +69324,7 @@ export namespace Schemas {
          */
       run_cron_schedule?: string | null;
       /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
-      output_destinations?: SignalScoutOutputDestinations;
+      output_destinations?: SignalScoutOutputDestinationsUpdate;
       /**
          * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
          * @nullable
@@ -70199,6 +70557,29 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
+    }
+
+    export interface PatchedTeamLogsConfig {
+      /** Legacy single-key alias — always the first entry of `logs_distinct_id_attribute_keys`. Read-only; write the plural field instead. */
+      readonly logs_distinct_id_attribute_key?: string;
+      /**
+         * Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_distinct_id_attribute_keys?: string[];
+      /**
+         * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_session_id_attribute_keys?: string[];
+      /**
+         * Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_pattern_message_keys?: string[];
     }
 
     export interface PatchedTeamTracingConfig {
@@ -76267,6 +76648,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative97 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** Whether another page of individual model identifiers is available. */
+      hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -77150,6 +77533,77 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * One impact measurement shown on a report.
+     */
+    export interface ReportMetric {
+      /**
+         * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
+         * @maxLength 100
+         */
+      metric_id: string;
+      /**
+         * Short human-readable label for the measurement.
+         * @maxLength 200
+         */
+      title: string;
+      /** What the value measures, independent of how it is formatted or drawn.
+       *
+       * * `affected_users` - affected_users
+       * * `affected_sessions` - affected_sessions
+       * * `occurrences` - occurrences
+       * * `conversion_rate` - conversion_rate
+       * * `error_rate` - error_rate
+       * * `duration` - duration
+       * * `revenue` - revenue
+       * * `custom` - custom */
+      kind: ReportMetricKindEnum;
+      /** `primary` for the report's key observation, otherwise `supporting`.
+       *
+       * * `primary` - primary
+       * * `supporting` - supporting */
+      role?: RoleEnum;
+      /**
+         * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+         * @nullable
+         */
+      value?: number | null;
+      /**
+         * When the visible snapshot value was measured; null when value is null.
+         * @nullable
+         */
+      value_at?: string | null;
+      /**
+         * Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.
+         * @maxItems 14
+         * @nullable
+         */
+      series?: number[] | null;
+      /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
+       *
+       * * `number` - number
+       * * `count` - count
+       * * `percentage` - percentage
+       * * `percentage_scaled` - percentage_scaled
+       * * `duration` - duration
+       * * `currency` - currency */
+      value_format?: ValueFormatEnum;
+      /**
+         * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
+         * @maxLength 40
+         * @nullable
+         */
+      unit?: string | null;
+      /** Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition. */
+      query?: unknown;
+      /**
+         * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
+         * @maxLength 500
+         * @nullable
+         */
+      caption?: string | null;
+    }
+
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
 
 
@@ -77160,6 +77614,108 @@ export namespace Schemas {
       P3: 'P3',
       P4: 'P4',
     } as const;
+
+    export interface SignalReport {
+      readonly id: string;
+      /** @nullable */
+      readonly title: string | null;
+      /** @nullable */
+      readonly summary: string | null;
+      readonly status: SignalReportStatusEnum;
+      readonly total_weight: number;
+      readonly signal_count: number;
+      readonly signals_at_run: number;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly artefact_count: number;
+      /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
+      readonly charts: readonly ReportChart[];
+      /** Typed impact measurements in display order. At most one is primary. Live metric values and history come from their query; value/value_at are the latest saved fallback snapshots. */
+      readonly metrics: readonly ReportMetric[];
+      /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
+      readonly suggested_prompts: readonly string[];
+      /**
+         * P0–P4 from the latest priority judgment artefact (when present).
+         * @nullable
+         */
+      readonly priority: string | null;
+      /**
+         * Actionability choice from the latest actionability judgment artefact (when present).
+         * @nullable
+         */
+      readonly actionability: string | null;
+      /**
+         * Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact.
+         * @nullable
+         */
+      readonly already_addressed: boolean | null;
+      /**
+         * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
+         * @nullable
+         */
+      readonly dismissal_reason: string | null;
+      /**
+         * Free-form note captured alongside the dismissal reason (when present).
+         * @nullable
+         */
+      readonly dismissal_note: string | null;
+      /**
+         * `organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.
+         * @nullable
+         */
+      readonly repo_slug: string | null;
+      readonly is_suggested_reviewer: boolean;
+      /** Distinct source products contributing signals to this report (from ClickHouse). */
+      readonly source_products: readonly string[];
+      /**
+         * skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.
+         * @nullable
+         */
+      readonly scout_name: string | null;
+      /**
+         * Pull request attached to this report's claim, if available.
+         * @nullable
+         */
+      readonly implementation_pr_url: string | null;
+      /** Latest known pull request state: unknown, draft, open, closed, or merged. */
+      readonly implementation_pr_state: SignalReportAssignmentPrStateEnum | null;
+      /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
+      readonly implementation_pr_merged: boolean;
+      /**
+         * Link to the issue self-driving opened in the team's tracker for this report's pull request. Null when the team tracks no issues, or the issue could not be opened.
+         * @nullable
+         */
+      readonly tracker_issue_url: string | null;
+      /**
+         * How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null when there is no tracker issue.
+         * @nullable
+         */
+      readonly tracker_issue_reference: string | null;
+      /**
+         * Why the tracker issue could not be opened, for a team that wants one. Null when the issue exists or the team tracks no issues.
+         * @nullable
+         */
+      readonly tracker_issue_error: string | null;
+      /** Derived remediation state: unclaimed, working, in_review, or done. */
+      readonly work_state: SignalReportWorkStateEnum;
+      /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
+      readonly assignee: SignalReportAssignee | null;
+      /** The report's PR refund, when one exists. One refund per report, ever. */
+      readonly refund: SignalReportRefund | null;
+      /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
+      readonly refund_ineligibility_reason: RefundIneligibilityReasonEnum | null;
+      /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
+       *
+       * * `posthog_health_check` - PostHog health check
+       * * `posthog_onboarding` - PostHog onboarding
+       * * `posthog_system` - PostHog system */
+      readonly billing_exempt_reason: SignalReportBillingExemptReasonEnum | null;
+      /**
+         * The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value.
+         * @nullable
+         */
+      readonly channel_id: string | null;
+    }
 
     /**
      * * `session_replay` - session_replay
@@ -78814,6 +79370,38 @@ export namespace Schemas {
       readonly window_days: number;
     }
 
+    export interface SignalScoutSlackDestination {
+      /**
+         * ID of the Slack integration whose bot posts this scout's findings and reports.
+         * @minimum 1
+         */
+      integration_id: number;
+      /**
+         * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set.
+         * @maxLength 255
+         * @nullable
+         */
+      channel?: string | null;
+      /**
+         * Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.
+         * @minItems 1
+         * @maxItems 5
+         * @nullable
+         * @items.maxLength 255
+         * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
+         */
+      users?: string[] | null;
+      /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post. */
+      thread_reports?: boolean;
+    }
+
+    export interface SignalScoutOutputDestinations {
+      /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+      slack?: SignalScoutSlackDestination | null;
+      /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+      webhook?: SignalScoutWebhookDestination | null;
+    }
+
     /**
      * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
@@ -80080,6 +80668,27 @@ export namespace Schemas {
       forwarded: boolean;
     }
 
+    export interface SignalReportMetricRefreshRequest {
+      /**
+         * Reports on screen, in display order. Each report's row metric is refreshed before any report's supporting metrics. At most 20 ids per call.
+         * @minItems 1
+         * @maxItems 20
+         */
+      report_ids: string[];
+    }
+
+    export interface SignalReportMetricSnapshots {
+      /** Report id. */
+      readonly id: string;
+      /** The report's metrics with their current snapshots, in display order. */
+      readonly metrics: readonly ReportMetricList[];
+    }
+
+    export interface SignalReportMetricRefreshResponse {
+      /** One entry per requested report the caller can read whose status is ready or pending_input, in request order. A report in any other status has no entry. A metric whose snapshot was fresh, whose query failed, or whose budget ran out keeps its previous snapshot; merge by metric_id. */
+      readonly reports: readonly SignalReportMetricSnapshots[];
+    }
+
     export interface SignalReportRefundRequest {
       /** Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.
        *
@@ -80352,6 +80961,19 @@ export namespace Schemas {
       started: boolean;
     }
 
+    /**
+     * Request body for an on-demand (`run now`) scout dispatch.
+     *
+     * Every field is optional: a plain trigger sends no body at all.
+     */
+    export interface SignalScoutManualRunRequest {
+      /**
+         * Optional steering for this run only, such as 'focus on the checkout regression' or 'skip the staging traffic today'. The agent reads it alongside the scout's durable notes and weighs it the same way: it directs attention, it never forces a finding. Use it instead of leaving a scout note that would also steer every later scheduled run. The note is kept on the run for history and is never read by another run. Because the agent reads it verbatim while holding privileged tools, a run that carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor access to skills, the same bar as leaving a note.
+         * @maxLength 1000
+         */
+      note?: string;
+    }
+
     export type SignalScoutRunDetailMetadataDerived = {
       has_emit_report: boolean;
       has_edit_report: boolean;
@@ -80377,6 +80999,7 @@ export namespace Schemas {
       network_access?: string;
       write_scopes?: string[];
       triggered_by?: string;
+      run_note?: string;
       derived?: SignalScoutRunDetailMetadataDerived;
       [key: string]: unknown;
      };
@@ -80475,6 +81098,7 @@ export namespace Schemas {
       network_access?: string;
       write_scopes?: string[];
       triggered_by?: string;
+      run_note?: string;
       derived?: SignalScoutRunSummaryMetadataDerived;
       [key: string]: unknown;
      };
@@ -88492,6 +89116,29 @@ export namespace Schemas {
       readonly sending_allowance: EmailSendingAllowance | null;
     }
 
+    export interface TeamLogsConfig {
+      /** Legacy single-key alias — always the first entry of `logs_distinct_id_attribute_keys`. Read-only; write the plural field instead. */
+      readonly logs_distinct_id_attribute_key: string;
+      /**
+         * Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_distinct_id_attribute_keys: string[];
+      /**
+         * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_session_id_attribute_keys: string[];
+      /**
+         * Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_pattern_message_keys: string[];
+    }
+
     export const TeamMCPGatewayConfigMemberDefaultPreset = {...MCPPolicyPresetEnum,...BlankEnum,} as const
     export const TeamMCPGatewayConfigAgentDefaultPreset = {...MCPPolicyPresetEnum,...BlankEnum,} as const
     export interface TeamMCPGatewayConfig {
@@ -90336,6 +90983,27 @@ export namespace Schemas {
       head_sha: string;
       /** When this page was last changed in the wiki history. */
       updated_at: string;
+    }
+
+    /**
+     * Request body for creating or replacing one wiki page.
+     */
+    export interface WikiPageProposalWrite {
+      /**
+         * Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.
+         * @maxLength 512
+         */
+      path: string;
+      /**
+         * The complete Markdown content for the page.
+         * @maxLength 1000000
+         */
+      content: string;
+      /**
+         * The head_sha returned when reading the page. Required to bind the proposed edit.
+         * @maxLength 64
+         */
+      base_head: string;
     }
 
     /**
@@ -93419,6 +94087,17 @@ export namespace Schemas {
     path: string;
     };
 
+    export type ContextLayerProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type DomainsListParams = {
     /**
      * Number of results to return per page.
@@ -94161,6 +94840,7 @@ export namespace Schemas {
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
+     * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -94259,6 +94939,7 @@ export namespace Schemas {
       Metric: 'Metric',
       TableCertification: 'TableCertification',
       DataQualityCheck: 'DataQualityCheck',
+      DataQualityCheckSchedule: 'DataQualityCheckSchedule',
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
@@ -94343,6 +95024,7 @@ export namespace Schemas {
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
+     * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -94429,6 +95111,7 @@ export namespace Schemas {
       Metric: 'Metric',
       TableCertification: 'TableCertification',
       DataQualityCheck: 'DataQualityCheck',
+      DataQualityCheckSchedule: 'DataQualityCheckSchedule',
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
@@ -96049,7 +96732,26 @@ export namespace Schemas {
      */
     offset?: number;
     saved_query_id?: string;
+    /**
+     * * `Cancelled` - Cancelled
+     * * `Completed` - Completed
+     * * `Failed` - Failed
+     * * `Running` - Running
+     * * `Skipped` - Skipped
+     */
+    status?: DataModelingJobsListStatus;
     };
+
+    export type DataModelingJobsListStatus = typeof DataModelingJobsListStatus[keyof typeof DataModelingJobsListStatus];
+
+
+    export const DataModelingJobsListStatus = {
+      Cancelled: 'Cancelled',
+      Completed: 'Completed',
+      Failed: 'Failed',
+      Running: 'Running',
+      Skipped: 'Skipped',
+    } as const;
 
     export type DataModelingNodesListParams = {
     /**

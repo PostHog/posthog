@@ -1,4 +1,4 @@
-import { IconWarning } from '@posthog/icons'
+import { IconCopy, IconWarning } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -67,7 +67,18 @@ export function RunAlertActivity({
         >
             <div className="flex items-center gap-2 font-semibold">
                 <IconWarning className="size-4 shrink-0 text-danger" />
-                <span>{TITLES[kind]}</span>
+                <span className="grow">{TITLES[kind]}</span>
+                {copyDetails && (
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        className="-my-1 -mr-1"
+                        icon={<IconCopy />}
+                        tooltip="Copy run details for support"
+                        onClick={() => void copyToClipboard(copyDetails, 'run details')}
+                        data-attr="run-error-copy-details"
+                    />
+                )}
             </div>
             <div className="pl-6 flex flex-col gap-1 text-secondary">
                 {message ? <MarkdownMessage content={message} id={`${activityId}-message`} /> : null}
@@ -75,18 +86,6 @@ export function RunAlertActivity({
                     <div>Your last message was not delivered.</div>
                 ) : null}
             </div>
-            {copyDetails && (
-                <div className="pl-6 flex items-center">
-                    <LemonButton
-                        type="tertiary"
-                        size="xsmall"
-                        onClick={() => void copyToClipboard(copyDetails, 'run details')}
-                        data-attr="run-error-copy-details"
-                    >
-                        Copy details
-                    </LemonButton>
-                </div>
-            )}
         </div>
     )
 }

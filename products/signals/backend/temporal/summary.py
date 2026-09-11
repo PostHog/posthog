@@ -129,6 +129,8 @@ class ReportDecision:
     # a JSON set, `[]` to clear, or `None` to leave the column alone. `None` for the no-repo branch,
     # which does no research.
     charts: list[dict[str, Any]] | None = None
+    # Resolved metric payload with the same preserve/replace/clear semantics as charts.
+    metrics: list[dict[str, Any]] | None = None
     # Suggested prompts to store with the title/summary. Always `[]`, because every decision carries
     # a freshly written title and summary, and the pipeline does not author prompts yet: whatever a
     # scout suggested was written against the prose this decision replaces, so leaving it would put
@@ -434,6 +436,7 @@ class SignalReportSummaryWorkflow:
                     choice=agentic_result.choice,
                     explanation=agentic_result.explanation,
                     charts=agentic_result.charts,
+                    metrics=agentic_result.metrics,
                     validation_prompt=agentic_result.validation_prompt,
                     pending_reason="agent_requested",
                 )
@@ -472,6 +475,7 @@ class SignalReportSummaryWorkflow:
                         signal_count=signal_count,
                         source_products=source_products,
                         charts=decision.charts,
+                        metrics=decision.metrics,
                         suggested_prompts=decision.suggested_prompts,
                         validation_prompt=decision.validation_prompt,
                         pending_reason=decision.pending_reason,
@@ -493,6 +497,7 @@ class SignalReportSummaryWorkflow:
                     processed_signal_count=signal_count,
                     source_products=source_products,
                     charts=decision.charts,
+                    metrics=decision.metrics,
                     suggested_prompts=decision.suggested_prompts,
                     validation_prompt=decision.validation_prompt,
                 ),
@@ -777,6 +782,8 @@ class MarkReportReadyInput:
     # `[]` to clear, or `None` to leave the column untouched. Defaults to `None` so an older workflow
     # history that predates this field replays cleanly.
     charts: list[dict[str, Any]] | None = None
+    # Typed impact metrics written atomically with the prose and chart set.
+    metrics: list[dict[str, Any]] | None = None
     # Suggested prompts to write alongside title/summary, same three states and same replay-safe
     # default. The research pipeline passes `[]`: it doesn't author prompts yet, and the ones a
     # scout wrote were written against the summary this transition is replacing.
@@ -810,6 +817,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             if input.charts is not None:
                 report.charts = input.charts
                 updated_fields = [*updated_fields, "charts"]
+            if input.metrics is not None:
+                report.metrics = input.metrics
+                updated_fields = [*updated_fields, "metrics"]
             if input.suggested_prompts is not None:
                 report.suggested_prompts = input.suggested_prompts
                 updated_fields = [*updated_fields, "suggested_prompts"]
@@ -1007,6 +1017,8 @@ class MarkReportPendingInput:
     source_products: list[str] = field(default_factory=list)
     # See MarkReportReadyInput.charts — written in the same transaction as the draft title/summary.
     charts: list[dict[str, Any]] | None = None
+    # See MarkReportReadyInput.metrics — same transaction and replay-safe default.
+    metrics: list[dict[str, Any]] | None = None
     # See MarkReportReadyInput.suggested_prompts — same transaction, same three states.
     suggested_prompts: list[str] | None = None
     # See MarkReportReadyInput.validation_prompt — same transaction, `None` leaves the column alone.
@@ -1034,6 +1046,9 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             if input.charts is not None:
                 report.charts = input.charts
                 updated_fields = [*updated_fields, "charts"]
+            if input.metrics is not None:
+                report.metrics = input.metrics
+                updated_fields = [*updated_fields, "metrics"]
             if input.suggested_prompts is not None:
                 report.suggested_prompts = input.suggested_prompts
                 updated_fields = [*updated_fields, "suggested_prompts"]

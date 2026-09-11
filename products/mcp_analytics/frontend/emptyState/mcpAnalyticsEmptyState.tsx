@@ -9,6 +9,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import { MCP_ANALYTICS_DOCS_URL, MCPListeningIndicator } from '../onboarding/MCPAnalyticsInstall'
+import { MCPAnalyticsSetupActions } from './MCPAnalyticsSetupActions'
 import { MCPToolCallPreview } from './MCPToolCallPreview'
 
 const HedgehogRobot = pngHoggie(robotPng)
@@ -28,7 +29,7 @@ export const mcpAnalyticsEmptyState: SceneProductEmptyState = {
             'needs-setup': {
                 headline: 'Know how agents actually use your tools',
                 lead: 'Capture every MCP tool call, argument and result, so you can see which tools agents reach for, where they fail, and how long each call takes.',
-                hint: 'Point the wizard at your MCP server. LLM inference is on us, no API key needed:',
+                hint: 'Run Wizard in the repository containing your MCP server. The setup agent installs analytics for you:',
             },
             'waiting-for-data': {
                 headline: "You're connected. Now make a tool call",
@@ -37,6 +38,7 @@ export const mcpAnalyticsEmptyState: SceneProductEmptyState = {
             },
         },
         wizard: { slug: 'mcp-analytics', pinProjectId: true },
+        SetupActions: MCPAnalyticsSetupActions,
         docsUrl: MCP_ANALYTICS_DOCS_URL,
         manualSetupUrl: 'https://posthog.com/docs/mcp-analytics/installation',
         previewLabel: 'Tool calls, once connected',

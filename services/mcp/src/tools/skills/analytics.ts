@@ -27,7 +27,7 @@ const RECORDABLE_SKILL_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/
 /** Read tools that name a single skill. The `llma-skill-*` entries are the
  *  deprecated aliases from `deprecatedAliases.ts`, which reach analytics under
  *  their own name and would otherwise be a silent hole in the data. */
-const SKILL_READ_TOOLS = new Set(['skill-get', 'skill-file-get', 'llma-skill-get', 'llma-skill-file-get'])
+export const SKILL_READ_TOOLS = new Set(['skill-get', 'skill-file-get', 'llma-skill-get', 'llma-skill-file-get'])
 
 /** Only `skill-get` pages a body; the offset is meaningless on the others. */
 const BODY_PAGINATED_TOOLS = new Set(['skill-get', 'llma-skill-get'])

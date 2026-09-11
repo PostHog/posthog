@@ -76,6 +76,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!("Router URL: {}", config.router_url);
+    tracing::info!(
+        property_write_concurrency = config.property_write_concurrency,
+        leader_call_concurrency = config.lifecycle_leader_call_concurrency,
+        "Leader fan-out concurrency"
+    );
     tracing::info!("Tables: {:?}", config.tables());
 
     // Build lifecycle manager and register components
@@ -127,8 +132,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0,
             300000.0, 1800000.0, 3600000.0,
         ];
-        // Source counts, not latency; the request cap is 250.
-        const MERGE_SOURCES_BUCKETS: &[f64] = &[1.0, 2.0, 3.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0];
+        // Batch sizes, not latency; the request caps are 250.
+        const PER_CALL_BUCKETS: &[f64] = &[1.0, 2.0, 3.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0];
         let recorder_handle = PrometheusBuilder::new()
             .add_global_label("service", "personhog-identity")
             .set_buckets(BUCKETS)
@@ -138,10 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 OP_DURATION_BUCKETS,
             )
             .unwrap()
-            .set_buckets_for_metric(
-                Matcher::Full("personhog_identity_merge_sources_per_call".into()),
-                MERGE_SOURCES_BUCKETS,
-            )
+            .set_buckets_for_metric(Matcher::Suffix("_per_call".into()), PER_CALL_BUCKETS)
             .unwrap()
             .install_recorder()
             .expect("Failed to install metrics recorder");
@@ -228,8 +230,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.lifecycle_engine_config(),
     ));
     if let Some(sweeper_handle) = sweeper_handle {
-        let sweeper_merge_driver = MergeDriver::new(property_writer.clone(), config.tables());
-        let sweeper_delete_driver = DeleteDriver::new(lifecycle_leader.clone(), config.tables());
+        let sweeper_merge_driver = MergeDriver::new(
+            property_writer.clone(),
+            config.tables(),
+            config.lifecycle_leader_call_concurrency,
+        );
+        let sweeper_delete_driver = DeleteDriver::new(
+            lifecycle_leader.clone(),
+            config.tables(),
+            config.lifecycle_leader_call_concurrency,
+        );
         let sweeper_engine = engine.clone();
         let sweep_interval = config.lifecycle_sweep_interval();
         let retention = config.lifecycle_op_retention();
@@ -274,16 +284,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         property_writer.clone(),
         MergeOpExecutor::new(
             engine.clone(),
-            MergeDriver::new(property_writer.clone(), config.tables()),
+            MergeDriver::new(
+                property_writer.clone(),
+                config.tables(),
+                config.lifecycle_leader_call_concurrency,
+            ),
         ),
     );
-    let lifecycle_service =
-        PersonHogLifecycleService::new(engine, lifecycle_leader, config.tables());
+    let lifecycle_service = PersonHogLifecycleService::new(
+        engine,
+        lifecycle_leader,
+        config.tables(),
+        config.lifecycle_leader_call_concurrency,
+    );
     let service = PersonHogIdentityService::new(
         storage,
         property_writer,
         config.request_limits(),
         merge_entrance,
+        config.property_write_concurrency,
     );
 
     let grpc_addr = config.grpc_address;
