@@ -341,7 +341,7 @@ Note: Deliberately scoped: the connector takes a single user-supplied dataset_id
 
 ## Apollo — gaps
 
-Today (7): `account_stages`, `accounts`, `contacts`, `contact_stages`, `opportunities`, `opportunity_stages`, `users`
+Today (11): `account_stages`, `accounts`, `contacts`, `contact_stages`, `emailer_campaigns`, `emailer_messages`, `opportunities`, `opportunity_stages`, `phone_calls`, `tasks`, `users`
 
 Diffed against: <https://docs.apollo.io/reference/organization-search>
 
@@ -349,10 +349,10 @@ Diffed against: <https://docs.apollo.io/reference/organization-search>
 - [x] `/contact_stages` — lookup resolving contact_stage_id on synced contacts (high)
 - [x] `/account_stages` — lookup resolving account_stage_id on synced accounts (high)
 - [x] `/users/search` — lookup resolving owner/user IDs on accounts, contacts and deals (high)
-- [ ] `/emailer_messages/search (outreach emails)` — per-message email send/open/reply activity, the core sequence funnel (high)
-- [ ] `/phone_calls/search` — call activity records tied to contacts and accounts (high)
-- [ ] `/emailer_campaigns/search (sequences)` — lookup resolving sequence IDs on email activity and contact status (medium)
-- [ ] `/tasks/search` — rep task volume and completion analysis (medium)
+- [x] `/emailer_messages/search (outreach emails)` — per-message email send/open/reply activity, the core sequence funnel (high)
+- [x] `/phone_calls/search` — call activity records tied to contacts and accounts (high)
+- [x] `/emailer_campaigns/search (sequences)` — lookup resolving sequence IDs on email activity and contact status (medium)
+- [x] `/tasks/search` — rep task volume and completion analysis (medium)
 - [ ] `/conversations/search` — conversation intelligence records joinable to calls (medium)
 - [ ] `/labels (lists)` — lookup for list membership used to segment contacts and accounts (medium)
 - [ ] `/notes` — note history attached to CRM records (medium)
