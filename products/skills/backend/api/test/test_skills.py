@@ -1702,9 +1702,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_rejects_a_version_that_the_publisher_did_not_review(
-        self, mock_publish, _mock_flag
-    ):
+    def test_publish_to_community_rejects_a_version_that_the_publisher_did_not_review(self, mock_publish, _mock_flag):
         self.create_skill(name="make-pr")
 
         response = self.client.post(

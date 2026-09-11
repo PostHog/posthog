@@ -72,7 +72,7 @@ describe('skillSceneComponents', () => {
                 </Provider>
             )
 
-            const publishButton = screen.getByRole('button', { name: 'Publish to community' })
+            const publishButton = screen.getByText('Publish to community').closest('button')!
             expect(publishButton).toHaveAttribute('aria-disabled', 'true')
             await waitFor(() => expect(screen.getByText('v3')).toBeInTheDocument())
             expect(publishButton).toHaveAttribute('aria-disabled', 'true')
@@ -81,12 +81,12 @@ describe('skillSceneComponents', () => {
             expect(consentCheckbox).toBeEnabled()
             fireEvent.click(consentCheckbox)
             await waitFor(() =>
-                expect(screen.getByRole('button', { name: 'Publish to community' })).toHaveAttribute(
+                expect(screen.getByText('Publish to community').closest('button')).toHaveAttribute(
                     'aria-disabled',
                     'false'
                 )
             )
-            fireEvent.click(screen.getByRole('button', { name: 'Publish to community' }))
+            fireEvent.click(screen.getByText('Publish to community').closest('button')!)
 
             expect(onPublish).toHaveBeenCalledWith('my-skill', expect.objectContaining({ expected_version: 3 }))
         })
@@ -121,14 +121,14 @@ describe('skillSceneComponents', () => {
                 </Provider>
             )
 
-            const publishButton = screen.getByRole('button', { name: 'Publish to community' })
+            const publishButton = screen.getByText('Publish to community').closest('button')!
             await waitFor(() =>
                 expect(screen.getByText('Could not load the version and file list.')).toBeInTheDocument()
             )
             expect(publishButton).toHaveAttribute('aria-disabled', 'true')
 
             mockRetrieve.mockResolvedValueOnce(MOCK_PREVIEW)
-            fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+            fireEvent.click(screen.getByText('Retry').closest('button')!)
 
             await waitFor(() => expect(screen.getByText('v3')).toBeInTheDocument())
         })
