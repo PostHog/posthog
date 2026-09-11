@@ -162,6 +162,21 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(payload["last_run_status"], "Failed")
         self.assertEqual(payload["last_run_at"][:16], succeeded_at.isoformat()[:16])
 
+    @parameterized.expand([("failed_history", True), ("no_history", False)])
+    def test_legacy_last_run_at_is_used_only_without_job_history(self, _name: str, has_failed_job: bool):
+        legacy_run_at = timezone.now() - timedelta(days=1)
+        self.view_node.properties = {"system": {"last_run_at": legacy_run_at.isoformat()}}
+        self.view_node.save(update_fields=["properties"])
+        if has_failed_job:
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=self.saved_query,
+                status=DataModelingJob.Status.FAILED,
+                last_run_at=timezone.now(),
+            )
+
+        self.assertEqual(self._node_payload()["last_run_at"], None if has_failed_job else legacy_run_at.isoformat())
+
     @parameterized.expand([("list",), ("retrieve",)])
     def test_nodes_report_status_from_the_latest_job(self, endpoint: str):
         """The node carries no status of its own, so both reads have to take it off the newest job."""

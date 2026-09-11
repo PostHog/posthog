@@ -118,6 +118,15 @@ describe('modelsSceneLogic', () => {
         expect(logic.values.activeTab).toEqual('data-quality')
     })
 
+    it('opens a data quality deep link after feature flags load', async () => {
+        await mount('/models?tab=data-quality')
+        expect(logic.values.activeTab).toEqual('overview')
+
+        setFlag(FEATURE_FLAGS.DATA_QUALITY_CHECKS, true)
+
+        expect(logic.values.activeTab).toEqual('data-quality')
+    })
+
     it('counts models whose last run failed and models that are suspended', async () => {
         setFlag(FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES, true)
         await mount('/models')
@@ -178,5 +187,27 @@ describe('modelsSceneLogic', () => {
         // Both blew their cadence, but a broken model is already named above, and saying it
         // twice would send the reader to the same place for two different reasons.
         expect(logic.values.behindSchedule.map((row) => row.node.id)).toEqual(['healthy'])
+    })
+
+    it('updates models behind schedule when the scene clock advances without reloading nodes', async () => {
+        const initialNow = new Date('2026-01-01T12:00:00Z').getTime()
+        const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(initialNow)
+        try {
+            await mount('/models')
+            lineageDataLogic.actions.loadNodesSuccess([
+                buildNode('nearly-behind', {
+                    sync_interval: '1hour',
+                    last_run_at: '2026-01-01T10:01:00Z',
+                }),
+            ])
+            expect(logic.values.behindSchedule).toEqual([])
+
+            nowSpy.mockReturnValue(initialNow + 2 * 60_000)
+            logic.actions.setNow(Date.now())
+
+            expect(logic.values.behindSchedule.map((row) => row.node.id)).toEqual(['nearly-behind'])
+        } finally {
+            nowSpy.mockRestore()
+        }
     })
 })

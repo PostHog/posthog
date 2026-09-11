@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import models
-from django.db.models import OuterRef, Subquery
+from django.db.models import Exists, OuterRef, Subquery
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
@@ -117,14 +117,11 @@ class NodeSerializer(serializers.ModelSerializer):
         return len(_get_downstream_nodes(node))
 
     def get_last_run_at(self, node: Node) -> str | None:
-        """When this model last succeeded.
-
-        The stored stamp is written on every outcome, failures included, so it would report a
-        failed run as fresh. It stands in only for nodes with no job rows to read.
-        """
         run_at = getattr(node, "_latest_job_run_at", None)
         if run_at is not None:
             return run_at.isoformat()
+        if getattr(node, "_has_serving_job", False):
+            return None
         return node.properties.get("system", {}).get("last_run_at")
 
     def get_last_run_status(self, node: Node) -> str | None:
@@ -226,6 +223,7 @@ def _annotate_latest_job(queryset: models.QuerySet) -> models.QuerySet:
         .order_by("-last_run_at")
     )
     return queryset.annotate(
+        _has_serving_job=Exists(serving_jobs),
         _latest_job_status=Subquery(serving_jobs.values("status")[:1]),
         _latest_job_error=Subquery(serving_jobs.values("error")[:1]),
         _latest_job_run_at=Subquery(

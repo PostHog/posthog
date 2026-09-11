@@ -54,6 +54,5 @@ export function modelsBehindSchedule(nodes: DataModelingNode[], now: number): Be
         behind.push({ node, intervalSeconds, ageSeconds, overdueSeconds: ageSeconds - intervalSeconds })
     }
 
-    // Cadence sets the expectation, so lateness is only comparable once divided by it.
     return behind.sort((a, b) => b.overdueSeconds - a.overdueSeconds)
 }

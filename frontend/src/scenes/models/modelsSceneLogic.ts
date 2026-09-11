@@ -1,5 +1,5 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
-import { urlToAction } from 'kea-router'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router, urlToAction } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -38,11 +38,13 @@ export interface modelsSceneLogicValues {
     dataWarehouseSavedQueries: DataWarehouseSavedQuery[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    receivedFeatureFlags: boolean // featureFlagLogic
     activeTab: ModelsSceneTab
     dataQualityTabEnabled: boolean
     nodes: DataModelingNode[] // lineageDataLogic
     nodesLoading: boolean // lineageDataLogic
     edges: DataModelingEdge[] // lineageDataLogic
+    now: number
     savedQueryIdToNodeId: Record<string, string>
     failingNodes: DataModelingNode[]
     suspendedNodes: DataModelingNode[]
@@ -53,7 +55,9 @@ export interface modelsSceneLogicValues {
 
 export interface modelsSceneLogicActions {
     loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
+    setFeatureFlags: (flags: string[], variants: Record<string, boolean | string>) => any // featureFlagLogic
     setActiveTab: (tab: ModelsSceneTab) => { tab: ModelsSceneTab }
+    setNow: (now: number) => { now: number }
 }
 
 export interface modelsSceneLogicMeta {
@@ -70,7 +74,11 @@ export interface modelsSceneLogicMeta {
             nodes: DataModelingNode[],
             savedQueries: DataWarehouseSavedQuery[]
         ) => AttentionModel[]
-        behindSchedule: (nodes: DataModelingNode[], attentionModels: AttentionModel[]) => BehindScheduleModel[]
+        behindSchedule: (
+            nodes: DataModelingNode[],
+            attentionModels: AttentionModel[],
+            now: number
+        ) => BehindScheduleModel[]
     }
 }
 
@@ -88,20 +96,27 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueriesLoading'],
             featureFlagLogic,
-            ['featureFlags'],
+            ['featureFlags', 'receivedFeatureFlags'],
             lineageDataLogic,
             ['nodes', 'nodesLoading', 'edges'],
         ],
-        actions: [dataWarehouseViewsLogic, ['loadDataWarehouseSavedQueries']],
+        actions: [dataWarehouseViewsLogic, ['loadDataWarehouseSavedQueries'], featureFlagLogic, ['setFeatureFlags']],
     })),
     actions({
         setActiveTab: (tab: ModelsSceneTab) => ({ tab }),
+        setNow: (now: number) => ({ now }),
     }),
     reducers({
         activeTab: [
             'overview' as ModelsSceneTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        now: [
+            Date.now(),
+            {
+                setNow: (_, { now }) => now,
             },
         ],
     }),
@@ -196,12 +211,12 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
             },
         ],
         behindSchedule: [
-            (s) => [s.nodes, s.attentionModels],
-            (nodes: DataModelingNode[], attentionModels: AttentionModel[]): BehindScheduleModel[] => {
+            (s) => [s.nodes, s.attentionModels, s.now],
+            (nodes: DataModelingNode[], attentionModels: AttentionModel[], now: number): BehindScheduleModel[] => {
                 // A failed or suspended model is behind as a consequence, and its own row
                 // already says why, so reporting it here would only repeat the same problem.
                 const reported = new Set(attentionModels.map((row) => row.node.id))
-                return modelsBehindSchedule(nodes, Date.now()).filter((row) => !reported.has(row.node.id))
+                return modelsBehindSchedule(nodes, now).filter((row) => !reported.has(row.node.id))
             },
         ],
         dataQualityTabEnabled: [
@@ -209,9 +224,19 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS],
         ],
     }),
+    listeners(({ actions }) => ({
+        setFeatureFlags: ({ variants }) => {
+            if (router.values.searchParams.tab === 'data-quality') {
+                actions.setActiveTab(variants[FEATURE_FLAGS.DATA_QUALITY_CHECKS] ? 'data-quality' : 'overview')
+            }
+        },
+    })),
     urlToAction(({ actions, values }) => ({
         [urls.models()]: (_, searchParams) => {
             let tab: ModelsSceneTab = isModelsSceneTab(searchParams.tab) ? searchParams.tab : 'overview'
+            if (tab === 'data-quality' && !values.receivedFeatureFlags) {
+                return
+            }
             if (tab === 'data-quality' && !values.dataQualityTabEnabled) {
                 tab = 'overview'
             }
@@ -220,7 +245,12 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadDataWarehouseSavedQueries()
+        actions.setNow(Date.now())
+        cache.disposables.add(() => {
+            const intervalId = window.setInterval(() => actions.setNow(Date.now()), 60_000)
+            return () => window.clearInterval(intervalId)
+        })
     }),
 ])

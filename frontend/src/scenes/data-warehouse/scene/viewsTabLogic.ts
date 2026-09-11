@@ -37,7 +37,9 @@ export interface viewsTabLogicValues {
     viewsMapById: Record<string, DatabaseSchemaEndpointTable | DatabaseSchemaManagedViewTable | DatabaseSchemaViewTable> // databaseTableListLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     nodes: DataModelingNode[] // modelsLineageLogic
+    nodesLoading: boolean // modelsLineageLogic
     edges: DataModelingEdge[] // modelsLineageLogic
+    edgesLoading: boolean // modelsLineageLogic
     accessControlModalOpen: boolean
     currentPage: number
     editingAccessControlView: DataWarehouseSavedQuery | null
@@ -155,7 +157,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
             databaseTableListLogic,
             ['database', 'viewsMapById'],
             lineageDataLogic,
-            ['nodes', 'edges'],
+            ['nodes', 'nodesLoading', 'edges', 'edgesLoading'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -259,12 +261,17 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
 
         // Lineage names the rows to keep; the graph keys on node id, this table on view name.
         lineageNames: [
-            (s) => [s.nodes, s.edges, s.parsedSearch],
+            (s) => [s.nodes, s.edges, s.nodesLoading, s.edgesLoading, s.parsedSearch],
             (
                 nodes: DataModelingNode[],
                 edges: DataModelingEdge[],
+                nodesLoading: boolean,
+                edgesLoading: boolean,
                 parsedSearch: ParsedLineageSearch
             ): Set<string> | null => {
+                if (parsedSearch.mode !== 'search' && (nodesLoading || edgesLoading)) {
+                    return null
+                }
                 const reached = nodeIdsForLineageSearch(nodes, edges, parsedSearch)
                 return reached && new Set(nodes.filter((node) => reached.has(node.id)).map((node) => node.name))
             },

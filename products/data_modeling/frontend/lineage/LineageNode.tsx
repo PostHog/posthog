@@ -17,6 +17,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import { DataModelingNode } from '~/types'
 
+import { servingSuspension } from 'products/data_modeling/frontend/suspension'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { ElkDirection, NodeHandle } from './autolayout'
@@ -67,7 +68,7 @@ export interface LineageNodeData extends Record<string, unknown> {
 }
 
 function StatusDot({ node }: { node: LineageNodeShape }): JSX.Element {
-    const suspension = Object.values(node.suspended ?? {})[0]
+    const suspension = servingSuspension(node.suspended)
     if (suspension) {
         return (
             <Tooltip

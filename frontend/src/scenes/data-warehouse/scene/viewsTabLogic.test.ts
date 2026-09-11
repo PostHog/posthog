@@ -3,6 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
+
 import { PAGE_SIZE, viewsTabLogic } from './viewsTabLogic'
 
 function buildView(id: string, isMaterialized: boolean): Record<string, unknown> {
@@ -23,6 +25,8 @@ describe('viewsTabLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/warehouse_saved_queries/': { count: views.length, results: views },
+                '/api/environments/:team_id/data_modeling_nodes/': { count: 0, results: [] },
+                '/api/environments/:team_id/data_modeling_edges/': { count: 0, results: [] },
                 '/api/environments/:team_id/warehouse_saved_queries/:id/run_history/': (req) => {
                     runHistoryRequests.push(String(req.params.id))
                     return [200, { run_history: [] }]
@@ -57,6 +61,13 @@ describe('viewsTabLogic', () => {
         logic.actions.setTypeFilter('materialized')
         logic.actions.setSearchTerm('mat-1')
         await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filteredViews.map((view) => view.id)).toEqual(['mat-1', 'mat-10'])
+    })
+
+    it('keeps name matches visible while lineage data reloads', () => {
+        lineageDataLogic.actions.loadNodes()
+        logic.actions.setSearchTerm('+mat-1')
 
         expect(logic.values.filteredViews.map((view) => view.id)).toEqual(['mat-1', 'mat-10'])
     })

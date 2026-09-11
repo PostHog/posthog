@@ -35,8 +35,6 @@ import {
 
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
-// Matches DataModelingJobEngine.CLICKHOUSE, the engine materialized queries are served from.
-
 interface MaterializationStatusPanelProps {
     viewId: string
     /**
