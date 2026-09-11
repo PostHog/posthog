@@ -904,6 +904,7 @@ class CustomBotField(StrEnum):
 class CustomBotMatcher(StrEnum):
     CONTAINS = "contains"
     REGEX = "regex"
+    EXACT = "exact"
     CIDR = "cidr"
 
 
@@ -1661,6 +1662,7 @@ class ExternalDataSourceType(StrEnum):
     FRESHCHAT = "Freshchat"
     FRESHSERVICE = "Freshservice"
     FULCRUM = "Fulcrum"
+    GAINSIGHT_CS = "GainsightCs"
     GAINSIGHT_PX = "GainsightPx"
     GIT_BOOK = "GitBook"
     GLASSFROG = "Glassfrog"
@@ -3047,6 +3049,7 @@ class IntegrationKind(StrEnum):
     LINEAR = "linear"
     GITHUB = "github"
     GITLAB = "gitlab"
+    HELPSCOUT = "helpscout"
     META_ADS = "meta-ads"
     INSTAGRAM = "instagram"
     CLICKUP = "clickup"
@@ -3500,6 +3503,7 @@ class NodeKind(StrEnum):
     MCP_TOOL_CALL_BREAKDOWN_QUERY = "MCPToolCallBreakdownQuery"
     MCP_TOOL_CALLS_AND_ERRORS_QUERY = "MCPToolCallsAndErrorsQuery"
     MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
+    MCP_MODEL_BREAKDOWN_QUERY = "MCPModelBreakdownQuery"
     MCP_TOOL_TOP_USERS_QUERY = "MCPToolTopUsersQuery"
     MCP_TOOL_FAILURES_QUERY = "MCPToolFailuresQuery"
     MCP_TOOL_FAILURE_OCCURRENCES_QUERY = "MCPToolFailureOccurrencesQuery"
@@ -3590,6 +3594,9 @@ class ProductIntentContext(StrEnum):
     SESSION_REPLAY_SET_FILTERS = "session_replay_set_filters"
     SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = "session_replay_experiment_link_clicked"
     SESSION_REPLAY_SAVE_FILTERS_AS_SCANNER = "session_replay_save_filters_as_scanner"
+    REPLAY_VISION_VIEWED = "replay_vision_viewed"
+    REPLAY_VISION_SCANNER_CREATED = "replay_vision_scanner_created"
+    REPLAY_VISION_SCAN_TRIGGERED = "replay_vision_scan_triggered"
     ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = "error_tracking_exception_autocapture_enabled"
     ERROR_TRACKING_ISSUE_SORTING = "error_tracking_issue_sorting"
     ERROR_TRACKING_DOCS_VIEWED = "error_tracking_docs_viewed"

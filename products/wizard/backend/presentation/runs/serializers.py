@@ -195,10 +195,22 @@ class WizardRunStatusUpdateRequestSerializer(serializers.Serializer):
         return cast(str | None, self.validated_data.get("error_code"))
 
 
+class WizardRunCreatorSerializer(serializers.Serializer):
+    id = serializers.IntegerField(read_only=True, help_text="Unique ID of the user who created the Wizard run.")
+    first_name = serializers.CharField(read_only=True, help_text="First name of the user who created the Wizard run.")
+    last_name = serializers.CharField(read_only=True, help_text="Last name of the user who created the Wizard run.")
+    email = serializers.EmailField(read_only=True, help_text="Email address of the user who created the Wizard run.")
+
+
 class WizardRunSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique ID of the Wizard run.")
     team_id = serializers.IntegerField(read_only=True, help_text="Project that owns the Wizard run.")
     created_by_id = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="User who created the Wizard run, or null if that user no longer exists.",
+    )
+    created_by = WizardRunCreatorSerializer(
         read_only=True,
         allow_null=True,
         help_text="User who created the Wizard run, or null if that user no longer exists.",

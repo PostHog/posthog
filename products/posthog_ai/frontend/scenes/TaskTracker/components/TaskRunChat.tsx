@@ -13,6 +13,7 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
+import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
 import { getRuntimeAdapterForModel } from 'products/posthog_ai/frontend/utils/composerModels'
 import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
 
@@ -195,6 +196,7 @@ function LiveComposer({
         queuedMessages,
         isTerminal,
         selectedModel,
+        defaultModel,
         selectedEffort,
         consentBlocked,
         selectedMode,
@@ -203,6 +205,7 @@ function LiveComposer({
         cancellationState,
     } = useValues(runInteractionLogic(logicProps))
     const { catalogue } = useValues(modelCatalogueLogic)
+    const { myConfigLoading } = useValues(taskRunDefaultsLogic)
     // A live run's harness is whatever it booted on; once terminal the next run follows the picked model.
     const composerAdapter = logicProps.currentRuntimeAdapter ?? getRuntimeAdapterForModel(catalogue, selectedModel)
     const {
@@ -278,6 +281,8 @@ function LiveComposer({
                         <ComposerModelEffortPickers
                             models={catalogue}
                             selectedModel={selectedModel}
+                            defaultModel={defaultModel}
+                            isDefaultModelLoading={myConfigLoading}
                             selectedEffort={selectedEffort}
                             onModelChange={setModel}
                             onEffortChange={setEffort}
