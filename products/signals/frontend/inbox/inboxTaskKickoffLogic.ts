@@ -1,5 +1,4 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -7,10 +6,25 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
+
+import {
+    attachedContextItemKey,
+    attachedContextLogic,
+    runnerPanelLogic,
+    runStreamLogic,
+    wrapWithPosthogContext,
+} from 'products/posthog_ai/frontend/api/logics'
+import type { ActiveCreation } from 'products/posthog_ai/frontend/api/logics'
+import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
+import type { Task, TaskRun } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     ClaudeRuntimeAdapterEnumApi,
     ClaudeTaskRunCreateSchemaApi,
@@ -29,10 +43,15 @@ import {
 } from './types'
 import { aiConsentDisabledReason } from './utils/aiConsent'
 
-// Cloud-adapted port of desktop `useDiscussReport` / `useCreatePrReport`. These are
-// task-kickoff actions (create a cloud Task linked to the report, then navigate to it) –
-// NOT a live chat surface. The created task carries the SignalReport linkage so the
-// backend's agent pipeline can pick it up.
+export const REPORT_AI_PANEL = 'inbox-report'
+export const REPORT_AI_PANEL_ID = 'max-side-panel'
+
+const OPTIMISTIC_REPORT_STREAM = 'optimistic-report-stream'
+
+export interface ReportChatContext {
+    report: SignalReport
+    reportUrl: string
+}
 
 // Mirrors the server's `FREE_TRIAL_PR_MESSAGE`, so the disabled button and a refused call read the same.
 export const FREE_TRIAL_PR_DISABLED_REASON =
@@ -181,6 +200,11 @@ function handleKickoffError(
     captureInboxReportActionCompleted({ report, actionType, outcome: 'failure' })
 }
 
+// Mirrors `signal_report_discussion_question`'s `max_length` in the tasks `TaskCreateSerializer`
+// (`@maxLength 4000` in the generated tasks schema); keep the two in sync. Over it, task creation
+// comes back as a 400 on a field the reader never sees named.
+export const REPORT_DISCUSSION_QUESTION_MAX_LENGTH = 4000
+
 async function createReportTask(
     report: SignalReport,
     relationship: SignalReportTaskRelationship,
@@ -188,7 +212,7 @@ async function createReportTask(
     fallbackTitle: string,
     runtimeSelection?: ClaudeRuntimeSelection,
     discussionQuestion?: string
-): Promise<void> {
+): Promise<{ task: Task; run: TaskRun }> {
     // `repository` is intentionally omitted: the backend resolves it for signal_report tasks.
     const task = await api.tasks.create({
         title: report.title?.trim() || fallbackTitle,
@@ -207,7 +231,7 @@ async function createReportTask(
     const runOptions = {
         run_source: RunSourceEnumApi.SignalReport,
         signal_report_id: report.id,
-        // Interactive, not the default background: the user lands on the run page right away, and the
+        // Interactive, not the default background: the user follows the run in the sidebar, and the
         // agent-server only relays AskUserQuestion (and other approval prompts) to the client on
         // non-background runs — a background run's questions are parked and never rendered as a form.
         mode: TaskExecutionModeEnumApi.Interactive,
@@ -216,25 +240,68 @@ async function createReportTask(
         // ACP runtime, so without this the sandbox boots with no first turn and the run just idles.
         pending_user_message: prompt,
     }
-    await api.tasks.run(task.id, runtimeSelection ? { ...runOptions, ...runtimeSelection } : runOptions)
+    const runningTask = await api.tasks.run(
+        task.id,
+        runtimeSelection ? { ...runOptions, ...runtimeSelection } : runOptions
+    )
+    if (!runningTask.latest_run) {
+        throw new Error('The task has no run. Open the task list to check its status.')
+    }
+    return { task: runningTask, run: runningTask.latest_run }
+}
 
-    router.actions.push(urls.taskDetail(task.id))
+/**
+ * Whether the AI panel is still about this report, so a finished kickoff may open its task.
+ *
+ * Creating the task and starting its run take two round trips, so the reader can open another
+ * report's run while this one is in flight. The panel state is shared, so opening unconditionally
+ * would pull the sidebar off that newer pick. The run starts either way and remains in the report's
+ * Runs section.
+ */
+function panelStillOnReport(context: ReportChatContext | null, reportId: string): boolean {
+    return !context || context.report.id === reportId
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface inboxTaskKickoffLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
+    contextItems: AttachedContextItem[] // attachedContextLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    activeCreation: ActiveCreation | null // runnerPanelLogic
     aiConsentDisabledReason: string | null
     createPrDisabledReason: string | null
     freeTrialDisabledReason: string | null
     isCreatingPr: boolean
     isDiscussing: boolean
+    reportChatContext: ReportChatContext | null
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface inboxTaskKickoffLogicActions {
+    markContextSent: (
+        taskId: string,
+        keys: string[]
+    ) => {
+        keys: string[]
+        taskId: string
+    } // attachedContextLogic
+    clearActiveCreation: () => {
+        value: true
+    } // runnerPanelLogic
+    setActiveCreation: (creation: ActiveCreation) => {
+        creation: ActiveCreation
+    } // runnerPanelLogic
+    setHistoryExpanded: (expanded: boolean) => {
+        expanded: boolean
+    } // runnerPanelLogic
+    openSidePanel: (
+        tab: SidePanelTab,
+        options?: string | undefined
+    ) => {
+        options: string | undefined
+        tab: SidePanelTab
+    } // sidePanelStateLogic
     createPrFailure: () => {
         value: true
     }
@@ -263,6 +330,24 @@ export interface inboxTaskKickoffLogicActions {
     discussReportSuccess: () => {
         value: true
     }
+    openReportDiscussion: (
+        report: SignalReport,
+        reportUrl: string
+    ) => {
+        report: SignalReport
+        reportUrl: string
+    }
+    openReportTask: (
+        report: SignalReport,
+        taskId: string,
+        runId: string,
+        streamKey?: string
+    ) => {
+        report: SignalReport
+        runId: string
+        streamKey: string | undefined
+        taskId: string
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -290,16 +375,36 @@ export type inboxTaskKickoffLogicType = MakeLogicType<
 export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     path(['scenes', 'inbox', 'inboxTaskKickoffLogic']),
 
-    connect({
+    // Lazy, so the keyed `runnerPanelLogic` is built when this logic mounts, not when the module loads.
+    connect(() => ({
+        actions: [
+            attachedContextLogic,
+            ['markContextSent'],
+            runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }),
+            ['setActiveCreation', 'clearActiveCreation', 'setHistoryExpanded'],
+            sidePanelStateLogic,
+            ['openSidePanel'],
+        ],
         values: [
+            attachedContextLogic,
+            ['contextItems'],
+            runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }),
+            ['activeCreation'],
             aiConsentLogic,
             ['dataProcessingAccepted', 'dataProcessingApprovalDisabledReason'],
             featureFlagLogic,
             ['featureFlags'],
         ],
-    }),
+    })),
 
     actions({
+        openReportDiscussion: (report: SignalReport, reportUrl: string) => ({ report, reportUrl }),
+        openReportTask: (report: SignalReport, taskId: string, runId: string, streamKey?: string) => ({
+            report,
+            taskId,
+            runId,
+            streamKey,
+        }),
         discussReport: (report: SignalReport, reportUrl: string, question: string) => ({ report, reportUrl, question }),
         createPrFromReport: (report: SignalReport, feedback?: string) => ({ report, feedback }),
         discussReportSuccess: true,
@@ -309,6 +414,16 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     }),
 
     reducers({
+        reportChatContext: [
+            null as ReportChatContext | null,
+            {
+                openReportDiscussion: (_, { report, reportUrl }) => ({ report, reportUrl }),
+                openReportTask: (_, { report }) => ({
+                    report,
+                    reportUrl: `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`,
+                }),
+            },
+        ],
         isDiscussing: [
             false,
             {
@@ -349,7 +464,30 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, cache, values }) => ({
+        openReportDiscussion: () => {
+            cache.disposables.dispose(OPTIMISTIC_REPORT_STREAM)
+            actions.clearActiveCreation()
+            actions.setHistoryExpanded(false)
+            actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
+        },
+        openReportTask: ({ taskId, runId, streamKey }) => {
+            const currentStreamKey =
+                values.activeCreation?.taskId === taskId && values.activeCreation.runId === runId
+                    ? values.activeCreation.streamKey
+                    : undefined
+            const resolvedStreamKey = streamKey ?? currentStreamKey
+            if (!resolvedStreamKey) {
+                cache.disposables.dispose(OPTIMISTIC_REPORT_STREAM)
+            }
+            // The panel is shared with the PostHog AI side panel, where the task history can be left
+            // expanded. Collapse it first, like the discussion entry point does: `setActiveCreation`
+            // would otherwise record the run as opened from history, and Back would land on the
+            // generic task list instead of this report's composer.
+            actions.setHistoryExpanded(false)
+            actions.setActiveCreation({ streamKey: resolvedStreamKey ?? runId, taskId, runId })
+            actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
+        },
         discussReport: async ({ report, reportUrl, question }) => {
             // The CTAs carry this as a `disabledReason`, but Discuss also submits on Enter, and the
             // run endpoint enforces no consent of its own.
@@ -364,7 +502,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 actions.discussReportFailure()
                 return
             }
-            // The popover renders from a snapshot that can go stale between load and submit (the
+            const contextItems = values.contextItems
+            // The composer renders from a snapshot that can go stale between load and submit (the
             // report resolves, fails, or gets suppressed meanwhile), so the action-vs-answer framing
             // is derived from the report's current server-side state. A failed refetch fails closed:
             // `null` pins the run to answering.
@@ -382,14 +521,31 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 lemonToast.info('This report can no longer take actions, so AI will answer instead.')
             }
             try {
-                await createReportTask(
+                const prompt = wrapWithPosthogContext(
+                    buildDiscussReportPrompt(currentReport, reportUrl, question),
+                    contextItems
+                )
+                const { task, run } = await createReportTask(
                     report,
                     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
-                    buildDiscussReportPrompt(currentReport, reportUrl, question),
+                    prompt,
                     'Ask AI about report',
                     DISCUSS_RUNTIME,
                     question
                 )
+                const sentContextKeys = contextItems.filter((item) => item.type !== 'text').map(attachedContextItemKey)
+                if (sentContextKeys.length > 0) {
+                    actions.markContextSent(task.id, sentContextKeys)
+                }
+                if (panelStillOnReport(values.reportChatContext, report.id)) {
+                    const streamKey = `report-discussion-${uuid()}`
+                    const stream = runStreamLogic({ streamKey })
+                    cache.disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, {
+                        pauseOnPageHidden: false,
+                    })
+                    stream.actions.startOptimisticRun(question)
+                    actions.openReportTask(report, task.id, run.id, streamKey)
+                }
                 captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
                 actions.discussReportSuccess()
             } catch (error: any) {
@@ -409,17 +565,40 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 actions.createPrFailure()
                 return
             }
+            actions.openReportDiscussion(
+                report,
+                `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
+            )
+            const streamKey = `report-implementation-${uuid()}`
+            const stream = runStreamLogic({ streamKey })
+            const disposables = cache.disposables
+            disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, { pauseOnPageHidden: false })
+            stream.actions.startOptimisticRun()
+            actions.setActiveCreation({ streamKey })
             try {
-                await createReportTask(
+                const { task, run } = await createReportTask(
                     report,
                     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
                     buildCreatePrReportPrompt(report, feedback),
                     'Implement report fix',
                     CREATE_PR_RUNTIME
                 )
+                if (disposables.isDisposed) {
+                    return
+                }
+                if (panelStillOnReport(values.reportChatContext, report.id)) {
+                    actions.openReportTask(report, task.id, run.id, streamKey)
+                }
                 captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'success' })
                 actions.createPrSuccess()
             } catch (error: any) {
+                if (disposables.isDisposed) {
+                    return
+                }
+                if (values.activeCreation?.streamKey === streamKey) {
+                    disposables.dispose(OPTIMISTIC_REPORT_STREAM)
+                    actions.clearActiveCreation()
+                }
                 handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
                 actions.createPrFailure()
             }

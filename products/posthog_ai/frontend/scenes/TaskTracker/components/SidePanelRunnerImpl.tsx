@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { ReactNode, useRef } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -16,6 +16,7 @@ import { TaskRunChat } from './TaskRunChat'
 export interface SidePanelRunnerImplProps {
     /** Embedded `taskTrackerSceneLogic` key — keeps this instance independent of the `/tasks` scene singleton. */
     panelId: string
+    composer?: ReactNode
 }
 
 /**
@@ -25,15 +26,15 @@ export interface SidePanelRunnerImplProps {
  * `TaskTrackerSceneLogicProps`) so `TaskComposer` — which reads the unbound `taskTrackerSceneLogic` — resolves
  * this instance instead of the scene's own singleton.
  */
-export function SidePanelRunnerImpl({ panelId }: SidePanelRunnerImplProps): JSX.Element {
+export function SidePanelRunnerImpl({ panelId, composer }: SidePanelRunnerImplProps): JSX.Element {
     return (
         <BindLogic logic={taskTrackerSceneLogic} props={{ panelId }}>
-            <SidePanelRunnerContent />
+            <SidePanelRunnerContent composer={composer} />
         </BindLogic>
     )
 }
 
-function SidePanelRunnerContent(): JSX.Element {
+function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Element {
     const { activeCreation, historyExpanded } = useValues(taskTrackerSceneLogic)
     const { toggleHistory, updateActiveCreationRun, setStartupDraft } = useActions(taskTrackerSceneLogic)
     const startupFocusedRef = useRef(false)
@@ -49,7 +50,10 @@ function SidePanelRunnerContent(): JSX.Element {
     // unlike the foreground stream above, the instruction must ride the FIRST send, before a run exists.
     useAttachedContext([AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM])
 
-    if (!activeCreation && historyExpanded) {
+    // `!composer`: a host that supplies its own composer offers no way into the history list, and the
+    // panel state is shared across hosts — so an expanded history left behind by another one must not
+    // take the place of that composer.
+    if (!activeCreation && historyExpanded && !composer) {
         return (
             <div className="flex flex-col h-full min-h-0">
                 <div className="flex items-center shrink-0 border-b border-primary px-2 py-1">
@@ -65,6 +69,9 @@ function SidePanelRunnerContent(): JSX.Element {
     }
 
     if (!activeCreation) {
+        if (composer) {
+            return <div className="flex-1 min-h-0 overflow-y-auto">{composer}</div>
+        }
         // Mirrors the legacy Max welcome layout: a centered composer with the recent-tasks
         // history pinned as a sibling at the bottom of the panel, not inside the composer column.
         return (

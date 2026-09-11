@@ -223,6 +223,7 @@ export function InboxDetailFrame({
         chartPlacements,
         trailingCharts,
         detailTab,
+        reportTaskToOpen,
     } = useValues(inboxReportDetailLogic(logicProps))
     const { setDetailTab, expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
@@ -255,7 +256,7 @@ export function InboxDetailFrame({
 
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
-    const implementButton = showCreatePr ? <ImplementButton report={report} /> : null
+    const implementButton = showCreatePr || reportTaskToOpen ? <ImplementButton report={report} /> : null
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )
