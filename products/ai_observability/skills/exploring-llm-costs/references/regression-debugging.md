@@ -90,9 +90,10 @@ posthog:execute-sql
 SELECT
     toDate(timestamp) AS day,
     properties.$ai_model AS model,
+    properties.$ai_cache_reporting_exclusive AS cache_reporting_exclusive,
     round(
         if(
-            any(properties.$ai_cache_reporting_exclusive) = 'true',
+            properties.$ai_cache_reporting_exclusive = 'true',
             sum(toInt(properties.$ai_cache_read_input_tokens))
                 / nullIf(sum(toInt(properties.$ai_input_tokens))
                        + sum(toInt(properties.$ai_cache_read_input_tokens))
@@ -108,13 +109,13 @@ FROM events
 WHERE event = '$ai_generation'
     AND timestamp >= toDateTime('<jump_day>') - INTERVAL 14 DAY
     AND timestamp < toDateTime('<jump_day>') + INTERVAL 14 DAY
-GROUP BY day, model
-ORDER BY day, model
+GROUP BY day, model, cache_reporting_exclusive
+ORDER BY day, model, cache_reporting_exclusive
 ```
 
-The `if(...)` branches on the per-event `$ai_cache_reporting_exclusive` flag,
-so the denominator is correct for both exclusive and inclusive providers. Never
-branch on provider or model name.
+The `if(...)` branches on the `$ai_cache_reporting_exclusive` flag, and the flag sits in the group key, so each reporting style gets its own denominator.
+A model that mixes both styles across providers or SDK versions returns one row per style per day, instead of one blended row that applies the wrong denominator to half of it.
+Never branch on provider or model name.
 
 A `cache_hit_rate` above 1 means the flag is unset on those events, so the
 query took the inclusive path over exclusive data. Treat that number as
