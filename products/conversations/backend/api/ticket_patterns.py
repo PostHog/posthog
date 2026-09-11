@@ -6,7 +6,7 @@ from django.db import transaction
 from django.db.models import F, QuerySet
 from django.utils import timezone
 
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -49,8 +49,10 @@ class PatternEvidenceTicketSerializer(serializers.ModelSerializer):
 
 
 class TicketPatternSerializer(serializers.ModelSerializer):
-    resolved_by = UserBasicSerializer(read_only=True, help_text="Who confirmed or dismissed the pattern.")
-    owner = UserBasicSerializer(read_only=True, help_text="Who took ownership when confirming.")
+    resolved_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="Who confirmed or dismissed the pattern."
+    )
+    owner = UserBasicSerializer(read_only=True, allow_null=True, help_text="Who took ownership when confirming.")
     tickets = serializers.SerializerMethodField(
         help_text=f"Up to {EVIDENCE_PREVIEW_LIMIT} of the tickets behind this pattern, newest first, "
         "limited to tickets the requesting user can open."
@@ -97,6 +99,7 @@ class TicketPatternSerializer(serializers.ModelSerializer):
             "evidence": {"help_text": "Free-form context: correlation results, dismiss reason, auto_resolved flag."},
         }
 
+    @extend_schema_field(PatternEvidenceTicketSerializer(many=True))
     def get_tickets(self, pattern: TicketPattern) -> list[dict[str, Any]]:
         visible = self.context.get("visible_ticket_ids")
         if visible is None:

@@ -104,6 +104,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
+    '/support/patterns': ['SupportPatterns', 'supportPatterns'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
     '/my-tickets': ['MyTickets', 'myTickets'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
@@ -605,6 +606,7 @@ export const productConfiguration: Record<string, any> = {
         docsHref: 'https://posthog.com/docs/support',
     },
     SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
+    SupportPatterns: { name: 'Ticket patterns', projectBased: true, layout: 'app-container' },
     SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
     MyTickets: { name: 'Your tickets', projectBased: true, layout: 'app-container' },
     CustomerAnalytics: {
@@ -1147,6 +1149,7 @@ export const productUrls = {
     supportDashboard: (): string => '/support',
     supportTickets: (): string => '/support/tickets',
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
+    supportPatterns: (): string => '/support/patterns',
     supportSettings: (): string => '/support/settings',
     myTickets: (ticketId?: string): string =>
         ticketId ? `/my-tickets?ticket=${encodeURIComponent(ticketId)}` : '/my-tickets',
@@ -2588,7 +2591,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'conversations',
         iconColor: ['var(--color-product-support-light)', 'var(--color-product-support-dark)'] as FileSystemIconColor,
         sceneKey: 'SupportTickets',
-        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings', 'MyTickets'],
+        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportPatterns', 'SupportSettings', 'MyTickets'],
     },
     {
         path: 'Surveys',

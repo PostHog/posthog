@@ -23,6 +23,12 @@ export const manifest: ProductManifest = {
             projectBased: true,
             layout: 'app-container',
         },
+        SupportPatterns: {
+            name: 'Ticket patterns',
+            import: () => import('./frontend/scenes/patterns/SupportPatternsScene'),
+            projectBased: true,
+            layout: 'app-container',
+        },
         SupportSettings: {
             name: 'Support settings',
             import: () => import('./frontend/scenes/settings/SupportSettingsScene'),
@@ -41,6 +47,7 @@ export const manifest: ProductManifest = {
     routes: {
         '/support/tickets': ['SupportTickets', 'supportTickets'],
         '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
+        '/support/patterns': ['SupportPatterns', 'supportPatterns'],
         '/support/settings': ['SupportSettings', 'supportSettings'],
         '/my-tickets': ['MyTickets', 'myTickets'],
     },
@@ -51,6 +58,7 @@ export const manifest: ProductManifest = {
         supportDashboard: (): string => '/support',
         supportTickets: (): string => '/support/tickets',
         supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
+        supportPatterns: (): string => '/support/patterns',
         supportSettings: (): string => '/support/settings',
         myTickets: (ticketId?: string): string =>
             ticketId ? `/my-tickets?ticket=${encodeURIComponent(ticketId)}` : '/my-tickets',

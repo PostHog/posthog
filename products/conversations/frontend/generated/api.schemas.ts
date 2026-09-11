@@ -105,7 +105,69 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
-export type TicketPatternApiTicketsItem = { [key: string]: unknown }
+/**
+ * * `widget` - Widget
+ * * `email` - Email
+ * * `slack` - Slack
+ * * `teams` - Microsoft Teams
+ * * `github` - GitHub
+ */
+export type ChannelEnumApi = (typeof ChannelEnumApi)[keyof typeof ChannelEnumApi]
+
+export const ChannelEnumApi = {
+    Widget: 'widget',
+    Email: 'email',
+    Slack: 'slack',
+    Teams: 'teams',
+    Github: 'github',
+} as const
+
+/**
+ * * `new` - New
+ * * `open` - Open
+ * * `pending` - Pending
+ * * `on_hold` - On hold
+ * * `resolved` - Resolved
+ */
+export type TicketStatusEnumApi = (typeof TicketStatusEnumApi)[keyof typeof TicketStatusEnumApi]
+
+export const TicketStatusEnumApi = {
+    New: 'new',
+    Open: 'open',
+    Pending: 'pending',
+    OnHold: 'on_hold',
+    Resolved: 'resolved',
+} as const
+
+export interface PatternEvidenceTicketApi {
+    /** Ticket UUID. */
+    readonly id: string
+    /** Team-scoped ticket number shown as #N in the inbox. */
+    readonly ticket_number: number
+    /** Channel the ticket arrived on.
+     *
+     * * `widget` - Widget
+     * * `email` - Email
+     * * `slack` - Slack
+     * * `teams` - Microsoft Teams
+     * * `github` - GitHub */
+    readonly channel_source: ChannelEnumApi
+    /**
+     * Subject line for email tickets, empty for other channels.
+     * @nullable
+     */
+    readonly email_subject: string | null
+    /** Current ticket status.
+     *
+     * * `new` - New
+     * * `open` - Open
+     * * `pending` - Pending
+     * * `on_hold` - On hold
+     * * `resolved` - Resolved */
+    readonly status: TicketStatusEnumApi
+    /** When the ticket was opened. */
+    readonly created_at: string
+}
 
 export interface TicketPatternApi {
     /** Pattern UUID. */
@@ -156,13 +218,13 @@ export interface TicketPatternApi {
      */
     readonly resolved_at: string | null
     /** Who confirmed or dismissed the pattern. */
-    readonly resolved_by: UserBasicApi
+    readonly resolved_by: UserBasicApi | null
     /** Who took ownership when confirming. */
-    readonly owner: UserBasicApi
+    readonly owner: UserBasicApi | null
     /** Free-form context: correlation results, dismiss reason, auto_resolved flag. */
     readonly evidence: unknown
     /** Up to 10 of the tickets behind this pattern, newest first, limited to tickets the requesting user can open. */
-    readonly tickets: readonly TicketPatternApiTicketsItem[]
+    readonly tickets: readonly PatternEvidenceTicketApi[]
 }
 
 export interface PaginatedTicketPatternListApi {
@@ -195,23 +257,6 @@ export interface DismissPatternApi {
 }
 
 /**
- * * `widget` - Widget
- * * `email` - Email
- * * `slack` - Slack
- * * `teams` - Microsoft Teams
- * * `github` - GitHub
- */
-export type ChannelEnumApi = (typeof ChannelEnumApi)[keyof typeof ChannelEnumApi]
-
-export const ChannelEnumApi = {
-    Widget: 'widget',
-    Email: 'email',
-    Slack: 'slack',
-    Teams: 'teams',
-    Github: 'github',
-} as const
-
-/**
  * * `slack_channel_message` - Channel message
  * * `slack_bot_mention` - Bot mention
  * * `slack_emoji_reaction` - Emoji reaction
@@ -232,23 +277,6 @@ export const ChannelDetailEnumApi = {
     WidgetEmbedded: 'widget_embedded',
     WidgetApi: 'widget_api',
     GithubIssue: 'github_issue',
-} as const
-
-/**
- * * `new` - New
- * * `open` - Open
- * * `pending` - Pending
- * * `on_hold` - On hold
- * * `resolved` - Resolved
- */
-export type TicketStatusEnumApi = (typeof TicketStatusEnumApi)[keyof typeof TicketStatusEnumApi]
-
-export const TicketStatusEnumApi = {
-    New: 'new',
-    Open: 'open',
-    Pending: 'pending',
-    OnHold: 'on_hold',
-    Resolved: 'resolved',
 } as const
 
 /**

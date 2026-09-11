@@ -61128,7 +61128,35 @@ export namespace Schemas {
       Resolved: 'resolved',
     } as const;
 
-    export type TicketPatternTicketsItem = { [key: string]: unknown };
+    export interface PatternEvidenceTicket {
+      /** Ticket UUID. */
+      readonly id: string;
+      /** Team-scoped ticket number shown as #N in the inbox. */
+      readonly ticket_number: number;
+      /** Channel the ticket arrived on.
+       *
+       * * `widget` - Widget
+       * * `email` - Email
+       * * `slack` - Slack
+       * * `teams` - Microsoft Teams
+       * * `github` - GitHub */
+      readonly channel_source: ChannelEnum;
+      /**
+         * Subject line for email tickets, empty for other channels.
+         * @nullable
+         */
+      readonly email_subject: string | null;
+      /** Current ticket status.
+       *
+       * * `new` - New
+       * * `open` - Open
+       * * `pending` - Pending
+       * * `on_hold` - On hold
+       * * `resolved` - Resolved */
+      readonly status: TicketStatusEnum;
+      /** When the ticket was opened. */
+      readonly created_at: string;
+    }
 
     export interface TicketPattern {
       /** Pattern UUID. */
@@ -61179,13 +61207,13 @@ export namespace Schemas {
          */
       readonly resolved_at: string | null;
       /** Who confirmed or dismissed the pattern. */
-      readonly resolved_by: UserBasic;
+      readonly resolved_by: UserBasic | null;
       /** Who took ownership when confirming. */
-      readonly owner: UserBasic;
+      readonly owner: UserBasic | null;
       /** Free-form context: correlation results, dismiss reason, auto_resolved flag. */
       readonly evidence: unknown;
       /** Up to 10 of the tickets behind this pattern, newest first, limited to tickets the requesting user can open. */
-      readonly tickets: readonly TicketPatternTicketsItem[];
+      readonly tickets: readonly PatternEvidenceTicket[];
     }
 
     export interface PaginatedTicketPatternList {

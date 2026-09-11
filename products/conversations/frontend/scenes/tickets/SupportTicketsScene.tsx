@@ -18,6 +18,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ComposeTicketButton } from '../../components/ComposeTicket'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { TicketListFilters } from '../../components/TicketListFilters/TicketListFilters'
+import { TicketPatternBanner } from '../../components/TicketPatterns/TicketPatternBanner'
 import { supportEmptyState } from '../../emptyState/supportEmptyState'
 import { type Ticket } from '../../types'
 import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
@@ -206,6 +207,7 @@ export function SupportTicketsScene(): JSX.Element {
                 actions={<ComposeTicketButton />}
             />
             <ScenesTabs />
+            <TicketPatternBanner />
             <TicketListFilters />
             <SupportTicketsTable />
         </SceneContent>
