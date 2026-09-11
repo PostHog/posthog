@@ -10,7 +10,7 @@ import {
     ProductKey,
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
-import { ActivityTab, AnnotationType, OnboardingStepKey, SDKKey } from '~/types'
+import { ActivityTab, OnboardingStepKey, SDKKey } from '~/types'
 
 import type { MetricFormPrefill } from 'products/data_catalog/frontend/common'
 
@@ -55,7 +55,6 @@ export const urls = {
     webScripts: (): string => '/web-scripts',
     webScriptsNew: (): string => '/web-scripts/new',
     destinations: (): string => '/data-management/destinations',
-    models: (): string => '/models',
     transformations: (): string => '/data-management/transformations',
     eventFiltering: (): string => '/data-management/event-filtering',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
@@ -149,8 +148,6 @@ export const urls = {
         const hashString = hashParams.toString()
         return `/sql${queryString ? `?${queryString}` : ''}${hashString ? `#${hashString}` : ''}`
     },
-    annotations: (): string => '/data-management/annotations',
-    annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     variables: (): string => '/data-management/variables',
     variable: (id: string | ':id'): string => `/data-management/variables/${id}`,
     variableEdit: (id: string | ':id'): string => `/data-management/variables/${id}/edit`,

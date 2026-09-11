@@ -3,7 +3,6 @@ import type { Scene } from 'scenes/sceneTypes'
 export const appSceneModules = {
     AdvancedActivityLogs: './scenes/audit-logs/AdvancedActivityLogsScene',
     AgenticAuthorize: './scenes/agentic/AgenticAuthorize',
-    Annotations: './scenes/annotations/Annotations',
     Approval: './scenes/approvals/ApprovalDetail',
     AsyncMigrations: './scenes/instance/AsyncMigrations/AsyncMigrations',
     MaterializedColumns: './scenes/data-management/MaterializedColumns/MaterializedColumns',
@@ -36,9 +35,6 @@ export const appSceneModules = {
     ExploreSessions: './scenes/activity/explore/SessionsScene',
     FeatureFlag: './scenes/feature-flags/FeatureFlag',
     FeatureFlags: './scenes/feature-flags/FeatureFlags',
-    Group: './scenes/groups/Group',
-    GroupsNew: './scenes/groups/GroupsNew',
-    Groups: './scenes/groups/Groups',
     HogFunction: './scenes/hog-functions/HogFunctionScene',
     Insight: './scenes/insights/InsightScene',
     InsightQuickStart: './scenes/insights/InsightQuickStart/InsightQuickStart',
