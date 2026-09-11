@@ -32,6 +32,7 @@ MAX_CLAIM_ERROR_CHARS = 2_000
 MAX_OCCURRENCE_KEY_CHARS = 1_024
 MAX_PRUNE_CLAIMS_PER_CALL = 10_000
 SCHEDULER_LOCK_TIMEOUT_MS = 5_000
+SCHEDULER_METRICS_STATEMENT_TIMEOUT_MS = 1_000
 
 TerminalClaimStatus = Literal["available", "completed", "quarantined"]
 ActiveClaimStatus = Literal["reserved", "confirmed"]
@@ -219,18 +220,33 @@ def _sample_claim_state(scheduler: str, region: str, *, now: datetime) -> tuple[
     return oldest_active_age_seconds, quarantined_items
 
 
-def _record_claim_snapshot(
+def _record_permit_snapshot(
     metrics: SchedulerMetrics,
     scheduler: str,
     region: str,
     *,
     permits_in_flight: int,
+) -> None:
+    record_scheduler_metrics_safely(lambda: metrics.set_permits_in_flight(scheduler, region, permits_in_flight))
+
+
+def _record_claim_state_snapshot(
+    metrics: SchedulerMetrics,
+    scheduler: str,
+    region: str,
+    *,
     now: datetime,
 ) -> None:
-    oldest_active_age_seconds, quarantined_items = _sample_claim_state(scheduler, region, now=now)
-
-    def record() -> None:
-        metrics.set_permits_in_flight(scheduler, region, permits_in_flight)
+    def sample_and_record() -> None:
+        # Health reads must not delay claim ownership or permit release. The
+        # short, local timeout also bounds scans as the claim table grows.
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT set_config('statement_timeout', %s, TRUE)",
+                    [f"{SCHEDULER_METRICS_STATEMENT_TIMEOUT_MS}ms"],
+                )
+            oldest_active_age_seconds, quarantined_items = _sample_claim_state(scheduler, region, now=now)
         metrics.set_claim_state(
             scheduler,
             region,
@@ -238,7 +254,7 @@ def _record_claim_snapshot(
             quarantined_items=quarantined_items,
         )
 
-    record_scheduler_metrics_safely(record)
+    record_scheduler_metrics_safely(sample_and_record)
 
 
 def sample_scheduler_permits_in_flight(
@@ -259,13 +275,14 @@ def sample_scheduler_permits_in_flight(
         )
         locked_pool = TemporalSchedulerPermitPool.objects.select_for_update(skip_locked=True).filter(id=pool.id).first()
         if locked_pool is not None:
-            _record_claim_snapshot(
+            _record_permit_snapshot(
                 metrics,
                 scheduler,
                 region,
                 permits_in_flight=locked_pool.in_flight,
-                now=snapshot_time,
             )
+    if locked_pool is not None:
+        _record_claim_state_snapshot(metrics, scheduler, region, now=snapshot_time)
 
 
 def reserve_scheduler_claims(
@@ -442,14 +459,14 @@ def reserve_scheduler_claims(
             )
         # Every admission for this scheduler/region takes the same global-pool lock.
         # Publishing before releasing it preserves database update order in the gauge.
-        _record_claim_snapshot(
+        _record_permit_snapshot(
             metrics,
             scheduler,
             region,
             permits_in_flight=global_pool.in_flight,
-            now=claim_time,
         )
 
+    _record_claim_state_snapshot(metrics, scheduler, region, now=claim_time)
     result = SchedulerAdmissionResult(
         reservations=tuple(reservations),
         already_claimed=already_claimed,

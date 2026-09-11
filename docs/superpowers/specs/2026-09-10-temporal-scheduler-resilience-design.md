@@ -94,21 +94,21 @@ Temporal can buffer work, but a growing queue is not a recovery strategy. Every 
 
 Every recurring coordinator defines and tests these values:
 
-| Control                        | Purpose                                                                |
-| ------------------------------ | ---------------------------------------------------------------------- |
-| `page_size`                    | Maximum items returned by one discovery activity                       |
-| `max_pages_per_tick`           | Maximum pages admitted by one scheduled invocation                     |
-| `max_concurrent_pages`         | Maximum pages creating downstream load together                        |
-| `max_in_flight_items`          | Durable aggregate cap across ticks; `not_enforced` until permits exist |
-| `max_in_flight_per_tenant`     | Maximum permits one tenant can hold                                    |
-| `payload_budget_bytes`         | Internal serialized payload operating budget                           |
-| `hydrated_config_budget_bytes` | Maximum serialized configuration after activity-side hydration         |
-| `dispatch_lease_timeout`       | Time before an unconfirmed item can be selected again                  |
-| `execution_timeout`            | Maximum coordinator lifetime                                           |
-| `overlap_policy`               | Intentional behavior when a prior run is open                          |
-| `catchup_window`               | Maximum schedule backlog Temporal may replay                           |
-| `retry_policy`                 | Bounded retries that cannot occupy the full worker pool                |
-| `freshness_objective`          | Maximum acceptable oldest-due age                                      |
+| Control                           | Purpose                                                                |
+| --------------------------------- | ---------------------------------------------------------------------- |
+| `page_size`                       | Maximum items returned by one discovery activity                       |
+| `max_pages_per_tick`              | Maximum pages admitted by one scheduled invocation                     |
+| `max_concurrent_pages_per_parent` | Maximum pages one result-aggregating parent runs concurrently          |
+| `max_in_flight_items`             | Durable aggregate cap across ticks; `not_enforced` until permits exist |
+| `max_in_flight_per_tenant`        | Maximum permits one tenant can hold                                    |
+| `payload_budget_bytes`            | Internal serialized payload operating budget                           |
+| `hydrated_config_budget_bytes`    | Maximum serialized configuration after activity-side hydration         |
+| `dispatch_lease_timeout`          | Time before an unconfirmed item can be selected again                  |
+| `execution_timeout`               | Maximum coordinator lifetime                                           |
+| `overlap_policy`                  | Intentional behavior when a prior run is open                          |
+| `catchup_window`                  | Maximum schedule backlog Temporal may replay                           |
+| `retry_policy`                    | Bounded retries that cannot occupy the full worker pool                |
+| `freshness_objective`             | Maximum acceptable oldest-due age                                      |
 
 Each coordinator must also answer:
 
@@ -139,9 +139,10 @@ flowchart LR
     S[Schedule tick] --> H{Queue healthy and permits available?}
     H -- No --> M[Record backlog and finish]
     H -- Yes --> A[Claim bounded fair page]
-    A --> B{Payload under budget?}
+    A --> B{Measured prefix non-empty?}
     B -- No --> X[Release claims and alert]
-    B -- Yes --> F[Start deterministic child work]
+    B -- Yes --> R[Release unselected suffix claims]
+    R --> F[Start deterministic child work]
     F --> O[Accepted child confirms its claim]
     O --> C{More work, permits, and page budget?}
     C -- Yes --> N[Continue as new with remaining budget]
@@ -152,6 +153,8 @@ flowchart LR
 Discovery returns only claim tokens, identifiers, and primitive fields required to start child work. Child activities hydrate large configuration fields when they run.
 
 Each continuation handles at most one bounded page. It carries the original tick identifier and remaining page budget so `continue_as_new` cannot reset the per-tick maximum.
+
+Payload selection dispatches the largest measured prefix within the byte budget and immediately releases every unselected suffix claim. If even the first lightweight manifest cannot fit, the coordinator releases the page and alerts; discovery must then externalize that manifest before it can be admitted again. Because discovery manifests contain only bounded identifiers and primitive fields, an empty prefix is a defensive contract violation rather than a normal quarantine path.
 
 ## Discovery and fairness
 
@@ -218,6 +221,8 @@ Retries for one logical occurrence stay inside the original workflow execution a
 A coordinator attempts the remainder of its bounded page after one child fails to start. It reports all start failures after the page has been processed.
 
 Workflows that must aggregate child results keep `execute_child_workflow`, but enforce both page-level and item-level concurrency limits.
+
+`max_concurrent_pages_per_parent` is workflow-local. Durable item permits are the aggregate bound across overlapping parents, so coordinators do not acquire a second global page permit for the same downstream work.
 
 ## Adaptive capacity
 
