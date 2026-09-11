@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use common_kafka::kafka_producer::KafkaContext;
 use dashmap::DashMap;
+use futures::StreamExt;
 use metrics::{counter, histogram};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
 use personhog_proto::personhog::types::v1::{
@@ -52,6 +53,11 @@ const DEFAULT_FENCE_MAP_MAX_ENTRIES: usize = 250_000;
 /// lifecycle service caps an op at this many, so a larger batch is a
 /// caller bug, not load.
 const MAX_LIFECYCLE_BATCH_SIZE: usize = 250;
+
+/// Fences of one `FencePersons` call in flight at once. Above the
+/// fallback pool's size, extra fences only queue at the pool while the
+/// batch holds every touched partition's handoff drain.
+const FENCE_BATCH_CONCURRENCY: usize = 16;
 
 /// The one error a batch answers for: a semantic refusal is the final
 /// answer for its person and must not hide behind a sibling's transient
@@ -2077,22 +2083,24 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         // Every fence runs to completion before the batch answers: a
         // sibling's refusal must not cancel a load in flight under a
-        // per-person lock.
-        let fence_futures: Vec<_> = located
-            .iter()
+        // per-person lock. The batch holds the handoff drain of every
+        // partition it touches for its whole duration, and a cold person
+        // loads through the fallback pool, so the fences are bounded to
+        // keep that pool's queue, and the drain hold, shallow.
+        let fence_futures = located
+            .into_iter()
             .map(|(person_partition, person_id)| async move {
-                let cache_key = PersonCacheKey {
-                    team_id,
-                    person_id: *person_id,
-                };
+                let cache_key = PersonCacheKey { team_id, person_id };
                 (
-                    *person_id,
-                    self.fence_one(*person_partition, cache_key, op_id, op_type)
+                    person_id,
+                    self.fence_one(person_partition, cache_key, op_id, op_type)
                         .await,
                 )
-            })
-            .collect();
-        let results = futures::future::join_all(fence_futures).await;
+            });
+        let results: Vec<_> = futures::stream::iter(fence_futures)
+            .buffer_unordered(FENCE_BATCH_CONCURRENCY)
+            .collect()
+            .await;
 
         let mut sealed = Vec::with_capacity(results.len());
         let mut not_found = Vec::new();

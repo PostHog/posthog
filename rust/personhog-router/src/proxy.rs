@@ -559,9 +559,14 @@ impl RawProxyInner {
         histogram!("personhog_router_batch_pods", "method" => method).record(groups.len() as f64);
 
         // The client's content-length describes its frame, not the
-        // re-encoded sub-batches.
+        // re-encoded sub-batches, and its encoding headers describe a
+        // conversation the router now sits in the middle of: the
+        // sub-batches go out uncompressed, and a leader answer the router
+        // has to decode must come back uncompressed too.
         let mut headers = parts.headers;
         headers.remove(http::header::CONTENT_LENGTH);
+        headers.remove("grpc-encoding");
+        headers.remove("grpc-accept-encoding");
 
         let _in_flight = ClientInFlightGuard::new("leader");
         let forwards = groups
@@ -802,6 +807,7 @@ fn grpc_code_label(code: Option<i32>) -> &'static str {
         Some(5) => "not_found",
         Some(8) => "resource_exhausted",
         Some(9) => "failed_precondition",
+        Some(12) => "unimplemented",
         Some(13) => "internal",
         Some(14) => "unavailable",
         _ => "other",

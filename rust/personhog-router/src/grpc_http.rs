@@ -92,19 +92,39 @@ pub(crate) async fn decode_unary_response<T: Message + Default>(
             }
         }
     }
-    let status_headers = trailers.as_ref().unwrap_or(&parts.headers);
+    let status_headers = trailers.unwrap_or(parts.headers);
     let code = status_headers
         .get("grpc-status")
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<i32>().ok())
-        .filter(|code| *code != 0);
-    if let Some(code) = code {
-        return Err(grpc_status_response(
-            code,
-            status_headers.get("grpc-message").cloned(),
-        ));
+        .and_then(|s| s.parse::<i32>().ok());
+    match code {
+        Some(0) => decode_unary_frame(&frame_bytes),
+        // The status travels with its metadata, so a refusal marker in
+        // the trailers reaches the caller the way a trailers-only one does.
+        Some(_) => Err(grpc_trailers_response(status_headers)),
+        // No gRPC status at all is an HTTP-level failure from something
+        // between the router and the leader, which a client reads as
+        // UNAVAILABLE, not as a malformed message.
+        None => Err(grpc_error_response(
+            Code::Unavailable,
+            &format!(
+                "leader answered HTTP {} without a gRPC status",
+                parts.status.as_u16()
+            ),
+        )),
     }
-    decode_unary_frame(&frame_bytes)
+}
+
+/// A trailers-only response carrying `status_headers` verbatim: the
+/// `grpc-status`, its message, and any metadata beside them.
+fn grpc_trailers_response(status_headers: http::HeaderMap) -> http::Response<BoxBody> {
+    let body = BoxBody::new(Empty::<Bytes>::new().map_err(|never| match never {}));
+    let mut response = http::Response::new(body);
+    *response.headers_mut() = status_headers;
+    response
+        .headers_mut()
+        .insert("content-type", HeaderValue::from_static("application/grpc"));
+    response
 }
 
 /// A successful unary gRPC response carrying `message`: the frame as its
@@ -126,29 +146,14 @@ pub(crate) fn encode_unary_response<T: Message>(message: &T) -> http::Response<B
 /// Build a gRPC error response carrying `code` and `message` in the
 /// `grpc-status`/`grpc-message` headers with an empty body.
 pub(crate) fn grpc_error_response(code: Code, message: &str) -> http::Response<BoxBody> {
-    let encoded = if message.is_empty() {
-        None
-    } else {
-        percent_encode_grpc(message).parse::<HeaderValue>().ok()
-    };
-    grpc_status_response(code as i32, encoded)
-}
-
-/// A trailers-only response carrying a status verbatim: `code` and an
-/// already percent-encoded `grpc-message`, as read off another response.
-fn grpc_status_response(code: i32, message: Option<HeaderValue>) -> http::Response<BoxBody> {
-    let body = BoxBody::new(Empty::<Bytes>::new().map_err(|never| match never {}));
-    let mut response = http::Response::new(body);
-    response
-        .headers_mut()
-        .insert("content-type", HeaderValue::from_static("application/grpc"));
-    response
-        .headers_mut()
-        .insert("grpc-status", HeaderValue::from(code));
-    if let Some(message) = message {
-        response.headers_mut().insert("grpc-message", message);
+    let mut headers = http::HeaderMap::new();
+    headers.insert("grpc-status", HeaderValue::from(code as i32));
+    if !message.is_empty() {
+        if let Ok(val) = percent_encode_grpc(message).parse::<HeaderValue>() {
+            headers.insert("grpc-message", val);
+        }
     }
-    response
+    grpc_trailers_response(headers)
 }
 
 /// Whether a response carries a non-OK `grpc-status` in its HTTP headers.
@@ -302,6 +307,7 @@ mod tests {
         let mut trailers = http::HeaderMap::new();
         trailers.insert("grpc-status", HeaderValue::from(Code::Unavailable as i32));
         trailers.insert("grpc-message", HeaderValue::from_static("leader%20down"));
+        trailers.insert("x-leader-note", HeaderValue::from_static("kept"));
         let frames = futures::stream::iter([
             Ok::<_, tonic::Status>(Frame::data(encode_unary_frame(&message))),
             Ok(Frame::trailers(trailers)),
@@ -316,5 +322,21 @@ mod tests {
             "leader%20down",
             "the leader's message travels verbatim, not re-encoded"
         );
+        assert_eq!(
+            refused.headers().get("x-leader-note").unwrap(),
+            "kept",
+            "metadata beside the status travels with it"
+        );
+
+        // An HTTP failure with no gRPC status is a transport fault, not a
+        // malformed message.
+        let mut gateway_error = http::Response::new(BoxBody::new(
+            Empty::<Bytes>::new().map_err(|never| match never {}),
+        ));
+        *gateway_error.status_mut() = http::StatusCode::BAD_GATEWAY;
+        let refused = decode_unary_response::<FencePersonsResponse>(gateway_error, 1 << 20)
+            .await
+            .unwrap_err();
+        assert_eq!(grpc_status_code(&refused), Some(Code::Unavailable as i32));
     }
 }
