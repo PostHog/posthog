@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
@@ -69,6 +70,10 @@ export function SetupTab(): JSX.Element {
     }, [])
 
     const active = sections.find((section) => section.key === setupSection) ?? sections[0]
+
+    useEffect(() => {
+        posthog.capture('marketing analytics setup section viewed', { section: active.key })
+    }, [active.key])
 
     return (
         <div className="flex flex-col md:flex-row gap-6 mt-4">

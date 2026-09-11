@@ -30,7 +30,7 @@ comparable because both apply the same `Head` cohort, label and horizon.
 
 import json
 import datetime
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pandas as pd
@@ -40,9 +40,10 @@ from botocore.exceptions import ClientError
 
 from posthog import settings
 
-from products.signals.backend.ranking.features import FEATURE_NAMES, FEATURE_SCHEMA_VERSION
+from products.signals.backend.ranking.features import FEATURE_SETS, TABULAR_FEATURE_SET, FeatureSet
 from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
+    PARQUET_PART_NAME,
     S3_BUCKET_ENV,
     dataset_bucket,
     dataset_unconfigured,
@@ -58,13 +59,13 @@ from products.signals.dags.inbox_ranking.common import (
 )
 from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, STATE_TABLE
 from products.signals.dags.inbox_ranking.training.examples import (
-    EXAMPLE_COLUMNS,
+    BASE_STATE_COLUMNS,
     PROVENANCE_LABEL_COLUMNS,
     PROVENANCE_STATE_COLUMNS,
-    STATE_COLUMNS,
     Snapshot,
     assemble_snapshot,
     build_examples,
+    example_columns,
     point_in_time_mask,
 )
 from products.signals.dags.inbox_ranking.training.heads import HEADS, HEADS_BY_HORIZON, HEADS_BY_NAME
@@ -92,6 +93,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     head_grades,
     leaked_report_ids,
     missing_label_columns,
+    model_feature_set,
     model_mismatch,
     readable_head_files,
     report_grade_rows,
@@ -122,7 +124,18 @@ _LABEL_COLUMNS = (
     "refund_count",
     *PROVENANCE_LABEL_COLUMNS,
 )
-_STATE_READ_COLUMNS = (*STATE_COLUMNS, *PROVENANCE_STATE_COLUMNS, "features_observed_at")
+# Every registered feature set's columns in one read: the state snapshot is loaded once and every
+# set builds its examples from it.
+_STATE_READ_COLUMNS = tuple(
+    dict.fromkeys(
+        (
+            *BASE_STATE_COLUMNS,
+            *(column for feature_set in FEATURE_SETS.values() for column in feature_set.state_columns),
+            *PROVENANCE_STATE_COLUMNS,
+            "features_observed_at",
+        )
+    )
+)
 
 COMMON_ASSET_KWARGS: dict[str, Any] = {
     "group_name": "inbox_ranking_training",
@@ -131,6 +144,12 @@ COMMON_ASSET_KWARGS: dict[str, Any] = {
     "retry_policy": dagster.RetryPolicy(max_retries=1, delay=60),
     "pool": "inbox_ranking_etl",
 }
+
+
+def examples_object_key(prefix: str, feature_set_name: str, partition_key: str) -> str:
+    """One examples object per feature set: two sets carry different feature columns, so they
+    cannot share a Parquet, and a family trains on the object of the set it declares."""
+    return f"{prefix}/{EXAMPLES_TABLE}/{DATASET_VERSION}/{feature_set_name}/dt={partition_key}/{PARQUET_PART_NAME}"
 
 
 def model_object_key(prefix: str, model_name: str, partition_key: str, filename: str) -> str:
@@ -204,8 +223,8 @@ def load_snapshots(
     return snapshots
 
 
-def examples_table(examples: pd.DataFrame) -> pa.Table:
-    return pa.Table.from_pandas(examples[list(EXAMPLE_COLUMNS)], preserve_index=False)
+def examples_table(examples: pd.DataFrame, feature_set: FeatureSet) -> pa.Table:
+    return pa.Table.from_pandas(examples[list(example_columns(feature_set))], preserve_index=False)
 
 
 # The examples for dt=D read every snapshot back to D-lookback. The default same-partition mapping
@@ -239,41 +258,67 @@ def inbox_ranking_training_examples(context: dagster.AssetExecutionContext) -> N
     if backfilled_rows:
         context.log.warning(f"{backfilled_rows} state rows read after the snapshot window are excluded (backfill)")
 
-    per_head = {head.name: build_examples(snapshots, head) for head in HEADS}
+    metadata: dict[str, dagster.MetadataValue] = {
+        "snapshots": dagster.MetadataValue.int(len(snapshots)),
+        "backfilled_state_rows_excluded": dagster.MetadataValue.int(backfilled_rows),
+    }
+    for feature_set in FEATURE_SETS.values():
+        metadata |= _write_examples(
+            context, client, bucket, prefix, partition_key, feature_set, snapshots, backfilled_rows
+        )
+    context.add_output_metadata(metadata)
+
+
+def _write_examples(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    prefix: str,
+    partition_key: str,
+    feature_set: FeatureSet,
+    snapshots: Mapping[datetime.date, Snapshot],
+    backfilled_rows: int,
+) -> dict[str, dagster.MetadataValue]:
+    """One feature set's examples for the partition, as its own object and its own events, with
+    the asset metadata to record for it."""
+    per_head = {head.name: build_examples(snapshots, head, feature_set) for head in HEADS}
     examples = (
-        pd.concat(per_head.values(), ignore_index=True) if per_head else pd.DataFrame(columns=list(EXAMPLE_COLUMNS))
+        pd.concat(per_head.values(), ignore_index=True)
+        if per_head
+        else pd.DataFrame(columns=list(example_columns(feature_set)))
     )
 
-    key = partition_object_key(prefix, EXAMPLES_TABLE, partition_key)
-    write_parquet(client, bucket, key, examples_table(examples), snapshot_date=partition_key)
+    key = examples_object_key(prefix, feature_set.name, partition_key)
+    write_parquet(client, bucket, key, examples_table(examples, feature_set), snapshot_date=partition_key)
     counts = {
         name: HeadExampleCounts(rows=len(frame), positives=int(frame["label"].sum()))
         for name, frame in per_head.items()
     }
-    context.add_output_metadata(
-        {
-            "rows": dagster.MetadataValue.int(len(examples)),
-            "snapshots": dagster.MetadataValue.int(len(snapshots)),
-            "backfilled_state_rows_excluded": dagster.MetadataValue.int(backfilled_rows),
-            **{f"{name}_rows": dagster.MetadataValue.int(head_counts.rows) for name, head_counts in counts.items()},
-            **{
-                f"{name}_positives": dagster.MetadataValue.int(head_counts.positives)
-                for name, head_counts in counts.items()
-            },
-            "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
-        }
-    )
+    metadata: dict[str, dagster.MetadataValue] = {
+        f"{feature_set.name}_rows": dagster.MetadataValue.int(len(examples)),
+        **{
+            f"{feature_set.name}_{name}_rows": dagster.MetadataValue.int(head_counts.rows)
+            for name, head_counts in counts.items()
+        },
+        **{
+            f"{feature_set.name}_{name}_positives": dagster.MetadataValue.int(head_counts.positives)
+            for name, head_counts in counts.items()
+        },
+        f"{feature_set.name}_s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
+    }
     capture_training_events(
         context,
         partition_key,
         examples_events(
             partition_key=partition_key,
             run_id=context.run.run_id,
+            feature_set=feature_set.name,
             snapshots=len(snapshots),
             backfilled_rows=backfilled_rows,
             per_head=counts,
         ),
     )
+    return metadata
 
 
 def candidate_metadata(
@@ -281,6 +326,7 @@ def candidate_metadata(
     trained: list[TrainedHead],
     *,
     model_name: str,
+    feature_set: FeatureSet,
     skipped: list[str],
     trained_at: datetime.datetime,
     run_id: str,
@@ -289,8 +335,12 @@ def candidate_metadata(
         "model_name": model_name,
         "model_version": partition_key,
         "dataset_version": DATASET_VERSION,
-        "feature_schema_version": FEATURE_SCHEMA_VERSION,
-        "feature_names": list(FEATURE_NAMES),
+        # The feature universe this model was fit on. The grader checks the model against this set
+        # rather than against one global contract, so a second family is not rejected for reading
+        # different features.
+        "feature_set": feature_set.name,
+        "feature_schema_version": feature_set.schema_version,
+        "feature_names": list(feature_set.feature_names),
         "trained_at": trained_at.isoformat(),
         "run_id": run_id,
         "lookback_days": settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS,
@@ -310,7 +360,14 @@ def candidate_metadata(
 
 
 def paired_champion_aucs(
-    client, bucket: str, prefix: str, champion: dict[str, Any], examples: pd.DataFrame, *, holdout_days: int
+    client,
+    bucket: str,
+    prefix: str,
+    champion: dict[str, Any],
+    examples: pd.DataFrame,
+    *,
+    feature_set: FeatureSet,
+    holdout_days: int,
 ) -> dict[str, float]:
     """The champion's readable heads graded on the candidate's holdout, through the champion's saved
     holdout boosters. Heads without a saved holdout booster are left out and fall back to the
@@ -327,7 +384,9 @@ def paired_champion_aucs(
         )
         if body is None:
             continue
-        auc = booster_holdout_auc(body, examples, head, holdout_days=holdout_days)
+        auc = booster_holdout_auc(
+            body, examples, head, feature_names=feature_set.feature_names, holdout_days=holdout_days
+        )
         if auc is not None:
             aucs[head.name] = auc
     return aucs
@@ -340,11 +399,17 @@ def inbox_ranking_model_candidate(context: dagster.AssetExecutionContext) -> Non
     partition_key = context.partition_key
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
 
-    examples = read_parquet(client, bucket, partition_object_key(prefix, EXAMPLES_TABLE, partition_key)).to_pandas()
+    feature_set = TABULAR_FEATURE_SET
+    examples = read_parquet(client, bucket, examples_object_key(prefix, feature_set.name, partition_key)).to_pandas()
     trained: list[TrainedHead] = []
     skipped: list[str] = []
     for head in HEADS:
-        result = train_head(examples, head, holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS)
+        result = train_head(
+            examples,
+            head,
+            feature_names=feature_set.feature_names,
+            holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS,
+        )
         if result is None:
             context.log.warning(f"{head.name}: nothing to fit, skipped")
             skipped.append(head.name)
@@ -365,6 +430,7 @@ def inbox_ranking_model_candidate(context: dagster.AssetExecutionContext) -> Non
         partition_key,
         trained,
         model_name=TABULAR_MODEL_NAME,
+        feature_set=feature_set,
         skipped=skipped,
         trained_at=datetime.datetime.now(datetime.UTC),
         run_id=context.run.run_id,
@@ -410,11 +476,25 @@ def inbox_ranking_model_champion(context: dagster.AssetExecutionContext) -> None
     champion = _read_json_if_exists(client, bucket, champion_key)
     champion_aucs: dict[str, float] = {}
     if champion is not None:
-        examples = read_parquet(client, bucket, partition_object_key(prefix, EXAMPLES_TABLE, partition_key)).to_pandas()
-        champion_aucs = paired_champion_aucs(
-            client, bucket, prefix, champion, examples, holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS
-        )
-        context.log.info(f"champion {champion['model_version']} on this holdout: {champion_aucs}")
+        champion_feature_set = model_feature_set(champion)
+        if champion_feature_set is None:
+            context.log.warning(f"champion {champion['model_version']} reads a feature set this build cannot produce")
+        else:
+            # The champion is graded on the examples of its own feature set, the set the candidate
+            # shares: promotion stays inside a family.
+            examples = read_parquet(
+                client, bucket, examples_object_key(prefix, champion_feature_set.name, partition_key)
+            ).to_pandas()
+            champion_aucs = paired_champion_aucs(
+                client,
+                bucket,
+                prefix,
+                champion,
+                examples,
+                feature_set=champion_feature_set,
+                holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS,
+            )
+            context.log.info(f"champion {champion['model_version']} on this holdout: {champion_aucs}")
     decision = decide_promotion(
         candidate,
         champion,
@@ -503,7 +583,9 @@ def load_family_models(
             context.log.warning(f"no {model_name} {role} metadata to score the unseen pool with")
             continue
         mismatch = model_mismatch(metadata)
-        if mismatch is not None:
+        # A set the mismatch check accepted always resolves; the None arm is there to narrow it.
+        feature_set = model_feature_set(metadata)
+        if mismatch is not None or feature_set is None:
             context.log.warning(f"{model_name} {role} {metadata.get('model_version')} not scored: {mismatch}")
             continue
         boosters = {}
@@ -521,7 +603,7 @@ def load_family_models(
                 model_name=model_name,
                 model_version=metadata["model_version"],
                 model_role=role,
-                feature_schema_version=metadata["feature_schema_version"],
+                feature_set=feature_set,
                 boosters=boosters,
             )
         )
@@ -555,12 +637,16 @@ def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
     day = datetime.date.fromisoformat(partition_key)
 
     snapshot = load_snapshots(client, bucket, prefix, [day], required=day)[day]
-    # Only the ids: the examples table is one row per (report, snapshot, head) over the lookback.
-    example_ids = read_parquet(
-        client, bucket, partition_object_key(prefix, EXAMPLES_TABLE, partition_key), columns=["report_id"]
-    )
+    # Only the ids, from every feature set: the examples table is one row per (report, snapshot,
+    # head) over the lookback, and a report is leaked if any set trained on it.
+    example_ids: set[object] = set()
+    for feature_set in FEATURE_SETS.values():
+        ids = read_parquet(
+            client, bucket, examples_object_key(prefix, feature_set.name, partition_key), columns=["report_id"]
+        )
+        example_ids.update(ids.column("report_id").unique().to_pylist())
     pool = unseen_pool(snapshot.state, day)
-    leaked = leaked_report_ids(pool, example_ids.column("report_id").unique().to_pylist())
+    leaked = leaked_report_ids(pool, example_ids)
     if leaked:
         raise dagster.Failure(
             f"{len(leaked)} reports created on {partition_key} already appear in that day's training examples, "
