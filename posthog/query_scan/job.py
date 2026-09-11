@@ -38,8 +38,14 @@ logger = structlog.get_logger(__name__)
 EXPLAIN_MAX_SECONDS = 10
 TABLE_AVERAGES_MAX_SECONDS = 5
 
-# The events table and the three persons tables the persons gate compares in rows.
-_ROW_AVERAGE_TABLES = ("sharded_events", "person", "person_distinct_id2", "person_distinct_id_overrides")
+# The two events tables and the three persons tables the persons gate compares in rows.
+_ROW_AVERAGE_TABLES = (
+    "sharded_events",
+    "sharded_events_json",
+    "person",
+    "person_distinct_id2",
+    "person_distinct_id_overrides",
+)
 
 # The tree verdict the trigger ships per execution. A payload outside these leaves the event filter
 # to the plan alone, the same as a payload that carried no verdict.
