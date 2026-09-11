@@ -23,6 +23,7 @@ const canvases: DashboardRecord[] = Array.from({ length: 1000 }, (_, i) => ({
 function Harness({ count }: { count: number }): ReactElement {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string>();
+  const [openedName, setOpenedName] = useState<string>();
   const viewModel = useMemo(
     () =>
       service.buildViewModel({
@@ -36,15 +37,23 @@ function Harness({ count }: { count: number }): ReactElement {
     [count, query],
   );
   return (
-    <CanvasList
-      className="h-[600px] w-full"
-      viewModel={viewModel}
-      query={query}
-      setQuery={setQuery}
-      lastViewedAtByCanvasId={{}}
-      selectedId={selectedId}
-      open={(canvas) => setSelectedId(canvas.id)}
-    />
+    <div className="flex h-[600px] w-full flex-col">
+      <CanvasList
+        className="min-h-0 flex-1"
+        viewModel={viewModel}
+        query={query}
+        setQuery={setQuery}
+        lastViewedAtByCanvasId={{}}
+        selectedId={selectedId}
+        open={(canvas) => {
+          setSelectedId(canvas.id);
+          setOpenedName(canvas.name);
+        }}
+      />
+      <output className="border-t p-2 text-xs">
+        {openedName ? `Opened ${openedName}` : "Nothing opened"}
+      </output>
+    </div>
   );
 }
 const meta = {
@@ -69,11 +78,7 @@ export const KeyboardNavigation: Story = {
       expect(input).toHaveAttribute("aria-activedescendant", last.id),
     );
     await userEvent.keyboard("{Enter}");
-    await waitFor(() =>
-      expect(canvas.getByRole("option", { name: /Canvas 1000/ })).toHaveClass(
-        "bg-fill-selected",
-      ),
-    );
+    await canvas.findByText("Opened Canvas 1000");
     await userEvent.click(input);
     await userEvent.keyboard("{Home}");
     const first = await canvas.findByRole("option", { name: /Canvas 0001/ });
@@ -81,20 +86,12 @@ export const KeyboardNavigation: Story = {
       expect(input).toHaveAttribute("aria-activedescendant", first.id),
     );
     await userEvent.keyboard("{Enter}");
-    await waitFor(() =>
-      expect(canvas.getByRole("option", { name: /Canvas 0001/ })).toHaveClass(
-        "bg-fill-selected",
-      ),
-    );
+    await canvas.findByText("Opened Canvas 0001");
     await userEvent.type(input, "Canvas 0500");
     await canvas.findByRole("option", { name: /Canvas 0500/ });
     await expect(canvas.getAllByRole("option")).toHaveLength(1);
     await userEvent.keyboard("{ArrowDown}{Enter}");
-    await waitFor(() =>
-      expect(canvas.getByRole("option", { name: /Canvas 0500/ })).toHaveClass(
-        "bg-fill-selected",
-      ),
-    );
+    await canvas.findByText("Opened Canvas 0500");
     await userEvent.click(input);
     await userEvent.keyboard("{Escape}");
     await canvas.findByRole("option", { name: /Canvas 0001/ });

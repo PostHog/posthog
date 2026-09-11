@@ -105,10 +105,14 @@ export function CanvasList({
       [highlightedIndex],
     ),
   });
+  // The view model gets a new identity on every canvas refetch, so the reset
+  // keys on the inputs that actually reorder the list.
+  const filterKey = JSON.stringify([query, viewModel.settings]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: filterKey is the trigger, not a body dependency
   useLayoutEffect(() => {
     if (virtualized) virtualizer.scrollToOffset(0);
     else if (viewportRef.current) viewportRef.current.scrollTop = 0;
-  }, [virtualized, virtualizer]);
+  }, [filterKey, virtualized, virtualizer]);
   const renderRow = (row: CanvasRow): ReactElement => {
     if (!row.canvas) return <MenuLabel>{row.label}</MenuLabel>;
     const canvas = row.canvas;
