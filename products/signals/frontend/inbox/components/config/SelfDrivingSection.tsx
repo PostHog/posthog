@@ -57,6 +57,14 @@ const THRESHOLD_SEGMENTS = PRIORITY_THRESHOLD_OPTIONS.map(({ value }) => ({
 const MY_THRESHOLD_DEFAULT_VALUE = '__default__'
 const MY_THRESHOLD_SEGMENTS = [{ value: MY_THRESHOLD_DEFAULT_VALUE, label: 'Default' }, ...THRESHOLD_SEGMENTS]
 
+/** Draft or ready for review, plus the "follow the project" option only the personal control has. */
+const PR_STATE_SEGMENTS = [
+    { value: 'draft', label: 'Draft' },
+    { value: 'ready', label: 'Ready' },
+]
+const MY_PR_STATE_DEFAULT_VALUE = '__default__'
+const MY_PR_STATE_SEGMENTS = [{ value: MY_PR_STATE_DEFAULT_VALUE, label: 'Default' }, ...PR_STATE_SEGMENTS]
+
 function BaseBranchOverrideRows(): JSX.Element | null {
     const { baseBranchOverrides, teamConfigUpdating } = useValues(signalTeamConfigLogic)
     const { updateBaseBranchOverride, removeBaseBranchOverride } = useActions(signalTeamConfigLogic)
@@ -521,6 +529,69 @@ function GitHubAssignmentRow(): JSX.Element {
 }
 
 /**
+ * Whether self-driving PRs skip the draft state. A draft only runs a narrowed CI matrix, so a
+ * reviewer who wants to know the change is green has to mark it ready and wait for the full matrix
+ * to start over. Draft stays the default because a ready PR runs that matrix on every push, and the
+ * personal control overrides the project one because one reviewer's workflow differs from their
+ * teammate's. Renders regardless of the auto-start toggle: a PR opened by hand from the inbox goes
+ * through the same transition.
+ */
+function PullRequestStateRows(): JSX.Element {
+    const { defaultOpenPullRequestReady, teamConfigUpdating } = useValues(signalTeamConfigLogic)
+    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+    const { autonomyConfig, autonomyConfigLoading, openPullRequestReadyUpdating } = useValues(userAutonomyLogic)
+    const { setOpenPullRequestReady } = useActions(userAutonomyLogic)
+
+    const mine = autonomyConfig?.github_open_pull_request_ready
+    const myState = mine == null ? MY_PR_STATE_DEFAULT_VALUE : mine ? 'ready' : 'draft'
+
+    return (
+        <div className="flex flex-col gap-2 px-2.5 py-1.5">
+            <div className="flex flex-col gap-1">
+                <span className="text-xs text-secondary">PRs open as</span>
+                <LemonSegmentedButton
+                    size="xsmall"
+                    fullWidth
+                    className="max-w-xs"
+                    value={defaultOpenPullRequestReady ? 'ready' : 'draft'}
+                    options={PR_STATE_SEGMENTS}
+                    disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                    onChange={(next) => patchTeamConfig({ default_open_pull_request_ready: next === 'ready' })}
+                />
+                <p className="text-[11px] text-tertiary leading-snug mb-0">
+                    Ready runs the full CI matrix from the start, and again on every push. It also asks CODEOWNERS for
+                    review. Draft runs a narrower set of checks.
+                </p>
+            </div>
+            <div className="flex flex-col gap-1">
+                <span className="text-xs text-secondary">My PRs open as</span>
+                <LemonSegmentedButton
+                    size="xsmall"
+                    fullWidth
+                    className="max-w-xs"
+                    value={myState}
+                    options={MY_PR_STATE_SEGMENTS}
+                    disabledReason={
+                        openPullRequestReadyUpdating
+                            ? 'Saving changes'
+                            : autonomyConfigLoading && autonomyConfig === null
+                              ? 'Loading settings'
+                              : undefined
+                    }
+                    onChange={(next) =>
+                        setOpenPullRequestReady(next === MY_PR_STATE_DEFAULT_VALUE ? null : next === 'ready')
+                    }
+                />
+                <p className="text-[11px] text-tertiary leading-snug mb-0">
+                    Overrides the project setting for reports that suggest you as reviewer. It applies across all your
+                    projects. A PR somebody puts back into draft stays draft.
+                </p>
+            </div>
+        </div>
+    )
+}
+
+/**
  * Team-wide PR-generation control, backed by `autostart_enabled` and `default_autostart_priority`
  * on `signalTeamConfigLogic`. The inline switch is the master opt-out for autonomous inbox PRs;
  * reports keep generating and notifying either way. The threshold is the team default; a teammate's
@@ -624,6 +695,9 @@ export function SelfDrivingSection(): JSX.Element {
                         Reports still arrive and notify your team.
                     </p>
                 )}
+                <div className="border-t border-primary">
+                    <PullRequestStateRows />
+                </div>
                 <div className="border-t border-primary">
                     <GitHubAssignmentRow />
                 </div>

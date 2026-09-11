@@ -37,6 +37,7 @@ export interface signalTeamConfigLogicValues {
     issueTrackerConfig: Record<string, string>
     issueTrackerIntegrationId: number | null
     maxReportsPerDay: number | null
+    defaultOpenPullRequestReady: boolean
     patchesInFlight: number
     reportsGeneratedToday: number
     saveMaxReportsPerDayDisabledReason: string | null
@@ -133,6 +134,7 @@ export interface signalTeamConfigLogicMeta {
         defaultAutostartPriority: (teamConfig: SignalTeamConfig | null) => SignalReportPriority
         baseBranchOverrides: (teamConfig: SignalTeamConfig | null) => BaseBranchOverride[]
         maxReportsPerDay: (teamConfig: SignalTeamConfig | null) => number | null
+        defaultOpenPullRequestReady: (teamConfig: SignalTeamConfig | null) => boolean
         issueTrackerIntegrationId: (teamConfig: SignalTeamConfig | null) => number | null
         issueTrackerConfig: (teamConfig: SignalTeamConfig | null) => Record<string, string>
         selectedIssueTrackerIntegrationId: (
@@ -311,6 +313,10 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         maxReportsPerDay: [
             (s) => [s.teamConfig],
             (teamConfig: SignalTeamConfig | null): number | null => teamConfig?.max_reports_per_day ?? null,
+        ],
+        defaultOpenPullRequestReady: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.default_open_pull_request_ready ?? false,
         ],
         issueTrackerIntegrationId: [
             (s) => [s.teamConfig],

@@ -33,6 +33,15 @@ Closed and merged PRs are skipped.
 Every GitHub failure is logged without blocking the sync, the claim, or the reviewer edit that queued it.
 One PR can back several reports, and each report queues its own task, so the PR ends up with the union of qualifying reviewers.
 
+`reviewer_pr_ready` queues a second after-commit task that takes the PR out of draft.
+Self-driving PRs open as drafts, and a draft only runs a narrowed CI matrix, so a reviewer who wants the full signal has to mark the PR ready and wait for that matrix to start over.
+Each suggested reviewer resolves to `github_open_pull_request_ready` on their `SignalUserAutonomyConfig`, falling back to `default_open_pull_request_ready` on `SignalTeamConfig` when it is null, and the PR opens ready if any of them resolves to true.
+A report whose reviewers resolve to no PostHog user follows the team default alone.
+Both settings default to draft.
+Unlike assignment, this runs only where a PR URL first reaches a report, never on a later reviewer edit: that is what keeps the transition to once per PR, so a person who converts the PR back to draft is not overridden.
+GitHub is asked to mark ready through the GraphQL `markPullRequestReadyForReview` mutation, because REST cannot undraft a PR.
+A PR that is already ready, is closed or merged, or carries the `no-ci` label is left alone, and every GitHub failure is logged without blocking the write that queued it.
+
 Fallback reads do not require a data migration. This does not replay webhook
 events that were missed before the fix; those reports need a subsequent event
 or explicit reconciliation.
