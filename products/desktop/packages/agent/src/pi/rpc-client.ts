@@ -16,6 +16,7 @@ import type {
   McpToolPermissionDecision,
   McpToolPermissionRequest,
   McpToolPolicy,
+  PiSubscriptionCredential,
 } from "@posthog/shared";
 import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
 import type { PiEnrichmentConfig } from "./enrichment-extension";
@@ -61,6 +62,7 @@ export interface PiRpcProviderOptions {
    * subscription via pi's native OAuth providers instead.
    */
   provider?: string;
+  subscriptionCredential?: PiSubscriptionCredential;
 }
 
 export interface PiRpcBootstrap {

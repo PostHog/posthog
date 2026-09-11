@@ -27,6 +27,7 @@ from products.tasks.backend.constants import (
     HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+    PI_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
@@ -163,6 +164,7 @@ class TaskProcessingContext:
     sandbox_backend: str = "modal"
     dev_stack_preview_enabled: bool = False
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
+    pi_subscription_provider: Literal["anthropic"] | None = None
 
     @property
     def mode(self) -> str:
@@ -361,6 +363,49 @@ class TaskProcessingContext:
             "service_tier": self.service_tier,
             "initial_permission_mode": self.initial_permission_mode,
         }
+
+
+def _resolve_pi_subscription_provider(
+    *,
+    task_runtime: str,
+    distinct_id: str | None,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> Literal["anthropic"] | None:
+    provider = (state or {}).get("pi_subscription_provider")
+    if provider is None:
+        return None
+    if task_runtime != Task.Runtime.PI or provider != "anthropic":
+        raise ProcessTaskFatalError(
+            "Your Pi subscription requires the Pi runtime and Anthropic provider. Select Pi and try again.",
+            {"run_id": run_id},
+            cause=ValueError("Subscription requested for an unsupported Pi provider"),
+            capture=False,
+        )
+    try:
+        enabled = bool(
+            distinct_id
+            and posthoganalytics.feature_enabled(
+                PI_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("pi_own_subscription_cloud_flag_check_failed", run_id=run_id, error=str(e))
+        enabled = False
+    if not enabled:
+        raise ProcessTaskFatalError(
+            "Using your Claude plan for Pi cloud tasks is unavailable. Try again later.",
+            {"run_id": run_id},
+            cause=RuntimeError("Pi cloud own-subscription feature flag disabled"),
+            capture=False,
+        )
+    return "anthropic"
 
 
 def _is_agent_proxy_keep_stream_open_enabled(
@@ -1277,6 +1322,21 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
     )
+    pi_subscription_distinct_id: str | None = distinct_id
+    if state.get("pi_subscription_provider") is not None:
+        subscription_owner_id = state.get("pi_subscription_user_id")
+        pi_subscription_distinct_id = (
+            team.all_users_with_access().filter(id=subscription_owner_id).values_list("distinct_id", flat=True).first()
+            if isinstance(subscription_owner_id, int) and not isinstance(subscription_owner_id, bool)
+            else None
+        )
+    pi_subscription_provider = _resolve_pi_subscription_provider(
+        task_runtime=task.runtime,
+        distinct_id=pi_subscription_distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
     pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
     sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
     if claude_model_access == "own-subscription" or (
@@ -1559,6 +1619,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         rtk_enabled=rtk_enabled,
         benjamin_enabled=benjamin_enabled,
         claude_model_access=claude_model_access,
+        pi_subscription_provider=pi_subscription_provider,
         continue_as_new_enabled=_is_continue_as_new_enabled(
             distinct_id=distinct_id,
             organization_id=organization_id,

@@ -442,6 +442,9 @@ export class TaskCreationSaga extends Saga<
             branch,
             adapter: cloudAdapter,
             ...(isPiRuntime ? { piRuntime: true } : {}),
+            piSubscriptionProvider: isPiRuntime
+              ? input.piSubscriptionProvider
+              : undefined,
             claudeModelAccess: claudeCloudModelAccess,
             model: input.model,
             reasoningLevel: input.reasoningLevel,

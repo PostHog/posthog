@@ -2,6 +2,7 @@ import { type ChildProcess, fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type {
+  PiSubscriptionCredential,
   PiSubscriptionLoginState,
   PiSubscriptionProvider,
 } from "@posthog/shared";
@@ -71,7 +72,7 @@ function exitError(host: HostProcess, code: number | null): Error {
 
 function sendRequest<T>(
   host: HostProcess,
-  type: "status" | "login" | "logout" | "cancel",
+  type: "status" | "credential" | "login" | "logout" | "cancel",
   provider: PiSubscriptionProvider,
   timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<T> {
@@ -126,6 +127,20 @@ export async function piSubscriptionLoginState(
     return loginState;
   } catch {
     return "unknown";
+  } finally {
+    host.kill();
+  }
+}
+
+export async function getPiSubscriptionCredential(
+  provider: PiSubscriptionProvider,
+): Promise<PiSubscriptionCredential | null> {
+  const host = spawnHost();
+  try {
+    const { credential } = await sendRequest<{
+      credential: PiSubscriptionCredential | null;
+    }>(host, "credential", provider);
+    return credential;
   } finally {
     host.kill();
   }

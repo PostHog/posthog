@@ -1572,6 +1572,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             and run.state.get("claude_subscription_user_id") != self._user_id()
         ):
             raise PermissionDenied("Only the user who started this run can use its Claude plan.")
+        if (
+            run.state.get("pi_subscription_provider") is not None
+            and run.state.get("pi_subscription_user_id") != self._user_id()
+        ):
+            raise PermissionDenied("Only the user who started this run can use its Pi subscription.")
 
     @validated_request(
         responses={
@@ -2851,12 +2856,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._ensure_subscription_owner(task_id, pk)
         if method == "credential_response":
             run = tasks_facade.get_task_run_detail(pk, task_id, self.team_id)
-            if (
-                run is None
-                or is_sandbox_oauth_request(request)
-                or run.state.get("claude_subscription_user_id") != self._user_id()
-            ):
-                raise PermissionDenied("Only the user who started this run can send a Claude token.")
+            subscription_owner_id = (
+                run.state.get("claude_subscription_user_id")
+                if run is not None and run.state.get("claude_model_access") == "own-subscription"
+                else run.state.get("pi_subscription_user_id")
+                if run is not None and run.state.get("pi_subscription_provider") is not None
+                else None
+            )
+            if run is None or is_sandbox_oauth_request(request) or subscription_owner_id != self._user_id():
+                raise PermissionDenied("Only the user who started this run can send a subscription credential.")
         # Steering an analysis run spends model tokens on a task whose generations are excluded
         # from the customer's rollup, so these are the reuse path the one-shot rule closes. Cancel
         # and the agent's own operations stay open.

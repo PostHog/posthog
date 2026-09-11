@@ -26,12 +26,35 @@ describe("effectivePiSubscriptionProvider", () => {
       undefined,
     ],
     [
-      "cloud tasks never bill the subscription",
+      "cloud tasks use the gateway when Anthropic cloud billing is off",
       {
         modelAccess: "anthropic" as const,
         anthropic: subscription(),
         codex: subscription(),
         workspaceMode: "cloud" as const,
+        cloudSubscriptionEnabled: false,
+      },
+      undefined,
+    ],
+    [
+      "cloud tasks use the selected Anthropic subscription when enabled",
+      {
+        modelAccess: "anthropic" as const,
+        anthropic: subscription(),
+        codex: subscription(),
+        workspaceMode: "cloud" as const,
+        cloudSubscriptionEnabled: true,
+      },
+      "anthropic",
+    ],
+    [
+      "cloud tasks keep Codex on the gateway",
+      {
+        modelAccess: "openai-codex" as const,
+        anthropic: subscription(),
+        codex: subscription(),
+        workspaceMode: "cloud" as const,
+        cloudSubscriptionEnabled: true,
       },
       undefined,
     ],

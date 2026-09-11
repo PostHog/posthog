@@ -1321,7 +1321,7 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     context that scoped-token minting depends on. `ctx` is the run's
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
-    if ctx.claude_model_access == "own-subscription":
+    if ctx.claude_model_access == "own-subscription" or ctx.pi_subscription_provider is not None:
         return {}
     return ai_gateway_env_vars(
         team_id=ctx.team_id,

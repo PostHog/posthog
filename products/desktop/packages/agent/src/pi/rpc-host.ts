@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import {
   type InlineExtension,
   SessionManager,
@@ -37,8 +38,11 @@ function argumentValue(name: string): string | undefined {
 const bootstrap = JSON.parse(
   readFileSync(3, "utf8"),
 ) as Partial<PiRpcBootstrap>;
-const { provider: requestedProvider, ...harnessProviderOptions } =
-  bootstrap.providerOptions ?? {};
+const {
+  provider: requestedProvider,
+  subscriptionCredential,
+  ...harnessProviderOptions
+} = bootstrap.providerOptions ?? {};
 const provider = requestedProvider ?? "posthog";
 if (provider === "posthog" && !harnessProviderOptions.apiKey) {
   throw new Error("Pi RPC host requires PostHog provider credentials");
@@ -103,11 +107,19 @@ if (bootstrap.enrichment) {
   runtimeExtensions.push(createPiEnrichmentExtension(bootstrap.enrichment));
 }
 
+const credentialStore = subscriptionCredential
+  ? new InMemoryCredentialStore()
+  : undefined;
+if (credentialStore && subscriptionCredential) {
+  await credentialStore.modify(provider, async () => subscriptionCredential);
+}
+
 const runtime = await createHarnessRuntime({
   cwd,
   sessionManager,
   projectTrusted: () => true,
   resourceLoaderOptions: { extensionFactories: runtimeExtensions },
+  credentialStore,
   ...harnessProviderOptions,
   runtimeMcpServers: bootstrap.runtimeMcpServers,
   mcpToolPolicies: bootstrap.mcpToolPolicies,

@@ -3,6 +3,7 @@ import {
   ANALYTICS_EVENTS,
   CLAUDE_OWN_SUBSCRIPTION_FLAG,
   CODEX_OWN_SUBSCRIPTION_FLAG,
+  PI_OWN_SUBSCRIPTION_CLOUD_FLAG,
   type PiModelAccess,
   type PiSubscriptionProvider,
 } from "@posthog/shared";
@@ -38,6 +39,10 @@ const FLAGS: Record<PiSubscriptionProvider, string> = {
  * below — exactly like Claude/Codex's own `claudeModelAccess`/
  * `codexModelAccess`: logging in does not by itself switch billing.
  */
+export function usePiCloudSubscriptionEnabled(): boolean {
+  return useFeatureFlag(PI_OWN_SUBSCRIPTION_CLOUD_FLAG) || import.meta.env.DEV;
+}
+
 export function usePiSubscription(
   provider: PiSubscriptionProvider,
 ): PiSubscription {
@@ -66,9 +71,15 @@ export function effectivePiSubscriptionProvider(input: {
   anthropic: PiSubscription;
   codex: PiSubscription;
   workspaceMode: WorkspaceModeForAccess;
+  cloudSubscriptionEnabled?: boolean;
 }): PiSubscriptionProvider | undefined {
   if (input.modelAccess === "posthog-gateway") return undefined;
-  if (input.workspaceMode === "cloud") return undefined;
+  if (
+    input.workspaceMode === "cloud" &&
+    (input.modelAccess !== "anthropic" || !input.cloudSubscriptionEnabled)
+  ) {
+    return undefined;
+  }
   const subscription =
     input.modelAccess === "anthropic" ? input.anthropic : input.codex;
   if (!subscription.flagEnabled || !subscription.loggedIn) return undefined;

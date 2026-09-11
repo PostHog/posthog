@@ -39,6 +39,7 @@ import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSetting
 import {
   applyPiModelAccess,
   type PiSubscription,
+  usePiCloudSubscriptionEnabled,
   usePiSubscription,
 } from "@posthog/ui/features/settings/piSubscription";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -91,6 +92,7 @@ function PiBillingSubmenu({
   const modelAccess = useSettingsStore((state) => state.piModelAccess);
   const anthropicSubscription = usePiSubscription("anthropic");
   const codexSubscription = usePiSubscription("openai-codex");
+  const cloudSubscriptionEnabled = usePiCloudSubscriptionEnabled();
   const providers: {
     provider: PiSubscriptionProvider;
     subscription: PiSubscription;
@@ -116,14 +118,16 @@ function PiBillingSubmenu({
     return null;
   }
 
-  // Cloud tasks always bill PostHog credits (see effectivePiSubscriptionProvider),
-  // so the provider options are disabled there instead of silently overriding the pick.
   const cloudTask = workspaceMode === "cloud";
-  const activeProvider = providers.find((p) => p.provider === modelAccess);
-  const valueLabel =
-    activeProvider && !cloudTask
-      ? PI_BILLING_LABEL[activeProvider.provider]
-      : "PostHog";
+  const canUseProvider = (provider: PiSubscriptionProvider): boolean =>
+    !cloudTask || (provider === "anthropic" && cloudSubscriptionEnabled);
+  const activeProvider = providers.find(
+    (provider) =>
+      provider.provider === modelAccess && canUseProvider(provider.provider),
+  );
+  const valueLabel = activeProvider
+    ? PI_BILLING_LABEL[activeProvider.provider]
+    : "PostHog";
   const pendingLoginNote = providers.find(
     (p) => p.provider === modelAccess && !p.subscription.loggedIn,
   );
@@ -138,7 +142,12 @@ function PiBillingSubmenu({
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent>
         <DropdownMenuRadioGroup
-          value={cloudTask ? "posthog-gateway" : modelAccess}
+          value={
+            cloudTask &&
+            (modelAccess !== "anthropic" || !cloudSubscriptionEnabled)
+              ? "posthog-gateway"
+              : modelAccess
+          }
           onValueChange={(next) => applyPiModelAccess(next as PiModelAccess)}
         >
           <DropdownMenuRadioItem
@@ -148,7 +157,7 @@ function PiBillingSubmenu({
             PostHog
           </DropdownMenuRadioItem>
           {providers.map(({ provider }) =>
-            cloudTask ? (
+            !canUseProvider(provider) ? (
               <TooltipProvider delay={TOOLTIP_DELAY_MS} key={provider}>
                 <Tooltip disableHoverablePopup>
                   <TooltipTrigger render={<span className="flex" />}>
@@ -177,7 +186,7 @@ function PiBillingSubmenu({
             ),
           )}
         </DropdownMenuRadioGroup>
-        {!cloudTask && pendingLoginNote && (
+        {pendingLoginNote && canUseProvider(pendingLoginNote.provider) && (
           // A quiet inline note rather than a permanent menu row: it appears
           // only once the provider is picked without a confirmed login, and
           // sessions keep running on PostHog until the login completes.
