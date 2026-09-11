@@ -59,7 +59,6 @@ from . import (
     search,
     sharing,
     tagged_item,
-    team,
     uploaded_media,
     user,
     user_facet_settings,
@@ -68,6 +67,7 @@ from . import (
     webauthn,
     welcome,
 )
+from .team import viewsets
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
 from .data_management import DataManagementViewSet
@@ -94,7 +94,7 @@ routers.set_root(router)
 
 # Nested endpoints shared
 projects_router = routers.add("projects", router.register(r"projects", project.RootProjectViewSet, "projects"))
-projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
+projects_router.register(r"environments", viewsets.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
 
 projects_router.register(r"sdk_health", SdkHealthViewSet, "project_sdk_health", ["project_id"])
 projects_router.register(
