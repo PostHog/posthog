@@ -1402,6 +1402,11 @@ SQL
       type        = "bloom_filter(0.01)"
       granularity = 1
     }
+    index "idx_last_seen_minmax" {
+      expr        = "last_seen"
+      type        = "minmax"
+      granularity = 1
+    }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.metric_series2"
       replica_name   = "{replica}-{shard}"
