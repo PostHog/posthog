@@ -35,6 +35,7 @@ import {
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { skillAnalyticsProperties } from '@/tools/skills/analytics'
+import { formatSkillLookupMiss } from '@/tools/skills/notFound'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import {
@@ -415,6 +416,17 @@ export class ToolExecutor {
                 errorMessage: error instanceof Error ? error.message : String(error),
                 input: validation.data,
             })
+
+            // A skill lookup that misses is not a failure the agent should read as
+            // one. The exec dispatcher rewrites the same miss, and a tools-mode
+            // client reaching this path must get the same answer — otherwise the
+            // behavior changes with the client. Telemetry above already recorded
+            // the 404, and `handleToolError` adds nothing to a 4xx that is lost
+            // here: no recovery hint, no exception capture.
+            const lookupMiss = formatSkillLookupMiss(tool.name, error, validation.data as Record<string, unknown>)
+            if (lookupMiss) {
+                return { content: [{ type: 'text', text: lookupMiss }] }
+            }
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             return handleToolError(error, tool.name, state.distinctId, sessionUuid)
