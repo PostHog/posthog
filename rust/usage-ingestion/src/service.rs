@@ -7,6 +7,7 @@ use common_kafka::kafka_producer::{
     send_keyed_payloads_to_kafka_with_encoding, EnvelopeEncoding, KafkaContext,
 };
 use rdkafka::producer::FutureProducer;
+use subtle::ConstantTimeEq;
 use tonic::{Request, Response, Status};
 use usage_ingestion_proto::usage_ingestion::v1::{
     usage_ingestion_server::UsageIngestion, BillingUsageRecord, CounterGranularity,
@@ -22,6 +23,8 @@ use crate::counters::{
 use crate::record::KafkaBillingUsageRecord;
 use crate::resolver::{OrganizationResolver, ResolveError};
 
+pub const USAGE_COUNTERS_API_SECRET_HEADER: &str = "x-usage-counters-api-secret";
+
 #[derive(Clone)]
 pub struct UsageIngestionService {
     producer: FutureProducer<KafkaContext>,
@@ -30,6 +33,7 @@ pub struct UsageIngestionService {
     topic: String,
     counters: Option<Arc<CounterAccumulator>>,
     counter_reader: Option<Arc<RedisCounterReader>>,
+    counter_api_secrets: Arc<[String]>,
 }
 
 impl UsageIngestionService {
@@ -40,6 +44,7 @@ impl UsageIngestionService {
         topic: String,
         counters: Option<Arc<CounterAccumulator>>,
         counter_reader: Option<Arc<RedisCounterReader>>,
+        counter_api_secret: String,
     ) -> Self {
         Self {
             producer,
@@ -48,6 +53,12 @@ impl UsageIngestionService {
             topic,
             counters,
             counter_reader,
+            counter_api_secrets: counter_api_secret
+                .split(',')
+                .map(str::trim)
+                .filter(|secret| !secret.is_empty())
+                .map(String::from)
+                .collect(),
         }
     }
 
@@ -116,7 +127,20 @@ impl UsageIngestionService {
     pub async fn get_usage_counters(
         &self,
         request: GetUsageCountersRequest,
+        presented_secret: Option<&str>,
     ) -> Result<GetUsageCountersResponse, Status> {
+        let presented_secret = presented_secret
+            .map(str::trim)
+            .filter(|secret| !secret.is_empty());
+        if !presented_secret.is_some_and(|presented| {
+            self.counter_api_secrets
+                .iter()
+                .any(|expected| presented.as_bytes().ct_eq(expected.as_bytes()).into())
+        }) {
+            return Err(Status::unauthenticated(
+                "invalid or missing usage counters API secret",
+            ));
+        }
         let scope = match request.scope {
             Some(usage_ingestion_proto::usage_ingestion::v1::get_usage_counters_request::Scope::TeamId(team_id))
                 if (1..=i64::from(i32::MAX)).contains(&team_id) =>
@@ -140,6 +164,7 @@ impl UsageIngestionService {
             granularity,
             request.start_timestamp_ms,
             request.end_timestamp_ms,
+            Utc::now().timestamp_millis(),
         )
         .map_err(Status::invalid_argument)?;
         let reader = self
@@ -209,8 +234,14 @@ impl UsageIngestion for UsageIngestionService {
         &self,
         request: Request<GetUsageCountersRequest>,
     ) -> Result<Response<GetUsageCountersResponse>, Status> {
+        let secret = request
+            .metadata()
+            .get(USAGE_COUNTERS_API_SECRET_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .map(String::from);
         Ok(Response::new(
-            self.get_usage_counters(request.into_inner()).await?,
+            self.get_usage_counters(request.into_inner(), secret.as_deref())
+                .await?,
         ))
     }
 
@@ -369,6 +400,7 @@ mod tests {
             "test-topic".to_string(),
             None,
             None,
+            "test-secret".to_string(),
         )
     }
 
@@ -403,6 +435,26 @@ mod tests {
             Some(("events".to_string(), "bytes".to_string()))
         );
         assert_eq!(decode_usage_field("not-a-field"), None);
+    }
+
+    #[tokio::test]
+    async fn usage_counter_reads_require_the_dedicated_secret() {
+        let service = service();
+        let request = Request::new(GetUsageCountersRequest::default());
+        let error = UsageIngestion::get_usage_counters(&service, request)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), tonic::Code::Unauthenticated);
+
+        let mut request = Request::new(GetUsageCountersRequest::default());
+        request.metadata_mut().insert(
+            USAGE_COUNTERS_API_SECRET_HEADER,
+            "test-secret".parse().unwrap(),
+        );
+        let error = UsageIngestion::get_usage_counters(&service, request)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), tonic::Code::InvalidArgument);
     }
 
     #[tokio::test]

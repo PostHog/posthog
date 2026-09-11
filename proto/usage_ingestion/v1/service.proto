@@ -10,6 +10,7 @@ package usage_ingestion.v1;
 // indefinitely. Cost and resource metering is a separate RPC and table.
 service UsageIngestion {
   rpc IngestBillingUsage(IngestBillingUsageRequest) returns (IngestBillingUsageResponse);
+  // Requires the dedicated usage counters API secret in `x-usage-counters-api-secret` metadata.
   rpc GetUsageCounters(GetUsageCountersRequest) returns (GetUsageCountersResponse);
 }
 
@@ -51,8 +52,8 @@ message IngestBillingUsageResponse {
   repeated string accepted_record_ids = 1;
 }
 
-// Redis only holds complete hourly and daily buckets. `end_timestamp_ms` is exclusive and both
-// timestamps must align to the selected bucket size.
+// Reads only complete retained hourly and daily buckets. `end_timestamp_ms` is exclusive and
+// both timestamps must align to the selected bucket size.
 message GetUsageCountersRequest {
   oneof scope {
     int64 team_id = 1;

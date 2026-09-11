@@ -50,11 +50,14 @@ source, so do not use this projection for exact billing decisions.
 
 Both transports expose `GetUsageCounters`: gRPC for internal callers and
 `GET /v1/usage-counters` on the existing internal management listener for
-Grafana. The request selects exactly one team or organization and a fully
-aligned `[start_timestamp_ms, end_timestamp_ms)` range. Hourly reads allow up
-to 25 buckets and daily reads allow up to 31. The response contains the stored
-meter values per bucket. These are projection snapshots, not exact billable
-totals; do not use them for billing decisions.
+Grafana. Set `USAGE_INGESTION_COUNTERS_API_SECRET` to a comma-separated list of
+accepted secrets and send one in the `x-usage-counters-api-secret` header or
+gRPC metadata. An empty setting rejects all counter reads. The request selects
+exactly one team or organization and a fully aligned
+`[start_timestamp_ms, end_timestamp_ms)` range of completed buckets. Hourly
+reads cover the previous 24 buckets and daily reads cover the previous 30. The
+response contains the stored meter values per bucket. These are projection
+snapshots, not exact billable totals; do not use them for billing decisions.
 
 The dev stack runs the cluster on 6390 from both sides, so a host client uses
 `redis://127.0.0.1:6390` and the service container uses

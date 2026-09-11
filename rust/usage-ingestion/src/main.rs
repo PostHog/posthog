@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use axum::{
     extract::{Json, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::get,
     Router,
 };
@@ -24,7 +24,7 @@ use tracing_subscriber::{EnvFilter, Layer};
 use usage_ingestion::config::Config;
 use usage_ingestion::counters::{spawn_flush_task, CounterAccumulator, RedisCounterReader};
 use usage_ingestion::resolver::PostgresOrganizationResolver;
-use usage_ingestion::service::UsageIngestionService;
+use usage_ingestion::service::{UsageIngestionService, USAGE_COUNTERS_API_SECRET_HEADER};
 use usage_ingestion_proto::usage_ingestion::v1::{
     get_usage_counters_request, usage_ingestion_server::UsageIngestionServer, CounterGranularity,
     GetUsageCountersRequest, GetUsageCountersResponse, UsageCounterBucket, UsageCounterValue,
@@ -124,11 +124,15 @@ impl From<UsageCounterValue> for HttpUsageCounterValue {
 
 async fn get_usage_counters_http(
     State(service): State<UsageIngestionService>,
+    headers: HeaderMap,
     Query(request): Query<HttpUsageCountersRequest>,
 ) -> Result<Json<HttpUsageCountersResponse>, (StatusCode, Json<serde_json::Value>)> {
     let request = GetUsageCountersRequest::try_from(request).map_err(http_error)?;
+    let secret = headers
+        .get(USAGE_COUNTERS_API_SECRET_HEADER)
+        .and_then(|value| value.to_str().ok());
     service
-        .get_usage_counters(request)
+        .get_usage_counters(request, secret)
         .await
         .map(HttpUsageCountersResponse::from)
         .map(Json)
@@ -137,6 +141,7 @@ async fn get_usage_counters_http(
 
 fn http_error(status: Status) -> (StatusCode, Json<serde_json::Value>) {
     let status_code = match status.code() {
+        Code::Unauthenticated => StatusCode::UNAUTHORIZED,
         Code::InvalidArgument => StatusCode::BAD_REQUEST,
         Code::FailedPrecondition | Code::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
         _ => StatusCode::INTERNAL_SERVER_ERROR,
@@ -216,6 +221,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.topic.clone(),
         counters.as_ref().map(Arc::clone),
         counter_reader,
+        config.usage_counters_api_secret.clone(),
     );
 
     // Buckets only for the shared gRPC histogram, so it renders the same way personhog's does

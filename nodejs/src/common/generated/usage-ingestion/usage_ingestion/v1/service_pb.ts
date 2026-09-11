@@ -119,8 +119,8 @@ export const IngestBillingUsageResponseSchema: GenMessage<IngestBillingUsageResp
     messageDesc(file_usage_ingestion_v1_service, 2)
 
 /**
- * Redis only holds complete hourly and daily buckets. `end_timestamp_ms` is exclusive and both
- * timestamps must align to the selected bucket size.
+ * Reads only complete retained hourly and daily buckets. `end_timestamp_ms` is exclusive and
+ * both timestamps must align to the selected bucket size.
  *
  * @generated from message usage_ingestion.v1.GetUsageCountersRequest
  */
@@ -285,6 +285,8 @@ export const UsageIngestion: GenService<{
         output: typeof IngestBillingUsageResponseSchema
     }
     /**
+     * Requires the dedicated usage counters API secret in `x-usage-counters-api-secret` metadata.
+     *
      * @generated from rpc usage_ingestion.v1.UsageIngestion.GetUsageCounters
      */
     getUsageCounters: {
