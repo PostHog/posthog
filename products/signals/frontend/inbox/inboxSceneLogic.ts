@@ -431,6 +431,9 @@ export interface inboxSceneLogicActions {
     setRunsOpen: (open: boolean) => {
         open: boolean
     }
+    setScoutDetailTab: (tab: ScoutDetailTab | null) => {
+        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | null
+    }
     setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => {
         draft: ScoutCreateInitialValues | null
     }
@@ -444,15 +447,14 @@ export interface inboxSceneLogicActions {
         id: string | null
         openMethod: InboxReportOpenMethod
     }
-    setScoutDetailTab: (tab: ScoutDetailTab | null) => {
-        tab: ScoutDetailTab | null
-    }
     setSelectedScoutSkillName: (
         skillName: string | null,
-        findingId?: string | null
+        findingId?: string | null,
+        tab?: ScoutDetailTab | null
     ) => {
         findingId: string | null
         skillName: string | null
+        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | null
     }
     setTriageOpen: (open: boolean) => {
         open: boolean
@@ -510,10 +512,17 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         setActiveTab: (tab: InboxTabKey) => ({ tab }),
         // Scout detail surface: selecting a scout opens its full-width detail over the list. An
         // optional finding id deep-links to one emitted finding within that scout (highlighted +
-        // scrolled into view if it's still in the recent window).
-        setSelectedScoutSkillName: (skillName: string | null, findingId: string | null = null) => ({
+        // scrolled into view if it's still in the recent window). The pane travels with the
+        // selection so a route can name the tab its URL asked for in the same action: a second
+        // action for the tab would first write a URL without it, and that write is a history entry.
+        setSelectedScoutSkillName: (
+            skillName: string | null,
+            findingId: string | null = null,
+            tab: ScoutDetailTab | null = null
+        ) => ({
             skillName,
             findingId,
+            tab,
         }),
         // Which pane of the open scout's page is showing. Carried in the URL so a link to a scout's
         // runs survives a reload.
@@ -693,8 +702,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             null as ScoutDetailTab | null,
             {
                 setScoutDetailTab: (_, { tab }) => tab,
-                // A finding deep-link is asking for that finding, which lives on Signals.
-                setSelectedScoutSkillName: (_, { findingId }) => (findingId ? 'signals' : null),
+                // A finding deep-link is asking for that finding, which lives on Signals. Otherwise
+                // the pane is the one the navigation named: a route passes the tab its URL carries,
+                // and a roster click passes nothing, which opens the page on its default pane.
+                setSelectedScoutSkillName: (_, { findingId, tab }) => (findingId ? 'signals' : tab),
             },
         ],
     }),
@@ -1040,9 +1051,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             router.values.hashParams,
             { replace: false },
         ],
-        setSelectedScoutSkillName: () => [
+        setSelectedScoutSkillName: ({ findingId }) => [
             inboxSurfaceUrl(values),
-            scoutTabSearchParams(values.scoutDetailTab),
+            // A finding is addressed by its own path segment, which already says the pane is
+            // Signals, so a `tab` param would restate it and make a deep link differ from the URL
+            // it was opened from.
+            scoutTabSearchParams(findingId ? null : values.scoutDetailTab),
             router.values.hashParams,
             { replace: false },
         ],
@@ -1191,13 +1205,13 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     return
                 }
                 const name = skillName ?? null
+                const tab = asScoutDetailTab(searchParams.tab)
                 // Also reset the finding when landing on the bare scout URL after a finding deep-link.
                 if (values.selectedScoutSkillName !== name || values.selectedScoutFindingId !== null) {
-                    actions.setSelectedScoutSkillName(name)
+                    actions.setSelectedScoutSkillName(name, null, tab)
                 }
-                // After selecting the scout, which resets the tab — otherwise the reset would
-                // discard the tab the URL asked for.
-                const tab = asScoutDetailTab(searchParams.tab)
+                // Only a tab move within the scout already open reaches this, because the selection
+                // above carries the tab. Sending both would push a URL without the tab first.
                 if (values.scoutDetailTab !== tab) {
                     actions.setScoutDetailTab(tab)
                 }

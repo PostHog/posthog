@@ -247,6 +247,19 @@ describe('inboxSceneLogic routing', () => {
             expect(router.values.searchParams.tab).toBeUndefined()
         })
 
+        // Hydrating a deep link must not add a history entry, or the first Back press lands on the
+        // same page with the same tab and reads as a dead control.
+        it.each<[string, string, Record<string, string> | undefined]>([
+            ['a tab deep link', urls.inboxScout('signals-scout-web-vitals'), { tab: 'runs' }],
+            ['a finding deep link', urls.inboxScout('signals-scout-web-vitals', 'finding-1'), undefined],
+        ])('opens %s with one history entry', (_name, path, searchParams) => {
+            mountWithRedesign(true)
+            const push = jest.spyOn(router.actions, 'push')
+            router.actions.push(path, searchParams)
+            expect(push).toHaveBeenCalledTimes(1)
+            push.mockRestore()
+        })
+
         it('opens Signals for a finding deep-link, which is what the link is asking for', () => {
             mountWithRedesign(true)
             router.actions.push(urls.inboxScout('signals-scout-web-vitals', 'finding-1'))
