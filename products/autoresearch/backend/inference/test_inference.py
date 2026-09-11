@@ -20,7 +20,6 @@ from products.autoresearch.backend.inference.scoring import (
     ScoringWindow,
     _estimator_for,
     _fetch_inference_rows,
-    _fetch_population_distinct_ids,
     _fetch_stub_feature_rows,
     _fetch_training_rows,
     _fit_on_training_predict_on_inference,
@@ -167,6 +166,16 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
                 None,
                 lambda events: CaptureInternalResult(
                     status_code=200, ok=[events[0]["event_uuid"]], dropped=[events[1]["event_uuid"]]
+                ),
+            ),
+            (
+                "one_event_stored_with_a_warning",
+                None,
+                lambda events: CaptureInternalResult(
+                    status_code=200,
+                    ok=[events[0]["event_uuid"]],
+                    warnings=[events[1]["event_uuid"]],
+                    results={events[1]["event_uuid"]: {"result": "warning", "message": "person processing disabled"}},
                 ),
             ),
         ]
@@ -432,86 +441,54 @@ class TestQueryFailuresFailTheRun(TeamScopedTestMixin, BaseTest):
 
 
 class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
-    def _make_pipeline(self, inference_population: dict) -> AutoresearchPipeline:
+    def _make_pipeline(self, inference_population: dict, target_event: str = "$pageview") -> AutoresearchPipeline:
         return AutoresearchPipeline.objects.create(
             team=self.team,
             created_by=self.user,
             name="Test",
-            target_event="$pageview",
+            target_event=target_event,
             horizon_days=7,
             inference_population=inference_population,
         )
 
-    @patch("products.autoresearch.backend.inference.scoring._fetch_population_distinct_ids")
+    def _sent(self, mock_run: MagicMock) -> tuple[str, dict]:
+        query = mock_run.call_args.kwargs["query"]
+        return query.query, query.values
+
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
-    def test_empty_population_still_consults_population_filter(self, mock_run_hogql: MagicMock, mock_pop: MagicMock):
-        pipeline = self._make_pipeline(inference_population={})
-        mock_run_hogql.return_value = HogQLResult(columns=["distinct_id"], rows=[["user-1"], ["user-2"]])
-        mock_pop.return_value = None
-
-        rows = _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
-
-        mock_pop.assert_called_once()
-        assert len(rows) == 2
-        sent = mock_run_hogql.call_args.kwargs
-        assert sent["user"] == self.user
-        assert sent["query"].query.rstrip().endswith(f"LIMIT {_MATERIALIZE_ROW_LIMIT}")
-
-    @patch("products.autoresearch.backend.inference.scoring._fetch_population_distinct_ids")
-    @patch("products.autoresearch.backend.inference.scoring.run_hogql")
-    def test_population_filter_restricts_rows(self, mock_run_hogql: MagicMock, mock_pop: MagicMock):
+    def test_population_is_applied_inside_the_bounded_query(self, mock_run: MagicMock):
+        # Filtering the rows in Python after the bound meant a team with more people than the
+        # cap failed every stub run, however small the configured population.
         pipeline = self._make_pipeline(
-            inference_population={
-                "properties": [{"key": "plan", "type": "person", "operator": "exact", "value": "pro"}]
-            }
+            {"properties": [{"key": "plan", "type": "person", "operator": "exact", "value": "pro"}]}
         )
-        mock_run_hogql.return_value = HogQLResult(columns=["distinct_id"], rows=[["user-1"], ["user-2"], ["user-3"]])
-        mock_pop.return_value = frozenset(["user-1", "user-3"])
+        mock_run.return_value = HogQLResult(columns=["distinct_id"], rows=[["user-1"], ["user-3"]])
 
         rows = _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
 
         assert {r["distinct_id"] for r in rows} == {"user-1", "user-3"}
-
-    @parameterized.expand([("blank_identifier", [["user-1"], [""]]), ("duplicate_person", [["user-1"], ["user-1"]])])
-    @patch("products.autoresearch.backend.inference.scoring.run_hogql")
-    def test_rows_that_do_not_key_one_person_fail_the_run(self, _name, rows, mock_run_hogql: MagicMock):
-        # A blank identifier was silently dropped and a duplicate emitted the same event UUID
-        # twice; either way the run completed and reported a row count nobody received.
-        pipeline = self._make_pipeline(inference_population={})
-        mock_run_hogql.return_value = HogQLResult(columns=["distinct_id"], rows=rows)
-        with self.assertRaises(InferenceRunError):
-            _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
-
-
-class TestFetchPopulationDistinctIds(TeamScopedTestMixin, BaseTest):
-    @patch("products.autoresearch.backend.inference.scoring.run_hogql")
-    def test_empty_population_restricts_to_identified_users_and_ignores_predictions(self, mock_run: MagicMock):
-        # The scan must skip the product's own event, or a scored person stays eligible
-        # forever on nothing but their predictions.
-        mock_run.return_value = HogQLResult(columns=["person_id"], rows=[["person-1"], ["person-2"]])
-
-        allowed = _fetch_population_distinct_ids(team=self.team, population={}, lookback_days=30, user=self.user)
-
-        assert allowed == frozenset({"person-1", "person-2"})
-        sent_sql = mock_run.call_args.kwargs["query"].query
-        assert "person.is_identified" in sent_sql
-        assert f"event != '{PREDICTION_EVENT_NAME}'" in sent_sql
-        # A future-dated or imported event must not make someone eligible today.
-        assert "timestamp < now()" in sent_sql
+        sql, values = self._sent(mock_run)
+        assert mock_run.call_count == 1
+        assert "f.distinct_id IN (SELECT DISTINCT person_id FROM events WHERE" in sql
+        assert "person.properties[{pop_k_0}] = {pop_0}" in sql
+        assert values["pop_0"] == "pro"
+        assert sql.rstrip().endswith(f"LIMIT {_MATERIALIZE_ROW_LIMIT}")
+        assert mock_run.call_args.kwargs["user"] == self.user
 
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
-    def test_population_query_failure_fails_closed(self, mock_run: MagicMock):
-        # A transient HogQL failure must fail the run; treating it as "no restriction" would
-        # score everyone and write person properties outside the population.
-        mock_run.side_effect = Exception("clickhouse timeout")
+    def test_empty_population_restricts_to_identified_users_within_the_window(self, mock_run: MagicMock):
+        # v1 scores identified users only; the scan must skip the product's own event, or a
+        # scored person stays eligible forever, and a future-dated event must not count.
+        pipeline = self._make_pipeline({})
+        mock_run.return_value = HogQLResult(columns=["distinct_id"], rows=[["user-1"]])
 
-        with self.assertRaises(InferenceRunError):
-            _fetch_population_distinct_ids(
-                team=self.team,
-                population={"properties": [{"key": "plan", "type": "person", "operator": "exact", "value": "pro"}]},
-                lookback_days=30,
-                user=self.user,
-            )
+        _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
+
+        sql, values = self._sent(mock_run)
+        assert "person.is_identified" in sql
+        assert f"event != '{PREDICTION_EVENT_NAME}'" in sql
+        assert "timestamp < now()" in sql
+        assert values["lookback"] == 30
 
     @parameterized.expand(
         [
@@ -536,53 +513,47 @@ class TestFetchPopulationDistinctIds(TeamScopedTestMixin, BaseTest):
     def test_population_kind_restricts_query(
         self, _name: str, population: dict, expected_fragments: list[str], mock_run: MagicMock
     ):
-        # Template populations carry semantic kind specs; the in-process scoring path must
-        # compile them or a template pipeline silently scores all identified users.
-        mock_run.return_value = HogQLResult(columns=["person_id"], rows=[["person-1"]])
+        # Template populations carry semantic kind specs; the stub path must compile them or
+        # a template pipeline silently scores all identified users.
+        pipeline = self._make_pipeline(population, target_event="downloaded_file")
+        mock_run.return_value = HogQLResult(columns=["distinct_id"], rows=[["user-1"]])
 
-        allowed = _fetch_population_distinct_ids(
-            team=self.team, population=population, lookback_days=30, target_event="downloaded_file", user=self.user
-        )
+        _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
 
-        assert allowed == frozenset({"person-1"})
-        sent_query = mock_run.call_args.kwargs["query"]
+        sql, _values = self._sent(mock_run)
         for fragment in expected_fragments:
-            assert fragment in sent_query.query
-        assert sent_query.values["lookback"] == 30
+            assert fragment in sql
 
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
-    def test_uncompilable_population_kind_fails_closed(self, mock_run: MagicMock):
-        # A kind spec missing a required key must raise before any query runs; widening to
-        # "all identified users" is the failure mode being prevented.
+    def test_uncompilable_population_kind_fails_before_any_query(self, mock_run: MagicMock):
+        # Widening to "all identified users" is the failure mode being prevented.
+        pipeline = self._make_pipeline({"kind": "ever_performed_event"})
         with self.assertRaises(ValueError):
-            _fetch_population_distinct_ids(
-                team=self.team, population={"kind": "ever_performed_event"}, lookback_days=30, user=self.user
-            )
+            _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
         mock_run.assert_not_called()
 
-
-class TestPersonKeyedQueriesAreBounded(TeamScopedTestMixin, BaseTest):
+    @parameterized.expand([("blank_identifier", [["user-1"], [""]]), ("duplicate_person", [["user-1"], ["user-1"]])])
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
-    def test_query_carries_an_explicit_limit(self, mock_run: MagicMock):
-        # HogQL silently caps an unbounded query at 100 rows.
-        mock_run.return_value = HogQLResult(columns=["person_id"], rows=[[str(uuid4())]])
-
-        _fetch_population_distinct_ids(team=self.team, population={}, lookback_days=30, user=self.user)
-
-        assert f"LIMIT {_MATERIALIZE_ROW_LIMIT}" in mock_run.call_args.kwargs["query"].query
+    def test_rows_that_do_not_key_one_person_fail_the_run(self, _name, rows, mock_run: MagicMock):
+        # A blank identifier was silently dropped and a duplicate emitted the same event UUID
+        # twice; either way the run completed and reported a row count nobody received.
+        pipeline = self._make_pipeline({})
+        mock_run.return_value = HogQLResult(columns=["distinct_id"], rows=rows)
+        with self.assertRaises(InferenceRunError):
+            _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
 
     @parameterized.expand([("full_page", False), ("has_more", True)])
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
     def test_a_result_that_fills_the_bound_fails_the_run(self, _name: str, has_more: bool, mock_run: MagicMock):
-        # A full result is almost certainly truncated; scoring the partial set would skip
-        # users while last_scored_at advanced past them.
+        # HogQL silently caps an unbounded query at 100 rows, and a full result is almost
+        # certainly truncated; scoring the partial set would skip users while the cadence advanced.
+        pipeline = self._make_pipeline({})
         n = 1 if has_more else _MATERIALIZE_ROW_LIMIT
         mock_run.return_value = HogQLResult(
-            columns=["person_id"], rows=[[f"person-{i}"] for i in range(n)], has_more=has_more
+            columns=["distinct_id"], rows=[[f"person-{i}"] for i in range(n)], has_more=has_more
         )
-
         with self.assertRaises(InferenceRunError):
-            _fetch_population_distinct_ids(team=self.team, population={}, lookback_days=30, user=self.user)
+            _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
 
 
 class TestResolveDistinctIds(TeamScopedTestMixin, BaseTest):

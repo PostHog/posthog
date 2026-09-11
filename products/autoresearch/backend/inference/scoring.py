@@ -410,18 +410,24 @@ def _emit_predictions(
     except Exception as exc:
         logger.exception("autoresearch_prediction_emit_failed", pipeline_id=str(pipeline.pk))
         raise InferenceRunError(f"Prediction events could not be sent: {exc}") from exc
-    if not result.succeeded():
+    # A warning is an event capture stored with something switched off, such as person
+    # processing for a rate-limited distinct id, so its $set never reaches the person.
+    # succeeded() ignores warnings on purpose; this run cannot.
+    if not result.succeeded() or result.warnings:
         logger.warning(
             "autoresearch_prediction_emit_partial",
             pipeline_id=str(pipeline.pk),
             dropped=len(result.dropped),
             retried=len(result.retried),
             unaccounted=len(result.unaccounted),
+            warnings=len(result.warnings),
             error=result.error,
         )
+        sample = [result.results.get(uid) for uid in result.warnings[:3]]
         raise InferenceRunError(
             f"Prediction events were not all accepted ({len(result.dropped)} dropped, "
-            f"{len(result.retried)} exhausted retries, {len(result.unaccounted)} unaccounted"
+            f"{len(result.retried)} exhausted retries, {len(result.unaccounted)} unaccounted, "
+            f"{len(result.warnings)} stored with a warning{f' e.g. {sample!r}' if sample else ''}"
             f"{', ' + str(result.error.get('error')) if result.error else ''}); failing the run so it is retried"
         )
 
@@ -513,54 +519,54 @@ def _fetch_stub_feature_rows(
     *, team: Team, pipeline: AutoresearchPipeline, recipe: dict[str, Any], user: User
 ) -> list[dict[str, Any]]:
     """
-    Run a stub recipe's feature SQL and restrict the rows to the inference population.
+    Run a stub recipe's feature SQL restricted to the inference population.
 
     The stub's SQL is templated in ``training/stub.py``, evaluates at now(), and carries
-    no ``{anchors}``, so it does not go through the anchors builders; the population
-    filter is applied afterwards on the returned person ids.
+    no ``{anchors}``, so it does not go through the anchors builders. The population is
+    applied inside the query rather than on the returned rows, so the row bound measures
+    the population being scored and not every person on the team.
     """
     feature_sql = str(recipe.get("feature_sql") or "")
     if not feature_sql:
         logger.warning("autoresearch_empty_feature_sql", pipeline_id=str(pipeline.pk))
         return []
     lookback_days = _feature_lookback_days(pipeline)
-    feature_sql = feature_sql.replace("{lookback_days}", str(lookback_days))
-    rows = _person_rows(_query(team=team, sql=feature_sql, values={}, user=user, what="Feature"))
-    _require_one_row_per_person(rows, source="stub feature_sql", expected_count=None)
-
-    allowed_ids = _fetch_population_distinct_ids(
-        team=team,
+    feature_sql = feature_sql.replace("{lookback_days}", str(lookback_days)).rstrip().rstrip(";")
+    population = _population_query(
         population=pipeline.inference_population,
         lookback_days=lookback_days,
         target_event=pipeline.target_event,
         target_definition=pipeline.target_definition,
-        user=user,
+        team=team,
     )
-    if allowed_ids is not None:
-        before = len(rows)
-        rows = [row for row in rows if row.get("distinct_id") in allowed_ids]
-        logger.info(
-            "autoresearch_population_filter_applied", pipeline_id=str(pipeline.pk), before=before, after=len(rows)
-        )
+    sql, values = feature_sql, {}
+    if population is not None:
+        sql = f"SELECT * FROM ({feature_sql}) AS f WHERE f.distinct_id IN ({population.sql})"
+        values = population.values
+    rows = _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Feature"))
+    _require_one_row_per_person(rows, source="stub feature_sql", expected_count=None)
     return rows
 
 
-def _fetch_population_distinct_ids(
+@frozen
+class _PopulationQuery:
+    sql: str
+    values: dict[str, Any]
+
+
+def _population_query(
     *,
-    team: Team,
     population: dict[str, Any] | None,
     lookback_days: int,
     target_event: str = "",
     target_definition: dict[str, Any] | None = None,
-    user: User | None = None,
-) -> frozenset[str] | None:
+    team: Team | None = None,
+) -> _PopulationQuery | None:
     """
-    The person_ids matching the inference population, restricted to identified users
-    under the v1 scope. None only when nothing restricts the population.
-
-    A configured filter that cannot be compiled raises, and a query failure raises: a
-    transient failure must not widen scoring to everyone and write person properties
-    outside the configured population.
+    A ``SELECT DISTINCT person_id`` for the people in the inference population, restricted
+    to identified users under the v1 scope. None only when nothing restricts the population.
+    A configured filter that cannot be compiled raises, because widening to everyone is
+    the failure being prevented.
     """
     properties = (population or {}).get("properties", [])
     parts, values = _build_population_conditions(properties)
@@ -584,14 +590,7 @@ def _fetch_population_distinct_ids(
     if parts:
         where_clause += " AND " + " AND ".join(parts)
     where_clause += identified_clause
-    result = _query(
-        team=team,
-        sql=f"SELECT DISTINCT person_id FROM events WHERE {where_clause}",
-        values=values,
-        user=user,
-        what="Population filter",
-    )
-    return frozenset(str(row[0]) for row in result.rows if row[0])
+    return _PopulationQuery(sql=f"SELECT DISTINCT person_id FROM events WHERE {where_clause}", values=values)
 
 
 def _resolve_distinct_ids(
