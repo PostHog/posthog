@@ -53,7 +53,7 @@ def _sanitize_for_console(text: str) -> str:
 
 def _iter_flag_rows(
     queryset: Any, *, limit: int, chunk_size: int = 500
-) -> Iterator[tuple[int, int, Any, bool, bool, bool]]:
+) -> Iterator[tuple[int, int, Any, bool, bool, bool | None]]:
     # Keyset pagination instead of .iterator(): prod runs behind PgBouncer with server-side
     # cursors disabled, so .iterator() buffers the entire result set client-side on execute
     # and a full scan would hold every flag's filters JSON in memory at once. Repeated
@@ -220,7 +220,7 @@ class DivergenceReport:
 
 
 def _not_compared_reason(
-    *, active: bool, deleted: bool, has_encrypted_payloads: bool, structurally_valid: bool
+    *, active: bool, deleted: bool, has_encrypted_payloads: bool | None, structurally_valid: bool
 ) -> str | None:
     """Why the verifier never compares this flag's stored filters, or None when it does."""
     # _is_unevaluable is the cache builders' own gate, so a change to what they blank cannot
