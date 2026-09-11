@@ -7,7 +7,7 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import type { QueryBasedInsightModel } from '~/types'
+import { ChartDisplayType, type QueryBasedInsightModel } from '~/types'
 
 import {
     AccountBillingKind,
@@ -15,6 +15,7 @@ import {
     BILLING_INSIGHT_SHORT_IDS,
     getBillingDataVisualizationKey,
 } from './accountBillingLogic'
+import { AccountsEvents } from './constants'
 
 const ORG_VARIABLE_ID = 'var-org'
 const START_VARIABLE_ID = 'var-start'
@@ -25,9 +26,11 @@ const buildBillingInsight = (shortId: string): QueryBasedInsightModel =>
         short_id: shortId,
         query: {
             kind: NodeKind.DataVisualizationNode,
+            display: ChartDisplayType.Auto,
+            chartSettings: { xAxis: { column: 'day' }, yAxis: [{ column: 'Requests' }] },
             source: {
                 kind: NodeKind.HogQLQuery,
-                query: 'SELECT 1',
+                query: "SELECT toDate('2024-01-01') AS day, 7 AS Requests",
                 variables: {
                     [ORG_VARIABLE_ID]: { variableId: ORG_VARIABLE_ID, code_name: 'billing_org_id', value: null },
                     [START_VARIABLE_ID]: {
@@ -140,6 +143,44 @@ describe('accountBillingLogic', () => {
 
             expect(api.query).toHaveBeenCalledTimes(BILLING_INSIGHT_SHORT_IDS[kind].length * 2)
             expect(initialPreloads.every((preload) => !preload.isMounted())).toBe(true)
+        })
+
+        it('aggregates usage without changing saved insights or spend, and replaces the cached query on interval changes', async () => {
+            mountForKind()
+            await expectLogic(logic).toFinishAllListeners()
+            const savedQuery = logic.values.savedInsights![0].query
+            const firstShortId = BILLING_INSIGHT_SHORT_IDS[kind][0]
+            const initialKey = logic.values.queryKeyFor(firstShortId)
+            if (kind === 'spend') {
+                expect(logic.values.canAggregateUsage).toBe(false)
+                expect(logic.values.displayInsights![0].query).toBe(savedQuery)
+                return
+            }
+
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            expect(logic.values.canAggregateUsage).toBe(true)
+            for (const interval of ['week', 'month', 'day'] as const) {
+                logic.actions.setUsageInterval(interval)
+                await expectLogic(logic).toFinishAllListeners()
+                const query = logic.values.displayInsights![0].query as DataVisualizationNode
+                expect(query.source.query).toContain(
+                    {
+                        day: 'usage.day AS day',
+                        week: 'toStartOfWeek(usage.day, 1) AS day',
+                        month: 'toStartOfMonth(usage.day) AS day',
+                    }[interval]
+                )
+                expect(query.source.query).toContain('sum(usage.Requests) AS Requests')
+                expect(query.source.query).toContain('LIMIT 10000')
+                expect(query.source.variables).toEqual((savedQuery as DataVisualizationNode).source.variables)
+                expect(query.display).toBe(ChartDisplayType.ActionsLineGraph)
+                expect(logic.values.savedInsights![0].query).toBe(savedQuery)
+                expect(captureSpy).toHaveBeenCalledWith(AccountsEvents.UsageIntervalChanged, { interval })
+                if (interval !== 'day') {
+                    expect(logic.values.queryKeyFor(firstShortId)).not.toBe(initialKey)
+                }
+            }
+            expect(api.query).toHaveBeenCalledTimes(4)
         })
 
         it('keeps hidden series keyed per insight, so hiding on one of the two spend charts sharing this logic does not hide on the other, and resets them on date change', () => {
