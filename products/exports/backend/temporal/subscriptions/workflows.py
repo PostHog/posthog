@@ -65,6 +65,7 @@ from products.exports.backend.temporal.subscriptions.retry_policy import (
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
     AI_PROMPT_RESOURCE_TYPE,
+    SUBSCRIPTION_ASSET_EXPORT_SCHEDULE_TO_CLOSE_TIMEOUT,
     SUBSCRIPTION_CLAIM_LEASE_SAFETY_MARGIN,
     SUBSCRIPTION_WORKFLOW_EXECUTION_TIMEOUT,
     AdvanceNextDeliveryDateInputs,
@@ -703,6 +704,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         exported_asset_id=asset_id,
                         source=EventSource.SUBSCRIPTION,
                     ),
+                    schedule_to_close_timeout=SUBSCRIPTION_ASSET_EXPORT_SCHEDULE_TO_CLOSE_TIMEOUT,
                     start_to_close_timeout=dt.timedelta(hours=1),
                     heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=EXPORT_RETRY_POLICY,
@@ -791,7 +793,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
 
             # Capture per-recipient results for the delivery record
             delivery_recipient_results = _to_recipient_dicts(deliver_result.recipient_results)
-            final_status = (
+            final_status = DeliveryStatus.SKIPPED if deliver_result.skipped else (
                 DeliveryStatus.FAILED
                 if delivery_recipient_results
                 and all(result["status"] == "failed" for result in delivery_recipient_results)
@@ -1059,6 +1061,10 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 retry_policy=SUBSCRIPTION_DELIVER_RETRY_POLICY,
             )
             delivery_recipient_results = _to_recipient_dicts(deliver_result.recipient_results)
+
+            if deliver_result.skipped:
+                final_status = DeliveryStatus.SKIPPED
+                return
 
             # A report whose every generated query failed computed no metrics, so it records FAILED with
             # the failure detail the delivery history surfaces on hover (see delivered_status). The report
