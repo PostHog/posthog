@@ -4573,7 +4573,6 @@ def _to_account_relationship(relationship: AccountRelationship) -> contracts.Acc
         started_at=relationship.started_at,
         ended_at=relationship.ended_at,
         source=cast(contracts.RelationshipSourceValue | None, relationship.source),
-        ended_source=cast(contracts.RelationshipSourceValue | None, relationship.ended_source),
     )
 
 

@@ -51,15 +51,12 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
             "enabled",
             "--claim-saved-query",
             str(view.id),
-            "--clock-skew-tolerance-seconds",
-            "60",
         )
 
         config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
         assert config.ae_relationship_definition_id == self.ae_definition.id
         assert config.ownership_claims_enabled is True
         assert config.ownership_claim_saved_query_id == view.id
-        assert config.ownership_claim_clock_skew_tolerance_seconds == 60
 
         self._configure("--unbind-ae")
 
@@ -89,10 +86,6 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
                 self._configure(*args)
 
         assert ownership.role_bindings(self.team.id).ae_definition_id == self.ae_definition.id
-
-    def test_rejects_a_zero_clock_skew_tolerance(self):
-        with self.assertRaises(CommandError):
-            self._configure("--clock-skew-tolerance-seconds", "0")
 
     @parameterized.expand(["other_team", "multi_holder", "bound_to_other_role"])
     def test_rejects_an_unusable_definition(self, case):

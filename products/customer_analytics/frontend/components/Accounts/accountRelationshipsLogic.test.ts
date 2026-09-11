@@ -33,6 +33,7 @@ const buildRelationship = (overrides: Partial<AccountRelationshipApi> = {}): Acc
     user: { id: 1, email: 'csm@posthog.com' },
     started_at: '2026-01-01T00:00:00Z',
     ended_at: null,
+    source: null,
     ...overrides,
 })
 

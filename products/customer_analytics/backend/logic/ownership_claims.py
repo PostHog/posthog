@@ -16,7 +16,8 @@ one row per Task with these columns:
 Each run reads every row, in pages ordered by ``task_id``, and applies it: a row without
 ``released_at`` claims the AE role, one with it withdraws that same Task's claim. Both are
 idempotent, so rereading a Task costs one lookup and changes nothing; the view is expected to keep
-only recent Tasks. Timestamps without a timezone are read as UTC, which is how Salesforce records
+only recent Tasks. A Task listed more than once is not applied at all, so a view must express a
+release by setting ``released_at`` on the Task's one row, never by adding a second row. Timestamps without a timezone are read as UTC, which is how Salesforce records
 them. Nothing is written back to Salesforce: accepted and released claims are visible on the
 account's relationships and audit trail, and every outcome is counted and logged here.
 """
@@ -24,8 +25,6 @@ account's relationships and audit trail, and every outcome is counted and logged
 from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
-
-from django.core.cache import cache
 
 import structlog
 
@@ -76,8 +75,6 @@ def check_decision_columns(view_name: str, columns: dict | None) -> None:
 
 
 DECISION_PAGE_SIZE = 1000
-# Bounds a sweep that dies without releasing its lock; a normal sweep finishes in seconds.
-SWEEP_LOCK_SECONDS = 30 * 60
 
 
 def list_ownership_claim_team_ids() -> list[int]:
@@ -91,10 +88,11 @@ def list_ownership_claim_team_ids() -> list[int]:
 
 
 def reconcile_ownership_claims(team: Team) -> ClaimReconciliation:
-    """Read the project's bound view and apply every decision in it. A project with claims off, no
-    usable view bound, or a sweep already running is skipped, so the scheduled sweep can run for
-    every team. Two sweeps never overlap for one team: an older read could otherwise apply a claim
-    that a newer read has already seen released."""
+    """Read the project's bound view and apply every decision in it. A project with claims off or no
+    usable view bound is skipped, so the scheduled sweep can run for every team. Callers must not run
+    two sweeps for one team at once: an older read could apply a claim that a newer read has already
+    seen released. The schedule guarantees this through a fixed workflow id per team and a single
+    attempt per sweep."""
     config = get_or_create_team_extension(team, TeamCustomerAnalyticsConfig)
     view = config.ownership_claim_saved_query
     if not config.ownership_claims_enabled or view is None or view.deleted:
@@ -102,16 +100,8 @@ def reconcile_ownership_claims(team: Team) -> ClaimReconciliation:
             logger.warning("ownership_claims.view_deleted", team_id=team.id, view_id=str(view.id))
         return ClaimReconciliation(team_id=team.id, decisions=0, outcomes={}, skipped=True)
     check_decision_columns(view.name, view.columns)
-
-    lock_key = f"customer_analytics:ownership_claims:{team.id}"
-    if not cache.add(lock_key, True, timeout=SWEEP_LOCK_SECONDS):
-        logger.info("ownership_claims.sweep_already_running", team_id=team.id)
-        return ClaimReconciliation(team_id=team.id, decisions=0, outcomes={}, skipped=True)
-    try:
-        rows = _read_decision_rows(team, view.name)
-        return ClaimReconciliation(team_id=team.id, decisions=len(rows), outcomes=_apply_rows(team, rows))
-    finally:
-        cache.delete(lock_key)
+    rows = _read_decision_rows(team, view.name)
+    return ClaimReconciliation(team_id=team.id, decisions=len(rows), outcomes=_apply_rows(team, rows))
 
 
 def _apply_rows(team: Team, rows: list[dict[str, Any]]) -> dict[str, int]:
@@ -143,21 +133,31 @@ def _apply_rows(team: Team, rows: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def _decisions_by_task(rows: list[dict[str, Any]], outcomes: Counter[str]) -> list[contracts.OwnershipClaimDecision]:
-    """One decision per Task. A Task listed more than once is applied as its release when any of its
-    rows carries one, because a released Task is never claimed; the extra rows are counted."""
-    by_task: dict[str, contracts.OwnershipClaimDecision] = {}
+    """One decision per Task. The view promises one row per Task, so a Task listed more than once is
+    counted and not applied at all, whether or not each of its rows is otherwise valid: the rows could
+    disagree, and applying either could be wrong."""
+    listings = Counter(_task_id(row) for row in rows)
+    duplicated = {task_id for task_id, count in listings.items() if task_id is not None and count > 1}
+    if duplicated:
+        # Incrementing by zero would still list "duplicate" among a clean run's outcomes.
+        outcomes["duplicate"] += len(duplicated)
+    decisions: list[contracts.OwnershipClaimDecision] = []
     for row in rows:
+        if _task_id(row) in duplicated:
+            continue
         decision = _decision_from_row(row)
         if decision is None:
             outcomes["invalid"] += 1
-            continue
-        current = by_task.get(decision.source_ref)
-        if current is not None:
-            outcomes["duplicate"] += 1
-            if current.is_release or not decision.is_release:
-                continue
-        by_task[decision.source_ref] = decision
-    return list(by_task.values())
+        else:
+            decisions.append(decision)
+    return decisions
+
+
+def _task_id(row: dict[str, Any]) -> str | None:
+    try:
+        return _identifier(row.get("task_id"))
+    except ValueError:
+        return None
 
 
 def _read_decision_rows(team: Team, view_name: str) -> list[dict[str, Any]]:
@@ -182,10 +182,15 @@ def _read_decision_rows(team: Team, view_name: str) -> list[dict[str, Any]]:
                 limit=ast.Constant(value=DECISION_PAGE_SIZE),
             )
             page = execute_hogql_query(query, team=team, bypass_warehouse_access_control=True).results or []
-            rows.extend(dict(zip(DECISION_COLUMNS, row)) for row in page)
             if len(page) < DECISION_PAGE_SIZE:
+                rows.extend(dict(zip(DECISION_COLUMNS, row)) for row in page)
                 return rows
-            cursor = str(page[-1][0])
+            # A full page can end between two rows of one Task, and the next page starts after the
+            # cursor, so the last Task is handed back to the next page unless it fills this one alone.
+            last = str(page[-1][0])
+            kept = [row for row in page if str(row[0]) != last] or page
+            rows.extend(dict(zip(DECISION_COLUMNS, row)) for row in kept)
+            cursor = str(kept[-1][0])
 
 
 def _decision_from_row(row: dict[str, Any]) -> contracts.OwnershipClaimDecision | None:

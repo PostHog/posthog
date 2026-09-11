@@ -1,6 +1,7 @@
 """Apply the Salesforce Task decisions in a project's bound warehouse view once, and print what
 happened. The Temporal schedule in ``temporal/ownership_claims.py`` does the same for every enabled
-project on a timer.
+project on a timer. Do not run this while that schedule is sweeping the same project: of two sweeps
+at once, the older read can apply a claim the newer one has already seen released.
 
     python manage.py reconcile_ownership_claims --team-id 2
 """

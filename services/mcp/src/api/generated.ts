@@ -942,14 +942,6 @@ export namespace Schemas {
        * * `salesforce_claim` - Salesforce claim
        * * `migration` - Migration */
       readonly source: AccountRelationshipSourceEnum | null;
-      /** Which kind of writer ended this assignment; null while active or on rows older than tracking.
-       *
-       * * `human` - Human
-       * * `workflow` - Workflow
-       * * `ai` - AI
-       * * `salesforce_claim` - Salesforce claim
-       * * `migration` - Migration */
-      readonly ended_source: AccountRelationshipSourceEnum | null;
     }
 
     /**

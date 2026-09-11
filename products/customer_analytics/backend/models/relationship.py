@@ -51,9 +51,6 @@ class AccountRelationship(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
     ended_at = models.DateTimeField(null=True, blank=True)
 
     source = models.CharField(max_length=32, choices=AccountRelationshipSource.choices, null=True, blank=True)
-    # Which kind of writer ended the row. A release matched to a claim is applied once because a
-    # row this source already ended reads as already released rather than as a human clear.
-    ended_source = models.CharField(max_length=32, choices=AccountRelationshipSource.choices, null=True, blank=True)
     # For a Salesforce claim, the Task that produced the accepted decision. With the team it
     # identifies the claim, so a Task read again on a later run is recognized even after the row
     # has ended.

@@ -6,10 +6,7 @@ from posthog.models.team import Team
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.rbac.decorators import field_access_control
 
-from products.customer_analytics.backend.constants import (
-    DEFAULT_ACTIVITY_EVENT,
-    DEFAULT_OWNERSHIP_CLAIM_CLOCK_SKEW_TOLERANCE_SECONDS,
-)
+from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 
 logger = logging.getLogger(__name__)
 
@@ -74,14 +71,6 @@ class TeamCustomerAnalyticsConfig(models.Model):
             blank=True,
             related_name="+",
         ),
-        "project",
-        "admin",
-    )
-    # An automated claim is accepted only when its allocation time is later than the role fence by more
-    # than this allowance, so a clock difference between the allocation source and this database cannot
-    # make a stale decision look fresh.
-    ownership_claim_clock_skew_tolerance_seconds = field_access_control(
-        models.PositiveIntegerField(default=DEFAULT_OWNERSHIP_CLAIM_CLOCK_SKEW_TOLERANCE_SECONDS),
         "project",
         "admin",
     )

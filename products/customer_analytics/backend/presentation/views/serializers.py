@@ -2079,17 +2079,11 @@ class AccountRelationshipSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Which kind of writer made this assignment; null on rows older than provenance tracking.",
     )
-    ended_source = serializers.ChoiceField(
-        choices=AccountRelationshipSource.choices,
-        read_only=True,
-        allow_null=True,
-        help_text="Which kind of writer ended this assignment; null while active or on rows older than tracking.",
-    )
 
     class Meta:
         dataclass = AccountRelationship
         ref_name = "AccountRelationship"
-        fields = ["id", "definition", "user", "started_at", "ended_at", "source", "ended_source"]
+        fields = ["id", "definition", "user", "started_at", "ended_at", "source"]
 
 
 class AccountRelationshipWriteSerializer(serializers.Serializer):

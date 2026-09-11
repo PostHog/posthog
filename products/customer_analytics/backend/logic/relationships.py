@@ -107,28 +107,21 @@ def assign(
 ) -> AccountRelationship:
     """Assign the user. A single-holder definition hands off from the previous holder in the same
     transaction unless ``replace_active`` is False, in which case an occupied role raises. Assigning
-    the current holder again is a no-op that records nothing, unless a person confirms a holder a
-    Salesforce claim put there: that is a decision, so the claim row ends and a human row takes its
-    place, and a later release of that Task finds nothing of its own to clear."""
+    the current holder again is a no-op that records nothing."""
     with transaction.atomic():
         locked_account = _lock_or_raise(team_id, account.id)
         role = ownership.role_bindings(team_id).role_of(definition.id)
         _enforce_managed_role_policy(locked_account, role, actor)
         active = list(_active_relationships(team_id, locked_account, definition))
         existing = next((rel for rel in active if rel.user_id == user.id), None)
-        human_confirms_claim = (
-            existing is not None
-            and actor.source == AccountRelationshipSource.HUMAN
-            and existing.source == AccountRelationshipSource.SALESFORCE_CLAIM
-        )
-        if existing is not None and not human_confirms_claim:
+        if existing is not None:
             return existing
         if active and definition.is_single_holder and not replace_active:
             raise RelationshipOccupiedError(str(definition.id))
 
         previous_user = active[0].user if definition.is_single_holder and active else None
         if definition.is_single_holder:
-            _end_rows(team_id, active, actor)
+            _end_rows(team_id, active)
         relationship = AccountRelationship.objects.for_team(team_id).create(
             team_id=team_id,
             account=locked_account,
@@ -174,7 +167,7 @@ def end_active(
         if not active and _managed_role(locked_account, role) is None:
             return 0
 
-        _end_rows(team_id, active, actor)
+        _end_rows(team_id, active)
         controlled_at = _advance_if_managed(locked_account, role)
         if not active:
             _record_transition(
@@ -228,7 +221,7 @@ def end_relationship(
         role = ownership.role_bindings(team_id).role_of(relationship.definition_id)
         _enforce_managed_role_policy(locked_account, role, actor)
 
-        _end_rows(team_id, [relationship], actor)
+        _end_rows(team_id, [relationship])
         controlled_at = _advance_if_managed(locked_account, role)
         _record_transition(
             account=locked_account,
@@ -335,11 +328,10 @@ def claim_initial_ae(*, team: Team, decision: contracts.OwnershipClaimDecision) 
     Under the Account lock, an accepted claim for the same Task is recognized first, so a Task read
     again on a later run is answered with the original decision even after the role has changed
     hands. A new Task may fill the AE role only when the account manages it, the role is empty, the
-    assignee is a member, and the allocation is later than the role fence by more than the team's
-    clock-skew allowance. Every refusal is returned as an outcome for the reconciler to record.
+    assignee is a member, and the allocation is later than the role fence by more than the clock-skew
+    allowance. Every refusal is returned as an outcome for the reconciler to record.
     """
     actor = Actor(source=AccountRelationshipSource.SALESFORCE_CLAIM)
-    tolerance = ownership.claim_clock_skew_tolerance(team)
     with transaction.atomic():
         locked_account = _lock_account_by_external_id(team.id, decision.organization_id)
         if locked_account is None:
@@ -369,7 +361,7 @@ def claim_initial_ae(*, team: Team, decision: contracts.OwnershipClaimDecision) 
         if active:
             return _claim_result("rejected", "role_occupied", active[0])
         fence = ownership.role_fence(locked_account, "ae", definition)
-        rejection = ownership.allocation_rejection(decision.allocated_at, fence, tolerance=tolerance)
+        rejection = ownership.allocation_rejection(decision.allocated_at, fence)
         if rejection is not None:
             return _claim_result("rejected", rejection)
 
@@ -403,8 +395,8 @@ def release_initial_ae(*, team: Team, decision: contracts.OwnershipClaimDecision
     """End the AE relationship that this Task's accepted claim created, and nothing else.
 
     A release needs no time fence: identity to the Task's own claim is the guard, so it cannot clear
-    an AE assigned by a person or by another Task. Once a person has transferred, cleared or
-    confirmed the role, the Task no longer holds it and the release is a no-op.
+    an AE assigned by a person or by another Task. Once a person has transferred or cleared the role,
+    the Task no longer holds it and the release is a no-op.
     """
     actor = Actor(source=AccountRelationshipSource.SALESFORCE_CLAIM)
     claim = _accepted_claim(team.id, decision.source_ref)
@@ -415,14 +407,10 @@ def release_initial_ae(*, team: Team, decision: contracts.OwnershipClaimDecision
         # have ended it in between, which is exactly what makes the release a no-op.
         locked_account = _lock_or_raise(team.id, claim.account_id)
         accepted = _accepted_claim(team.id, decision.source_ref)
-        if accepted is None:
-            return _claim_result("not_held", None)
-        if accepted.ended_at is not None:
-            if accepted.ended_source == AccountRelationshipSource.SALESFORCE_CLAIM:
-                return _claim_result("already_applied", None, accepted)
+        if accepted is None or accepted.ended_at is not None:
             return _claim_result("not_held", None, accepted)
 
-        _end_rows(team.id, [accepted], actor)
+        _end_rows(team.id, [accepted])
         controlled_at = _advance_if_managed(locked_account, "ae")
         _record_transition(
             account=locked_account,
@@ -484,17 +472,13 @@ def _claim_result(
     )
 
 
-def _end_rows(team_id: int, rows: list[AccountRelationship], actor: Actor) -> None:
-    """End the rows now and stamp which kind of writer ended them; the instances are updated in place."""
+def _end_rows(team_id: int, rows: list[AccountRelationship]) -> None:
     if not rows:
         return
     ended_at = timezone.now()
-    AccountRelationship.objects.for_team(team_id).filter(id__in=[row.id for row in rows]).update(
-        ended_at=ended_at, ended_source=actor.source
-    )
+    AccountRelationship.objects.for_team(team_id).filter(id__in=[row.id for row in rows]).update(ended_at=ended_at)
     for row in rows:
         row.ended_at = ended_at
-        row.ended_source = actor.source
 
 
 def lock_account(team_id: int, account_id: str | UUID) -> Account | None:
