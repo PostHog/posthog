@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
 from posthog.models import Team
 
@@ -119,15 +120,21 @@ class TestUpsertAccountNotebookTool(BaseTest):
         assert notebook.text_content is not None and "Pricing" in notebook.text_content
         assert notebook.version == 1
 
+    @parameterized.expand(
+        [
+            ("holding a node", [{"type": "paragraph"}]),
+            ("empty", []),
+        ]
+    )
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_update_keeps_a_rich_text_note_in_rich_text(self):
+    async def test_update_keeps_a_rich_text_note_in_rich_text(self, _name: str, stored_nodes: list) -> None:
         def _make_rich_text_note() -> str:
             account = Account.objects.unscoped().create(team=self.team, name="Legacy Corp")
             notebook = Notebook.objects.create(
                 team=self.team,
                 title="Legacy note",
-                content={"type": "doc", "content": [{"type": "paragraph"}]},
+                content={"type": "doc", "content": stored_nodes},
                 visibility=Notebook.Visibility.INTERNAL,
             )
             ResourceNotebook.objects.create(notebook=notebook, account=account)

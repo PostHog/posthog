@@ -373,11 +373,15 @@ def _tiptap_doc(markdown: str) -> dict[str, Any]:
 def _updated_note_content(stored_content: Any, markdown: str) -> dict[str, Any]:
     """A note written before the markdown editor keeps its rich-text document. The editor picks
     its mode from the stored document, so a format change moves an open session to the other
-    editor and discards the unsaved work in it."""
-    stored_nodes = stored_content.get("content") if isinstance(stored_content, dict) else None
-    if stored_nodes and not is_markdown_notebook_content(stored_content):
-        return _tiptap_doc(markdown)
-    return build_markdown_notebook_content(markdown)
+    editor and discards the unsaved work in it. An empty ``doc`` opens the rich-text editor too,
+    so it counts as one; a null or shapeless document has no format to keep."""
+    is_rich_text_document = (
+        isinstance(stored_content, dict)
+        and stored_content.get("type") == "doc"
+        and isinstance(stored_content.get("content"), list)
+        and not is_markdown_notebook_content(stored_content)
+    )
+    return _tiptap_doc(markdown) if is_rich_text_document else build_markdown_notebook_content(markdown)
 
 
 class CreateAccountNotebookAction(BaseModel):
