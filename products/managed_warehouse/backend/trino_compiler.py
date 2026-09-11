@@ -106,11 +106,13 @@ def prepare_hogql_to_trino_compiler(
     from posthog.hogql.transforms.trino.errors import TrinoLoweringError  # noqa: PLC0415
     from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415
         TrinoCatalogManifest,
+        TrinoManifestColumn,
         TrinoManifestTable,
         prepare_trino_catalog,
     )
 
     from posthog.models.team.team import Team  # noqa: PLC0415
+    from posthog.schema_enums import DatabaseSerializedFieldType  # noqa: PLC0415
     from posthog.week_start_day import WeekStartDay  # noqa: PLC0415
 
     team = team or Team.objects.get(pk=team_id)
@@ -143,6 +145,15 @@ def prepare_hogql_to_trino_compiler(
             TrinoManifestTable(
                 logical_name="events",
                 locator=(catalog_name, "posthog", membership.table_names.events_table),
+            ),
+            TrinoManifestTable(
+                logical_name="exchange_rate",
+                locator=(catalog_name, "posthog", "exchange_rate"),
+                columns=(
+                    TrinoManifestColumn(name="currency", type=DatabaseSerializedFieldType.STRING, nullable=False),
+                    TrinoManifestColumn(name="date", type=DatabaseSerializedFieldType.DATE, nullable=False),
+                    TrinoManifestColumn(name="rate", type=DatabaseSerializedFieldType.DECIMAL, nullable=False),
+                ),
             ),
             TrinoManifestTable(
                 logical_name="persons",

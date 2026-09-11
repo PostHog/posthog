@@ -282,11 +282,6 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
             return super().visit_call(node)
         if len(node.args) != 1:
             raise TrinoLoweringError("TRINO_ARRAY_JOIN_ARGUMENT_COUNT", "arrayJoin with other than one argument", node)
-        if isinstance(node.args[0], ast.Call) and node.args[0].name.lower() == "aggregate_funnel_trends":
-            return ast.Call(
-                name="arrayElement",
-                args=[self.visit(node.args[0]), ast.Constant(value=1)],
-            )
         table_name = f"__trino_array_function_{self.unnest_index}"
         output_name = f"value_{self.unnest_index}"
         self.unnest_index += 1

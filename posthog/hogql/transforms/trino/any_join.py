@@ -39,7 +39,12 @@ class TrinoAnyJoinLowerer(CloningVisitor):
                 table_type = table_type.cte_table_type
                 continue
             table_type = table_type.table_type
-        key_names = self._right_key_names(lowered.constraint.expr, lowered.alias, table_type)
+        key_expressions = self._right_key_expressions(lowered.constraint.expr, lowered.alias, table_type)
+        key_names = [
+            name
+            for expr in key_expressions
+            if (name := self._right_field_name(expr, lowered.alias, table_type)) is not None
+        ]
         if isinstance(table_type, ast.LazyTableType) and table_type.table.name == "persons" and key_names == ["id"]:
             lowered.join_type = target_join_type
             return lowered
@@ -88,7 +93,10 @@ class TrinoAnyJoinLowerer(CloningVisitor):
                         name="row_number",
                         exprs=[],
                         over_expr=ast.WindowExpr(
-                            partition_by=[ast.Field(chain=[source_alias, name]) for name in key_names]
+                            partition_by=[
+                                self._qualify_right_expression(expr, lowered.alias, table_type, source_alias)
+                                for expr in key_expressions
+                            ]
                         ),
                     ),
                 )
@@ -115,9 +123,11 @@ class TrinoAnyJoinLowerer(CloningVisitor):
         lowered.column_aliases = None
         return lowered
 
-    def _right_key_names(self, constraint: ast.Expr, alias: str, right_table_type: ast.BaseTableType) -> list[str]:
+    def _right_key_expressions(
+        self, constraint: ast.Expr, alias: str, right_table_type: ast.BaseTableType
+    ) -> list[ast.Expr]:
         terms = constraint.exprs if isinstance(constraint, ast.And) else [constraint]
-        key_names: list[str] = []
+        key_expressions: list[ast.Expr] = []
         for term in terms:
             if not isinstance(term, ast.CompareOperation) or term.op != ast.CompareOperationOp.Eq:
                 raise TrinoLoweringError(
@@ -125,16 +135,60 @@ class TrinoAnyJoinLowerer(CloningVisitor):
                     "ANY JOIN with a non-equality ON term",
                     term,
                 )
-            left_name = self._right_field_name(term.left, alias, right_table_type)
-            right_name = self._right_field_name(term.right, alias, right_table_type)
-            if (left_name is None) == (right_name is None):
+            left_is_right = self._expression_uses_only_right_fields(term.left, alias, right_table_type)
+            right_is_right = self._expression_uses_only_right_fields(term.right, alias, right_table_type)
+            if left_is_right == right_is_right:
                 raise TrinoLoweringError(
                     "TRINO_ANY_JOIN_EQUI_KEYS_REQUIRED",
                     "ANY JOIN equality without exactly one right-side field",
                     term,
                 )
-            key_names.append(left_name or right_name or "")
-        return list(dict.fromkeys(key_names))
+            key_expressions.append(term.left if left_is_right else term.right)
+        return key_expressions
+
+    def _expression_uses_only_right_fields(
+        self, expression: ast.Expr, alias: str, right_table_type: ast.BaseTableType
+    ) -> bool:
+        outer = self
+
+        class RightFieldFinder(CloningVisitor):
+            def __init__(self) -> None:
+                super().__init__(clear_types=False)
+                self.found = False
+                self.invalid = False
+
+            def visit_field(self, node: ast.Field) -> ast.Field:
+                if outer._right_field_name(node, alias, right_table_type) is None:
+                    self.invalid = True
+                else:
+                    self.found = True
+                return node
+
+        finder = RightFieldFinder()
+        finder.visit(expression)
+        return finder.found and not finder.invalid
+
+    def _qualify_right_expression(
+        self,
+        expression: ast.Expr,
+        alias: str,
+        right_table_type: ast.BaseTableType,
+        source_alias: str,
+    ) -> ast.Expr:
+        outer = self
+
+        class RightFieldQualifier(CloningVisitor):
+            def visit_field(self, node: ast.Field) -> ast.Field:
+                name = outer._right_field_name(node, alias, right_table_type)
+                if name is None:
+                    raise TrinoLoweringError(
+                        "TRINO_ANY_JOIN_EQUI_KEYS_REQUIRED",
+                        "ANY JOIN right key expression includes a left-side field",
+                        node,
+                    )
+                return ast.Field(chain=[source_alias, name], start=node.start, end=node.end)
+
+        return RightFieldQualifier(clear_types=False).visit(expression)
 
     def _right_field_name(self, expression: ast.Expr, alias: str, right_table_type: ast.BaseTableType) -> str | None:
         while isinstance(expression, ast.Alias):

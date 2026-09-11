@@ -365,6 +365,7 @@ def _current_timestamp(args: list[str]) -> str:
 
 
 TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
+    "DATE": _cast("DATE", "DATE"),
     "toDate": _cast("toDate", "DATE"),
     "_toDate": _cast("_toDate", "DATE"),
     "toDateTime": _cast("toDateTime", "TIMESTAMP"),

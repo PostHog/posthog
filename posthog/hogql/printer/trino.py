@@ -20,6 +20,7 @@ from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.visitor import clone_expr
 
 from posthog.dataclasses import frozen
+from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION
 
 if TYPE_CHECKING:
     from posthog.hogql.database.models import Table
@@ -451,8 +452,12 @@ class TrinoPrinter(PostgresPrinter):
                     "TRINO_INT_DIV_TYPE_UNSUPPORTED", "intDiv requires integer operands in Trino mode.", node
                 )
             return f"(CAST({binary_args.left} AS BIGINT) / CAST({binary_args.right} AS BIGINT))"
+        if name == "accuratecastornull":
+            return self._visit_accurate_cast_or_null(node)
         if name in {"_toint8", "_toint16", "_toint32", "_toint64"}:
             return self._visit_internal_integer_cast(node)
+        if name == "multiplydecimal":
+            return self._visit_multiply_decimal(node)
         if name == "dividedecimal" and len(node.args) == 3:
             return self._visit_divide_decimal_with_scale(node)
         if name == "roundbankers":
@@ -499,12 +504,25 @@ class TrinoPrinter(PostgresPrinter):
             return f"approx_percentile({self.visit(node.args[0])}, 0.5) FILTER (WHERE {self._visit_predicate(node.args[1])})"
         if name == "topk":
             return self._visit_top_k(node)
-        if name in {"quantileexact", "aggregate_funnel_trends", "cityhash64", "ngramdistance"}:
+        if name in {"quantileexact", "quantileexactif"}:
+            return self._visit_exact_quantile(node, filtered=name.endswith("if"))
+        if name == "ngramdistance":
+            return self._visit_ngram_distance(node)
+        if name == "formatreadabletimedelta":
+            return self._visit_format_readable_time_delta(node)
+        if name == "convertcurrency":
+            return self._visit_convert_currency(node)
+        if name == "aggregate_funnel_trends":
+            return self._visit_aggregate_funnel_trends(node)
+        if name == "cityhash64":
             self._unsupported(
                 "TRINO_FUNCTION_UNSUPPORTED",
                 f"{node.name} has no semantics-preserving Trino implementation.",
                 node,
             )
+        if name == "domain":
+            value = self._visit_unary_arg(node)
+            return f"IF({value} IS NULL, NULL, coalesce(TRY(url_extract_host(CAST({value} AS VARCHAR))), ''))"
         if name == "hex":
             value = self._visit_unary_arg(node)
             return f"to_hex(to_utf8(CAST({value} AS VARCHAR)))"
@@ -1055,6 +1073,273 @@ class TrinoPrinter(PostgresPrinter):
             )
         return f"CAST({self.visit(value)} AS {target})"
 
+    def _visit_accurate_cast_or_null(self, node: ast.Call) -> str:
+        if len(node.args) != 2:
+            self._invalid_function_arguments(node, "accurateCastOrNull expects a value and target type in Trino mode.")
+        target = node.args[1]
+        if not isinstance(target, ast.Constant) or not isinstance(target.value, str):
+            self._unsupported(
+                "TRINO_CAST_TARGET_UNSUPPORTED",
+                "accurateCastOrNull requires a constant target type in Trino mode.",
+                node,
+            )
+        type_name = target.value
+        while type_name.lower().startswith("nullable(") and type_name.endswith(")"):
+            type_name = type_name[9:-1]
+        simple_types = {
+            "bool": "BOOLEAN",
+            "boolean": "BOOLEAN",
+            "date": "DATE",
+            "datetime": "TIMESTAMP",
+            "float32": "REAL",
+            "float64": "DOUBLE",
+            "int8": "TINYINT",
+            "int16": "SMALLINT",
+            "int32": "INTEGER",
+            "int64": "BIGINT",
+            "string": "VARCHAR",
+            "uint8": "SMALLINT",
+            "uint16": "INTEGER",
+            "uint32": "BIGINT",
+            "uint64": "DECIMAL(20, 0)",
+            "uuid": "UUID",
+        }
+        trino_type = simple_types.get(type_name.lower())
+        decimal_match = re.fullmatch(r"decimal(?:32|64|128|256)\((\d+)\)", type_name, re.IGNORECASE)
+        if decimal_match is not None:
+            scale = int(decimal_match.group(1))
+            if scale <= 38:
+                trino_type = f"DECIMAL(38, {scale})"
+        if trino_type is None:
+            self._unsupported(
+                "TRINO_CAST_TARGET_UNSUPPORTED",
+                f"accurateCastOrNull target type '{target.value}' is not supported in Trino mode.",
+                node,
+            )
+        return f"TRY_CAST({self.visit(node.args[0])} AS {trino_type})"
+
+    @staticmethod
+    def _known_decimal_scale(node: ast.Expr) -> int | None:
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, bool):
+                return None
+            if isinstance(node.value, int):
+                return 0
+            if isinstance(node.value, float):
+                return max(0, len(str(node.value).partition(".")[2]))
+        if isinstance(node, ast.Call):
+            if node.name.lower() == "todecimal" and len(node.args) == 2:
+                scale = node.args[1]
+                if (
+                    isinstance(scale, ast.Constant)
+                    and isinstance(scale.value, int)
+                    and not isinstance(scale.value, bool)
+                ):
+                    return scale.value
+            if node.name.lower() == "accuratecastornull" and len(node.args) == 2:
+                target = node.args[1]
+                if isinstance(target, ast.Constant) and isinstance(target.value, str):
+                    match = re.fullmatch(
+                        r"(?:nullable\()?decimal(?:32|64|128|256)\((\d+)\)\)?", target.value, re.IGNORECASE
+                    )
+                    if match is not None:
+                        return int(match.group(1))
+        return None
+
+    def _visit_multiply_decimal(self, node: ast.Call) -> str:
+        if len(node.args) not in {2, 3}:
+            self._invalid_function_arguments(node, "multiplyDecimal expects two values and an optional scale.")
+        scale_expr = node.args[2] if len(node.args) == 3 else None
+        if scale_expr is None:
+            operand_scales = [self._known_decimal_scale(arg) for arg in node.args]
+            if any(scale is None for scale in operand_scales):
+                self._unsupported(
+                    "TRINO_DECIMAL_SCALE_UNSUPPORTED",
+                    "multiplyDecimal requires a result scale when operand scales cannot be inferred in Trino mode.",
+                    node,
+                )
+            scale = max(scale for scale in operand_scales if scale is not None)
+        elif (
+            isinstance(scale_expr, ast.Constant)
+            and isinstance(scale_expr.value, int)
+            and not isinstance(scale_expr.value, bool)
+        ):
+            scale = scale_expr.value
+        else:
+            self._unsupported(
+                "TRINO_DECIMAL_SCALE_UNSUPPORTED",
+                "multiplyDecimal requires a constant result scale in Trino mode.",
+                node,
+            )
+        if not 0 <= scale <= 38:
+            self._unsupported(
+                "TRINO_DECIMAL_SCALE_UNSUPPORTED",
+                "multiplyDecimal requires a result scale between 0 and 38 in Trino mode.",
+                node,
+            )
+        return f"CAST(({self.visit(node.args[0])} * {self.visit(node.args[1])}) AS DECIMAL(38, {scale}))"
+
+    def _visit_convert_currency(self, node: ast.Call) -> str:
+        if len(node.args) not in {3, 4}:
+            self._invalid_function_arguments(
+                node, "convertCurrency expects source currency, target currency, amount, and an optional date."
+            )
+        locator = self.context.trino_table_locators.get("exchange_rate")
+        if locator is None:
+            self._unsupported(
+                "TRINO_EXCHANGE_RATE_TABLE_REQUIRED",
+                "convertCurrency requires an exchange_rate table locator in Trino mode.",
+                node,
+            )
+        table = ".".join(self._print_identifier(part) for part in locator)
+        from_currency, to_currency, amount = (self.visit(arg) for arg in node.args[:3])
+        date = f"CAST({self.visit(node.args[3])} AS DATE)" if len(node.args) == 4 else "CURRENT_DATE"
+        scale = EXCHANGE_RATE_DECIMAL_PRECISION
+        zero = f"CAST(0 AS DECIMAL(38, {scale}))"
+
+        def rate(currency: str, alias: str) -> str:
+            return (
+                f"coalesce((SELECT max_by(CAST({alias}.rate AS DECIMAL(38, {scale})), {alias}.date) "
+                f"FROM {table} AS {alias} WHERE {alias}.currency = {currency} AND {alias}.date <= {date}), {zero})"
+            )
+
+        from_rate = rate(from_currency, "__hogql_from_rate")
+        to_rate = rate(to_currency, "__hogql_to_rate")
+        decimal_amount = f"CAST({amount} AS DECIMAL(38, {scale}))"
+        return (
+            f"CASE WHEN {from_currency} = {to_currency} THEN {decimal_amount} "
+            f"WHEN {from_rate} = {zero} THEN {zero} "
+            f"ELSE CAST(({decimal_amount} / NULLIF({from_rate}, {zero})) * {to_rate} AS DECIMAL(38, {scale})) END"
+        )
+
+    def _visit_aggregate_funnel_trends(self, node: ast.Call) -> str:
+        if len(node.args) != 8:
+            self._invalid_function_arguments(node, "aggregate_funnel_trends expects exactly 8 arguments.")
+        (
+            from_step_expr,
+            to_step_expr,
+            step_count_expr,
+            window_expr,
+            attribution_expr,
+            order_expr,
+            props_expr,
+            events_expr,
+        ) = node.args
+        integer_arguments = {
+            "from step": from_step_expr,
+            "to step": to_step_expr,
+            "step count": step_count_expr,
+        }
+        for label, argument in integer_arguments.items():
+            if (
+                not isinstance(argument, ast.Constant)
+                or isinstance(argument.value, bool)
+                or not isinstance(argument.value, int)
+            ):
+                self._unsupported(
+                    "TRINO_FUNNEL_ARGUMENT_UNSUPPORTED",
+                    f"aggregate_funnel_trends requires a constant {label} in Trino mode.",
+                    node,
+                )
+        assert isinstance(from_step_expr, ast.Constant) and isinstance(from_step_expr.value, int)
+        assert isinstance(to_step_expr, ast.Constant) and isinstance(to_step_expr.value, int)
+        assert isinstance(step_count_expr, ast.Constant) and isinstance(step_count_expr.value, int)
+        if not isinstance(order_expr, ast.Constant) or order_expr.value != "ordered":
+            self._unsupported(
+                "TRINO_FUNNEL_ORDER_UNSUPPORTED",
+                "aggregate_funnel_trends supports ordered funnels in Trino mode.",
+                node,
+            )
+        if not isinstance(attribution_expr, ast.Constant) or not isinstance(attribution_expr.value, str):
+            self._unsupported(
+                "TRINO_FUNNEL_ATTRIBUTION_UNSUPPORTED",
+                "aggregate_funnel_trends requires constant breakdown attribution in Trino mode.",
+                node,
+            )
+        attribution = attribution_expr.value
+        if (
+            attribution not in {"first_touch", "last_touch", "all_events"}
+            and re.fullmatch(r"step_\d+", attribution) is None
+        ):
+            self._unsupported(
+                "TRINO_FUNNEL_ATTRIBUTION_UNSUPPORTED",
+                f"aggregate_funnel_trends attribution '{attribution}' is not supported in Trino mode.",
+                node,
+            )
+
+        from_step = int(from_step_expr.value)
+        to_step = int(to_step_expr.value)
+        step_count = int(step_count_expr.value)
+        if not 1 <= from_step <= to_step <= step_count:
+            self._unsupported(
+                "TRINO_FUNNEL_STEP_RANGE_UNSUPPORTED",
+                "aggregate_funnel_trends requires a valid one-based step range in Trino mode.",
+                node,
+            )
+
+        window = self.visit(window_expr)
+        props = self.visit(props_expr)
+        events = self.visit(events_expr)
+        event = "__hogql_funnel_event"
+        prop = "__hogql_funnel_prop"
+        interval = "__hogql_funnel_interval"
+        chain = "__hogql_funnel_chain"
+        state = "__hogql_funnel_state"
+        item = "__hogql_funnel_item"
+        next_step = f"({state}[1] + 1)"
+
+        event_matches_prop = f"{event}[4] IS NOT DISTINCT FROM {prop}"
+        entrance_attribution = event_matches_prop if attribution in {"all_events", "step_0"} else "TRUE"
+        event_scope = event_matches_prop if attribution == "all_events" else "TRUE"
+        step_attribution = "TRUE"
+        if attribution.startswith("step_"):
+            attribution_step = int(attribution.removeprefix("step_")) + 1
+            step_attribution = f"({next_step} <> {attribution_step} OR {item}[1][4] IS NOT DISTINCT FROM {prop})"
+
+        entrance_events = f"filter({events}, {event} -> contains({event}[5], TINYINT '1') AND {entrance_attribution})"
+        intervals = f"array_distinct(transform({entrance_events}, {event} -> {event}[2]))"
+        events_in_window = (
+            f"filter({events}, {event} -> {event_scope} AND {event}[1] >= __hogql_funnel_entrance[1] "
+            f"AND {event}[1] - __hogql_funnel_entrance[1] <= {window})"
+        )
+        indexed_events = (
+            f"zip_with({chain}, sequence(BIGINT '1', CAST(cardinality({chain}) AS BIGINT)), "
+            f"(__hogql_funnel_indexed_event, __hogql_funnel_index) -> "
+            "ROW(__hogql_funnel_indexed_event, __hogql_funnel_index))"
+        )
+        exclusion = f"contains({item}[1][5], -CAST({next_step} AS TINYINT))"
+        step_match = f"contains({item}[1][5], CAST({next_step} AS TINYINT)) AND {step_attribution}"
+        state_transition = (
+            f"IF({state}[1] >= {to_step} OR {state}[2], {state}, "
+            f"IF({exclusion}, ROW({state}[1], TRUE, {item}[2]), "
+            f"IF({step_match}, ROW({next_step}, FALSE, {item}[2]), {state})))"
+        )
+        reduced_state = (
+            f"reduce({indexed_events}, ROW(BIGINT '0', FALSE, BIGINT '0'), "
+            f"({state}, {item}) -> {state_transition}, {state} -> {state})"
+        )
+        candidate = (
+            f"element_at(transform(ARRAY[{events_in_window}], {chain} -> "
+            f"element_at(transform(ARRAY[{reduced_state}], {state} -> "
+            f"ROW({interval}, {state}[1], {state}[2], {prop}, "
+            f"IF({state}[3] = 0, __hogql_funnel_entrance[3], element_at({chain}, {state}[3])[3]))), 1)), 1)"
+        )
+        candidates = (
+            f"transform({intervals}, {interval} -> element_at(transform("
+            f"ARRAY[element_at(filter({entrance_events}, {event} -> {event}[2] = {interval}), 1)], "
+            f"__hogql_funnel_entrance -> {candidate}), 1))"
+        )
+        qualifying = (
+            f"filter({candidates}, __hogql_funnel_result -> "
+            f"__hogql_funnel_result[2] >= {from_step} AND NOT __hogql_funnel_result[3])"
+        )
+        results = (
+            f"transform({qualifying}, __hogql_funnel_result -> "
+            f"ROW(__hogql_funnel_result[1], IF(__hogql_funnel_result[2] >= {to_step}, TINYINT '1', TINYINT '-1'), "
+            "__hogql_funnel_result[4], __hogql_funnel_result[5]))"
+        )
+        return f"(SELECT flatten(transform({props}, {prop} -> {results})))"
+
     def _visit_divide_decimal_with_scale(self, node: ast.Call) -> str:
         scale = node.args[2]
         if (
@@ -1227,16 +1512,24 @@ class TrinoPrinter(PostgresPrinter):
         extracted: str | None
         path: str | None
         if name == "jsonextractkeysandvaluesraw":
-            if len(node.args) != 1:
-                self._invalid_function_arguments(
-                    node, "JSONExtractKeysAndValuesRaw expects exactly 1 argument in Trino mode."
-                )
+            if not node.args:
+                self._invalid_function_arguments(node, "JSONExtractKeysAndValuesRaw expects a JSON expression.")
             source = self.visit(node.args[0])
+            path_args = node.args[1:]
+            for key in path_args:
+                if not isinstance(key, ast.Constant) or not isinstance(key.value, (str, int)):
+                    self._unsupported(
+                        "TRINO_JSON_DYNAMIC_PATH_UNSUPPORTED",
+                        "JSONExtractKeysAndValuesRaw requires a constant key path in Trino mode.",
+                        node,
+                    )
+            if path_args:
+                extracted = self._visit_json_path(source, path_args)
+                raw = f"CAST({extracted} AS MAP(VARCHAR, JSON))"
+            else:
+                raw = f"CAST(json_parse(CAST({source} AS VARCHAR)) AS MAP(VARCHAR, JSON))"
             entry = self._print_identifier("__hogql_json_entry")
-            return (
-                f"transform(map_entries(CAST(json_parse(CAST({source} AS VARCHAR)) AS MAP(VARCHAR, JSON))), "
-                f"{entry} -> ROW({entry}[1], json_format({entry}[2])))"
-            )
+            return f"transform(map_entries({raw}), {entry} -> ROW({entry}[1], json_format({entry}[2])))"
         if not node.args:
             self._invalid_function_arguments(node, f"{node.name} expects a JSON expression in Trino mode.")
         source = self.visit(node.args[0])
@@ -1836,6 +2129,131 @@ class TrinoPrinter(PostgresPrinter):
             aggregate += f" FILTER (WHERE {self.visit(node.args[1])})"
         return aggregate
 
+    def _visit_exact_quantile(self, node: ast.Call, *, filtered: bool) -> str:
+        expected_arguments = 2 if filtered else 1
+        if len(node.args) != expected_arguments or node.params is None or len(node.params) != 1:
+            self._invalid_function_arguments(node, f"{node.name} expects one percentile parameter in Trino mode.")
+        percentile = node.params[0]
+        if (
+            not isinstance(percentile, ast.Constant)
+            or isinstance(percentile.value, bool)
+            or not isinstance(percentile.value, (int, float))
+            or not 0 <= percentile.value <= 1
+        ):
+            self._unsupported(
+                "TRINO_EXACT_QUANTILE_PERCENTILE_UNSUPPORTED",
+                f"{node.name} requires a constant percentile between 0 and 1 in Trino mode.",
+                node,
+            )
+        value = self.visit(node.args[0])
+        if filtered:
+            value = f"IF({self._visit_predicate(node.args[1])}, {value}, NULL)"
+        return self._exact_quantile_from_array(f"array_agg({value})", str(percentile.value))
+
+    @staticmethod
+    def _exact_quantile_from_array(values: str, percentile: str) -> str:
+        sorted_values = f"array_sort(filter({values}, __hogql_quantile_value -> __hogql_quantile_value IS NOT NULL))"
+        return (
+            f"element_at(transform(ARRAY[{sorted_values}], __hogql_quantile_values -> "
+            "IF(cardinality(__hogql_quantile_values) = 0, NULL, "
+            f"element_at(__hogql_quantile_values, least(CAST(floor({percentile} * cardinality(__hogql_quantile_values)) "
+            "AS BIGINT) + 1, cardinality(__hogql_quantile_values))))), 1)"
+        )
+
+    def _visit_ngram_distance(self, node: ast.Call) -> str:
+        binary_args = self._visit_binary_args(node)
+
+        def grams(value: str, label: str) -> str:
+            size = f"length({value})"
+            indexes = f"filter(sequence(1, greatest({size} - 3, 1)), {label}_index -> {label}_index <= {size} - 3)"
+            return f"transform({indexes}, {label}_index -> substr({value}, {label}_index, 4))"
+
+        def frequencies(values: str, label: str) -> str:
+            return (
+                f"reduce({values}, CAST(map(ARRAY[], ARRAY[]) AS MAP(VARBINARY, BIGINT)), "
+                f"({label}_counts, {label}_gram) -> map_concat({label}_counts, map(ARRAY[{label}_gram], "
+                f"ARRAY[coalesce(element_at({label}_counts, {label}_gram), BIGINT '0') + 1])), {label}_counts -> {label}_counts)"
+            )
+
+        left = f"to_utf8(CAST({binary_args.left} AS VARCHAR))"
+        right = f"to_utf8(CAST({binary_args.right} AS VARCHAR))"
+        left_counts = frequencies(grams("__hogql_ngram_args[1]", "__hogql_left"), "__hogql_left")
+        right_counts = frequencies(grams("__hogql_ngram_args[2]", "__hogql_right"), "__hogql_right")
+        keys = "array_distinct(concat(map_keys(__hogql_ngram_maps[1]), map_keys(__hogql_ngram_maps[2])))"
+        left_count = "coalesce(element_at(__hogql_ngram_maps[1], __hogql_ngram_key), BIGINT '0')"
+        right_count = "coalesce(element_at(__hogql_ngram_maps[2], __hogql_ngram_key), BIGINT '0')"
+        difference = (
+            f"reduce({keys}, DOUBLE '0', (__hogql_distance, __hogql_ngram_key) -> "
+            f"__hogql_distance + abs({left_count} - {right_count}), __hogql_distance -> __hogql_distance)"
+        )
+        total = (
+            f"reduce({keys}, DOUBLE '0', (__hogql_total, __hogql_ngram_key) -> "
+            f"__hogql_total + {left_count} + {right_count}, __hogql_total -> __hogql_total)"
+        )
+        distance = f"IF({total} = 0, DOUBLE '0', {difference} / {total})"
+        return (
+            f"IF({binary_args.left} IS NULL OR {binary_args.right} IS NULL, NULL, "
+            f"element_at(transform(ARRAY[ROW({left}, {right})], __hogql_ngram_args -> "
+            f"element_at(transform(ARRAY[ROW({left_counts}, {right_counts})], __hogql_ngram_maps -> {distance}), 1)), 1))"
+        )
+
+    def _visit_format_readable_time_delta(self, node: ast.Call) -> str:
+        if len(node.args) not in {1, 2}:
+            self._invalid_function_arguments(
+                node, "formatReadableTimeDelta expects seconds and an optional maximum unit."
+            )
+        maximum_unit = "year"
+        if len(node.args) == 2:
+            unit = node.args[1]
+            if not isinstance(unit, ast.Constant) or not isinstance(unit.value, str):
+                self._unsupported(
+                    "TRINO_TIME_DELTA_UNIT_UNSUPPORTED",
+                    "formatReadableTimeDelta requires a constant maximum unit in Trino mode.",
+                    node,
+                )
+            maximum_unit = unit.value.lower().removesuffix("s")
+        units = [
+            ("year", 365 * 24 * 60 * 60),
+            ("month", 30 * 24 * 60 * 60),
+            ("day", 24 * 60 * 60),
+            ("hour", 60 * 60),
+            ("minute", 60),
+            ("second", 1),
+        ]
+        unit_names = [name for name, _ in units]
+        if maximum_unit not in unit_names:
+            self._unsupported(
+                "TRINO_TIME_DELTA_UNIT_UNSUPPORTED",
+                f"formatReadableTimeDelta maximum unit '{maximum_unit}' is not supported in Trino mode.",
+                node,
+            )
+        selected = units[unit_names.index(maximum_unit) :]
+        components: list[str] = []
+        previous_size: int | None = None
+        for unit_name, unit_size in selected:
+            amount = (
+                f"CAST(floor(__hogql_delta / {unit_size}) AS BIGINT)"
+                if previous_size is None
+                else f"CAST(floor(mod(__hogql_delta, {previous_size}) / {unit_size}) AS BIGINT)"
+            )
+            components.append(
+                f"IF({amount} = 0, NULL, CAST({amount} AS VARCHAR) || ' ' || "
+                f"IF({amount} = 1, '{unit_name}', '{unit_name}s'))"
+            )
+            previous_size = unit_size
+        values = f"filter(ARRAY[{', '.join(components)}], __hogql_delta_part -> __hogql_delta_part IS NOT NULL)"
+        formatted = (
+            "IF(cardinality(__hogql_delta_parts) = 0, '0 seconds', "
+            "IF(cardinality(__hogql_delta_parts) = 1, __hogql_delta_parts[1], "
+            "array_join(slice(__hogql_delta_parts, 1, cardinality(__hogql_delta_parts) - 1), ', ') || "
+            "' and ' || element_at(__hogql_delta_parts, -1)))"
+        )
+        seconds = self.visit(node.args[0])
+        return (
+            f"IF({seconds} IS NULL, NULL, element_at(transform(ARRAY[greatest(CAST(floor({seconds}) AS BIGINT), 0)], "
+            f"__hogql_delta -> element_at(transform(ARRAY[{values}], __hogql_delta_parts -> {formatted}), 1)), 1))"
+        )
+
     def _visit_json_value(self, node: ast.Call) -> str:
         if len(node.args) != 2:
             self._invalid_function_arguments(node, "JSON_VALUE expects a JSON expression and path in Trino mode.")
@@ -1929,10 +2347,38 @@ class TrinoPrinter(PostgresPrinter):
         if name in {"laginframe", "leadinframe"}:
             return self._visit_offset_in_frame_function(node)
         if name in {"quantileexact", "quantileexactif"}:
-            self._unsupported(
-                "TRINO_FUNCTION_UNSUPPORTED",
-                f"{node.name} has no semantics-preserving Trino implementation.",
-                node,
+            filtered = name.endswith("if")
+            expected_args = 2 if filtered else 1
+            if node.args is None or len(node.args) != expected_args or node.exprs is None or len(node.exprs) != 1:
+                self._unsupported(
+                    "TRINO_WINDOW_FUNCTION_ARGUMENTS_UNSUPPORTED",
+                    f"Window function '{node.name}' has unsupported arguments in Trino mode.",
+                    node,
+                )
+            percentile = node.exprs[0]
+            if (
+                not isinstance(percentile, ast.Constant)
+                or isinstance(percentile.value, bool)
+                or not isinstance(percentile.value, (int, float))
+                or not 0 <= percentile.value <= 1
+            ):
+                self._unsupported(
+                    "TRINO_EXACT_QUANTILE_PERCENTILE_UNSUPPORTED",
+                    f"{node.name} requires a constant percentile between 0 and 1 in Trino mode.",
+                    node,
+                )
+            value = self.visit(node.args[0])
+            if filtered:
+                value = f"IF({self._visit_predicate(node.args[1])}, {value}, NULL)"
+            if node.over_expr:
+                over = f"({self.visit(node.over_expr)})"
+            elif node.over_identifier:
+                over = self._print_identifier(node.over_identifier)
+            else:
+                over = "()"
+            return self._exact_quantile_from_array(
+                f"array_agg({value}) OVER {over}",
+                str(percentile.value),
             )
         exprs = [self.visit(expr) for expr in node.exprs or []]
         if name in {"quantile", "quantileif"}:
@@ -2047,23 +2493,31 @@ class TrinoPrinter(PostgresPrinter):
 
     def _visit_offset_in_frame_function(self, node: ast.WindowFunction) -> str:
         window_expr = self._window_expression(node)
+        if window_expr is None:
+            self._unsupported(
+                "TRINO_OFFSET_IN_FRAME_UNSUPPORTED",
+                f"{node.name} requires a constant offset included by its ROWS frame for Trino lowering.",
+                node,
+            )
         exprs = node.exprs or []
         offset_expr = exprs[1] if len(exprs) >= 2 else ast.Constant(value=1)
         offset = offset_expr.value if isinstance(offset_expr, ast.Constant) else None
         target_offset = -offset if node.name.lower() == "laginframe" and isinstance(offset, int) else offset
         frame_start = (
-            self._window_frame_boundary_offset(window_expr.frame_start)
-            if window_expr is not None and window_expr.frame_start is not None
-            else None
+            self._window_frame_boundary_offset(window_expr.frame_start) if window_expr.frame_start is not None else None
         )
         frame_end = (
-            self._window_frame_boundary_offset(window_expr.frame_end)
-            if window_expr is not None and window_expr.frame_end is not None
-            else None
+            self._window_frame_boundary_offset(window_expr.frame_end) if window_expr.frame_end is not None else None
         )
-        if (
-            window_expr is None
-            or window_expr.frame_method != "ROWS"
+        default_lag_frame = (
+            window_expr.frame_method is None
+            and node.name.lower() == "laginframe"
+            and isinstance(offset, int)
+            and not isinstance(offset, bool)
+            and offset >= 0
+        )
+        if not default_lag_frame and (
+            window_expr.frame_method != "ROWS"
             or isinstance(offset, bool)
             or not isinstance(offset, int)
             or offset < 0
