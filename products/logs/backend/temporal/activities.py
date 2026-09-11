@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import batched
-from uuid import UUID, uuid5
+from uuid import UUID
 
 from django.conf import settings
 from django.db import connection, transaction
@@ -304,6 +304,7 @@ class _DispatchedAlert:
     notification_failed: bool
     produce_result: ProduceResult | None = None
     suppressed_by_quiet_hours: bool = False
+    persisted_event_id: str | None = None
 
     @property
     def committed_outcome(self) -> AlertCheckOutcome:
@@ -604,7 +605,7 @@ def _oldest_due_alert_at(now: datetime) -> datetime | None:
             FROM logs_logsalertconfiguration
             WHERE enabled = TRUE
               AND state <> 'broken'
-              AND (next_check_at <= %s OR next_check_at IS NULL)
+              AND COALESCE(next_check_at, updated_at, created_at) <= %s
               AND (
                   state <> 'snoozed'
                   OR snooze_until IS NULL
@@ -1562,6 +1563,10 @@ def _save_cohort_outcomes(
             update_start = time.perf_counter()
             LogsAlertConfiguration.objects.bulk_update(alerts, fields=_COHORT_UPDATE_FIELDS)
             update_ms = int((time.perf_counter() - update_start) * 1000)
+            saved = [
+                dataclasses.replace(d, persisted_event_id=str(event.id) if event is not None else None)
+                for d, _, event in staged
+            ]
     except IntegrityError as e:
         # Recover the rest of the cohort via per-alert UPDATEs using the
         # already-staged data.
@@ -1603,7 +1608,7 @@ def _save_staged_per_alert(
                 if event is not None:
                     event.save()
                 d.evaluation.alert.save(update_fields=update_fields)
-            saved.append(d)
+            saved.append(dataclasses.replace(d, persisted_event_id=str(event.id) if event is not None else None))
         except Exception as e:
             logger.exception(
                 "Per-alert fallback save failed",
@@ -1681,6 +1686,12 @@ def _build_notified_from_saved(saved: list[_DispatchedAlert]) -> list[NotifiedAl
         mapping = signal_action_and_weight(d.evaluation.outcome.notification)
         if mapping is None:
             continue
+        if d.persisted_event_id is None:
+            logger.error(
+                "Skipping logs alert signal without a persisted transition event",
+                alert_id=str(d.evaluation.alert.id),
+            )
+            continue
         action, weight = mapping
         alert = d.evaluation.alert
         notified.append(
@@ -1701,7 +1712,7 @@ def _build_notified_from_saved(saved: list[_DispatchedAlert]) -> list[NotifiedAl
                 result_count=d.evaluation.check_result.result_count,
                 consecutive_failures=d.evaluation.outcome.consecutive_failures,
                 filters={},
-                idempotency_key=str(uuid5(UUID(str(alert.id)), f"{action}:{d.evaluation.date_to.isoformat()}")),
+                idempotency_key=d.persisted_event_id,
             )
         )
     return notified
