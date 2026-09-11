@@ -78,6 +78,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.alerts.backend.facade.temporal import create_alerts_product_check_due_schedule
 from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
 from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
 from products.context_layer.backend.temporal.schedule import create_context_layer_dream_schedule
@@ -924,6 +925,7 @@ schedules = [
     create_error_tracking_weekly_digest_schedule,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
+    create_alerts_product_check_due_schedule,
     create_logs_alert_check_schedule,
     create_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
