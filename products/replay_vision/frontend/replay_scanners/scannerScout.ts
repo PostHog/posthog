@@ -72,8 +72,11 @@ export function scoutNameToSkillName(label: string, scannerName: string, takenNa
  * `display_name`, since the name shown in the fleet is otherwise read back off the skill name. */
 export function skillNameCarriesScoutName(skillName: string, label: string): boolean {
     const labelSlug = slugify(label) || 'digest'
-    const withoutSuffix = skillName.replace(/-\d+$/, '')
-    return withoutSuffix === `${SKILL_NAME_PREFIX}${labelSlug}` || withoutSuffix.endsWith(`-${labelSlug}`)
+    const carries = (candidate: string): boolean =>
+        candidate === `${SKILL_NAME_PREFIX}${labelSlug}` || candidate.endsWith(`-${labelSlug}`)
+    // The whole name is tried before the collision suffix is taken off it, or a name ending in a
+    // number ("Weekly top 10") reads as a name whose own digits were the suffix.
+    return carries(skillName) || carries(skillName.replace(/-\d+$/, ''))
 }
 
 export type ScannerScoutTemplateKey = 'daily-digest' | 'trend-watch' | 'new-issues' | 'scratch'

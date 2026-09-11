@@ -5,6 +5,7 @@ import type { ScannerScoutTemplate } from './scannerScout'
 import {
     SCOUT_DISPLAY_NAME_MAX_LENGTH,
     scoutNameToSkillName,
+    skillNameCarriesScoutName,
     isScannerScoutConfig,
     scannerScoutCreatePayload,
     scannerScoutTemplates,
@@ -53,6 +54,14 @@ describe('scannerScout', () => {
         )
         expect(wordy.length).toBeLessThanOrEqual(64)
         expect(validateSkillName(wordy)).toBeUndefined()
+    })
+
+    it('reads a name that ends in a number as carried, not as a collision suffix', () => {
+        // Stripping `-10` off "Weekly top 10" leaves a skill name that no longer matches the label,
+        // which would give the scout a display name it doesn't need and drop the scanner from it.
+        expect(skillNameCarriesScoutName('signals-scout-rage-clicks-weekly-top-10', 'Weekly top 10')).toBe(true)
+        expect(skillNameCarriesScoutName('signals-scout-rage-clicks-daily-digest-2', 'Daily digest')).toBe(true)
+        expect(skillNameCarriesScoutName('signals-scout-rage-clicks-daily-diges', 'Daily digest report')).toBe(false)
     })
 
     it('claims only the scouts recorded as belonging to this scanner', () => {
