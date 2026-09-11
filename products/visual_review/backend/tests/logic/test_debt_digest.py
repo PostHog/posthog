@@ -71,12 +71,13 @@ def _triage_digest() -> debt_digest.TeamDigest:
 
 
 class TestRendering:
-    def test_escapes_slack_control_characters_in_user_text(self) -> None:
-        # A reason and an identifier are both contributor input; either could otherwise smuggle a
-        # <!channel> mention into every owning team's channel.
+    @pytest.mark.parametrize("run_type", ["storybook", "<!channel>"])
+    def test_escapes_slack_control_characters_in_user_text(self, run_type: str) -> None:
+        # A reason, an identifier and a run type are all contributor input; any of them could
+        # otherwise smuggle a <!channel> mention into every owning team's channel.
         entry = MagicMock(
             identifier="Button<!channel>",
-            run_type="storybook",
+            run_type=run_type,
             reason="flaky & <!here>",
             expires_at=timezone.now() + timedelta(days=3),
             created_by_id=None,
@@ -84,8 +85,10 @@ class TestRendering:
         repo = MagicMock(id="00000000-0000-0000-0000-000000000001", team_id=7, repo_full_name="PostHog/posthog")
 
         line = debt_digest._quarantine_line(repo, entry, {}, timezone.now())
+        pileup = debt_digest._pileup_line(repo, run_type, "Button", 4)
 
         assert "<!channel>" not in line
+        assert "<!channel>" not in pileup
         assert "<!here>" not in line
         assert "&lt;!channel&gt;" in line
         assert "flaky &amp; &lt;!here&gt;" in line

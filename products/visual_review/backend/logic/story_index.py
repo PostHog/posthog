@@ -44,6 +44,10 @@ STORYBOOK_PACKAGE_DIR = "common/storybook"
 _INDEX_MEMBER = "index.json"
 # The zip is tens of megabytes, so it needs far longer than an API read.
 _ZIP_TIMEOUT_SECONDS = 60
+# Both are read into memory whole, so an artifact far past the size of a real build is refused
+# rather than made the worker's problem.
+_MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
+_MAX_INDEX_BYTES = 32 * 1024 * 1024
 _CACHE_TTL_SECONDS = 2 * 24 * 60 * 60
 
 
@@ -144,6 +148,9 @@ def _fetch_index_member(repo: Repo, github_run_id: str) -> bytes | None:
     if artifact.get("expired"):
         _log_unavailable(repo, github_run_id, "artifact_expired")
         return None
+    if (artifact.get("size_in_bytes") or 0) > _MAX_ARTIFACT_BYTES:
+        _log_unavailable(repo, github_run_id, "artifact_too_large")
+        return None
 
     # GitHub answers this with a 302 to a signed blob URL. Requests follows it and drops the
     # Authorization header on the host change, so the GitHub token never reaches the blob host.
@@ -157,6 +164,9 @@ def _fetch_index_member(repo: Repo, github_run_id: str) -> bytes | None:
     with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
         if _INDEX_MEMBER not in archive.namelist():
             _log_unavailable(repo, github_run_id, "index_missing")
+            return None
+        if archive.getinfo(_INDEX_MEMBER).file_size > _MAX_INDEX_BYTES:
+            _log_unavailable(repo, github_run_id, "artifact_too_large")
             return None
         return archive.read(_INDEX_MEMBER)
 

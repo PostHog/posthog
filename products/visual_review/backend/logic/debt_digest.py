@@ -213,7 +213,8 @@ def _quarantine_line(repo: Repo, entry: QuarantinedIdentifier, authors: dict[int
     who = authors.get(entry.created_by_id or 0, "someone")
     body = (
         f"Quarantine expires in {days} days"
-        f" · {escape_slack_mrkdwn(clip_text(entry.identifier, _MAX_IDENTIFIER_CHARS))} ({entry.run_type})"
+        f" · {escape_slack_mrkdwn(clip_text(entry.identifier, _MAX_IDENTIFIER_CHARS))}"
+        f" ({escape_slack_mrkdwn(entry.run_type)})"
         f' · opened by {escape_slack_mrkdwn(who)} for "{escape_slack_mrkdwn(clip_text(entry.reason, _MAX_REASON_CHARS))}"'
     )
     return _linked_line(repo, body, entry.run_type, entry.identifier)
@@ -222,7 +223,7 @@ def _quarantine_line(repo: Repo, entry: QuarantinedIdentifier, authors: dict[int
 def _pileup_line(repo: Repo, run_type: str, identifier: str, count: int) -> str:
     body = (
         f"{count} accepted variants of the current baseline"
-        f" · {escape_slack_mrkdwn(clip_text(identifier, _MAX_IDENTIFIER_CHARS))} ({run_type})"
+        f" · {escape_slack_mrkdwn(clip_text(identifier, _MAX_IDENTIFIER_CHARS))} ({escape_slack_mrkdwn(run_type)})"
     )
     return _linked_line(repo, body, run_type, identifier)
 

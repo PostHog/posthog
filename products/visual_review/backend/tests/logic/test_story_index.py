@@ -145,6 +145,27 @@ class TestFetchStoryIndex:
         assert request.call_count == len(responses) * 2
 
     @pytest.mark.parametrize(
+        "artifact_size,max_index_bytes",
+        [
+            (story_index._MAX_ARTIFACT_BYTES + 1, story_index._MAX_INDEX_BYTES),
+            (1000, 5),
+        ],
+    )
+    def test_an_oversized_artifact_is_not_read(self, artifact_size: int, max_index_bytes: int) -> None:
+        responses = [
+            _listing({"name": _ARTIFACT_NAME, "id": 42, "size_in_bytes": artifact_size}),
+            _response(content=_zip_bytes({"index.json": _index_document({})})),
+        ]
+        with (
+            patch.object(story_index, "_MAX_INDEX_BYTES", max_index_bytes),
+            patch(
+                "products.visual_review.backend.logic.github_api._github_api_request",
+                side_effect=responses,
+            ),
+        ):
+            assert story_index.fetch_story_index(_repo(), "98765") is None
+
+    @pytest.mark.parametrize(
         "error",
         [
             errors.GitHubIntegrationNotFoundError("no integration"),
