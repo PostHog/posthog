@@ -426,6 +426,11 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
         },
         openReportTask: ({ taskId, runId }) => {
+            // The panel is shared with the PostHog AI side panel, where the task history can be left
+            // expanded. Collapse it first, like the discussion entry point does: `setActiveCreation`
+            // would otherwise record the run as opened from history, and Back would land on the
+            // generic task list instead of this report's composer.
+            actions.setHistoryExpanded(false)
             actions.setActiveCreation({ streamKey: runId, taskId, runId })
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
         },
