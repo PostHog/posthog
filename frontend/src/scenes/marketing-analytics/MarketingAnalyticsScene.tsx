@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconGear, IconSparkles } from '@posthog/icons'
@@ -41,6 +41,7 @@ import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
 } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
+import { setupPlanLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
 import { marketingOnboardingLogic } from './Onboarding/marketingOnboardingLogic'
 import { Onboarding } from './Onboarding/Onboarding'
@@ -412,6 +413,7 @@ const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNo
 }
 
 export function MarketingAnalyticsScene(): JSX.Element {
+    useMountedLogic(setupPlanLogic)
     const { activeTab } = useValues(marketingAnalyticsLogic)
 
     return (

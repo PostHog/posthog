@@ -25,3 +25,5 @@ Revenue ranks rows by their highest attributed value across models before the se
 Engagement displays session duration and bounce rate from the same Web Overview response as Acquisition. Both sections share date, comparison and test-account filters; rendering Engagement adds no extra query.
 
 The new dashboard embeds the existing Attribution explorer as Conversion when `marketing-analytics-attribution` is enabled. It keeps goal selection, attribution models, conversion paths and the explorer’s date and test-account filters.
+
+The new dashboard shows undismissed ad-source connection suggestions from the existing Setup plan. The accordion remembers its expanded state in local storage. Connect opens the existing review in Setup; sources are never connected automatically. Dismissed suggestions can be restored in Setup.
