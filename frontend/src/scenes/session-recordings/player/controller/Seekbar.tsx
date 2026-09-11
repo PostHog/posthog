@@ -77,8 +77,14 @@ const SeekbarSources = React.memo(function SeekbarSourcesRaw({
 })
 
 export function Seekbar(): JSX.Element {
-    const { sessionRecordingId, logicProps, hasSnapshots, hasLateFullSnapshot, leadingUnplayableMs } =
-        useValues(sessionRecordingPlayerLogic)
+    const {
+        sessionRecordingId,
+        logicProps,
+        hasSnapshots,
+        hasLateFullSnapshot,
+        leadingUnplayableMs,
+        oversizedMutationSpans,
+    } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const { seekbarItems } = useValues(playerInspectorLogic(logicProps))
     const { endTimeMs, thumbLeftPos, isScrubbing } = useValues(seekbarLogic(logicProps))
@@ -104,6 +110,8 @@ export function Seekbar(): JSX.Element {
 
     const allowPreviewScrubbing = useFeatureFlag('SEEKBAR_PREVIEW_SCRUBBING')
 
+    const recordingStartMs = sessionPlayerData.start?.valueOf() ?? 0
+
     return (
         <div className="flex flex-col items-end mx-4 mt-2 h-8" data-attr="rrweb-controller">
             <PlayerSeekbarTicks
@@ -127,7 +135,7 @@ export function Seekbar(): JSX.Element {
                 >
                     <SeekbarSources
                         sourceLoadingStates={effectiveSourceLoadingStates}
-                        recordingStartMs={sessionPlayerData.start?.valueOf() ?? 0}
+                        recordingStartMs={recordingStartMs}
                         recordingEndMs={sessionPlayerData.end?.valueOf() ?? 0}
                     />
                     <ObservationSeekbarMarks endTimeMs={endTimeMs} onSeek={seekToTime} />
@@ -145,6 +153,26 @@ export function Seekbar(): JSX.Element {
                             />
                         </Tooltip>
                     ) : null}
+                    {endTimeMs > 0
+                        ? oversizedMutationSpans.map((span) => (
+                              <Tooltip
+                                  key={span.start}
+                                  title={`Playback skips ${humanFriendlyDuration((span.end - span.start) / 1000, {
+                                      maxUnits: 2,
+                                  })} here. This part captured too much changing content to render.`}
+                                  placement="top"
+                              >
+                                  <div
+                                      className="PlayerSeekbar__unplayable"
+                                      // eslint-disable-next-line react/forbid-dom-props
+                                      style={{
+                                          left: `${Math.min(100, ((span.start - recordingStartMs) / endTimeMs) * 100)}%`,
+                                          width: `${Math.min(100, ((span.end - span.start) / endTimeMs) * 100)}%`,
+                                      }}
+                                  />
+                              </Tooltip>
+                          ))
+                        : null}
                     <div
                         className="PlayerSeekbar__played"
                         // eslint-disable-next-line react/forbid-dom-props

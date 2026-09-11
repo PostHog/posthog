@@ -180,6 +180,20 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             expect(logic.values.playableSnapshotsByWindowId['1'].map((s) => s.timestamp)).toEqual(expectedTimestamps)
         })
 
+        it('reports the skipped span between the burst and its recovery point', () => {
+            logic.actions.setProcessedSnapshots([...mutationSnapshots(10, 5000), fullSnapshot(20_000)])
+
+            expect(logic.values.oversizedMutationSpans).toEqual([{ start: 1000, end: 20_000 }])
+            expect(logic.values.oversizedMutationMs).toBe(19_000)
+        })
+
+        it('reports a burst with no recovery point as skipped to the end of the recording', () => {
+            logic.actions.setProcessedSnapshots(mutationSnapshots(10, 5000))
+
+            const recordingEnd = logic.values.end?.valueOf()
+            expect(logic.values.oversizedMutationSpans).toEqual([{ start: 1000, end: recordingEnd }])
+        })
+
         it('passes snapshots through unchanged when nothing is oversized', () => {
             logic.actions.setProcessedSnapshots(mutationSnapshots(2, 5000))
 

@@ -46,6 +46,7 @@ import { playerCommentModel } from 'scenes/session-recordings/player/commenting/
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import {
     isWithinIngestionGracePeriod,
+    OversizedMutationRange,
     SessionRecordingDataCoordinatorLogicProps,
     sessionRecordingDataCoordinatorLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
@@ -550,6 +551,8 @@ export interface sessionRecordingPlayerLogicValues {
     customRRWebEvents: customEvent[] // sessionRecordingDataCoordinatorLogic
     fullyLoaded: boolean // sessionRecordingDataCoordinatorLogic
     hasOversizedMutations: boolean // sessionRecordingDataCoordinatorLogic
+    oversizedMutationMs: number // sessionRecordingDataCoordinatorLogic
+    oversizedMutationSpans: OversizedMutationRange[] // sessionRecordingDataCoordinatorLogic
     playableSnapshotsByWindowId: Record<number, eventWithTime[]> // sessionRecordingDataCoordinatorLogic
     recordingTooLargeToPlay: boolean // sessionRecordingDataCoordinatorLogic
     sessionPlayerData: SessionPlayerData // sessionRecordingDataCoordinatorLogic
@@ -1174,6 +1177,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'trackedWindow',
                 'recordingTooLargeToPlay',
                 'hasOversizedMutations',
+                'oversizedMutationSpans',
+                'oversizedMutationMs',
                 'playableSnapshotsByWindowId',
             ],
             playerSettingsLogic,
@@ -3343,6 +3348,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (detected) {
                 posthog.capture('recording player skipped oversized mutations', {
                     watchedSessionId: values.sessionRecordingId,
+                    skippedRangeCount: values.oversizedMutationSpans.length,
+                    skippedMs: values.oversizedMutationMs,
+                    recordingDurationMs: values.sessionPlayerData.durationMs,
                 })
             }
         },
