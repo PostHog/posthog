@@ -36,6 +36,9 @@ from products.customer_analytics.backend.models import (
 
 OwnershipRole = Literal["ae", "csm"]
 OWNERSHIP_ROLES: tuple[OwnershipRole, ...] = ("ae", "csm")
+# An automated claim must be later than the role fence by more than this, so a clock difference
+# between the allocation source and this database cannot make a stale decision look fresh.
+CLAIM_CLOCK_SKEW_TOLERANCE = timedelta(minutes=5)
 
 _CONTROLLED_AT_FIELD: dict[OwnershipRole, str] = {
     "ae": "ae_ownership_controlled_at",
@@ -278,11 +281,6 @@ def region_matches(region: str) -> bool:
     return instance_region is None or region == instance_region.lower()
 
 
-def claim_clock_skew_tolerance(team: Team) -> timedelta:
-    config = get_or_create_team_extension(team, TeamCustomerAnalyticsConfig)
-    return timedelta(seconds=config.ownership_claim_clock_skew_tolerance_seconds)
-
-
 def role_fence(account: Account, role: OwnershipRole, definition: AccountRelationshipDefinition) -> datetime | None:
     """The latest instant at which the role was decided: its control timestamp or any retained
     relationship transition under the bound definition, whichever is later."""
@@ -297,14 +295,12 @@ def role_fence(account: Account, role: OwnershipRole, definition: AccountRelatio
     return max(candidates) if candidates else None
 
 
-def allocation_rejection(
-    allocated_at: datetime, fence: datetime | None, *, tolerance: timedelta
-) -> contracts.OwnershipClaimReason | None:
+def allocation_rejection(allocated_at: datetime, fence: datetime | None) -> contracts.OwnershipClaimReason | None:
     """Why the allocation time cannot be trusted, or None when it can. It must be later than the fence
     by more than the clock-skew allowance and no further in the future than that same allowance;
     equal or uncertain ordering is rejected, because waiting cannot make the same decision newer."""
-    if allocated_at > timezone.now() + tolerance:
+    if allocated_at > timezone.now() + CLAIM_CLOCK_SKEW_TOLERANCE:
         return "future_allocation"
-    if fence is not None and allocated_at <= fence + tolerance:
+    if fence is not None and allocated_at <= fence + CLAIM_CLOCK_SKEW_TOLERANCE:
         return "stale_allocation"
     return None

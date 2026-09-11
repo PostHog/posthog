@@ -714,14 +714,6 @@ export interface AccountRelationshipApi {
      * * `salesforce_claim` - Salesforce claim
      * * `migration` - Migration */
     readonly source: AccountRelationshipSourceEnumApi | null
-    /** Which kind of writer ended this assignment; null while active or on rows older than tracking.
-     *
-     * * `human` - Human
-     * * `workflow` - Workflow
-     * * `ai` - AI
-     * * `salesforce_claim` - Salesforce claim
-     * * `migration` - Migration */
-    readonly ended_source: AccountRelationshipSourceEnumApi | null
 }
 
 /**

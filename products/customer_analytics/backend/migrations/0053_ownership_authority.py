@@ -26,22 +26,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="accountrelationship",
-            name="ended_source",
-            field=models.CharField(
-                blank=True,
-                choices=[
-                    ("human", "Human"),
-                    ("workflow", "Workflow"),
-                    ("ai", "AI"),
-                    ("salesforce_claim", "Salesforce claim"),
-                    ("migration", "Migration"),
-                ],
-                max_length=32,
-                null=True,
-            ),
-        ),
-        migrations.AddField(
-            model_name="accountrelationship",
             name="source",
             field=models.CharField(
                 blank=True,
@@ -82,11 +66,6 @@ class Migration(migrations.Migration):
                 related_name="+",
                 to="customer_analytics.accountrelationshipdefinition",
             ),
-        ),
-        migrations.AddField(
-            model_name="teamcustomeranalyticsconfig",
-            name="ownership_claim_clock_skew_tolerance_seconds",
-            field=models.PositiveIntegerField(default=300),
         ),
         migrations.AddField(
             model_name="teamcustomeranalyticsconfig",

@@ -69,7 +69,7 @@ RelationshipSourceValue = Literal["human", "workflow", "ai", "salesforce_claim",
 @dataclass(frozen=True)
 class AccountRelationship:
     """One assignment of a user to an account relationship, with its effective range and which kind
-    of writer started and ended it (None on rows written before provenance was recorded)."""
+    of writer started it (None on rows written before provenance was recorded)."""
 
     id: UUID
     definition: AccountRelationshipDefinition
@@ -77,7 +77,6 @@ class AccountRelationship:
     started_at: datetime
     ended_at: datetime | None
     source: RelationshipSourceValue | None = None
-    ended_source: RelationshipSourceValue | None = None
 
 
 @dataclass(frozen=True)

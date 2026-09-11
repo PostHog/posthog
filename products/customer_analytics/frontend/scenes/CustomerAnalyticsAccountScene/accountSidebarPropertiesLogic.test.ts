@@ -56,6 +56,7 @@ describe('accountSidebarPropertiesLogic', () => {
         user: { id, email: `member${id}@example.com` },
         started_at: '2026-01-01T00:00:00Z',
         ended_at: null,
+        source: null,
     })
     const mount = async (): Promise<void> => {
         logic = accountSidebarPropertiesLogic({ projectId: 1, accountId: 'account-1' })

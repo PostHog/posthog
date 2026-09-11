@@ -99,7 +99,8 @@ async def ownership_claims_sweep_activity(input: OwnershipClaimsSweepInput) -> C
 @workflow.defn(name=OWNERSHIP_CLAIMS_SWEEP_WORKFLOW_NAME)
 class OwnershipClaimsSweepWorkflow:
     """One project's sweep. Decision rows never cross the activity boundary; only the outcome
-    counts return."""
+    counts return. Start it through the coordinator only: a direct start under another workflow id
+    can run beside the sweep already running for the project."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> OwnershipClaimsSweepInput:
@@ -107,12 +108,14 @@ class OwnershipClaimsSweepWorkflow:
 
     @workflow.run
     async def run(self, input: OwnershipClaimsSweepInput) -> ClaimReconciliation:
+        # A retried attempt could run beside the thread of an attempt that timed out, and an older
+        # read can apply a claim a newer read has already seen released. The next tick is the retry.
         return await workflow.execute_activity(
             ownership_claims_sweep_activity,
             input,
             start_to_close_timeout=timedelta(minutes=30),
             heartbeat_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=30)),
+            retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
 

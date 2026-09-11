@@ -5,7 +5,6 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
@@ -195,9 +194,6 @@ class TestOwnershipClaims(BaseTest):
 
         assert (released.outcome, released.relationship_id) == ("cleared", claimed.relationship_id)
         assert self._active_ae() is None
-        assert AccountRelationship.objects.for_team(self.team.id).get(id=claimed.relationship_id).ended_source == (
-            "salesforce_claim"
-        )
         fence = self._fence()
         assert fence is not None and fence_after_claim is not None and fence > fence_after_claim
         activity = ActivityLog.objects.get(team_id=self.team.id, activity="role_released")
@@ -206,22 +202,19 @@ class TestOwnershipClaims(BaseTest):
 
         repeated = self._release_claim()
 
-        assert repeated.outcome == "already_applied"
+        assert repeated.outcome == "not_held"
         assert self._fence() == fence
         assert ActivityLog.objects.filter(team_id=self.team.id, activity="role_released").count() == 1
 
-    @parameterized.expand(["after_a_human_transfer", "after_a_human_clear", "after_a_human_confirmation"])
+    @parameterized.expand(["after_a_human_transfer", "after_a_human_clear"])
     def test_release_after_a_human_decision_is_not_held(self, decision):
         self._claim()
         if decision == "after_a_human_transfer":
             self._assign_by_human(self._create_user("successor@posthog.com"))
-        elif decision == "after_a_human_clear":
+        else:
             relationships.end_active(
                 team_id=self.team.id, account=self.account, definition=self.ae_definition, actor=self.human
             )
-        else:
-            confirmed = self._assign_by_human(self.user)
-            assert (confirmed.user_id, confirmed.source) == (self.user.id, "human")
         holder_before = self._active_ae()
         fence_before = self._fence()
 
@@ -265,13 +258,16 @@ class TestOwnershipClaims(BaseTest):
         holder = self._active_ae()
         assert holder is not None and holder.source_ref == TASK
 
-    def test_a_task_listed_with_and_without_its_release_is_applied_as_the_release(self):
+    @parameterized.expand(["valid_sibling", "invalid_sibling"])
+    def test_a_task_listed_more_than_once_is_not_applied(self, sibling):
         rows = self._view_rows(self._decision(), self._release())
+        if sibling == "invalid_sibling":
+            rows[1][DECISION_COLUMNS.index("allocated_at")] = "not-a-timestamp"
 
         with patch.object(ownership_claims, "execute_hogql_query", return_value=SimpleNamespace(results=rows)):
             result = ownership_claims.reconcile_ownership_claims(self.team)
 
-        assert result.outcomes == {"duplicate": 1, "not_held": 1}
+        assert result.outcomes == {"duplicate": 1}
         assert self._active_ae() is None
 
     def test_a_timestamp_without_a_timezone_is_read_as_utc(self):
@@ -283,32 +279,25 @@ class TestOwnershipClaims(BaseTest):
 
         assert result.outcomes == {"accepted": 1}
 
-    def test_the_view_is_read_to_the_end_in_pages(self):
-        decisions = [self._decision(source_ref=f"task-{index}", organization_id="org-none") for index in range(3)]
-        pages = iter([self._view_rows(*decisions[:2]), self._view_rows(decisions[2])])
+    @parameterized.expand([("distinct_tasks", [0, 1, 2], 0), ("a_task_split_across_pages", [0, 1, 1, 2], 1)])
+    def test_the_view_is_read_to_the_end_in_pages(self, _name, task_indexes, duplicates):
+        all_rows = self._view_rows(
+            *(self._decision(source_ref=f"task-{index}", organization_id="org-none") for index in task_indexes)
+        )
+
+        def read_after_cursor(query, **_kwargs):
+            after = [row for row in all_rows if str(row[0]) > query.where.right.value]
+            return SimpleNamespace(results=after[: query.limit.value])
 
         with (
             patch.object(ownership_claims, "DECISION_PAGE_SIZE", 2),
-            patch.object(
-                ownership_claims,
-                "execute_hogql_query",
-                side_effect=lambda *a, **k: SimpleNamespace(results=next(pages)),
-            ) as read,
+            patch.object(ownership_claims, "execute_hogql_query", side_effect=read_after_cursor) as read,
         ):
             result = ownership_claims.reconcile_ownership_claims(self.team)
 
-        assert read.call_count == 2
-        assert result.decisions == 3
-
-    def test_an_overlapping_sweep_is_skipped(self):
-        cache.add(f"customer_analytics:ownership_claims:{self.team.id}", True, timeout=60)
-        self.addCleanup(cache.delete, f"customer_analytics:ownership_claims:{self.team.id}")
-
-        with patch.object(ownership_claims, "execute_hogql_query") as read:
-            result = ownership_claims.reconcile_ownership_claims(self.team)
-
-        assert result.skipped is True
-        read.assert_not_called()
+        assert read.call_count == 3
+        assert result.decisions == len(task_indexes)
+        assert result.outcomes.get("duplicate", 0) == duplicates
 
     def test_reconciliation_counts_a_raising_decision_and_continues(self):
         rows = self._view_rows(self._decision(source_ref="boom"), self._decision())

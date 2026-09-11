@@ -58,7 +58,3 @@ SLACK_SUMMARY_CADENCE_CHOICES = ["daily", "weekly", "monthly"]
 DELIVERY_IN_FLIGHT_ERROR = "in_flight"
 DELIVERY_RATE_LIMIT_DEFERRED_ERROR = "rate_limited_deferred"
 DELIVERY_INTERRUPTED_ERROR = "interrupted before confirmation; the message may have been delivered"
-
-# Applied when a team has not reviewed its own allowance: an automated initial claim must be later
-# than the role fence by more than this before it can be accepted.
-DEFAULT_OWNERSHIP_CLAIM_CLOCK_SKEW_TOLERANCE_SECONDS = 300

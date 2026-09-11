@@ -86,6 +86,7 @@ function createAssignment(userId: number): AccountRelationshipApi {
         user: members.find(({ id }) => id === userId)!,
         started_at: '2026-01-01T00:00:00Z',
         ended_at: null,
+        source: null,
     }
 }
 

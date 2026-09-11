@@ -1,5 +1,5 @@
-"""Bind the AE and CSM roles to relationship definitions and set the automated-claim controls for
-one project. Binding names the role; it enrolls no account (see ``adopt_account_ownership``).
+"""Bind the AE and CSM roles to relationship definitions and set the claim controls for one
+project. Binding names the role; it enrolls no account (see ``adopt_account_ownership``).
 
     python manage.py configure_account_ownership --team-id 2 --bind-ae <definition uuid>
     python manage.py configure_account_ownership --team-id 2 --claim-saved-query <view uuid> --claims enabled
@@ -18,9 +18,6 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from products.customer_analytics.backend.logic import ownership
 from products.customer_analytics.backend.logic.ownership_claims import ClaimSourceMisconfigured, check_decision_columns
 from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig
-
-# A zero allowance would accept a claim one microsecond past the fence, which no clock pair can promise.
-MIN_CLOCK_SKEW_TOLERANCE_SECONDS = 1
 
 
 class Command(BaseCommand):
@@ -41,7 +38,6 @@ class Command(BaseCommand):
             help="Warehouse view of Salesforce Task decisions the reconciler reads; see logic/ownership_claims.py.",
         )
         source.add_argument("--clear-claim-saved-query", action="store_true")
-        parser.add_argument("--clock-skew-tolerance-seconds", type=int)
 
     def handle(self, *args: Any, **options: Any) -> None:
         team = Team.objects.filter(id=options["team_id"]).first()
@@ -77,13 +73,6 @@ class Command(BaseCommand):
         if options["clear_claim_saved_query"]:
             config.ownership_claim_saved_query = None
             update_fields.append("ownership_claim_saved_query")
-        if options["clock_skew_tolerance_seconds"] is not None:
-            if options["clock_skew_tolerance_seconds"] < MIN_CLOCK_SKEW_TOLERANCE_SECONDS:
-                raise CommandError(
-                    f"The clock-skew tolerance must be at least {MIN_CLOCK_SKEW_TOLERANCE_SECONDS} second(s)"
-                )
-            config.ownership_claim_clock_skew_tolerance_seconds = options["clock_skew_tolerance_seconds"]
-            update_fields.append("ownership_claim_clock_skew_tolerance_seconds")
         if update_fields:
             config.save(update_fields=update_fields)
 
@@ -92,6 +81,5 @@ class Command(BaseCommand):
         self.stdout.write(
             f"team {team.id}: ae={bindings.ae_definition_id} csm={bindings.csm_definition_id} "
             f"claims={'enabled' if config.ownership_claims_enabled else 'disabled'} "
-            f"claim_saved_query={config.ownership_claim_saved_query_id or '<unset>'} "
-            f"clock_skew_tolerance_seconds={config.ownership_claim_clock_skew_tolerance_seconds}"
+            f"claim_saved_query={config.ownership_claim_saved_query_id or '<unset>'}"
         )

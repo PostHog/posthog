@@ -103,12 +103,7 @@ export function AccountRelationshipsExpansion({
             width: 160,
             render: (_, relationship) =>
                 relationship.ended_at ? (
-                    <div className="flex flex-col">
-                        <TZLabel time={relationship.ended_at} />
-                        {sourceLabel(relationship.ended_source) && (
-                            <span className="text-xs text-muted">by {sourceLabel(relationship.ended_source)}</span>
-                        )}
-                    </div>
+                    <TZLabel time={relationship.ended_at} />
                 ) : (
                     <LemonTag type="success">Current</LemonTag>
                 ),
