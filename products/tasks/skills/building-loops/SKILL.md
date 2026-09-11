@@ -1,7 +1,7 @@
 ---
 name: building-loops
 description: >-
-  Build a Loop for PostHog Desktop: a workflow that creates an AI task each time its trigger fires,
+  Builds a Loop for PostHog Desktop: a workflow that creates an AI task each time its trigger fires,
   optionally followed by a Slack or email notification with the task's result. Use when asked to
   create, set up, or change a loop, a recurring agent, a scheduled task, or an automation that runs
   an AI task when a GitHub, Slack, or PostHog event happens. Covers the exact graph, trigger configs,
