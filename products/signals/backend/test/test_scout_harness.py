@@ -376,6 +376,60 @@ class TestReportChartsSection(SimpleTestCase):
         assert sql_chart["chartSettings"]["yAxis"][0]["column"]
 
 
+class TestPromptCacheablePrefix(SimpleTestCase):
+    def test_per_team_and_per_run_values_render_only_in_the_trailing_block(self) -> None:
+        # Both runtimes cache on prefix, so one interpolated value above the trailing block leaves
+        # every stable section after it uncacheable, and the fleet pays for the whole body again on
+        # the first turn of every run. The regression is a section drifting back up the prompt,
+        # which changes nothing a reader would notice, so assert on the split itself.
+        prompt = build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-prefix-probe",
+                version=7,
+                body="watch",
+                description="d",
+                allowed_tools=["emit_report", "edit_report"],
+                files=[],
+                skill_id="skill-1",
+                origin="custom",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=987654,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            governed_metric_names=["mrr_probe_metric"],
+            write_scopes=["dashboard:write"],
+            structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
+            mcp_server_names=["Datadog (EU)"],
+        )
+
+        offsets = [
+            prompt.index(heading)
+            for heading in (
+                "# Governed metrics",
+                "# External MCP servers",
+                "# Write access",
+                "# Structured output",
+                "# Your run identity",
+            )
+        ]
+        # Per-team values first, the run's own identity last.
+        assert offsets == sorted(offsets)
+        head = prompt[: offsets[0]]
+        # Every stable section, down to the closing output-format one, sits above the block.
+        assert "# Output format" in head
+        for value in (
+            "00000000-0000-0000-0000-000000000abc",
+            "2026-05-01T12:34:56+00:00",
+            "987654",
+            "signals-scout-prefix-probe",
+            "mrr_probe_metric",
+            "Datadog",
+            '"verdict"',
+        ):
+            assert value not in head, f"{value} interpolated above the per-run block"
+
+
 class TestPromptCrossReferences(SimpleTestCase):
     @parameterized.expand(
         [
@@ -705,8 +759,11 @@ class TestPromptBuilder(BaseTest):
         # inlined — they're discovered at run time.
         assert "First: read your skill" in prompt
         # Skill version is pinned explicitly — the run row + tool resolution + budget
-        # were snapshotted against v1, so the bootstrap fetch must lock to v1 too.
-        assert 'skill-get(skill_name="signals-scout-errors", version=1)' in prompt
+        # were snapshotted against v1, so the bootstrap fetch must lock to v1 too. The two values
+        # ride in the run-identity block (asserted above), which is what keeps them out of the
+        # cacheable prose; the bootstrap step still has to say the version is not optional.
+        assert "skill-get(skill_name=<the skill name there>, version=<the version there>)" in prompt
+        assert "Pin that version explicitly" in prompt
         assert "skill-file-get" in prompt
         assert "watch for spikes" not in prompt
         assert "refs/playbook.md" not in prompt
@@ -1000,7 +1057,7 @@ class TestPromptBuilder(BaseTest):
         # Reviewer routing for self-improvement reports points at the run-identity authors line,
         # not at "whoever owns this scout" guesswork — dropping the reference re-opens the
         # last-editor-becomes-the-assignee failure mode.
-        assert ("the skill authors listed under *Your run identity*" in prompt) is expect_escalation
+        assert ("the skill authors named in *Your run identity*" in prompt) is expect_escalation
         if _name == "custom_report_scout_emit_only":
             # The emit-only variant must never name the edit tool it lacks (fails closed).
             assert "scout-edit-report" not in prompt
