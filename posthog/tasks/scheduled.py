@@ -81,7 +81,6 @@ from products.conversations.backend.tasks.email import flush_pending_email_repli
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
-from products.customer_analytics.backend.facade.tasks import reconcile_ownership_claims_task
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
@@ -812,15 +811,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/15"),
         reconcile_pending_legal_documents.s(),
         name="reconcile pending legal documents",
-    )
-
-    # Apply Salesforce Task decisions to customer analytics account ownership for projects that
-    # have claims on; the views they read are warehouse-synced, so minutes of lag are expected.
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/15"),
-        reconcile_ownership_claims_task.s(),
-        name="reconcile customer analytics ownership claims",
     )
 
     # Reconcile pulse briefs stranded in GENERATING by an externally-terminated workflow.
