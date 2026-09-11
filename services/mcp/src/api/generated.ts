@@ -1451,6 +1451,8 @@ export namespace Schemas {
     export interface AccountsQuery {
       /** Match accounts with no active relationship of any definition. */
       allRolesUnassigned?: boolean | null;
+      /** Match accounts with at least one active relationship of any definition. */
+      assignedOnly?: boolean | null;
       /** Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
       assignedToUserIds?: number[] | null;
       /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
@@ -7028,6 +7030,7 @@ export namespace Schemas {
       Linear: 'linear',
       Github: 'github',
       Gitlab: 'gitlab',
+      Helpscout: 'helpscout',
       MetaAds: 'meta-ads',
       Instagram: 'instagram',
       Clickup: 'clickup',
@@ -15207,6 +15210,13 @@ export namespace Schemas {
       Zip: 'zip',
     } as const;
 
+    export interface BusinessKnowledgeSettings {
+      /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
+      learn_from_support_enabled: boolean;
+      /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
+      readonly support_enabled: boolean;
+    }
+
     /**
      * * `b2b` - B2B
      * * `b2c` - B2C
@@ -16238,6 +16248,32 @@ export namespace Schemas {
     }
 
     /**
+     * The renderable build of one component referenced by a grid layout, shaped
+     * like the builds endpoint's response so clients reuse one lifecycle reader.
+     */
+    export interface CanvasComponentLifecycle {
+      /** Id of the component canvas. */
+      canvas_id: string;
+      /**
+         * The source version the placement pins, or null when it follows the latest.
+         * @nullable
+         */
+      requested_version_id: string | null;
+      /**
+         * Id of the component's live build. Null until a build completes.
+         * @nullable
+         */
+      published_build_id: string | null;
+      /**
+         * Id of the source version the component's head points at.
+         * @nullable
+         */
+      current_version_id: string | null;
+      /** The build the placement renders (live, or the pinned version's retained build). Empty when none is renderable. */
+      builds: CanvasBuild[];
+    }
+
+    /**
      * * `native` - Native
      * * `mcp` - Mcp
      */
@@ -16304,6 +16340,11 @@ export namespace Schemas {
      */
     export interface CanvasConnectorCall {
       /**
+         * Single-use token from a needs_approval response. Submit only after the viewer approves this exact call. Expires after 15 minutes.
+         * @maxLength 200
+         */
+      approval_token?: string;
+      /**
          * Declared provider id, e.g. 'github'.
          * @maxLength 300
          */
@@ -16327,6 +16368,7 @@ export namespace Schemas {
      * * `ok` - Ok
      * * `not_connected` - Not Connected
      * * `needs_reauth` - Needs Reauth
+     * * `needs_approval` - Needs Approval
      * * `blocked` - Blocked
      * * `tool_missing` - Tool Missing
      * * `write_blocked` - Write Blocked
@@ -16339,6 +16381,7 @@ export namespace Schemas {
       Ok: 'ok',
       NotConnected: 'not_connected',
       NeedsReauth: 'needs_reauth',
+      NeedsApproval: 'needs_approval',
       Blocked: 'blocked',
       ToolMissing: 'tool_missing',
       WriteBlocked: 'write_blocked',
@@ -16349,11 +16392,17 @@ export namespace Schemas {
      * Result of one connector call. `status` is 'ok' when `result` holds the tool's output.
      */
     export interface CanvasConnectorCallResult {
-      /** 'ok' carries a result. 'not_connected' and 'needs_reauth' mean the viewer must connect the provider at connect_path. 'blocked' is team policy. 'write_blocked' is a tool that may write. 'upstream_error' is a failure at the provider.
+      /**
+         * Host-only, single-use approval token bound to this viewer, connection, canvas version, tool, and arguments. Never forward it to the canvas iframe.
+         * @nullable
+         */
+      approval_token: string | null;
+      /** 'ok' carries a result. 'not_connected' and 'needs_reauth' mean the viewer must connect the provider at connect_path. 'blocked' is team policy. 'write_blocked' is a tool that may write. 'needs_approval' requires the viewer to approve this call in the host. 'upstream_error' is a failure at the provider.
        *
        * * `ok` - Ok
        * * `not_connected` - Not Connected
        * * `needs_reauth` - Needs Reauth
+       * * `needs_approval` - Needs Approval
        * * `blocked` - Blocked
        * * `tool_missing` - Tool Missing
        * * `write_blocked` - Write Blocked
@@ -16831,9 +16880,11 @@ export namespace Schemas {
     }
 
     /**
-     * A grid canvas's layout plus the version pointer edits must be based on.
+     * The layout response, plus (when requested) the renderable build of every
+     * component the layout places — so a grid opens on one round trip instead of
+     * one builds fetch per placement.
      */
-    export interface CanvasLayoutResponse {
+    export interface CanvasLayoutWithComponentsResponse {
       /** Identity and version pointers for the canvas. */
       canvas: CanvasSummary;
       /** The layout document. A grid canvas with no versions yet returns the default empty layout. */
@@ -16843,6 +16894,8 @@ export namespace Schemas {
          * @nullable
          */
       current_version_id: string | null;
+      /** One entry per distinct (component, pinned version) the layout's live placements reference, present only when the request passes include_components. Components the caller may not see are omitted. */
+      component_lifecycles?: CanvasComponentLifecycle[];
     }
 
     /**
@@ -17207,6 +17260,34 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** When the version was published. */
       created_at: string;
+    }
+
+    /**
+     * Everything a client needs to open a canvas, in one round trip.
+     *
+     * Replaces the record → builds → source waterfall: the record, the live
+     * build (with its signed artifact URL), and — only when there is nothing
+     * built to render — the head source project (freeform/component) or the
+     * layout document (grid).
+     */
+    export interface CanvasViewResponse {
+      /** The canvas record. */
+      canvas: Canvas;
+      /** The live build with its signed artifact URL. Null until a build completes. */
+      published_build: CanvasBuild | null;
+      /**
+         * Id of the source version the canvas's head points at. Null before the first publish.
+         * @nullable
+         */
+      current_version_id: string | null;
+      /** True while a build is queued or running — poll the builds endpoint until it settles. */
+      has_active_build: boolean;
+      /** The head source project, present only when the canvas has no live build to render (the client-side fallback tier). Null otherwise, and always null for grid canvases. */
+      source?: CanvasSourceProject | null;
+      /** For grid canvases: the head layout document. Null for other kinds. */
+      layout?: CanvasLayout | null;
+      /** For grid canvases: the renderable build of every component the layout's live placements reference, so the grid renders from this one call. Absent for other kinds. */
+      component_lifecycles?: CanvasComponentLifecycle[];
     }
 
     export interface CapabilityReadiness {
@@ -17759,7 +17840,7 @@ export namespace Schemas {
     export interface CheckIncremental {
       /**
          * The HogQL query to check.
-         * @maxLength 65536
+         * @maxLength 262144
          */
       query: string;
       /**
@@ -33763,21 +33844,6 @@ export namespace Schemas {
       release: ErrorTrackingRelease | null;
     }
 
-    export interface ErrorTrackingSymbolSetBulkDelete {
-      /** Symbol set IDs to delete. */
-      ids: string[];
-    }
-
-    /**
-     * Map of symbol set ID to uploaded content hash.
-     */
-    export type ErrorTrackingSymbolSetBulkFinishUploadContentHashes = {[key: string]: string};
-
-    export interface ErrorTrackingSymbolSetBulkFinishUpload {
-      /** Map of symbol set ID to uploaded content hash. */
-      content_hashes: ErrorTrackingSymbolSetBulkFinishUploadContentHashes;
-    }
-
     export interface ErrorTrackingSymbolSetUpload {
       /** Symbol set reference to upload. */
       chunk_id: string;
@@ -33793,7 +33859,42 @@ export namespace Schemas {
       content_hash?: string | null;
     }
 
+    export interface ErrorTrackingSymbolSetBulkCheckUpload {
+      /** Symbol sets the client intends to upload, with per-symbol release IDs and content hashes. Send at most 1000 per request. */
+      symbol_sets: ErrorTrackingSymbolSetUpload[];
+      /** Whether to overwrite uploaded symbol sets whose content hash changed. */
+      force?: boolean;
+      /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+      skip_on_conflict?: boolean;
+    }
+
+    export interface ErrorTrackingSymbolSetBulkCheckUploadResponse {
+      /** Chunk IDs to send to `bulk_start_upload`: the symbol set is missing, its upload never completed, its content differs, or it still needs the release bound. The other chunks are already uploaded with identical content and were marked as still in use. */
+      chunk_ids_to_upload: string[];
+    }
+
+    export interface ErrorTrackingSymbolSetBulkDelete {
+      /** Symbol set IDs to delete. */
+      ids: string[];
+    }
+
+    /**
+     * Map of symbol set ID to uploaded content hash.
+     */
+    export type ErrorTrackingSymbolSetBulkFinishUploadContentHashes = {[key: string]: string};
+
+    export interface ErrorTrackingSymbolSetBulkFinishUpload {
+      /** Map of symbol set ID to uploaded content hash. */
+      content_hashes: ErrorTrackingSymbolSetBulkFinishUploadContentHashes;
+    }
+
     export interface ErrorTrackingSymbolSetBulkStartUpload {
+      /** Symbol sets to upload with per-symbol release IDs and content hashes. */
+      symbol_sets?: ErrorTrackingSymbolSetUpload[];
+      /** Whether to overwrite uploaded symbol sets whose content hash changed. */
+      force?: boolean;
+      /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+      skip_on_conflict?: boolean;
       /** Legacy list of symbol set references to upload, all associated with `release_id`. */
       chunk_ids?: string[];
       /**
@@ -33801,12 +33902,6 @@ export namespace Schemas {
          * @nullable
          */
       release_id?: string | null;
-      /** Symbol sets to upload with per-symbol release IDs and content hashes. */
-      symbol_sets?: ErrorTrackingSymbolSetUpload[];
-      /** Whether to overwrite uploaded symbol sets whose content hash changed. */
-      force?: boolean;
-      /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
-      skip_on_conflict?: boolean;
     }
 
     /**
@@ -40448,6 +40543,22 @@ export namespace Schemas {
       Unknown: 'unknown',
     } as const;
 
+    /**
+     * * `flag_disabled` - flag_disabled
+     * * `insufficient_version_coverage` - insufficient_version_coverage
+     * * `empty_window` - empty_window
+     * * `comparison` - comparison
+     */
+    export type FallbackReasonEnum = typeof FallbackReasonEnum[keyof typeof FallbackReasonEnum];
+
+
+    export const FallbackReasonEnum = {
+      FlagDisabled: 'flag_disabled',
+      InsufficientVersionCoverage: 'insufficient_version_coverage',
+      EmptyWindow: 'empty_window',
+      Comparison: 'comparison',
+    } as const;
+
     export type FeatureFlagFilters = { [key: string]: unknown };
 
     export type FeatureFlagSurveys = { [key: string]: unknown };
@@ -43562,7 +43673,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
      */
     export type HogFlowActionConfig = { [key: string]: unknown } | {
       /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
@@ -43621,7 +43732,7 @@ export namespace Schemas {
        * * `random_cohort_branch` - random_cohort_branch
        * * `exit` - exit */
       type: HogFlowActionTypeEnum;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
       /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
@@ -48073,6 +48184,7 @@ export namespace Schemas {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
      * * `intercom` - Intercom
@@ -48125,6 +48237,7 @@ export namespace Schemas {
       GooglePubsub: 'google-pubsub',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
+      Helpscout: 'helpscout',
       Hubspot: 'hubspot',
       Instagram: 'instagram',
       Intercom: 'intercom',
@@ -48177,6 +48290,7 @@ export namespace Schemas {
        * * `google-pubsub` - Google Pubsub
        * * `google-search-console` - Google Search Console
        * * `google-sheets` - Google Sheets
+       * * `helpscout` - Helpscout
        * * `hubspot` - Hubspot
        * * `instagram` - Instagram
        * * `intercom` - Intercom
@@ -50502,6 +50616,18 @@ export namespace Schemas {
       config?: LogsListWidgetConfig;
     }
 
+    /**
+     * * `logs` - Logs
+     * * `spans` - Spans
+     */
+    export type LogsMetricRuleRecordSourceEnum = typeof LogsMetricRuleRecordSourceEnum[keyof typeof LogsMetricRuleRecordSourceEnum];
+
+
+    export const LogsMetricRuleRecordSourceEnum = {
+      Logs: 'logs',
+      Spans: 'spans',
+    } as const;
+
     export interface LogsMetricRule {
       /** Unique identifier for this metric rule. */
       readonly id: string;
@@ -50520,16 +50646,21 @@ export namespace Schemas {
       /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
       filter_group?: unknown;
       /**
-         * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+         * Attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`, prefixed with `attributes.` / `resource_attributes.`. For `source=spans` rules, the span pseudo-key `duration_ms` (span wall-clock duration) is also allowed. Omit to count matching records instead. Immutable after creation — it determines the emitted metric type.
          * @maxLength 512
          * @nullable
          */
       value_attribute?: string | null;
       /**
-         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code, kind; for either, map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion. For `source=spans` rules, note that `name` is high-cardinality on poorly instrumented services (route params or SQL fragments in the span name), so grouping by `name` can overflow the per-rule series cap on its own.
          * @items.maxLength 512
          */
       group_by?: string[];
+      /** Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.
+       *
+       * * `logs` - Logs
+       * * `spans` - Spans */
+      source?: LogsMetricRuleRecordSourceEnum;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
       readonly created_by: number;
@@ -50537,6 +50668,18 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at: string | null;
     }
+
+    /**
+     * * `stored_patterns` - stored_patterns
+     * * `body_mining` - body_mining
+     */
+    export type LogsPatternsSourceEnum = typeof LogsPatternsSourceEnum[keyof typeof LogsPatternsSourceEnum];
+
+
+    export const LogsPatternsSourceEnum = {
+      StoredPatterns: 'stored_patterns',
+      BodyMining: 'body_mining',
+    } as const;
 
     export interface LogsRetentionRule {
       /** Unique identifier for this retention rule. */
@@ -62045,6 +62188,17 @@ export namespace Schemas {
       results: WizardRunArtifact[];
     }
 
+    export interface WizardRunCreator {
+      /** Unique ID of the user who created the Wizard run. */
+      readonly id: number;
+      /** First name of the user who created the Wizard run. */
+      readonly first_name: string;
+      /** Last name of the user who created the Wizard run. */
+      readonly last_name: string;
+      /** Email address of the user who created the Wizard run. */
+      readonly email: string;
+    }
+
     export type WizardWorkspace = LocalFolderWorkspace | GitRepositoryWorkspace;
 
     /**
@@ -62093,6 +62247,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly created_by_id: number | null;
+      /** User who created the Wizard run, or null if that user no longer exists. */
+      readonly created_by: WizardRunCreator | null;
       /** Where the setup agent runs.
        *
        * * `local` - local
@@ -62842,6 +62998,11 @@ export namespace Schemas {
       readonly created_by?: UserBasic | null;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    export interface PatchedBusinessKnowledgeSettingsUpdate {
+      /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Rejected when Support is off for this environment. */
+      learn_from_support_enabled?: boolean;
     }
 
     /**
@@ -66251,16 +66412,21 @@ export namespace Schemas {
       /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
       filter_group?: unknown;
       /**
-         * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+         * Attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`, prefixed with `attributes.` / `resource_attributes.`. For `source=spans` rules, the span pseudo-key `duration_ms` (span wall-clock duration) is also allowed. Omit to count matching records instead. Immutable after creation — it determines the emitted metric type.
          * @maxLength 512
          * @nullable
          */
       value_attribute?: string | null;
       /**
-         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code, kind; for either, map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion. For `source=spans` rules, note that `name` is high-cardinality on poorly instrumented services (route params or SQL fragments in the span name), so grouping by `name` can overflow the per-rule series cap on its own.
          * @items.maxLength 512
          */
       group_by?: string[];
+      /** Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.
+       *
+       * * `logs` - Logs
+       * * `spans` - Spans */
+      source?: LogsMetricRuleRecordSourceEnum;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
       readonly created_by?: number;
@@ -90701,12 +90867,12 @@ export namespace Schemas {
     }
 
     /**
-     * Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it.
+     * Occurrences keyed by lowercased severity ("trace" through "fatal"). Never extrapolated, because severity dominance is a proportion that scaling would not change. Sample counts when `sampled` is true, counts over every matching row otherwise.
      */
     export type _LogPatternSeverityCounts = {[key: string]: number};
 
     export interface _LogPatternExample {
-      /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, with the message field extracted from JSON bodies. This is not the raw stored line. */
+      /** Original-message example. Body mining normalizes whitespace, extracts JSON message fields and truncates to the mining cap. Stored-pattern aggregation returns the raw body prefix, limited to 4096 Unicode characters. */
       body: string;
       /** Severity of the sampled line, e.g. "info", "error". */
       severity_text: string;
@@ -90717,29 +90883,29 @@ export namespace Schemas {
     }
 
     export interface _LogPattern {
-      /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
+      /** Log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Body mining masks <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. Stored patterns use the ingestion vocabulary instead: <N>, <TIMESTAMP>, <KLOGTIME>, <UUID>, <IP>, <HOST>, <HEX>, <ID>, <EMAIL>, <JSON_ARRAY>, and <JSON:keys> for a JSON body reduced to its key set. */
       pattern: string;
       /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — prefer `estimated_count` for display. */
       count: number;
       /** Estimated occurrences across the full window, extrapolated from the sample (`count / scanned_count * total_count`). Equals `count` when the window was not sampled. */
       estimated_count: number;
-      /** Share of the sampled log volume this pattern represents (0–100). */
+      /** Share of the log volume this pattern represents (0–100). Measured over the sample when `sampled` is true, over every matching row otherwise. */
       volume_share_pct: number;
-      /** Sampled occurrences at severity "error" or "fatal". Prefer `estimated_error_count` for display. */
+      /** Occurrences at severity "error" or "fatal". A sample count when `sampled` is true, so prefer `estimated_error_count` for display. */
       error_count: number;
       /** Estimated error/fatal occurrences across the full window, extrapolated from the sample. Equals `error_count` when the window was not sampled. */
       estimated_error_count: number;
-      /** ISO 8601 timestamp of the earliest sampled occurrence. */
+      /** ISO 8601 timestamp of the earliest occurrence. Taken from the sample when `sampled` is true, from every matching row otherwise. */
       first_seen: string;
-      /** ISO 8601 timestamp of the latest sampled occurrence. */
+      /** ISO 8601 timestamp of the latest occurrence. Taken from the sample when `sampled` is true, from every matching row otherwise. */
       last_seen: string;
       /** Up to 10 distinct sampled log lines that produced this pattern, with severity, service, and timestamp for display. */
       examples: _LogPatternExample[];
       /** Up to 4 distinct service names this pattern was observed in. */
       services: string[];
-      /** Estimated occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows the volume shape over the window, not exact per-bucket tallies. */
+      /** Occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. When `sampled` is true these are extrapolated like `estimated_count` and show the volume shape over the window rather than exact tallies. Otherwise they are exact per-bucket counts. */
       sparkline: number[];
-      /** Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it. */
+      /** Occurrences keyed by lowercased severity ("trace" through "fatal"). Never extrapolated, because severity dominance is a proportion that scaling would not change. Sample counts when `sampled` is true, counts over every matching row otherwise. */
       severity_counts: _LogPatternSeverityCounts;
       /**
          * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the raw bodies of the pattern's own sampled rows before being offered. Null when the template lacks literal content or validation failed. Never trust an unvalidated predicate. Use with the message/regex log property filter.
@@ -90751,6 +90917,13 @@ export namespace Schemas {
          * @nullable
          */
       match_literal: string | null;
+      /** Exact canonical members of a stored-pattern group. Filter pattern IN these values AND pattern_version equals this group's version. Empty for body mining. */
+      match_patterns?: string[];
+      /**
+         * Version required by match_patterns. Null for body mining.
+         * @nullable
+         */
+      pattern_version?: number | null;
     }
 
     /**
@@ -90853,7 +91026,7 @@ export namespace Schemas {
     } as const;
 
     export interface _LogPropertyFilter {
-      /** Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name"). */
+      /** Attribute key. For type "log", use "message" for the body text, or a log column: "pattern" and "pattern_version" (the patterns pivot), "severity_level", "service_name", "trace_id", "span_id". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name"). */
       key: string;
       /** "log" filters the log body/message. "log_attribute" filters log-level attributes. "log_resource_attribute" filters resource-level attributes.
        *
@@ -91151,6 +91324,38 @@ export namespace Schemas {
     }
 
     export interface _LogsPatternsDiffWindow {
+      /** Whether counts come from stored-pattern aggregation or body masking and Drain3 mining.
+       *
+       * * `stored_patterns` - stored_patterns
+       * * `body_mining` - body_mining */
+      source?: LogsPatternsSourceEnum;
+      /**
+         * Stored pattern version used. Null for body mining.
+         * @nullable
+         */
+      pattern_version?: number | null;
+      /** Why body mining was used. Null for stored-pattern aggregation.
+       *
+       * * `flag_disabled` - flag_disabled
+       * * `insufficient_version_coverage` - insufficient_version_coverage
+       * * `empty_window` - empty_window
+       * * `comparison` - comparison */
+      fallback_reason?: FallbackReasonEnum | null;
+      /**
+         * Percentage of all matching rows with a nonempty pattern at the selected version. Null for body mining.
+         * @nullable
+         */
+      pattern_coverage_pct?: number | null;
+      /**
+         * Exact rows represented by the returned stored-pattern groups. Null for body mining.
+         * @nullable
+         */
+      represented_count?: number | null;
+      /**
+         * Matching rows outside returned groups, including other versions, unstamped rows and the long tail. Null for body mining.
+         * @nullable
+         */
+      remainder_count?: number | null;
       /** Log rows fed to the miner for this window (sample size). */
       scanned_count: number;
       /** Total log rows matching the filters in this window. */
@@ -91187,9 +91392,41 @@ export namespace Schemas {
     }
 
     export interface _LogsPatternsResponse {
-      /** Mined patterns ordered by `count` descending. */
+      /** Whether counts come from stored-pattern aggregation or body masking and Drain3 mining.
+       *
+       * * `stored_patterns` - stored_patterns
+       * * `body_mining` - body_mining */
+      source?: LogsPatternsSourceEnum;
+      /**
+         * Stored pattern version used. Null for body mining.
+         * @nullable
+         */
+      pattern_version?: number | null;
+      /** Why body mining was used. Null for stored-pattern aggregation.
+       *
+       * * `flag_disabled` - flag_disabled
+       * * `insufficient_version_coverage` - insufficient_version_coverage
+       * * `empty_window` - empty_window
+       * * `comparison` - comparison */
+      fallback_reason?: FallbackReasonEnum | null;
+      /**
+         * Percentage of all matching rows with a nonempty pattern at the selected version. Null for body mining.
+         * @nullable
+         */
+      pattern_coverage_pct?: number | null;
+      /**
+         * Exact rows represented by the returned stored-pattern groups. Null for body mining.
+         * @nullable
+         */
+      represented_count?: number | null;
+      /**
+         * Matching rows outside returned groups, including other versions, unstamped rows and the long tail. Null for body mining.
+         * @nullable
+         */
+      remainder_count?: number | null;
+      /** Pattern groups ordered by count. Stored-pattern counts are exact; body-mining counts describe the sample. */
       patterns: _LogPattern[];
-      /** Number of log rows fed to the miner (the sample size, capped at the sample limit). */
+      /** Rows scanned: the sample size for body mining, or the full matching count for stored-pattern aggregation. */
       scanned_count: number;
       /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */
       total_count: number;
@@ -91856,6 +92093,15 @@ export namespace Schemas {
       name: string;
       /** OTel metric type (gauge, sum, histogram, summary, exponential_histogram). */
       metric_type: string;
+      /** Unit of the metric value, if any (e.g. 'ms', 'By'). */
+      unit?: string;
+      /**
+         * When the newest datapoint for this metric arrived, ISO 8601.
+         * @nullable
+         */
+      last_seen?: string | null;
+      /** A small downsampled series of the metric's recent shape, for a sparkline. */
+      sparkline?: number[];
     }
 
     export interface _MetricNamesResponse {
@@ -94546,6 +94792,10 @@ export namespace Schemas {
 
     export type CanvasesBuildsRetrieveParams = {
     /**
+     * "slim" returns only what rendering needs — the live build, the head version's builds, and anything still in flight — instead of the full recent-build history. Any other value (or none) returns the full window.
+     */
+    scope?: string;
+    /**
      * Include the retained ready build for this historical source version.
      */
     version_id?: string;
@@ -94563,6 +94813,10 @@ export namespace Schemas {
     };
 
     export type CanvasesLayoutRetrieveParams = {
+    /**
+     * Also return the renderable build (with signed artifact URL) of every component the layout's live placements reference, so a grid renders from this one call.
+     */
+    include_components?: boolean;
     /**
      * Read this historical layout version instead of the head (for version browsing).
      */
@@ -99399,6 +99653,7 @@ export namespace Schemas {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
      * * `intercom` - Intercom
@@ -99462,6 +99717,7 @@ export namespace Schemas {
       GooglePubsub: 'google-pubsub',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
+      Helpscout: 'helpscout',
       Hubspot: 'hubspot',
       Instagram: 'instagram',
       Intercom: 'intercom',

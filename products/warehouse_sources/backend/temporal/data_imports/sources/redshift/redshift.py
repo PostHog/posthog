@@ -41,7 +41,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_initial_value,
     incremental_type_to_operator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    open_ssh_tunnel,
+    pinned_host_kwargs,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
@@ -822,23 +825,30 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: RedshiftSourceConfig) -> Iterator[psycopg.Connection]:
+    def connect(self, config: RedshiftSourceConfig, *, team_id: int | None = None) -> Iterator[psycopg.Connection]:
         """Open a psycopg connection for the duration of the context.
 
         Opens the SSH tunnel (if configured) and connects with the
         Redshift-wide SSL conventions in one place — every listing
         method takes the resulting connection, so discovery against an
         SSH-tunneled cluster only opens the tunnel once.
+
+        Redshift speaks the Postgres wire protocol through the same libpq, so it dials the
+        addresses it validated the same way: `pinned_host_kwargs` resolves the host once, checks
+        that answer against the host policy, and pins it through the `host`/`hostaddr` pair.
         """
-        with open_ssh_tunnel(config) as (host, port):
-            with psycopg.connect(
-                host=host,
-                port=port,
-                dbname=config.database,
-                user=config.user,
-                password=config.password,
+        with open_ssh_tunnel(config, team_id) as (host, port):
+            connect_kwargs: dict[str, Any] = {
+                "port": port,
+                "dbname": config.database,
+                "user": config.user,
+                "password": config.password,
                 **_REDSHIFT_CONNECT_OPTS,
-            ) as conn:
+                **pinned_host_kwargs(
+                    host, port=port, connect_timeout=_REDSHIFT_CONNECT_OPTS["connect_timeout"], team_id=team_id
+                ),
+            }
+            with psycopg.connect(**connect_kwargs) as conn:
                 conn.adapters.register_loader("date", SafeDateLoader)
                 yield conn
 
@@ -1536,7 +1546,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         row_filters = inputs.row_filters
 
         def _discover_and_probe() -> RedshiftTableSetup:
-            with self.connect(config) as connection:
+            with self.connect(config, team_id=inputs.team_id) as connection:
                 # Autocommit so each best-effort discovery probe runs in its own transaction. A probe
                 # that fails — a permission error, an EXPLAIN the cluster rejects, a cancelled COUNT(*) —
                 # otherwise leaves the shared transaction aborted (INERROR), and every probe after it
@@ -1654,7 +1664,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
 
         def get_rows() -> Iterator[Any]:
             arrow_schema = table.to_arrow_schema()
-            with self.connect(config) as streaming_connection:
+            with self.connect(config, team_id=inputs.team_id) as streaming_connection:
                 streaming_connection.adapters.register_loader("json", JsonAsStringLoader)
                 query = _build_query(
                     schema,

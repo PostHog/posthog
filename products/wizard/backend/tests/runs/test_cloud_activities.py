@@ -27,6 +27,7 @@ from products.wizard.backend.facade.enums import (
     WizardRunStatus,
     WizardWorkspaceType,
 )
+from products.wizard.backend.logic.workers import store as worker_store
 from products.wizard.backend.logic.workers.contracts import RepositoryPullRequest, WizardWorkerResourceUsage
 from products.wizard.backend.logic.workers.service import (
     GitRepositoryCloneRequest,
@@ -313,6 +314,7 @@ def test_execute_wizard_maps_worker_error(worker_error: Exception, error_type: s
 @patch("products.wizard.backend.logic.artifacts.service.object_storage.write")
 def test_create_run_artifacts_persists_git_diff_and_pull_request(_write: MagicMock, team, user) -> None:
     run = _create_cloud_run(team.id, user.id)
+    worker_store.record_provisioned_worker(team.id, run.id, _provisioning())
     wizard_facade.update_run_status(team.id, run.id, WizardRunStatus.RUNNING)
     workspace = _workspace(run)
     diff = b"diff --git a/a b/a\n"
@@ -324,10 +326,16 @@ def test_create_run_artifacts_persists_git_diff_and_pull_request(_write: MagicMo
         base_branch="master",
     )
 
-    with patch(
-        "products.wizard.backend.temporal.activities.handoff.cloud_worker.create_git_repository_handoff",
-        return_value=WizardWorkerResult(diff=diff, pull_request=pull_request),
-    ) as handoff:
+    with (
+        patch(
+            "products.wizard.backend.temporal.activities.handoff.cloud_worker.create_git_repository_handoff",
+            return_value=WizardWorkerResult(diff=diff, pull_request=pull_request),
+        ) as handoff,
+        patch("products.wizard.backend.logic.workers.service.get_sandbox_class") as sandbox_class,
+    ):
+        sandbox = sandbox_class.return_value.get_by_id.return_value
+        sandbox.read_cpu_usage_usec.return_value = 1_000_000
+        sandbox.read_billed_cpu_usage_usec.return_value = 2_000_000
         async_to_sync(_run_create_run_artifacts)(workspace)
 
     handoff.assert_called_once_with(
@@ -353,3 +361,6 @@ def test_create_run_artifacts_persists_git_diff_and_pull_request(_write: MagicMo
     assert pull_request_artifact.url == pull_request.url
     assert pull_request_artifact.number == pull_request.number
     assert wizard_facade.get_run(team.id, run.id).status == WizardRunStatus.COMPLETED
+    worker = apps.get_model("wizard", "WizardWorker").objects.for_team(team.id).get(run_id=run.id)
+    assert worker.resource_usage["provider_cpu_usage_usec"] == 1_000_000
+    assert worker.resource_usage["provider_billed_cpu_usage_usec"] == 2_000_000

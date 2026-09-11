@@ -6,7 +6,7 @@ import datetime
 from types import SimpleNamespace
 from typing import Any, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -942,7 +942,7 @@ class TestBillingManager(BaseTest):
                 },
             }
         }
-        with freeze_time("2026-08-13"):
+        with time_machine.travel("2026-08-13", tick=False):
             BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
         organization.refresh_from_db()
         assert organization.has_active_subscription is expected

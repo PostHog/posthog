@@ -76,6 +76,10 @@
                     "description": "Match accounts with no active relationship of any definition.",
                     "type": "boolean"
                 },
+                "assignedOnly": {
+                    "description": "Match accounts with at least one active relationship of any definition.",
+                    "type": "boolean"
+                },
                 "assignedToUserIds": {
                     "description": "Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the \"My accounts\" shortcut (the current user's id) and the shareable \"Assigned to\" filter — the ids are explicit so a shared URL resolves identically for every viewer.",
                     "items": {
@@ -4871,17 +4875,6 @@
         "AssistantStickinessQuery": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
-                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range. When enabled, shows the current and previous period side by side."
@@ -4901,7 +4894,7 @@
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`. This determines what counts as one \"interval\" for stickiness measurement. For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days, and each bar/point shows how many users performed the event on exactly that many days."
                 },
                 "intervalCount": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/positive_integer",
                     "description": "How many base intervals comprise one stickiness period. Defaults to 1. For example, `interval: \"day\"` with `intervalCount: 7` groups by 7-day periods."
                 },
                 "kind": {
@@ -30981,6 +30974,7 @@
                 "linear",
                 "github",
                 "gitlab",
+                "helpscout",
                 "meta-ads",
                 "instagram",
                 "clickup",
@@ -39916,6 +39910,9 @@
                 "session_replay_set_filters",
                 "session_replay_experiment_link_clicked",
                 "session_replay_save_filters_as_scanner",
+                "replay_vision_viewed",
+                "replay_vision_scanner_created",
+                "replay_vision_scan_triggered",
                 "error_tracking_exception_autocapture_enabled",
                 "error_tracking_issue_sorting",
                 "error_tracking_docs_viewed",

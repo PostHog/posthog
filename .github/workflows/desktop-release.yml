@@ -331,6 +331,9 @@ jobs:
             POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.DESKTOP_POSTHOG_SOURCEMAP_API_KEY }}
             POSTHOG_ENV_ID: ${{ vars.DESKTOP_POSTHOG_ENV_ID }}
             POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
+            AZURE_TENANT_ID: ${{ secrets.DESKTOP_AZURE_CODESIGN_TENANT_ID }}
+            AZURE_CLIENT_ID: ${{ secrets.DESKTOP_AZURE_CODESIGN_CLIENT_ID }}
+            AZURE_CLIENT_SECRET: ${{ secrets.DESKTOP_AZURE_CODESIGN_CLIENT_SECRET }}
         steps:
             - name: Get app token
               id: app-token
@@ -429,6 +432,13 @@ jobs:
                     }
                     echo "OK: codex-acp/$f"
                   }
+
+            # Runs unconditionally: a release with the secrets missing or
+            # misnamed must fail here, before the upload steps.
+            - name: Verify signatures
+              shell: pwsh
+              run: |
+                  & "$env:GITHUB_WORKSPACE/.github/scripts/desktop/verify-windows-signatures.ps1" -OutDir apps/code/out
 
             - name: Upload release artifacts
               shell: pwsh

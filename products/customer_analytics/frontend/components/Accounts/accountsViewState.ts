@@ -1,3 +1,8 @@
+import {
+    type AssignmentStatus,
+    isAssignmentStatus,
+} from 'lib/components/AccountAssignmentFilter/accountAssignmentFilterTypes'
+
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import { ACCOUNTS_DEFAULT_COLUMNS, AccountColumnDisplayState } from './accountsColumnConfigLogic'
@@ -5,18 +10,6 @@ import type { AccountSortOrder, RoleFilterValue } from './accountsLogic'
 import type { AccountsOverviewTile, TileFilter } from './accountsOverviewTilesLogic'
 import type { AccountFilter } from './accountsPropertyFilters'
 import { DEFAULT_TILES } from './constants'
-
-// The single canonical assignment filter state. `all` shows every account (assigned
-// and unassigned) and omits the assignment query filter; `assigned` narrows to accounts
-// with an active assignment (optionally to specific users); `unassigned` shows only
-// accounts with no assignment.
-export type AssignmentStatus = 'all' | 'assigned' | 'unassigned'
-
-export const ASSIGNMENT_STATUS_VALUES: readonly AssignmentStatus[] = ['all', 'assigned', 'unassigned']
-
-export function isAssignmentStatus(value: unknown): value is AssignmentStatus {
-    return typeof value === 'string' && (ASSIGNMENT_STATUS_VALUES as readonly string[]).includes(value)
-}
 
 export interface AccountsViewFilters {
     search: string

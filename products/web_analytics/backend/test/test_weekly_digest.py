@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
 from django.utils import timezone
@@ -109,7 +109,7 @@ class TestAutoSelectProjectForUser(ClickhouseTestMixin, APIBaseTest):
 class TestGetOverviewForTeam(ClickhouseTestMixin, APIBaseTest):
     def test_returns_overview_with_events(self):
         session_id = str(uuid7("2025-01-25"))
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
             for _ in range(3):
                 _create_pageview(self.team, distinct_id="user_1", session_id=session_id, timestamp="2025-01-25")
@@ -126,7 +126,7 @@ class TestGetOverviewForTeam(ClickhouseTestMixin, APIBaseTest):
         assert "avg_session_duration" in result
 
     def test_returns_zero_values_for_team_with_no_events(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             result = get_overview_for_team(self.team)
 
         assert result == {
@@ -140,7 +140,7 @@ class TestGetOverviewForTeam(ClickhouseTestMixin, APIBaseTest):
 
 class TestGetTopPages(ClickhouseTestMixin, APIBaseTest):
     def test_returns_pages_ordered_by_visitors(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
             _create_person(team_id=self.team.pk, distinct_ids=["user_2"])
             _create_person(team_id=self.team.pk, distinct_ids=["user_3"])
@@ -184,7 +184,7 @@ class TestGetTopPages(ClickhouseTestMixin, APIBaseTest):
         assert result[0]["change"] is None
 
     def test_includes_week_over_week_change(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["prev_user"])
             _create_pageview(
                 self.team,
@@ -215,7 +215,7 @@ class TestGetTopPages(ClickhouseTestMixin, APIBaseTest):
         assert change["text"].startswith("Up")
 
     def test_respects_limit(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
             session = str(uuid7("2025-01-25"))
             for i in range(5):
@@ -233,14 +233,14 @@ class TestGetTopPages(ClickhouseTestMixin, APIBaseTest):
         assert len(result) <= 2
 
     def test_returns_empty_for_no_events(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             result = get_top_pages(self.team)
         assert result == []
 
 
 class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
     def test_returns_sources_with_visitors(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
             session = str(uuid7("2025-01-25"))
             _create_pageview(
@@ -262,7 +262,7 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
         assert result[0]["change"] is None
 
     def test_includes_week_over_week_change(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["prev_user"])
             _create_pageview(
                 self.team,
@@ -295,7 +295,7 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
         assert change["text"].startswith("Up")
 
     def test_filters_out_empty_sources(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
             session = str(uuid7("2025-01-25"))
             _create_pageview(
@@ -312,19 +312,19 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
         assert all(r["name"] != "" for r in result)
 
     def test_returns_empty_for_no_events(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             result = get_top_sources(self.team)
         assert result == []
 
 
 class TestGetGoalsForTeam(ClickhouseTestMixin, APIBaseTest):
     def test_returns_empty_when_no_actions(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             result = get_goals_for_team(self.team)
         assert result == []
 
     def test_returns_goals_with_conversions(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             Action.objects.create(
                 team=self.team,
                 name="Signed Up",
@@ -352,7 +352,7 @@ class TestGetGoalsForTeam(ClickhouseTestMixin, APIBaseTest):
 
 class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
     def test_returns_all_expected_keys(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
             session = str(uuid7("2025-01-25"))
             _create_pageview(
@@ -371,7 +371,7 @@ class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
         assert f"/project/{self.team.pk}/web" in result["dashboard_url"]
 
     def test_works_with_no_events(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             result = build_team_digest(self.team)
 
         assert result["team"] == self.team

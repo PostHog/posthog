@@ -76,7 +76,7 @@ import {
     isTaskRunStateFrame,
 } from '../types/wireTypes'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
-import { getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
+import { extractAgentToolName, getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
 import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import { debugLogsLogic } from './debugLogsLogic'
@@ -731,13 +731,10 @@ export function parsePermissionRequestFrame(
     const rawToolName = String(toolCall.toolName ?? '')
     const input = (toolCall.rawInput ?? toolCall.input ?? {}) as Record<string, unknown>
 
-    // Canonical ACP tool name (e.g. `mcp__posthog__exec`, or a built-in like `Bash`). The wire puts
-    // it on `_meta.claudeCode.toolName`; the bare fields are the fallback. The default permission
-    // policy classifies off this — `mcp__`-prefixed vs built-in, plus the exec sub-tool.
+    // Permission policy needs the canonical MCP name to distinguish external tools from built-ins.
     const meta = toolCall._meta
     const metaRecord = typeof meta === 'object' && meta !== null ? (meta as Record<string, unknown>) : {}
-    const claudeCode = getClaudeCodeMeta(meta) ?? {}
-    const toolName = String(claudeCode.toolName ?? toolCall.toolName ?? rawToolName)
+    const toolName = extractAgentToolName(meta) ?? rawToolName
 
     // `AskUserQuestion` is routed through the permission framework by the agent (Twig): the question
     // payload rides `_meta.codeToolKind === 'question'` + `_meta.questions`. When present, this renders
@@ -972,6 +969,7 @@ function invocationFromToolCall(update: Record<string, unknown>): ToolInvocation
         rawServerName: String(update.serverName ?? 'posthog'),
         rawToolName: String(update.toolName ?? ''),
         input: (update.rawInput ?? update.input ?? {}) as Record<string, unknown>,
+        output: update.rawOutput,
         status: mapAcpStatus(update.status),
         title: update.title as string | undefined,
         kind: update.kind as string | undefined,
