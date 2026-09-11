@@ -17,7 +17,12 @@ from posthog.schema_enums import PersonsOnEventsMode
 
 _SPECIAL_CALLS = frozenset(
     {
+        "accuratecastornull",
+        "domain",
         "intdiv",
+        "multiplydecimal",
+        "convertcurrency",
+        "formatreadabletimedelta",
         "roundbankers",
         "extracturlparameter",
         "arrayzip",

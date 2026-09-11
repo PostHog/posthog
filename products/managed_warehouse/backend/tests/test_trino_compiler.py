@@ -381,6 +381,7 @@ def test_build_trino_table_locators_uses_provisioned_names_and_canonical_source_
 
     assert locators == {
         "events": ("org_catalog", "posthog", "events_production"),
+        "exchange_rate": ("org_catalog", "posthog", "exchange_rate"),
         "persons": ("org_catalog", "posthog", "persons_production"),
         "orders_model": (
             "org_catalog",
