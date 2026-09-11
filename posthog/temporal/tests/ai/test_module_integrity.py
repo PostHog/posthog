@@ -225,6 +225,7 @@ class TestAIObservabilityModuleIntegrity:
             "generate_cluster_labels_activity",
             "compute_cluster_aggregates_activity",
             "emit_cluster_events_activity",
+            "ack_eval_report_cursor_rows_activity",
             "ack_eval_report_cursors_activity",
             "fetch_due_eval_reports_activity",
             "fetch_count_triggered_eval_report_candidates_activity",
