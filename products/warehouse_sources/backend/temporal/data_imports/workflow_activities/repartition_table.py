@@ -581,13 +581,11 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     except BaseException as e:
         if not _is_native_panic(e):
             raise
-        # A panic in the native stack is a rewrite failure like any other, and has to be recorded like
-        # one. Letting it escape records nothing: the attempt is charged but never reports an outcome,
-        # so the cap is spent by attempts that look like worker deaths and the table is abandoned with
-        # `RepartitionAttemptsExhausted`, which carries none of the panic's detail. The panic is a
-        # property of the table (its delta log overflows an offset the same way on every read), so
-        # failing the activity only re-runs it on the remaining retries and delays the sync behind a
-        # rewrite that cannot finish.
+        # Letting the panic escape records nothing: the attempt is charged but reports no outcome, so
+        # the cap is spent by attempts that read as worker deaths and the table ends up abandoned with
+        # `RepartitionAttemptsExhausted`, which carries none of the panic's detail. It is a property
+        # of the table too (the same read panics the same way), so failing the activity only spends
+        # the remaining retries on it and holds the sync behind a rewrite that cannot finish.
         logger.error("repartition: the rewrite panicked inside the native delta stack", exc_info=True)
         DELTA_REPARTITION_TOTAL.labels(
             team_id=str(inputs.team_id),

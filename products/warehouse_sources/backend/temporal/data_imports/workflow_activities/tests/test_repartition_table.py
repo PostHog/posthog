@@ -713,11 +713,9 @@ class TestTransientObjectStoreFailure:
     ) -> None:
         # The rust side of the delta stack panics on tables whose log is large enough to overflow an
         # arrow offset, and pyo3 raises that as a BaseException. Escaping the activity records no
-        # outcome at all, so the attempt is charged but never reported: the cap is spent by attempts
-        # that read as worker deaths and the table ends up abandoned with an error carrying none of
-        # the panic's detail. It must be recorded as the failure it is, and it must not fail the
-        # activity — the panic repeats on every read of the same table, so the retries only delay the
-        # sync that would otherwise run on the old layout.
+        # outcome, so the attempt is charged but never reported and the table ends up abandoned with
+        # an error carrying none of the panic's detail. The panic repeats on every read of the same
+        # table, so failing the activity only delays the sync that runs fine on the old layout.
         schema = _schema(name="public.usages", s3_folder_name="usages")
         mock_schema_model.objects.select_related.return_value.get.return_value = schema
         mock_repartition.side_effect = _panic_exception("byte array offset overflow")
@@ -752,8 +750,8 @@ class TestTransientObjectStoreFailure:
         _mock_capture_event: MagicMock,
     ) -> None:
         # The panic branch must not swallow the rest of the BaseException hierarchy: a worker being
-        # torn down has to keep unwinding, or the activity reports a failure for a rewrite Temporal is
-        # about to reschedule.
+        # torn down has to keep unwinding, or a rewrite Temporal is about to reschedule is reported
+        # as a failure.
         schema = _schema(name="public.usages", s3_folder_name="usages")
         mock_schema_model.objects.select_related.return_value.get.return_value = schema
         mock_repartition.side_effect = KeyboardInterrupt()
