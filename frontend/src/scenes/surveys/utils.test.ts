@@ -41,6 +41,7 @@ import {
     transformSurveyResponseRows,
     getSurveyStartDateForQuery,
     isSimpleSurveyAudienceTargeting,
+    needsSurveysOptIn,
     sanitizeColor,
     sanitizeSurvey,
     sanitizeSurveyAppearance,
@@ -1720,6 +1721,18 @@ describe('splitChoicesOnPaste', () => {
 
     it('preserves the open-ended "Other" entry when pasting into the open-ended slot itself', () => {
         expect(splitChoicesOnPaste('two\nthree', ['one', 'Other'], 1, true)).toEqual(['one', 'two', 'three', 'Other'])
+    })
+})
+
+describe('needsSurveysOptIn', () => {
+    it.each([
+        [SurveyType.Popover, true],
+        [SurveyType.Widget, true],
+        [SurveyType.FullScreen, true],
+        [SurveyType.API, false],
+        [SurveyType.ExternalSurvey, false],
+    ])('returns %s -> %s', (surveyType, expected) => {
+        expect(needsSurveysOptIn(surveyType)).toBe(expected)
     })
 })
 

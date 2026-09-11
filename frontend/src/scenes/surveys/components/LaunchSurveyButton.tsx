@@ -5,12 +5,13 @@ import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { EnableSurveysCheckbox } from 'scenes/surveys/components/EnableSurveysCheckbox'
 import { HostedSurveyRespondentHint } from 'scenes/surveys/components/HostedSurveyRespondentHint'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyConditionsList } from 'scenes/surveys/components/SurveyConditions'
 import { getSurveyUrl } from 'scenes/surveys/CopySurveyLink'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { getSurveyDisplayConditionsSummary } from 'scenes/surveys/utils'
+import { getSurveyDisplayConditionsSummary, needsSurveysOptIn } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType, SurveyType } from '~/types'
@@ -21,7 +22,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
-    const needsOptIn = !currentTeam?.surveys_opt_in
+    const needsOptIn = !currentTeam?.surveys_opt_in && needsSurveysOptIn(survey.type)
     const isHostedSurvey = survey.type === SurveyType.ExternalSurvey
     const conditionsSummary = isHostedSurvey ? [] : getSurveyDisplayConditionsSummary(survey)
 
@@ -36,6 +37,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                 data-attr="launch-survey"
                 size="small"
                 onClick={() => {
+                    let enableSurveys = true
                     LemonDialog.open({
                         title: 'Launch this survey?',
                         content: (
@@ -62,7 +64,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                                     </div>
                                 )}
                                 {needsOptIn && (
-                                    <div className="text-xs text-muted">This will enable surveys for your project.</div>
+                                    <EnableSurveysCheckbox onChange={(enabled) => (enableSurveys = enabled)} />
                                 )}
                             </div>
                         ),
@@ -70,7 +72,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                             children: isHostedSurvey ? 'Launch and copy link' : 'Launch',
                             type: 'primary',
                             onClick: () => {
-                                if (needsOptIn) {
+                                if (needsOptIn && enableSurveys) {
                                     updateCurrentTeam({ surveys_opt_in: true })
                                 }
                                 if (isHostedSurvey) {

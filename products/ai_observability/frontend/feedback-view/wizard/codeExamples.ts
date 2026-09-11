@@ -5,11 +5,24 @@ interface CodeExampleParams {
 
 export function getReactExample({ surveyId = 'your-survey-id', followUpEnabled }: CodeExampleParams): string {
     return `// requires @posthog/react 1.7.1+ (bundled with posthog-js 1.345.1+)
+import { useEffect, useState } from 'react'
+import { usePostHog } from '@posthog/react'
 import { useThumbSurvey } from '@posthog/react/surveys'
 
 function HedgehogBotResponse({ traceId }: { traceId: string }) {
+  const posthog = usePostHog()
+  const surveyId = '${surveyId}' // ID for the survey you just created
+  const [surveyStatus, setSurveyStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading')
+
+  useEffect(() => {
+    // API surveys need an explicit fetch when project-wide surveys are disabled.
+    return posthog.onSurveysLoaded((surveys) => {
+      setSurveyStatus(surveys.some((survey) => survey.id === surveyId) ? 'ready' : 'unavailable')
+    })
+  }, [posthog, surveyId])
+
   const { respond, response${followUpEnabled ? ', triggerRef' : ''} } = useThumbSurvey({
-    surveyId: '${surveyId}', // ID for the survey you just created
+    surveyId,
     properties: {
       $ai_trace_id: traceId, // your generated trace ID
       // add any other custom properties here
@@ -22,8 +35,10 @@ function HedgehogBotResponse({ traceId }: { traceId: string }) {
 
       ${followUpEnabled ? '<div ref={triggerRef}> {/* PostHog followup pop-up anchors to triggerRef */}' : '<div>'}
         <p>Was this response helpful?</p>
-        <button className={response === 'up' ? 'active' : ''} onClick={() => respond('up')}>👍</button>
-        <button className={response === 'down' ? 'active' : ''} onClick={() => respond('down')}>👎</button>
+        <button disabled={surveyStatus !== 'ready' || response !== null} className={response === 'up' ? 'active' : ''} onClick={() => respond('up')}>👍</button>
+        <button disabled={surveyStatus !== 'ready' || response !== null} className={response === 'down' ? 'active' : ''} onClick={() => respond('down')}>👎</button>
+        {surveyStatus === 'loading' && <p>Loading feedback...</p>}
+        {surveyStatus === 'unavailable' && <p>Feedback is unavailable. Refresh the page to try again.</p>}
       </div>
 
     </div>

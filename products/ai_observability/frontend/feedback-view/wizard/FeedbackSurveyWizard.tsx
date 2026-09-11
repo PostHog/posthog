@@ -135,7 +135,6 @@ function ConfigureStep(): JSX.Element {
         nameIsDuplicate,
         disabledReason,
         createdSurveyLoading,
-        surveysNeedEnabling,
     } = useValues(feedbackSurveyWizardLogic)
     const { setStep, setSurveyName, setFollowUpEnabled, setFollowUpQuestion, updateAppearance, createSurvey } =
         useActions(feedbackSurveyWizardLogic)
@@ -278,9 +277,6 @@ function ConfigureStep(): JSX.Element {
                         Create & continue
                     </LemonButton>
                 </div>
-                {surveysNeedEnabling && (
-                    <p className="text-muted text-xs">This will also enable surveys for this project.</p>
-                )}
             </div>
         </div>
     )
