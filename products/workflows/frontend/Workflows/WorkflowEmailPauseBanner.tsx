@@ -13,6 +13,7 @@ export function WorkflowEmailPauseBanner(): JSX.Element | null {
         emailSendingPaused,
         emailSendingPausedReason,
         emailSendingPausedByStaff,
+        emailSendingPauseRequiresSupport,
         resumeEmailSendingPending,
         hasUnsavedChanges,
         workflowUserAccessLevel,
@@ -31,12 +32,14 @@ export function WorkflowEmailPauseBanner(): JSX.Element | null {
         return null
     }
 
-    if (emailSendingPausedByStaff) {
+    if (emailSendingPauseRequiresSupport) {
         return (
             <LemonBanner type="error" data-attr="workflow-email-paused-banner">
-                PostHog staff paused email sending for this workflow to protect delivery for everyone. Its other steps
-                still run. {emailSendingPausedReason} Remove old or bought addresses from the audience, then contact
-                support to get sending re-enabled.
+                {emailSendingPausedByStaff
+                    ? 'PostHog staff paused email sending for this workflow to protect delivery for everyone.'
+                    : 'Email sending for this workflow was paused again soon after it was resumed.'}{' '}
+                Its other steps still run. {emailSendingPausedReason} Remove old or bought addresses from the audience,
+                then contact support to get sending re-enabled.
             </LemonBanner>
         )
     }

@@ -402,6 +402,33 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_at is None
 
+    def test_a_repeat_pause_is_not_customer_resumable(self):
+        # Resume-polling must not keep a spammy workflow sending: a pause landing inside the repeat
+        # window of the previous resume needs staff. An old resume outside the window changes nothing.
+        self.flow.email_sending_resumed_at = self.now - timedelta(days=1)
+        self.flow.save(update_fields=["email_sending_resumed_at"])
+        self._seed(sent=400, complaints=8)
+        self._sweep()
+        self.flow.refresh_from_db()
+        assert self.flow.email_sending_paused_by == "auto"
+
+        try:
+            resume_workflow_email_sending(self.flow)
+            raise AssertionError("a repeat pause must not be customer-resumable")
+        except StaffPausedError:
+            pass
+        assert resume_workflow_email_sending(self.flow, actor=PAUSED_BY_STAFF) is True
+
+    def test_a_pause_long_after_the_last_resume_stays_customer_resumable(self):
+        self.flow.email_sending_resumed_at = self.now - timedelta(days=30)
+        self.flow.save(update_fields=["email_sending_resumed_at"])
+        self._seed(sent=400, complaints=8)
+        self._sweep()
+        self.flow.refresh_from_db()
+        assert self.flow.email_sending_paused_at is not None
+
+        assert resume_workflow_email_sending(self.flow) is True
+
     def test_resume_is_a_no_op_when_not_paused(self):
         assert resume_workflow_email_sending(self.flow) is False
         self.flow.refresh_from_db()

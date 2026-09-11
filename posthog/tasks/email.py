@@ -813,7 +813,13 @@ def send_email_sending_suspended(team_id: int, reason: str, suspended_at: str) -
 @shared_task(**EMAIL_TASK_KWARGS)
 @with_team_scope()
 def send_workflow_email_sending_paused(
-    team_id: int, hog_flow_id: str, hog_flow_name: str, reason: str, paused_at: str, resumable: bool = True
+    team_id: int,
+    hog_flow_id: str,
+    hog_flow_name: str,
+    reason: str,
+    paused_at: str,
+    resumable: bool = True,
+    staff_pause: bool = False,
 ) -> None:
     """
     Tell a project's admins that one workflow's email sending was paused automatically because its
@@ -838,6 +844,7 @@ def send_workflow_email_sending_paused(
             "hog_flow_name": workflow_label,
             "reason": reason,
             "resumable": resumable,
+            "staff_pause": staff_pause,
             "workflow_path": f"/project/{team.id}/workflows/{hog_flow_id}/workflow",
         },
     )

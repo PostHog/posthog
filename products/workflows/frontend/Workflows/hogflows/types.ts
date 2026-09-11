@@ -101,6 +101,8 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     email_sending_paused_reason?: string
     // "auto" (detector) or "staff"; a staff pause has no customer resume. Empty when not paused.
     email_sending_paused_by?: string
+    // True when only PostHog can lift the pause: staff placed it, or it re-tripped soon after a resume.
+    email_sending_pause_requires_support?: boolean
     email_sending_resumed_at?: string | null
 }
 

@@ -2295,6 +2295,11 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'Who paused it: \"auto\" for the deliverability detector, \"staff\" for PostHog staff. A staff pause can only be resumed by staff, so the resume endpoint refuses it. Empty when not paused.'
                 ),
+            email_sending_pause_requires_support: zod
+                .boolean()
+                .describe(
+                    'True when only PostHog staff can lift the current pause: staff placed it, or it landed shortly after a resume, so another self-serve resume is not offered. False when not paused or when the resume endpoint would accept the caller.'
+                ),
             email_sending_resumed_at: zod.iso
                 .datetime({ offset: true })
                 .nullable()

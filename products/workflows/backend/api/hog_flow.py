@@ -180,7 +180,11 @@ from products.workflows.backend.services.timing_reschedule import (
     get_timing_reschedule_action_ids,
 )
 from products.workflows.backend.services.wait_clock_conditions import find_clock_function
-from products.workflows.backend.services.workflow_email_health import StaffPausedError, resume_workflow_email_sending
+from products.workflows.backend.services.workflow_email_health import (
+    StaffPausedError,
+    pause_requires_staff,
+    resume_workflow_email_sending,
+)
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
@@ -2912,6 +2916,22 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "pause can only be resumed by staff, so the resume endpoint refuses it. Empty when not paused."
         ),
     )
+    email_sending_pause_requires_support = serializers.SerializerMethodField(
+        help_text=(
+            "True when only PostHog staff can lift the current pause: staff placed it, or it landed "
+            "shortly after a resume, so another self-serve resume is not offered. False when not "
+            "paused or when the resume endpoint would accept the caller."
+        ),
+    )
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_email_sending_pause_requires_support(self, hog_flow: HogFlow) -> bool:
+        return pause_requires_staff(
+            paused_at=hog_flow.email_sending_paused_at,
+            paused_by=hog_flow.email_sending_paused_by,
+            resumed_at=hog_flow.email_sending_resumed_at,
+        )
+
     email_sending_resumed_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
@@ -3040,6 +3060,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_paused_at",
             "email_sending_paused_reason",
             "email_sending_paused_by",
+            "email_sending_pause_requires_support",
             "email_sending_resumed_at",
         ]
         read_only_fields = [
@@ -3061,6 +3082,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_paused_at",
             "email_sending_paused_reason",
             "email_sending_paused_by",
+            "email_sending_pause_requires_support",
             "email_sending_resumed_at",
         ]
 
@@ -5432,7 +5454,7 @@ class HogFlowViewSet(
             resumed = resume_workflow_email_sending(hog_flow)
         except StaffPausedError:
             raise exceptions.PermissionDenied(
-                "PostHog staff paused email sending for this workflow. Contact support to get it re-enabled."
+                "This pause can only be lifted by PostHog. Contact support to get sending re-enabled."
             )
         if not resumed:
             raise exceptions.ValidationError({"detail": "Email sending is not paused for this workflow."})
