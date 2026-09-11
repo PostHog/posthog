@@ -141,6 +141,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            end_is_data_horizon=True,
             spill_to_disk=True,
         )
 

@@ -1,11 +1,10 @@
 import type { Series, TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
 
-import type { RetentionTrendPayload } from 'scenes/retention/types'
-
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 
 import type { GoalLineLike } from 'products/product_analytics/frontend/insights/trends/shared/trendsChartDisplayOptions'
 
+import type { RetentionTrendPayload } from '../types'
 import {
     buildRetentionBarChartConfig,
     buildRetentionChartModel,

@@ -34,6 +34,7 @@ usage-ingestion-proto = { path = "../usage-ingestion-proto" }
 uuid = { workspace = true }
 
 [dev-dependencies]
+metrics-util = { workspace = true }
 reqwest = { workspace = true }
 tokio-stream = { version = "0.1", features = ["net"] }
 
