@@ -1183,11 +1183,14 @@ def send_matview_failure_digest() -> None:
             latest_job_status=DataModelingJob.Status.FAILED,
             latest_job_run_at__gte=cutoff,
         )
+        # Identifiers only: a full row also detoasts six JSON columns and the error text,
+        # for every saved query in every team.
+        .values("id", "team_id")
     )
 
     failed_ids_by_team: dict[int, list[str]] = {}
     for sq in failed_queries:
-        failed_ids_by_team.setdefault(sq.team_id, []).append(str(sq.id))
+        failed_ids_by_team.setdefault(sq["team_id"], []).append(str(sq["id"]))
 
     # A suspended view runs no jobs, so its last failure ages out of the 24h window above.
     suspended_ids_by_team = suspended_saved_query_ids_by_team(DataModelingJobEngine.CLICKHOUSE)

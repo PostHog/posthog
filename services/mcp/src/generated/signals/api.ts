@@ -1463,6 +1463,22 @@ export const signalsScoutEditReportBodyChartsItemCaptionMax = 500
 
 export const signalsScoutEditReportBodyChartsMax = 20
 
+export const signalsScoutEditReportBodyMetricsItemMetricIdMax = 100
+
+export const signalsScoutEditReportBodyMetricsItemTitleMax = 200
+
+export const signalsScoutEditReportBodyMetricsItemRoleDefault = `supporting`
+export const signalsScoutEditReportBodyMetricsItemSeriesMax = 14
+
+export const signalsScoutEditReportBodyMetricsItemValueFormatDefault = `number`
+export const signalsScoutEditReportBodyMetricsItemUnitMax = 40
+
+export const signalsScoutEditReportBodyMetricsItemCaptionMax = 500
+
+export const signalsScoutEditReportBodyMetricsItemComparisonOneLabelMax = 40
+
+export const signalsScoutEditReportBodyMetricsMax = 6
+
 export const signalsScoutEditReportBodySuggestedPromptsItemMax = 200
 
 export const signalsScoutEditReportBodySuggestedPromptsMax = 3
@@ -1591,6 +1607,110 @@ export const SignalsScoutEditReportBody = () => zod
             .describe(
                 "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down."
             ),
+        metrics: zod
+            .array(
+                zod
+                    .object({
+                        metric_id: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyMetricsItemMetricIdMax)
+                            .describe(
+                                'Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.'
+                            ),
+                        title: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyMetricsItemTitleMax)
+                            .describe('Short human-readable label for the measurement.'),
+                        kind: zod
+                            .enum([
+                                'affected_users',
+                                'affected_sessions',
+                                'occurrences',
+                                'conversion_rate',
+                                'error_rate',
+                                'duration',
+                                'revenue',
+                                'custom',
+                            ])
+                            .describe(
+                                '\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
+                            )
+                            .describe(
+                                'What the value measures, independent of how it is formatted or drawn.\n\n\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
+                            ),
+                        role: zod
+                            .enum(['primary', 'supporting'])
+                            .describe('\* `primary` - primary\n\* `supporting` - supporting')
+                            .default(signalsScoutEditReportBodyMetricsItemRoleDefault)
+                            .describe(
+                                "`primary` for the report's key observation, otherwise `supporting`.\n\n\* `primary` - primary\n\* `supporting` - supporting"
+                            ),
+                        value: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.'
+                            ),
+                        value_at: zod.iso
+                            .datetime({ offset: true })
+                            .nullish()
+                            .describe('When the visible snapshot value was measured; null when value is null.'),
+                        series: zod
+                            .array(zod.number())
+                            .max(signalsScoutEditReportBodyMetricsItemSeriesMax)
+                            .nullish()
+                            .describe(
+                                'Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.'
+                            ),
+                        value_format: zod
+                            .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
+                            .describe(
+                                '\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
+                            )
+                            .default(signalsScoutEditReportBodyMetricsItemValueFormatDefault)
+                            .describe(
+                                'How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms\/s unit; revenue uses currency with an ISO currency unit.\n\n\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
+                            ),
+                        unit: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyMetricsItemUnitMax)
+                            .nullish()
+                            .describe('Optional short suffix or currency code, such as `users`, `ms`, or `USD`.'),
+                        query: zod
+                            .unknown()
+                            .describe(
+                                'Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition.'
+                            ),
+                        caption: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyMetricsItemCaptionMax)
+                            .nullish()
+                            .describe(
+                                'Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.'
+                            ),
+                        comparison: zod
+                            .union([
+                                zod.object({
+                                    value: zod
+                                        .number()
+                                        .describe('Baseline or previous value, formatted like the current value.'),
+                                    label: zod
+                                        .string()
+                                        .max(signalsScoutEditReportBodyMetricsItemComparisonOneLabelMax)
+                                        .describe('Short context for the comparison, such as `Previous period`.'),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Legacy optional comparison. New report metrics must omit it.'),
+                    })
+                    .describe('Authoring shape: unlike a read response, the live query cannot be absent or redacted.')
+            )
+            .max(signalsScoutEditReportBodyMetricsMax)
+            .nullish()
+            .describe(
+                "The report's full impact-metric set. Omit or send null to preserve it; send an empty list to clear it. Every metric requires a bounded live InsightVizNode\/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes; a snapshot is only an optional cached fallback. Snapshot-only\/queryless payloads are invalid, and legacy rows of that shape are always redacted."
+            ),
         suggested_prompts: zod
             .array(zod.string().max(signalsScoutEditReportBodySuggestedPromptsItemMax))
             .max(signalsScoutEditReportBodySuggestedPromptsMax)
@@ -1660,6 +1780,22 @@ export const signalsScoutEmitReportBodyChartsItemTitleMax = 200
 export const signalsScoutEmitReportBodyChartsItemCaptionMax = 500
 
 export const signalsScoutEmitReportBodyChartsMax = 20
+
+export const signalsScoutEmitReportBodyMetricsItemMetricIdMax = 100
+
+export const signalsScoutEmitReportBodyMetricsItemTitleMax = 200
+
+export const signalsScoutEmitReportBodyMetricsItemRoleDefault = `supporting`
+export const signalsScoutEmitReportBodyMetricsItemSeriesMax = 14
+
+export const signalsScoutEmitReportBodyMetricsItemValueFormatDefault = `number`
+export const signalsScoutEmitReportBodyMetricsItemUnitMax = 40
+
+export const signalsScoutEmitReportBodyMetricsItemCaptionMax = 500
+
+export const signalsScoutEmitReportBodyMetricsItemComparisonOneLabelMax = 40
+
+export const signalsScoutEmitReportBodyMetricsMax = 6
 
 export const signalsScoutEmitReportBodySuggestedPromptsItemMax = 200
 
@@ -1816,6 +1952,110 @@ export const SignalsScoutEmitReportBody = () => zod
             .optional()
             .describe(
                 'Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.'
+            ),
+        metrics: zod
+            .array(
+                zod
+                    .object({
+                        metric_id: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyMetricsItemMetricIdMax)
+                            .describe(
+                                'Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.'
+                            ),
+                        title: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyMetricsItemTitleMax)
+                            .describe('Short human-readable label for the measurement.'),
+                        kind: zod
+                            .enum([
+                                'affected_users',
+                                'affected_sessions',
+                                'occurrences',
+                                'conversion_rate',
+                                'error_rate',
+                                'duration',
+                                'revenue',
+                                'custom',
+                            ])
+                            .describe(
+                                '\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
+                            )
+                            .describe(
+                                'What the value measures, independent of how it is formatted or drawn.\n\n\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
+                            ),
+                        role: zod
+                            .enum(['primary', 'supporting'])
+                            .describe('\* `primary` - primary\n\* `supporting` - supporting')
+                            .default(signalsScoutEmitReportBodyMetricsItemRoleDefault)
+                            .describe(
+                                "`primary` for the report's key observation, otherwise `supporting`.\n\n\* `primary` - primary\n\* `supporting` - supporting"
+                            ),
+                        value: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.'
+                            ),
+                        value_at: zod.iso
+                            .datetime({ offset: true })
+                            .nullish()
+                            .describe('When the visible snapshot value was measured; null when value is null.'),
+                        series: zod
+                            .array(zod.number())
+                            .max(signalsScoutEmitReportBodyMetricsItemSeriesMax)
+                            .nullish()
+                            .describe(
+                                'Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.'
+                            ),
+                        value_format: zod
+                            .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
+                            .describe(
+                                '\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
+                            )
+                            .default(signalsScoutEmitReportBodyMetricsItemValueFormatDefault)
+                            .describe(
+                                'How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms\/s unit; revenue uses currency with an ISO currency unit.\n\n\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
+                            ),
+                        unit: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyMetricsItemUnitMax)
+                            .nullish()
+                            .describe('Optional short suffix or currency code, such as `users`, `ms`, or `USD`.'),
+                        query: zod
+                            .unknown()
+                            .describe(
+                                'Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition.'
+                            ),
+                        caption: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyMetricsItemCaptionMax)
+                            .nullish()
+                            .describe(
+                                'Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.'
+                            ),
+                        comparison: zod
+                            .union([
+                                zod.object({
+                                    value: zod
+                                        .number()
+                                        .describe('Baseline or previous value, formatted like the current value.'),
+                                    label: zod
+                                        .string()
+                                        .max(signalsScoutEmitReportBodyMetricsItemComparisonOneLabelMax)
+                                        .describe('Short context for the comparison, such as `Previous period`.'),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Legacy optional comparison. New report metrics must omit it.'),
+                    })
+                    .describe('Authoring shape: unlike a read response, the live query cannot be absent or redacted.')
+            )
+            .max(signalsScoutEmitReportBodyMetricsMax)
+            .optional()
+            .describe(
+                'Optional typed impact measurements. Use one primary metric for the key observation and supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every metric requires a bounded live InsightVizNode\/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes. A value\/value_at snapshot is an optional cached fallback. Affected users must use one series with `math: dau`. Snapshot-only\/queryless payloads are invalid; legacy rows of that shape are always redacted.'
             ),
         suggested_prompts: zod
             .array(zod.string().max(signalsScoutEmitReportBodySuggestedPromptsItemMax))

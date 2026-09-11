@@ -209,10 +209,6 @@ const STATUS_SKIPPED_CONFLICT: &str = "skipped_conflict";
 const ROLE_TARGET: &str = "target";
 const ROLE_SOURCE: &str = "source";
 
-/// Cap on concurrent leader RPCs per fan-out (fence, release): a bulk
-/// merge must not burst the router with one in-flight call per source.
-const LEADER_CALL_CONCURRENCY: usize = 8;
-
 const STEPS_TOTAL: &str = "personhog_lifecycle_merge_steps_total";
 const OUTCOMES_TOTAL: &str = "personhog_lifecycle_merge_outcomes_total";
 /// Pre-flip aborts by refusal slug.
@@ -320,12 +316,22 @@ struct SealedSnapshot {
 pub struct MergeDriver {
     leader: Arc<dyn LifecycleLeader>,
     tables: IdentityTables,
+    leader_call_concurrency: usize,
 }
 
 impl MergeDriver {
-    pub fn new(leader: Arc<dyn LifecycleLeader>, tables: IdentityTables) -> Self {
+    pub fn new(
+        leader: Arc<dyn LifecycleLeader>,
+        tables: IdentityTables,
+        leader_call_concurrency: usize,
+    ) -> Self {
         tables.validate().expect("invalid identity table set");
-        Self { leader, tables }
+        Self {
+            leader,
+            tables,
+            // Clamped to 1: a zero-width buffered stream never polls.
+            leader_call_concurrency: leader_call_concurrency.max(1),
+        }
     }
 }
 
@@ -991,7 +997,7 @@ impl MergeDriver {
             })
             .collect();
         let fence_results: Vec<_> = stream::iter(fence_calls)
-            .buffer_unordered(LEADER_CALL_CONCURRENCY)
+            .buffer_unordered(self.leader_call_concurrency)
             .collect()
             .await;
         for (person_id, result) in fence_results {
@@ -1247,7 +1253,7 @@ impl MergeDriver {
             })
             .collect();
         let results: Vec<_> = stream::iter(calls)
-            .buffer_unordered(LEADER_CALL_CONCURRENCY)
+            .buffer_unordered(self.leader_call_concurrency)
             .collect()
             .await;
         for result in results {
@@ -1850,7 +1856,7 @@ impl MergeDriver {
             })
             .collect();
         let release_results: Vec<_> = stream::iter(release_calls)
-            .buffer_unordered(LEADER_CALL_CONCURRENCY)
+            .buffer_unordered(self.leader_call_concurrency)
             .collect()
             .await;
         for (_, result) in release_results {
