@@ -18,10 +18,6 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
 
-# More hops than this to reach a real table means a resolver bug or a cycle, so give up rather
-# than loop.
-_MAX_COLUMN_HOPS = 32
-
 # Join types whose ``ON`` condition constrains both sides, so a term in it prunes the read the same
 # way a ``where`` term does. An outer join keeps the rows that fail the condition and an anti join
 # keeps only those, so neither prunes. A cross-shard join carries a ``GLOBAL`` prefix and prunes
@@ -110,12 +106,13 @@ def resolve_to_table_columns(type_: ast.Type | None) -> list[tuple[ast.TableType
     than one table.
     """
     resolved: list[tuple[ast.TableType, str]] = []
-    pending: list[tuple[ast.Type | None, int]] = [(type_, 0)]
+    pending: list[ast.Type | None] = [type_]
+    # A type reached twice is a cycle from a resolver bug, so each is visited once.
     seen: set[int] = set()
 
     while pending:
-        current, hops = pending.pop()
-        if hops >= _MAX_COLUMN_HOPS or id(current) in seen:
+        current = pending.pop()
+        if id(current) in seen:
             continue
         seen.add(id(current))
         while isinstance(current, ast.FieldAliasType):
@@ -129,7 +126,7 @@ def resolve_to_table_columns(type_: ast.Type | None) -> list[tuple[ast.TableType
         select_type = _select_type_of(table_type)
         if select_type is None:
             continue
-        pending.extend((column, hops + 1) for column in _exported_columns(select_type, current.name))
+        pending.extend(_exported_columns(select_type, current.name))
 
     return resolved
 

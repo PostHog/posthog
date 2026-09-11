@@ -23,7 +23,7 @@ _IN_SUBQUERY_OPS = frozenset(
 )
 
 
-def _TRUE() -> ast.Constant:
+def _always_true() -> ast.Constant:
     return ast.Constant(value=1, type=ast.IntegerType(nullable=False))
 
 
@@ -62,7 +62,7 @@ class _StubVisitor(CloningVisitor):
         right = _in_subquery_right(node)
         if right is not None:
             self.subqueries.append(right)
-            return _TRUE()
+            return _always_true()
         return super().visit_compare_operation(node)
 
     def visit_not(self, node: ast.Not) -> ast.Expr:
@@ -71,7 +71,7 @@ class _StubVisitor(CloningVisitor):
         right = _in_subquery_right(node.expr)
         if right is not None:
             self.subqueries.append(right)
-            return _TRUE()
+            return _always_true()
         return super().visit_not(node)
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
@@ -80,5 +80,5 @@ class _StubVisitor(CloningVisitor):
             right = _in_subquery_right(node.args[0])
             if right is not None:
                 self.subqueries.append(right)
-                return _TRUE()
+                return _always_true()
         return super().visit_call(node)

@@ -38,6 +38,7 @@ def analyze_query_scan(
     killed: bool = False,
     error_type: str | None = None,
     all_time: bool = False,
+    all_history_by_design: bool = False,
 ) -> None:
     team = Team.objects.select_related("organization").filter(pk=team_id).first()
     if team is None:
@@ -58,6 +59,7 @@ def analyze_query_scan(
                 killed=killed,
                 error_type=error_type,
                 all_time=all_time,
+                all_history_by_design=all_history_by_design,
             )
         )
     except SoftTimeLimitExceeded:

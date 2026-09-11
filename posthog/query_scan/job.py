@@ -7,7 +7,7 @@ the result in the scan slot. It runs EXPLAINs only, on the offline pool.
 from __future__ import annotations
 
 from time import perf_counter
-from typing import Any
+from typing import Any, get_args
 
 import structlog
 from celery.exceptions import SoftTimeLimitExceeded
@@ -23,9 +23,13 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.query_scan.analyze import PlanSet, QueryScanResult, analyze
-from posthog.query_scan.checks.event_filter import EventFilterOutcome, combine_event_filter
+from posthog.query_scan.event_filter import (
+    EventFilterClass,
+    EventFilterOutcome,
+    EventFilterReason,
+    combine_event_filter,
+)
 from posthog.query_scan.explain import QueryPlan, TimestampBounds, parse_query_plan
-from posthog.query_scan.findings import ScanThresholds
 from posthog.query_scan.flag import get_query_scan_flag
 from posthog.query_scan.slot import QueryScanSlot, set_done
 
@@ -38,9 +42,9 @@ TABLE_AVERAGES_MAX_SECONDS = 5
 _ROW_AVERAGE_TABLES = ("sharded_events", "person", "person_distinct_id2", "person_distinct_id_overrides")
 
 # The tree verdict the trigger ships per execution. A payload outside these leaves the event filter
-# to the plan alone, the same as an older payload that carried no verdict.
-_EVENT_FILTER_CLASSES = ("usable", "not_used", "none")
-_EVENT_FILTER_REASONS = ("in_or", "wrapped", "negated", "dynamic", "not_pruned")
+# to the plan alone, the same as a payload that carried no verdict.
+_EVENT_FILTER_CLASSES = get_args(EventFilterClass)
+_EVENT_FILTER_REASONS = get_args(EventFilterReason)
 
 
 @frozen
@@ -49,7 +53,6 @@ class Execution:
     verdict the trigger classified, or None when it shipped nothing.
     """
 
-    sql: str
     stubbed_sql: str
     subqueries: tuple[str, ...]
     values: dict[str, Any]
@@ -59,7 +62,6 @@ class Execution:
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> Execution:
         return cls(
-            sql=payload["sql"],
             stubbed_sql=payload["stubbed_sql"],
             subqueries=tuple(payload.get("subqueries") or ()),
             values=payload.get("values") or {},
@@ -85,19 +87,7 @@ class QueryScanJob:
     killed: bool = False
     error_type: str | None = None
     all_time: bool = False
-
-
-@frozen(eq=False)
-class _Merged:
-    """The one slot the job writes from the several executions it analyzed."""
-
-    findings: list[QueryScanWarning]
-    explain_ok: bool
-    range_share: float | None
-    project_share: float | None
-
-    def finding_kinds(self) -> list[str]:
-        return [str(finding.kind) for finding in self.findings]
+    all_history_by_design: bool = False
 
 
 def run_query_scan(job: QueryScanJob) -> None:
@@ -118,7 +108,6 @@ def _run(job: QueryScanJob, started: float) -> None:
     if flag is None:
         # The flag went off between the enqueue and now. Leave the pending slot to expire.
         return
-    thresholds = ScanThresholds(event_ratio=flag.event_ratio, persons_ratio=flag.persons_ratio)
 
     # Read once per run: the average is a table-wide property, the same for every execution.
     table_row_averages = _table_row_averages(job.team.pk)
@@ -131,20 +120,21 @@ def _run(job: QueryScanJob, started: float) -> None:
 
     results: list[QueryScanResult] = []
     for execution in job.executions:
-        outer = _outer_plan(execution, job.team.pk)
+        outer = _plan(execution.stubbed_sql, execution.values, job.team.pk)
         subqueries = tuple(
             plan
-            for plan in (_subquery_plan(sql, execution.values, job.team.pk) for sql in execution.subqueries)
+            for plan in (_plan(sql, execution.values, job.team.pk) for sql in execution.subqueries)
             if plan is not None
         )
         range_granules = _range_granules(job.team.pk, outer, team_granules, range_cache)
         results.append(
             analyze(
                 PlanSet(outer=outer, subqueries=subqueries, team_granules=team_granules, range_granules=range_granules),
-                thresholds,
+                flag,
                 query_kind=job.query_kind or "",
                 open_filters_placeholder=job.open_filters_placeholder,
                 all_time=job.all_time,
+                all_history_by_design=job.all_history_by_design,
                 event_filter=_combined_event_filter(execution, outer),
                 table_row_averages=table_row_averages,
             )
@@ -166,19 +156,13 @@ def _run(job: QueryScanJob, started: float) -> None:
     _report(job, merged, flag_event_ratio=flag.event_ratio, job_ms=round((perf_counter() - started) * 1000))
 
 
-def _outer_plan(execution: Execution, team_id: int) -> QueryPlan | None:
-    """The plan for the run's outer query, from the stubbed SQL. A rows cap cannot guard the exact SQL,
-    because ClickHouse checks it against the planned read's own estimate. None when EXPLAIN failed.
+def _plan(sql: str, values: dict[str, Any], team_id: int) -> QueryPlan | None:
+    """The plan for one stubbed query, or None when its EXPLAIN did not return one.
+
+    Only stubbed SQL reaches EXPLAIN, because it runs every IN subquery it is given. A rows cap
+    cannot guard the exact SQL, since ClickHouse checks it against the planned read's own estimate.
     """
-    rows, _ = _explain(execution.stubbed_sql, execution.values, team_id)
-    if rows is None:
-        return None
-    return parse_query_plan(rows[0][0])
-
-
-def _subquery_plan(sql: str, values: dict[str, Any], team_id: int) -> QueryPlan | None:
-    """The plan for one stubbed subquery, or None when its EXPLAIN did not return a plan."""
-    rows, _ = _explain(sql, values, team_id)
+    rows = _explain(sql, values, team_id)
     if rows is None:
         return None
     return parse_query_plan(rows[0][0])
@@ -192,7 +176,7 @@ def _combined_event_filter(execution: Execution, outer: QueryPlan | None) -> Eve
     if not payload:
         return None
     classification = payload.get("classification")
-    if classification not in _EVENT_FILTER_CLASSES:
+    if classification is None or classification not in _EVENT_FILTER_CLASSES:
         return None
     reason = payload.get("reason")
     outcome = EventFilterOutcome(
@@ -211,7 +195,7 @@ def _range_granules(
     """The team's granules over the run's date range, cached per distinct bounds. With no bound the
     range is all time, so it equals the team denominator.
     """
-    events_read = outer.events_read() if outer is not None else None
+    events_read = outer.heaviest_events_read() if outer is not None else None
     bounds = events_read.timestamp_bounds() if events_read is not None else TimestampBounds(lower=None, upper=None)
     if bounds.lower is None and bounds.upper is None:
         return team_granules
@@ -221,7 +205,7 @@ def _range_granules(
     return cache[key]
 
 
-def _explain_range(team_id: int, bounds: TimestampBounds) -> tuple[list[Any] | None, bool]:
+def _explain_range(team_id: int, bounds: TimestampBounds) -> list[Any] | None:
     conditions = ["team_id = %(scan_team_id)s"]
     values: dict[str, Any] = {"scan_team_id": team_id}
     if bounds.lower is not None:
@@ -235,11 +219,10 @@ def _explain_range(team_id: int, bounds: TimestampBounds) -> tuple[list[Any] | N
     return _explain("SELECT uuid FROM events WHERE " + " AND ".join(conditions), values, team_id)
 
 
-def _denominator_granules(explained: tuple[list[Any] | None, bool]) -> int | None:
-    rows, _ = explained
+def _denominator_granules(rows: list[Any] | None) -> int | None:
     if rows is None:
         return None
-    events_read = parse_query_plan(rows[0][0]).events_read()
+    events_read = parse_query_plan(rows[0][0]).heaviest_events_read()
     return events_read.selected_granules() if events_read is not None else None
 
 
@@ -265,10 +248,8 @@ def _table_row_averages(team_id: int) -> dict[str, float]:
     return {table: float(average) for table, average in rows if average is not None and float(average) > 0}
 
 
-def _explain(sql: str, values: dict[str, Any], team_id: int) -> tuple[list[Any] | None, bool]:
-    """EXPLAIN on the offline pool. Returns the rows, None on any failure, which fails the analysis
-    closed, and False.
-    """
+def _explain(sql: str, values: dict[str, Any], team_id: int) -> list[Any] | None:
+    """EXPLAIN on the offline pool. None on any failure, which fails that plan closed."""
     try:
         with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.QUERY_SCAN):
             # nosemgrep: clickhouse-fstring-param-audit - sql is compiled from the HogQL AST by the printer, and its values stay parameterized
@@ -280,17 +261,17 @@ def _explain(sql: str, values: dict[str, Any], team_id: int) -> tuple[list[Any] 
                 team_id=team_id,
                 readonly=True,
             )
-        return rows, False
+        return rows
     except SoftTimeLimitExceeded:
         # Never swallow the task's timeout as an explain failure; the task leaves the slot pending.
         raise
     except Exception:
         logger.warning("query_scan_explain_failed", team_id=team_id, exc_info=True)
-        return None, False
+        return None
 
 
-def _merge(results: list[QueryScanResult], executions: tuple[Execution, ...]) -> _Merged:
-    """One slot from the executions the job analyzed: findings deduplicated by kind and reason, and
+def _merge(results: list[QueryScanResult], executions: tuple[Execution, ...]) -> QueryScanResult:
+    """One result from the executions the job analyzed: findings deduplicated by kind and reason, and
     the shares from the execution that read the most rows."""
     findings: list[QueryScanWarning] = []
     seen: set[tuple[str, str]] = set()
@@ -302,7 +283,7 @@ def _merge(results: list[QueryScanResult], executions: tuple[Execution, ...]) ->
                 findings.append(finding)
 
     heaviest = _heaviest_result(results, executions)
-    return _Merged(
+    return QueryScanResult(
         findings=findings,
         explain_ok=any(result.explain_ok for result in results),
         range_share=heaviest.range_share if heaviest is not None else None,
@@ -316,7 +297,7 @@ def _heaviest_result(results: list[QueryScanResult], executions: tuple[Execution
     return max(zip(results, executions), key=lambda pair: pair[1].rows_read)[0]
 
 
-def _report(job: QueryScanJob, merged: _Merged, *, flag_event_ratio: float, job_ms: int) -> None:
+def _report(job: QueryScanJob, merged: QueryScanResult, *, flag_event_ratio: float, job_ms: int) -> None:
     """Send `query scan analyzed`, findings or not: a run with no findings is what says which check to
     write next.
     """

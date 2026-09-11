@@ -50437,6 +50437,10 @@
             "additionalProperties": false,
             "description": "The stored analysis of one query, from `GET /query/scan/{cache_key}`.",
             "properties": {
+                "assistant_prompt": {
+                    "description": "The message the Fix with AI button sends to the assistant. Absent until the status is `done`, and when no finding can be fixed in the query.",
+                    "type": "string"
+                },
                 "killed": {
                     "type": "boolean"
                 },
@@ -50469,6 +50473,10 @@
             "additionalProperties": false,
             "description": "What a query cost and where its analysis stands. Only on responses to a signed-in user of a flagged team.",
             "properties": {
+                "assistant_prompt": {
+                    "description": "The message the Fix with AI button sends to the assistant. Set once the analysis is done and a finding can be fixed in the query.",
+                    "type": "string"
+                },
                 "duration_ms": {
                     "$ref": "#/definitions/integer",
                     "description": "ClickHouse time for the last fresh run, summed over its ClickHouse queries."

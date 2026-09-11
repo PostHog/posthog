@@ -2,23 +2,34 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.schema import QueryScanFindingReason, QueryScanMode
+
 from posthog.query_scan.analyze import PlanSet, QueryScanResult, analyze
-from posthog.query_scan.checks.event_filter import EventFilterOutcome
+from posthog.query_scan.event_filter import EventFilterOutcome
 from posthog.query_scan.explain import QueryPlan, parse_query_plan
-from posthog.query_scan.findings import FindingReason, ScanThresholds
-from posthog.query_scan.test.test_explain import load_plan
+from posthog.query_scan.flag import QueryScanFlag
+from posthog.query_scan.test.test_explain import events_read_node, load_plan
+
+_USABLE_EVENT_FILTER = EventFilterOutcome(classification="usable")
+_END_DATE_ONLY = "(timestamp in (-Inf, 1800000000])"
+# A start and an end date, in the two-clause form ClickHouse prints them in.
+_BOTH_BOUNDS = "and((timestamp in (-Inf, 1800000000]), (timestamp in [1700000000, +Inf)))"
 
 
 def plan(name: str) -> QueryPlan:
     return parse_query_plan(load_plan(name))
 
 
-def kinds(result: QueryScanResult) -> list[str]:
-    return [str(finding.kind) for finding in result.findings]
+def single_read_plan(condition: str) -> QueryPlan:
+    return parse_query_plan([{"Plan": events_read_node(condition, ["timestamp"] if condition != "true" else [])}])
+
+
+def join_plan(*reads: dict[str, object]) -> QueryPlan:
+    return parse_query_plan([{"Plan": {"Node Type": "Join", "Plans": list(reads)}}])
 
 
 def analyze_fixture(
-    outer: str,
+    outer: str | QueryPlan,
     *,
     subqueries: tuple[str, ...] = (),
     team_granules: int | None = None,
@@ -29,20 +40,22 @@ def analyze_fixture(
     event_filter: EventFilterOutcome | None = None,
     table_row_averages: dict[str, float] | None = None,
     all_time: bool = False,
+    all_history_by_design: bool = False,
 ) -> QueryScanResult:
     return analyze(
         PlanSet(
-            outer=plan(outer),
+            outer=plan(outer) if isinstance(outer, str) else outer,
             subqueries=tuple(plan(name) for name in subqueries),
             team_granules=team_granules,
             range_granules=range_granules,
         ),
-        ScanThresholds(persons_ratio=persons_ratio),
+        QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=persons_ratio),
         query_kind=query_kind,
         open_filters_placeholder=open_filters_placeholder,
         event_filter=event_filter,
         table_row_averages=table_row_averages,
         all_time=all_time,
+        all_history_by_design=all_history_by_design,
     )
 
 
@@ -61,6 +74,31 @@ class TestAnalyze(SimpleTestCase):
             ("event filter in the key stays quiet", "plan_event_filter_used", {}, []),
             ("event filter inside an OR still used", "plan_event_filter_in_or", {}, []),
             ("no date bound is flagged", "plan_no_date_bound", {}, ["no_start_date"]),
+            # A date range with a start and an end is bounded, whatever order ClickHouse lists the two
+            # clauses in; an end date on its own leaves the start open.
+            (
+                "a start and an end date are bounded",
+                single_read_plan(_BOTH_BOUNDS),
+                {"event_filter": _USABLE_EVENT_FILTER},
+                [],
+            ),
+            (
+                "an end date alone is no start date",
+                single_read_plan(_END_DATE_ONLY),
+                {"event_filter": _USABLE_EVENT_FILTER},
+                ["no_start_date"],
+            ),
+            # A join reads the events table twice; the small unbounded read is the one to flag even
+            # though the bounded read is the larger one and the one the shares are taken from.
+            (
+                "any events read with no start date is flagged",
+                join_plan(
+                    events_read_node(_BOTH_BOUNDS, ["timestamp"], selected_granules=5000),
+                    events_read_node("true", [], selected_granules=10),
+                ),
+                {"event_filter": _USABLE_EVENT_FILTER},
+                ["no_start_date"],
+            ),
             # An "All time" insight runs with a bound at the project's first event, so the plan alone
             # would stay quiet; the setting is what says no start date was chosen.
             (
@@ -68,6 +106,14 @@ class TestAnalyze(SimpleTestCase):
                 "plan_event_filter_used",
                 {"query_kind": "TrendsQuery", "all_time": True},
                 ["no_start_date"],
+            ),
+            # First-time math has to read from the first event whatever the date range, so the
+            # advice to set one could not be followed.
+            (
+                "an insight that reads all history by design gets no start-date advice",
+                "plan_no_date_bound",
+                {"query_kind": "TrendsQuery", "all_history_by_design": True},
+                [],
             ),
             # persons gate: the persons read dwarfs the events read
             ("persons join over the ratio", "plan_persons_join", {}, ["persons_join"]),
@@ -106,17 +152,17 @@ class TestAnalyze(SimpleTestCase):
         ]
     )
     def test_findings_per_gate(
-        self, _name: str, outer: str, kwargs: dict[str, object], expected_kinds: list[str]
+        self, _name: str, outer: str | QueryPlan, kwargs: dict[str, object], expected_kinds: list[str]
     ) -> None:
         result = analyze_fixture(outer, **kwargs)  # type: ignore[arg-type]
 
         self.assertTrue(result.explain_ok)
-        self.assertEqual(kinds(result), expected_kinds)
+        self.assertEqual(result.finding_kinds(), expected_kinds)
 
     def test_no_outer_plan_fails_closed(self) -> None:
         result = analyze(
             PlanSet(outer=None),
-            ScanThresholds(),
+            QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
             query_kind="HogQLQuery",
             open_filters_placeholder=False,
         )
@@ -127,13 +173,13 @@ class TestAnalyze(SimpleTestCase):
     def test_open_filters_placeholder_sets_the_filters_reason(self) -> None:
         result = analyze_fixture("plan_no_date_bound", open_filters_placeholder=True)
 
-        self.assertEqual([finding.reason for finding in result.findings], [FindingReason.FILTERS])
+        self.assertEqual([finding.reason for finding in result.findings], [QueryScanFindingReason.FILTERS])
         self.assertIn("No date range is set on this insight or dashboard", result.findings[0].message)
 
     def test_insight_kind_uses_the_insight_wording(self) -> None:
         result = analyze_fixture("plan_no_date_bound", query_kind="TrendsQuery")
 
-        self.assertEqual(kinds(result), ["no_start_date"])
+        self.assertEqual(result.finding_kinds(), ["no_start_date"])
         self.assertIsNone(result.findings[0].reason)
         self.assertIn("This insight has no start date", result.findings[0].message)
 
@@ -146,8 +192,8 @@ class TestAnalyze(SimpleTestCase):
             event_filter=EventFilterOutcome(classification="not_used", reason="negated"),
         )
 
-        self.assertEqual(kinds(result), ["no_event_filter"])
-        self.assertEqual(result.findings[0].reason, FindingReason.NEGATED)
+        self.assertEqual(result.finding_kinds(), ["no_event_filter"])
+        self.assertEqual(result.findings[0].reason, QueryScanFindingReason.NEGATED)
         self.assertIn("only excludes events", result.findings[0].message)
 
     def test_shares_are_the_read_over_the_denominators(self) -> None:

@@ -38,19 +38,27 @@ describe('QueryScanBanner', () => {
     afterEach(() => cleanup())
 
     it.each([
-        { label: 'nothing to advise', findings: [], advice: null, fixer: false },
-        { label: 'a finding the assistant can fix', findings: [FINDING], advice: FINDING.message, fixer: true },
+        { label: 'nothing to advise', findings: [], assistantPrompt: null, advice: null, fixer: false },
+        {
+            label: 'a finding the assistant can fix',
+            findings: [FINDING],
+            assistantPrompt: 'Help me get what this query is trying to find, as fast as possible.',
+            advice: FINDING.message,
+            fixer: true,
+        },
+        // The backend sends no prompt for a finding fixed on the insight, so there is nothing to hand the assistant.
         {
             label: 'a finding fixed on the insight',
             findings: [INSIGHT_SIDE_FINDING],
+            assistantPrompt: null,
             advice: INSIGHT_SIDE_FINDING.message,
             fixer: false,
         },
-    ])('keeps the stat line and shows $label', ({ findings, advice, fixer }) => {
+    ])('keeps the stat line and shows $label', ({ findings, assistantPrompt, advice, fixer }) => {
         render(
             <Provider>
                 <QueryScanBanner
-                    queryScan={{ summary: SUMMARY, findings, cacheKey: 'cache-key' }}
+                    queryScan={{ summary: SUMMARY, findings, cacheKey: 'cache-key', assistantPrompt }}
                     onFixWithAI={jest.fn()}
                 />
             </Provider>

@@ -171,8 +171,7 @@ from posthog.query_scan.flag import QueryScanFlag, get_query_scan_flag
 from posthog.query_scan.serve import attach_scan_slot
 from posthog.query_scan.slot import get as get_query_scan_slot
 from posthog.query_scan.trigger import (
-    FLAG_OFF as QUERY_SCAN_FLAG_OFF,
-    NO_PRINCIPAL as QUERY_SCAN_NO_PRINCIPAL,
+    SkipReason as QueryScanSkipReason,
     is_analyzable_principal,
     maybe_trigger_query_scan,
 )
@@ -2531,12 +2530,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             # Stored with the results, so a cache hit carries the numbers of the run that produced
             # them. Guarded like `warnings` above.
-            scan = QUERY_SCAN_FLAG_OFF
+            scan_skip: QueryScanSkipReason | None = "flag_off"
             if query_scan_flag is not None and query_stats is not None and "query_scan" in CachedResponse.model_fields:
                 if not is_analyzable_principal(user):
                     # The summary describes the project's data volume, which a shared-link viewer
                     # reads from outside the project, so it stays off their response.
-                    scan = QUERY_SCAN_NO_PRINCIPAL
+                    scan_skip = "no_principal"
+                elif query_stats.query_count == 0:
+                    # A warehouse query over a direct connection never reaches ClickHouse, so a
+                    # summary would only report a run that read nothing in no time.
+                    scan_skip = "no_clickhouse_query"
                 else:
                     query_scan: dict[str, Any] = {
                         "mode": query_scan_flag.mode,
@@ -2544,7 +2547,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         "duration_ms": round(query_stats.duration_ms),
                     }
                     fresh_response_dict["query_scan"] = query_scan
-                    scan = maybe_trigger_query_scan(
+                    scan_skip = maybe_trigger_query_scan(
                         flag=query_scan_flag,
                         stats=query_stats,
                         team_id=self.team.pk,
@@ -2557,7 +2560,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         insight_id=insight_id,
                         dashboard_id=dashboard_id,
                     )
-                    if scan.triggered:
+                    if scan_skip is None:
                         query_scan["status"] = "pending"
 
             if cacheable:
@@ -2588,8 +2591,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "has_error": has_error,
                 "clickhouse_rows_read": query_stats.rows_read if query_stats else None,
                 "clickhouse_duration_ms": round(query_stats.duration_ms) if query_stats else None,
-                "query_scan_triggered": scan.triggered,
-                "query_scan_skipped_reason": scan.skipped_reason,
+                "query_scan_triggered": scan_skip is None,
+                "query_scan_skipped_reason": scan_skip,
             }
             report_user_or_team_action(
                 "query executed",
@@ -2633,7 +2636,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # No stats scope was open, so nothing about the run was recorded to analyze.
             return
         try:
-            scan = maybe_trigger_query_scan(
+            skip = maybe_trigger_query_scan(
                 flag=flag,
                 stats=stats,
                 team_id=self.team.pk,
@@ -2647,7 +2650,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 killed=True,
                 error_type=clickhouse_error_type(error),
             )
-            if not scan.triggered and scan.skipped_reason != "slot_exists":
+            if skip not in (None, "slot_exists"):
                 # With no slot behind this cache key the scan endpoint answers 404.
                 return
             query_scan: dict[str, Any] = {
@@ -2656,9 +2659,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "duration_ms": round(stats.duration_ms),
                 "killed": True,
             }
-            if scan.triggered:
+            if skip is None:
                 query_scan["status"] = "pending"
-            elif scan.skipped_reason == "slot_exists":
+            else:
                 # An earlier run of the same query owns the slot; reporting its status lets clients fetch those
                 # findings by cache key.
                 slot = get_query_scan_slot(self.team.pk, cache_key, thresholds=flag.thresholds_fingerprint)

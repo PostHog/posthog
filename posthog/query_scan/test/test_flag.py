@@ -9,6 +9,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.schema import QueryScanMode
+
 from posthog.query_scan import flag
 from posthog.query_scan.flag import DEFAULT_EVENT_RATIO, DEFAULT_FLOOR_MS, DEFAULT_PERSONS_RATIO, get_query_scan_flag
 
@@ -34,7 +36,7 @@ class TestQueryScanFlag(SimpleTestCase):
             result = get_query_scan_flag(TEAM)
 
         assert result is not None
-        self.assertEqual(result.mode, "show")
+        self.assertEqual(result.mode, QueryScanMode.SHOW)
         self.assertEqual(result.floor_ms, 2000)
         self.assertEqual(result.event_ratio, 0.2)
         self.assertEqual(result.persons_ratio, 0.7)
@@ -48,27 +50,43 @@ class TestQueryScanFlag(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no payload", "show", None, (DEFAULT_FLOOR_MS, DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO)),
-            ("not json", "show", "not json", (DEFAULT_FLOOR_MS, DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO)),
-            (
-                "wrong types",
-                "show",
-                {"floor_ms": True, "event_ratio": "0.2"},
-                (DEFAULT_FLOOR_MS, DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO),
-            ),
-            ("float floor", "show", {"floor_ms": 1500.0}, (1500, DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO)),
-            ("boolean flag", "on", None, None),
+            ("no payload", None, (DEFAULT_FLOOR_MS, DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO)),
+            ("a float floor", {"floor_ms": 1500.0}, (1500, DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO)),
         ]
     )
-    def test_reads_the_variant_and_falls_back_to_default_thresholds(
-        self, _name: str, variant: str, payload: object, expected: tuple[int, float, float] | None
+    def test_a_missing_threshold_falls_back_to_its_default(
+        self, _name: str, payload: object, expected: tuple[int, float, float]
     ) -> None:
         with patch.object(flag.posthoganalytics, "get_feature_flag_result") as get_result:
-            get_result.return_value = SimpleNamespace(variant=variant, payload=payload)
+            get_result.return_value = SimpleNamespace(variant="show", payload=payload)
             result = get_query_scan_flag(TEAM)
 
-        if expected is None:
-            self.assertIsNone(result)
-            return
         assert result is not None
         self.assertEqual((result.floor_ms, result.event_ratio, result.persons_ratio), expected)
+
+    @parameterized.expand(
+        [
+            ("not json", "not json"),
+            ("a boolean", {"floor_ms": True}),
+            ("a string", {"event_ratio": "0.2"}),
+            # The flag stores whatever json.loads accepts, and int() of either of these raises, so
+            # without the guard one typo in the payload would fail every query on the team.
+            ("not a number", {"floor_ms": float("nan")}),
+            ("infinite", {"floor_ms": float("inf")}),
+        ]
+    )
+    def test_a_bad_threshold_turns_the_feature_off_and_is_reported(self, _name: str, payload: object) -> None:
+        with (
+            patch.object(flag.posthoganalytics, "get_feature_flag_result") as get_result,
+            patch.object(flag, "capture_exception") as capture,
+        ):
+            get_result.return_value = SimpleNamespace(variant="show", payload=payload)
+            result = get_query_scan_flag(TEAM)
+
+        self.assertIsNone(result)
+        capture.assert_called_once()
+
+    def test_a_boolean_flag_reads_as_off(self) -> None:
+        with patch.object(flag.posthoganalytics, "get_feature_flag_result") as get_result:
+            get_result.return_value = SimpleNamespace(variant="on", payload=None)
+            self.assertIsNone(get_query_scan_flag(TEAM))

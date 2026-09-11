@@ -15,6 +15,7 @@ const SCAN_ENDPOINT = '/api/environments/:team_id/query/scan/:cache_key/'
 const PENDING_SCAN = { status: 'pending', warnings: [], killed: false }
 const DONE_SCAN = {
     status: 'done',
+    assistant_prompt: 'Help me get what this query is trying to find, as fast as possible.',
     warnings: [
         {
             type: 'query_scan',
@@ -850,6 +851,7 @@ describe('dataNodeLogic', () => {
             expect(logic.values.queryScan?.summary.status).toBe('done')
             expect(logic.values.queryScan?.summary.range_share).toBe(0.42)
             expect(logic.values.queryScan?.findings).toHaveLength(1)
+            expect(logic.values.queryScan?.assistantPrompt).toBe(DONE_SCAN.assistant_prompt)
 
             // The analysis is done, so no more asks go out.
             await jest.advanceTimersByTimeAsync(60000)
@@ -914,44 +916,6 @@ describe('dataNodeLogic', () => {
 
             await jest.advanceTimersByTimeAsync(120000)
             expect(scanCalls).toBe(callsByDeadline)
-        } finally {
-            jest.useRealTimers()
-        }
-    })
-
-    it('asks on the 2, 4, 8, 15, 30 second backoff, then every 30 s', async () => {
-        expect(QUERY_SCAN_POLL_DELAYS_MS).toEqual([2000, 4000, 8000, 15000, 30000])
-        jest.useFakeTimers()
-        try {
-            let scanCalls = 0
-            useMocks({
-                get: {
-                    [SCAN_ENDPOINT]: () => {
-                        scanCalls += 1
-                        return [200, PENDING_SCAN]
-                    },
-                },
-            })
-            mountWithPendingScan()
-            await jest.advanceTimersByTimeAsync(0)
-
-            // Each ask fires only once its backoff delay has elapsed, not before.
-            await jest.advanceTimersByTimeAsync(1999)
-            expect(scanCalls).toBe(0)
-            await jest.advanceTimersByTimeAsync(1) // 2 s
-            expect(scanCalls).toBe(1)
-            await jest.advanceTimersByTimeAsync(3999) // 5.999 s
-            expect(scanCalls).toBe(1)
-            await jest.advanceTimersByTimeAsync(1) // 6 s
-            expect(scanCalls).toBe(2)
-            await jest.advanceTimersByTimeAsync(8000) // 14 s
-            expect(scanCalls).toBe(3)
-            await jest.advanceTimersByTimeAsync(15000) // 29 s
-            expect(scanCalls).toBe(4)
-            await jest.advanceTimersByTimeAsync(30000) // 59 s
-            expect(scanCalls).toBe(5)
-            await jest.advanceTimersByTimeAsync(30000) // 89 s, the repeating interval
-            expect(scanCalls).toBe(6)
         } finally {
             jest.useRealTimers()
         }

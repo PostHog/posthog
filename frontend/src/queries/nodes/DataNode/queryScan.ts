@@ -8,6 +8,8 @@ export interface QueryScanState {
     summary: QueryScanSummary
     findings: QueryScanWarning[]
     cacheKey: string | null
+    /** The message "Fix with AI" sends, built by the backend. Null when nothing in the query can be fixed. */
+    assistantPrompt: string | null
 }
 
 export interface QueryScanPollResult {
@@ -62,7 +64,12 @@ export function resolveQueryScan(
     // A poll outlives the run that started it, so a result for an earlier query would otherwise
     // decorate whatever response is on screen when it lands.
     if (!polled || polled.cacheKey !== cacheKey) {
-        return { summary, findings: queryScanFindings(carrier?.warnings), cacheKey }
+        return {
+            summary,
+            findings: queryScanFindings(carrier?.warnings),
+            cacheKey,
+            assistantPrompt: summary.assistant_prompt ?? null,
+        }
     }
     const { scan } = polled
     return {
@@ -71,10 +78,12 @@ export function resolveQueryScan(
             status: scan.status,
             range_share: scan.range_share,
             project_share: scan.project_share,
-            killed: scan.killed,
+            // `killed` describes this run; the stored analysis can be of an earlier run that was stopped.
+            killed: summary.killed ?? false,
         },
         findings: [...queryScanFindings(carrier?.warnings), ...scan.warnings],
         cacheKey,
+        assistantPrompt: scan.assistant_prompt ?? null,
     }
 }
 
@@ -106,71 +115,6 @@ export function queryScanTileStatLine(summary: QueryScanSummary): string {
         return `ClickHouse stopped this tile's last run after ${seconds} s, having read ${rows} rows.`
     }
     return `This tile read ${rows} rows in ${seconds} s on its last run.`
-}
-
-// A `filters` finding is fixed on the insight's date range, not in the SQL, so there is nothing in
-// the query for the assistant to change.
-export function fixableQueryScanFindings(findings: QueryScanWarning[]): QueryScanWarning[] {
-    return findings.filter((finding) => finding.reason !== 'filters')
-}
-
-// Mirrors `ASSISTANT_GOAL` and `ASSISTANT_RULES` in `posthog/query_scan/findings.py` word for word,
-// so the "Fix with AI" message and the server-side block read the same.
-const ASSISTANT_GOAL =
-    'Help me get what this query is trying to find, as fast as possible. Start by saying in one sentence what ' +
-    'you think the query is trying to find. If you cannot tell, or if a faster version would answer a different ' +
-    'question, ask me before rewriting. Otherwise propose the rewrite.'
-
-const ASSISTANT_RULES =
-    'The events table is sorted by project, day and event name, so a query is fast when it bounds `timestamp` ' +
-    'and names events; property filters and persons joins do not narrow the read. Use relative time bounds, ' +
-    'never a calendar date. Never invent event names, property values or dates; use only names seen in results ' +
-    "or given by the person. Run at most the one exploration query a finding's guidance names, always with a " +
-    'recent time bound and a LIMIT, and none when the guidance says none. Propose the rewritten query and label ' +
-    'every change as same answer, narrower, or different. When a change would alter the answer and it is unclear ' +
-    'whether that is acceptable, ask instead of choosing.'
-
-function queryScanLead(summary: QueryScanSummary): string {
-    const rows = formatRows(summary.rows_read)
-    const seconds = formatSeconds(summary.duration_ms)
-    if (summary.killed) {
-        return `ClickHouse stopped this query after ${seconds} s, having read ${rows} rows.`
-    }
-    return `This query read ${rows} rows in ${seconds} s.`
-}
-
-function queryScanShareLines(summary: QueryScanSummary): string[] {
-    const lines: string[] = []
-    if (typeof summary.range_share === 'number') {
-        lines.push(`It read about ${Math.round(summary.range_share * 100)}% of the events in this date range.`)
-    }
-    if (typeof summary.project_share === 'number') {
-        lines.push(`It read about ${Math.round(summary.project_share * 100)}% of the project's events.`)
-    }
-    return lines
-}
-
-function queryScanFindingLine(finding: QueryScanWarning): string {
-    const head = finding.reason ? `${finding.kind} (${finding.reason})` : finding.kind
-    const parts = [`${head}:`]
-    if (finding.evidence) {
-        parts.push(finding.evidence)
-    }
-    parts.push(finding.fix)
-    return `- ${parts.join(' ')}`
-}
-
-/** The message "Fix with AI" sends to the assistant, as the person's own (untrusted) message. */
-export function queryScanAssistantPrompt(summary: QueryScanSummary, findings: QueryScanWarning[]): string {
-    return [
-        ASSISTANT_GOAL,
-        '',
-        queryScanLead(summary),
-        ...queryScanShareLines(summary),
-        ...findings.map(queryScanFindingLine),
-        '',
-        ASSISTANT_RULES,
-    ].join('\n')
 }
 
 export interface QueryScanDashboardEntry {

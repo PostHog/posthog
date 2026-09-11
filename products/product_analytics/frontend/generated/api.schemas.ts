@@ -963,6 +963,8 @@ export const QueryScanStatusApi = {
 } as const
 
 export interface QueryScanSummaryApi {
+    /** The message the Fix with AI button sends to the assistant. Set once the analysis is done and a finding can be fixed in the query. */
+    assistant_prompt?: string | null
     /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
     duration_ms: number
     /** True when ClickHouse stopped the run instead of finishing it. */

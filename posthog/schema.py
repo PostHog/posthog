@@ -6655,6 +6655,13 @@ class QueryScanResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    assistant_prompt: str | None = Field(
+        default=None,
+        description=(
+            "The message the Fix with AI button sends to the assistant. Absent until"
+            " the status is `done`, and when no finding can be fixed in the query."
+        ),
+    )
     killed: bool
     project_share: float | None = None
     range_share: float | None = None
@@ -6668,6 +6675,13 @@ class QueryScanResponse(BaseModel):
 class QueryScanSummary(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    assistant_prompt: str | None = Field(
+        default=None,
+        description=(
+            "The message the Fix with AI button sends to the assistant. Set once the"
+            " analysis is done and a finding can be fixed in the query."
+        ),
     )
     duration_ms: int = Field(
         ...,

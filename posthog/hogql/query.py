@@ -15,7 +15,7 @@ from posthog.schema import (
     HogQLVariable,
 )
 
-from posthog.hogql import ast
+from posthog.hogql import ast, query_stats
 from posthog.hogql.constants import (
     HogQLDialect,
     HogQLGlobalSettings,
@@ -57,7 +57,6 @@ from posthog.hogql.parser import parse_select, sanitize_client_parser_mode
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_warning
-from posthog.hogql.query_stats import get_active as get_active_query_stats
 from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_lazy_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
@@ -808,9 +807,10 @@ class HogQLQueryExecutor:
                     external_tables=list(clickhouse_context.external_tables.values()) or None,
                 )
 
-            # Rows are snapshotted before the run so a run ClickHouse stops is still recorded with what it read.
-            stats = get_active_query_stats()
-            rows_before = stats.rows_read if stats is not None else 0
+            stats = query_stats.get_active()
+            # The rows are read back per thread after the run, so a run ClickHouse stops is still
+            # recorded with what it read, and a series running in another thread is not charged here.
+            query_stats.reset_last_rows_read()
             try:
                 try:
                     self.results, self.types = run_clickhouse_query()
@@ -832,7 +832,7 @@ class HogQLQueryExecutor:
                     stats.record_execution(
                         tree=self.clickhouse_prepared_ast,
                         context=clickhouse_context,
-                        rows_read=stats.rows_read - rows_before,
+                        rows_read=query_stats.last_rows_read(),
                     )
 
         if self.debug and self.error is None:

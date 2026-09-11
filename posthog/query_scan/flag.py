@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Literal, cast
+import math
+from typing import TYPE_CHECKING
 
 import structlog
 import posthoganalytics
 
+from posthog.schema import QueryScanMode
+
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -21,8 +25,7 @@ DEFAULT_FLOOR_MS = 1000
 DEFAULT_EVENT_RATIO = 0.10
 DEFAULT_PERSONS_RATIO = 0.5
 
-QueryScanMode = Literal["log_only", "show"]
-MODES: tuple[QueryScanMode, ...] = ("log_only", "show")
+_MODES = {mode.value for mode in QueryScanMode}
 
 
 @frozen
@@ -45,9 +48,16 @@ class QueryScanFlag:
         return f"{self.event_ratio!r}:{self.persons_ratio!r}"
 
 
+class InvalidPayload(ValueError):
+    pass
+
+
 def get_query_scan_flag(team: Team) -> QueryScanFlag | None:
-    """The flag for `team`, or None when off. Evaluated locally on the organization and
-    the project; a flag outage reads as off."""
+    """The flag for `team`, or None when off. Evaluated locally on the organization and the project.
+
+    Nothing here raises: the runner calls this on every query, so a flag outage or a bad payload
+    reads as off.
+    """
     try:
         result = posthoganalytics.get_feature_flag_result(
             FLAG_KEY,
@@ -64,38 +74,45 @@ def get_query_scan_flag(team: Team) -> QueryScanFlag | None:
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
+        if result is None or result.variant not in _MODES:
+            return None
+        return _parse(QueryScanMode(result.variant), result.payload)
+    except InvalidPayload as error:
+        # The thresholds are typed by hand into the flag, which only checks that they are JSON. A
+        # value the code cannot use turns the feature off and is reported, so the person who set
+        # it hears about it.
+        capture_exception(error, {"flag": FLAG_KEY, "team_id": team.id})
+        logger.exception("query_scan_flag_payload_invalid", team_id=team.id, error=str(error))
+        return None
     except Exception:
         logger.warning("query_scan_flag_evaluation_failed", team_id=team.id, exc_info=True)
         return None
-    if result is None or result.variant not in MODES:
-        return None
-    return _parse(cast("QueryScanMode", result.variant), result.payload)
 
 
 def _parse(mode: QueryScanMode, payload: object) -> QueryScanFlag:
-    """The thresholds are typed by hand into the payload, so each field falls back on its own."""
+    """A missing threshold falls back to its default; one that is present but not a finite number is an error."""
     if isinstance(payload, str):
         try:
             payload = json.loads(payload)
-        except ValueError:
-            payload = {}
-    values = payload if isinstance(payload, dict) else {}
+        except ValueError as error:
+            raise InvalidPayload("payload is not JSON") from error
+    if payload is None:
+        values: dict[str, object] = {}
+    elif isinstance(payload, dict):
+        values = payload
+    else:
+        raise InvalidPayload(f"payload must be an object, got {payload!r}")
     return QueryScanFlag(
         mode=mode,
-        floor_ms=_as_int(values.get("floor_ms"), DEFAULT_FLOOR_MS),
-        event_ratio=_as_float(values.get("event_ratio"), DEFAULT_EVENT_RATIO),
-        persons_ratio=_as_float(values.get("persons_ratio"), DEFAULT_PERSONS_RATIO),
+        floor_ms=int(_number(values, "floor_ms", DEFAULT_FLOOR_MS)),
+        event_ratio=_number(values, "event_ratio", DEFAULT_EVENT_RATIO),
+        persons_ratio=_number(values, "persons_ratio", DEFAULT_PERSONS_RATIO),
     )
 
 
-def _as_int(value: object, default: int) -> int:
+def _number(values: dict[str, object], key: str, default: float) -> float:
+    value = values.get(key, default)
     # bool is an int in Python, and true/false is a typo here, not a threshold.
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return default
-    return int(value)
-
-
-def _as_float(value: object, default: float) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return default
-    return float(value)
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        raise InvalidPayload(f"{key} must be a finite number, got {value!r}")
+    return value

@@ -6,13 +6,15 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.schema import QueryScanMode
+
 from posthog.errors import InternalCHQueryError
 from posthog.query_scan import slot
 from posthog.query_scan.flag import QueryScanFlag
 from posthog.query_scan.job import Execution, QueryScanJob, run_query_scan
 
 FIXTURES = Path(__file__).parent / "fixtures"
-FLAG = QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
 
 _OTHER_ERROR = InternalCHQueryError("Estimated execution time too long", code=160)
 
@@ -80,7 +82,6 @@ class TestQueryScanJob(BaseTest):
             cache_key="cache_key_1",
             executions=(
                 Execution(
-                    sql="ORIGINAL_MARKER",
                     stubbed_sql="STUBBED_MARKER",
                     subqueries=subqueries,
                     values={},
@@ -133,14 +134,6 @@ class TestQueryScanJob(BaseTest):
         assert properties["explain_ok"] is expected_explain_ok
         # The rollout analysis groups the event by these, so they travel from the trigger to here.
         assert (properties["insight_id"], properties["dashboard_id"]) == (7, 3)
-
-    def test_never_explains_the_unstubbed_sql(self) -> None:
-        # EXPLAIN executes every IN subquery of the SQL it is given, so only the stubbed SQL may reach it.
-        self._run({"STUBBED_MARKER": "plan_no_date_bound"})
-
-        explained = self._explained()
-        assert not any("ORIGINAL_MARKER" in query for query in explained)
-        assert any("STUBBED_MARKER" in query for query in explained)
 
     def test_runs_both_denominators_and_stores_the_shares(self) -> None:
         # plan_no_event_filter has a lower timestamp bound, so the range denominator runs with that

@@ -41,6 +41,9 @@ from posthog.schema import (
     NodeKind,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    QueryScanFindingKind,
+    QueryScanMode,
+    QueryScanStatus,
     StickinessQuery,
     TrendsQuery,
 )
@@ -55,7 +58,10 @@ from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.project import Project
+from posthog.query_scan.findings import build_warning
 from posthog.query_scan.flag import QueryScanFlag
+from posthog.query_scan.slot import QueryScanSlot
+from posthog.query_scan.test.slots import stored_slot
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.insight_queries import default_pageview_query, insight_query
 from posthog.test.persons import create_person
@@ -5037,7 +5043,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestInsightQueryScan(APIBaseTest):
-    FLAG = QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+    FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
 
     def _insight(self) -> Insight:
         return Insight.objects.create(
@@ -5047,23 +5053,15 @@ class TestInsightQueryScan(APIBaseTest):
         )
 
     def _stored_slot(self, *, killed: bool) -> str:
-        return json.dumps(
-            {
-                "version": 1,
-                "status": "done",
-                "range_share": 0.8,
-                "project_share": 0.25,
-                "killed": killed,
-                "thresholds": self.FLAG.thresholds_fingerprint,
-                "findings": [
-                    {
-                        "type": "query_scan",
-                        "kind": "no_start_date",
-                        "message": "This insight has no start date.",
-                        "fix": "Set a date range on the insight instead of All time.",
-                    }
-                ],
-            }
+        return stored_slot(
+            QueryScanSlot(
+                status=QueryScanStatus.DONE,
+                range_share=0.8,
+                project_share=0.25,
+                killed=killed,
+                thresholds=self.FLAG.thresholds_fingerprint,
+                findings=(build_warning(kind=QueryScanFindingKind.NO_START_DATE, query_kind="TrendsQuery"),),
+            )
         )
 
     @parameterized.expand([("a completed run", False), ("a run clickhouse stopped", True)])

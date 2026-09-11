@@ -31,6 +31,7 @@ from posthog.schema import (
     LifecycleQuery,
     PathsQuery,
     QueryScanStatus,
+    QueryScanSummary,
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
@@ -51,6 +52,7 @@ from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
 from posthog.query_scan.flag import QueryScanFlag, get_query_scan_flag
+from posthog.query_scan.serve import apply_slot
 from posthog.query_scan.slot import (
     QueryScanSlot,
     get as get_query_scan_slot,
@@ -540,13 +542,12 @@ class AssistantQueryExecutor:
             slot = await self._poll_query_scan_slot(cache_key, flag.thresholds_fingerprint)
             if slot is None:
                 return
-            scan["status"] = str(slot.status)
-            scan["range_share"] = slot.range_share
-            scan["project_share"] = slot.project_share
-            scan["killed"] = slot.killed
+            summary = QueryScanSummary.model_validate(scan)
+            findings = apply_slot(summary, slot, flag)
+            response["query_scan"] = summary.model_dump(mode="json", by_alias=True, exclude_none=True)
             response["warnings"] = [
                 *(response.get("warnings") or []),
-                *(finding.model_dump(by_alias=True, exclude_none=True) for finding in slot.findings),
+                *(finding.model_dump(by_alias=True, exclude_none=True) for finding in findings),
             ]
         except Exception:
             logger.warning(f"{TIMING_LOG_PREFIX} query scan poll failed", exc_info=True)
@@ -577,9 +578,11 @@ class AssistantQueryExecutor:
             if flag is not None:
                 slot = await self._poll_query_scan_slot(cache_key, flag.thresholds_fingerprint)
                 if slot is not None:
-                    response["query_scan"]["status"] = str(slot.status)
+                    summary = QueryScanSummary.model_validate(scan)
+                    findings = apply_slot(summary, slot, flag)
+                    response["query_scan"] = summary.model_dump(mode="json", by_alias=True, exclude_none=True)
                     response["warnings"] = [
-                        finding.model_dump(by_alias=True, exclude_none=True) for finding in slot.findings
+                        finding.model_dump(by_alias=True, exclude_none=True) for finding in findings
                     ]
             return format_query_scan_warnings(response, self._team, compact=True).strip()
         except Exception:

@@ -9,12 +9,12 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
 
-from posthog.query_scan.checks.event_filter import EventFilterOutcome, classify_event_filter, combine_event_filter
+from posthog.query_scan.event_filter import EventFilterOutcome, classify_event_filter, combine_event_filter
 from posthog.query_scan.explain import QueryPlan, parse_query_plan
 from posthog.query_scan.test.test_explain import load_plan
 
-_KEY_USED_PLAN = parse_query_plan(load_plan("event_filter_usable"))
-_KEY_UNUSED_PLAN = parse_query_plan(load_plan("no_event_filter"))
+_KEY_USED_PLAN = parse_query_plan(load_plan("plan_event_filter_used"))
+_KEY_UNUSED_PLAN = parse_query_plan(load_plan("plan_no_event_filter"))
 
 
 class TestClassifyEventFilter(BaseTest):

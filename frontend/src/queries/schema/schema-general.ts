@@ -615,6 +615,8 @@ export interface QueryScanSummary {
     project_share?: number
     /** True when ClickHouse stopped the run instead of finishing it. */
     killed?: boolean
+    /** The message the Fix with AI button sends to the assistant. Set once the analysis is done and a finding can be fixed in the query. */
+    assistant_prompt?: string
 }
 
 /**
@@ -653,6 +655,8 @@ export interface QueryScanResponse {
     range_share?: number
     project_share?: number
     killed: boolean
+    /** The message the Fix with AI button sends to the assistant. Absent until the status is `done`, and when no finding can be fixed in the query. */
+    assistant_prompt?: string
 }
 
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {

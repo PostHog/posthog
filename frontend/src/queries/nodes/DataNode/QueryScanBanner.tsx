@@ -5,7 +5,7 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { QueryScanState, fixableQueryScanFindings, queryScanStatLine } from './queryScan'
+import { QueryScanState, queryScanStatLine } from './queryScan'
 import { QueryScanFindingList } from './QueryScanFindingList'
 
 export interface QueryScanBannerProps {
@@ -20,9 +20,8 @@ export function QueryScanBanner({ queryScan, onFixWithAI, className }: QueryScan
         return null
     }
 
-    const { summary, findings } = queryScan
+    const { summary, findings, assistantPrompt } = queryScan
     const showFindings = summary.status === 'done' && findings.length > 0
-    const fixableFindings = fixableQueryScanFindings(findings)
 
     return (
         <div className={clsx('flex flex-col gap-2 shrink-0', className)} data-attr="query-scan">
@@ -30,7 +29,7 @@ export function QueryScanBanner({ queryScan, onFixWithAI, className }: QueryScan
             {showFindings && (
                 <LemonBanner type="warning">
                     <QueryScanFindingList findings={findings} />
-                    {onFixWithAI && fixableFindings.length > 0 && (
+                    {onFixWithAI && assistantPrompt && (
                         <LemonButton
                             className="mt-2"
                             type="secondary"

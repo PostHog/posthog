@@ -7,7 +7,20 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, EventsNode, FunnelsQuery, HogQLFilters, HogQLQuery, TrendsQuery
+from posthog.schema import (
+    BaseMathType,
+    DateRange,
+    EventsNode,
+    FunnelMathType,
+    FunnelsQuery,
+    HogQLFilters,
+    HogQLQuery,
+    QueryScanMode,
+    RetentionFilter,
+    RetentionQuery,
+    RetentionType,
+    TrendsQuery,
+)
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
@@ -15,16 +28,20 @@ from posthog.hogql.query_stats import QueryStats, RecordedExecution
 
 from posthog.clickhouse.query_tagging import AccessMethod, Feature, reset_query_tags, tag_queries
 from posthog.query_scan.flag import QueryScanFlag
-from posthog.query_scan.trigger import MAX_SQL_BYTES, _has_open_filters_placeholder, maybe_trigger_query_scan
+from posthog.query_scan.trigger import MAX_EXECUTION_BYTES, _open_filters_placeholder, maybe_trigger_query_scan
 
-FLAG = QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
 
 # A query with one `IN` subquery, so the stub collects exactly one subquery to print.
 _QUERY_WITH_SUBQUERY = "select 1 from events where event in (select 'x')"
 
 
-def _execution(sql: str = _QUERY_WITH_SUBQUERY, rows_read: int = 100) -> RecordedExecution:
-    return RecordedExecution(tree=parse_select(sql), context=HogQLContext(team_id=1), rows_read=rows_read)
+def _execution(
+    sql: str = _QUERY_WITH_SUBQUERY, rows_read: int = 100, values: dict[str, Any] | None = None
+) -> RecordedExecution:
+    return RecordedExecution(
+        tree=parse_select(sql), context=HogQLContext(team_id=1, values=values or {}), rows_read=rows_read
+    )
 
 
 def _stats(*, duration_ms: float = 2000.0, executions: list[RecordedExecution] | None = None) -> QueryStats:
@@ -109,8 +126,7 @@ class TestQueryScanTrigger(SimpleTestCase):
 
         result = self._trigger(**overrides)
 
-        assert result.triggered is False
-        assert result.skipped_reason == expected_reason
+        assert result == expected_reason
         self.delay.assert_not_called()
         self._assert_no_slot_was_claimed()
 
@@ -121,7 +137,7 @@ class TestQueryScanTrigger(SimpleTestCase):
             stats=_stats(duration_ms=999.0), killed=True, error_type="ClickHouseQueryMemoryLimitExceeded"
         )
 
-        assert result.triggered is True
+        assert result is None
         assert self.delay.call_args.kwargs["killed"] is True
         assert self.delay.call_args.kwargs["duration_ms"] == 999
 
@@ -130,7 +146,7 @@ class TestQueryScanTrigger(SimpleTestCase):
 
         result = self._trigger()
 
-        assert result.triggered is True
+        assert result is None
         assert self.delay.call_count == 1
 
     def test_a_lost_slot_claim_does_not_enqueue_a_second_job(self) -> None:
@@ -140,8 +156,7 @@ class TestQueryScanTrigger(SimpleTestCase):
 
         result = self._trigger()
 
-        assert result.triggered is False
-        assert result.skipped_reason == "slot_exists"
+        assert result == "slot_exists"
         self.delay.assert_not_called()
 
     def test_a_broker_failure_does_not_fail_the_query(self) -> None:
@@ -151,8 +166,7 @@ class TestQueryScanTrigger(SimpleTestCase):
 
         result = self._trigger()
 
-        assert result.triggered is False
-        assert result.skipped_reason == "enqueue_failed"
+        assert result == "enqueue_failed"
         self.redis.delete.assert_called_once_with("query_scan:1:cache_key_1")
 
     def test_the_payload_carries_the_event_filter_classification(self) -> None:
@@ -160,7 +174,7 @@ class TestQueryScanTrigger(SimpleTestCase):
         # drop the tree's reason for why the filter could not prune.
         result = self._trigger()
 
-        assert result.triggered is True
+        assert result is None
         enqueued = self.delay.call_args.kwargs["executions"]
         assert enqueued[0]["event_filter"] == {"classification": "usable", "reason": None}
 
@@ -175,24 +189,18 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert self.delay.call_args.kwargs["error_type"] == "ClickHouseQueryTimeOut"
 
     def test_prints_the_heaviest_executions_and_skips_an_oversized_one(self) -> None:
-        # An insight fans out into several executions; the job explains the heaviest, and an SQL
-        # too large to plan is dropped rather than shipped to the worker.
-        oversized = _execution(rows_read=50)
+        # An insight fans out into several executions; the job explains the heaviest, and one whose
+        # SQL and parameter values together are too large to plan is dropped rather than shipped.
+        # The values count because one large literal can outweigh the SQL around it.
+        oversized = _execution(rows_read=50, values={"hogql_val_0": "x" * (MAX_EXECUTION_BYTES + 1)})
         heavy = _execution(rows_read=100)
-
-        def fake_print(node, context, dialect="clickhouse"):
-            return "x" * (MAX_SQL_BYTES + 1) if node is oversized.tree else "SELECT 1"
-
-        self.print.side_effect = fake_print
 
         result = self._trigger(stats=_stats(executions=[heavy, oversized]))
 
-        assert result.triggered is True
+        assert result is None
         enqueued = self.delay.call_args.kwargs["executions"]
-        # Only the printable execution is shipped, and it carries the original, stubbed and
-        # subquery SQL the job explains.
+        # Only the printable execution is shipped, with the stubbed SQL and the subquery SQL the job explains.
         assert len(enqueued) == 1
-        assert enqueued[0]["sql"] == "SELECT 1"
         assert enqueued[0]["stubbed_sql"] == "SELECT 1"
         assert enqueued[0]["subqueries"] == ["SELECT 1"]
 
@@ -206,8 +214,7 @@ class TestQueryScanTrigger(SimpleTestCase):
     def test_enqueues_the_run_and_writes_a_pending_slot(self, _name, query, expected_kind) -> None:
         result = self._trigger(query=query)
 
-        assert result.triggered is True
-        assert result.skipped_reason is None
+        assert result is None
         assert self.delay.call_count == 1
         enqueued = self.delay.call_args.kwargs
         assert enqueued["cache_key"] == "cache_key_1"
@@ -221,43 +228,87 @@ class TestQueryScanTrigger(SimpleTestCase):
         key, payload = self.redis.set.call_args.args
         assert key == "query_scan:1:cache_key_1"
         assert json.loads(payload)["status"] == "pending"
+        assert self.redis.set.call_args.kwargs == {"ex": 600, "nx": True}
+        # A count left without a TTL would stand forever and cap the team for good.
+        self.redis.set.assert_any_call("query_scan:enqueues:1", 0, nx=True, ex=60)
 
     def test_the_payload_says_whether_all_time_was_chosen(self) -> None:
         self._trigger(query=TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="all")))
 
         assert self.delay.call_args.kwargs["all_time"] is True
-        assert self.redis.set.call_args.kwargs["ex"] == 600
-        assert self.redis.set.call_args.kwargs["nx"] is True
-        # A count left without a TTL would stand forever and cap the team for good.
-        self.redis.set.assert_any_call("query_scan:enqueues:1", 0, nx=True, ex=60)
+
+    @parameterized.expand(
+        [
+            (
+                "first time for user math",
+                TrendsQuery(series=[EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)]),
+                True,
+            ),
+            (
+                "a first-time funnel step",
+                FunnelsQuery(
+                    series=[EventsNode(event="a", math=FunnelMathType.FIRST_TIME_FOR_USER), EventsNode(event="b")]
+                ),
+                True,
+            ),
+            (
+                "first-time retention",
+                RetentionQuery(retentionFilter=RetentionFilter(retentionType=RetentionType.RETENTION_FIRST_TIME)),
+                True,
+            ),
+            ("plain trends", TrendsQuery(series=[EventsNode(event="$pageview")]), False),
+            ("raw sql", HogQLQuery(query="select 1"), False),
+        ]
+    )
+    def test_the_payload_says_whether_the_insight_reads_all_history_by_design(self, _name, query, expected) -> None:
+        # Such an insight has to start at the project's first event whatever its date range, so the
+        # job must not advise a start date it cannot use.
+        self._trigger(query=query)
+
+        assert self.delay.call_args.kwargs["all_history_by_design"] is expected
 
 
 class TestOpenFiltersPlaceholder(SimpleTestCase):
     @parameterized.expand(
         [
-            ("no placeholder at all", "select count() from events", None, False),
-            ("open filters", "select count() from events where {filters}", None, True),
+            ("no placeholder at all", HogQLQuery(query="select count() from events"), False),
+            ("open filters", HogQLQuery(query="select count() from events where {filters}"), True),
             (
-                "filters with a date range supplied",
-                "select count() from events where {filters}",
-                HogQLFilters(dateRange=DateRange(date_from="-7d")),
+                "filters with a start date",
+                HogQLQuery(
+                    query="select count() from events where {filters}",
+                    filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+                ),
                 False,
             ),
             (
                 "filters set to all time",
-                "select count() from events where {filters}",
-                HogQLFilters(dateRange=DateRange(date_from="all")),
+                HogQLQuery(
+                    query="select count() from events where {filters}",
+                    filters=HogQLFilters(dateRange=DateRange(date_from="all")),
+                ),
+                True,
+            ),
+            # An end date on its own leaves the start of the range open.
+            (
+                "filters with only an end date",
+                HogQLQuery(
+                    query="select count() from events where {filters}",
+                    filters=HogQLFilters(dateRange=DateRange(date_to="-1d")),
+                ),
                 True,
             ),
             (
                 "only a dotted call placeholder",
-                "select toStartOfInterval(timestamp, {filters.interval('day')}), count() from events group by 1",
-                None,
+                HogQLQuery(
+                    query="select toStartOfInterval(timestamp, {filters.interval('day')}), count() from events group by 1"
+                ),
                 False,
             ),
+            ("an insight built from pickers", TrendsQuery(series=[EventsNode(event="$pageview")]), False),
         ]
     )
     def test_only_a_date_carrying_placeholder_puts_the_start_date_on_the_insight(
-        self, _name: str, query: str, filters: HogQLFilters | None, expected: bool
+        self, _name: str, query: HogQLQuery | TrendsQuery, expected: bool
     ) -> None:
-        assert _has_open_filters_placeholder(query, filters) is expected
+        assert _open_filters_placeholder(query) is expected

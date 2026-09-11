@@ -61,6 +61,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_fro
 from posthog.models.user import User
 from posthog.models.utils import uuid7
 from posthog.query_scan import slot as query_scan_slot
+from posthog.query_scan.findings import assistant_prompt
 from posthog.query_scan.flag import get_query_scan_flag
 from posthog.rate_limit import (
     AIBurstRateThrottle,
@@ -586,12 +587,20 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         slot = query_scan_slot.get(self.team_id, cache_key, thresholds=flag.thresholds_fingerprint)
         if slot is None:
             raise NotFound("There is no query scan for this cache key.")
+        findings = list(slot.findings)
         scan = QueryScanResponse(
             status=slot.status,
-            warnings=list(slot.findings),
+            warnings=findings,
             range_share=slot.range_share,
             project_share=slot.project_share,
             killed=slot.killed,
+            assistant_prompt=assistant_prompt(
+                findings,
+                range_share=slot.range_share,
+                project_share=slot.project_share,
+                killed=slot.killed,
+                fixable_only=True,
+            ),
         )
         return Response(scan.model_dump(by_alias=True, exclude_none=True), status=status.HTTP_200_OK)
 

@@ -6,14 +6,14 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import QueryScanSummary
+from posthog.schema import QueryScanMode, QueryScanSummary
 
 from posthog.query_scan.flag import QueryScanFlag
 from posthog.query_scan.serve import attach_scan_slot, scan_summary_with_findings
 
-SHOW = QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
-LOG_ONLY = QueryScanFlag(mode="log_only", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
-RAISED_FLOOR = QueryScanFlag(mode="show", floor_ms=60_000, event_ratio=0.1, persons_ratio=0.5)
+SHOW = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+LOG_ONLY = QueryScanFlag(mode=QueryScanMode.LOG_ONLY, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+RAISED_FLOOR = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=60_000, event_ratio=0.1, persons_ratio=0.5)
 
 
 class TestServeScanSummary(BaseTest):
@@ -79,6 +79,9 @@ class TestServeScanSummary(BaseTest):
         assert folded is not None
         assert (folded["mode"], folded["status"]) == expected
         assert [warning["kind"] for warning in folded.get("warnings", [])] == expected_kinds
+        # The findings come with the message "Fix with AI" sends, built here so no client keeps its own copy.
+        assert (response.query_scan.assistant_prompt is not None) is bool(expected_kinds)
+        assert ("assistant_prompt" in folded) is bool(expected_kinds)
 
     def test_a_done_slot_puts_the_shares_on_the_summary(self) -> None:
         # The shares are how the stat line says what fraction of the range a query read, so they

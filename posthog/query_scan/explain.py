@@ -20,9 +20,10 @@ _PRIMARY_KEY_TYPE = "PrimaryKey"
 _SKIP_TYPE = "Skip"
 _MERGE_TREE_READ = "ReadFromMergeTree"
 
-# ClickHouse prints a Min-Max timestamp condition in one canonical form: `timestamp in [A, +Inf)`,
-# `timestamp in (-Inf, B]`, or `timestamp in [A, B]`, all in unix seconds.
-_BOUNDS_RE = re.compile(r"in\s*[\[\(]\s*([^,\[\(]+?)\s*,\s*([^\]\)]+?)\s*[\]\)]")
+# ClickHouse prints each timestamp clause of the Min-Max condition as `timestamp in [A, +Inf)`,
+# `timestamp in (-Inf, B]` or `timestamp in [A, B]`, in unix seconds. A range with a start and an
+# end comes as two clauses under `and(...)`, the end first, so every clause is read.
+_BOUND_RE = re.compile(r"in\s*[\[\(]\s*([^,\[\(]+?)\s*,\s*([^\]\)]+?)\s*[\]\)]")
 
 
 @frozen
@@ -52,22 +53,18 @@ class PlanTableRead:
     indexes: tuple[PlanIndex, ...]
 
     def reads_events(self) -> bool:
-        # The database qualifier is optional; a longer name that only ends in one of these is another table.
         return self._matches(_EVENTS_TABLE_NAMES)
 
     def reads_persons(self) -> bool:
         return self._matches(_PERSON_TABLE_NAMES)
 
     def _matches(self, names: tuple[str, ...]) -> bool:
+        # The database qualifier is optional; a longer name that only ends in one of these is another table.
         return any(self.table == name or self.table.endswith(f".{name}") for name in names)
 
     def average_rows_per_granule(self, averages: dict[str, float]) -> float | None:
-        # The map is keyed by bare table name, so match by suffix the way `reads_persons` matches,
-        # because the plan's Description keeps the database qualifier (`posthog.person`).
-        for name, average in averages.items():
-            if self.table == name or self.table.endswith(f".{name}"):
-                return average
-        return None
+        # The map is keyed by bare table name, and the plan's Description keeps the database qualifier.
+        return next((average for name, average in averages.items() if self._matches((name,))), None)
 
     def primary_key(self) -> PlanIndex | None:
         return self._first(_PRIMARY_KEY_TYPE)
@@ -98,13 +95,9 @@ class PlanTableRead:
                 return index.selected_granules
         return None
 
-    def has_timestamp_key(self) -> bool:
-        step = self.min_max()
-        return step is not None and any("timestamp" in key for key in step.keys)
-
     def timestamp_bounds(self) -> TimestampBounds:
         step = self.min_max()
-        if step is None or step.condition is None or not self.has_timestamp_key():
+        if step is None or step.condition is None or not any("timestamp" in key for key in step.keys):
             return TimestampBounds(lower=None, upper=None)
         return _parse_timestamp_bounds(step.condition)
 
@@ -116,8 +109,14 @@ class QueryPlan:
     def events_reads(self) -> tuple[PlanTableRead, ...]:
         return tuple(read for read in self.reads if read.reads_events())
 
-    def events_read(self) -> PlanTableRead | None:
-        return next(iter(self.events_reads()), None)
+    def heaviest_events_read(self) -> PlanTableRead | None:
+        """The events read that kept the most granules. A query can read the events table more than
+        once, through a join or a union, and the largest read is the one that made it slow.
+        """
+        reads = self.events_reads()
+        if not reads:
+            return None
+        return max(reads, key=lambda read: read.selected_granules() or 0)
 
     def event_key_used(self) -> bool | None:
         """Whether every events read pruned on `event`. None when the plan has no events read,
@@ -192,10 +191,17 @@ def _parse_index(entry: object) -> PlanIndex | None:
 
 
 def _parse_timestamp_bounds(condition: str) -> TimestampBounds:
-    match = _BOUNDS_RE.search(condition)
-    if match is None:
-        return TimestampBounds(lower=None, upper=None)
-    return TimestampBounds(lower=_bound_value(match.group(1)), upper=_bound_value(match.group(2)))
+    lowers: list[int] = []
+    uppers: list[int] = []
+    for match in _BOUND_RE.finditer(condition):
+        lower = _bound_value(match.group(1))
+        upper = _bound_value(match.group(2))
+        if lower is not None:
+            lowers.append(lower)
+        if upper is not None:
+            uppers.append(upper)
+    # The clauses are ANDed, so the range they describe is their intersection.
+    return TimestampBounds(lower=max(lowers, default=None), upper=min(uppers, default=None))
 
 
 def _bound_value(token: str) -> int | None:

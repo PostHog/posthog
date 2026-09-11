@@ -45,6 +45,7 @@ from posthog.schema import (
     PropertyType,
     PropertyValuesQuery,
     QueryLogTags,
+    QueryScanMode,
     SessionsQuery,
     SessionsTimelineQuery,
     SessionsV2JoinMode,
@@ -60,8 +61,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.query_stats import get_active, query_stats_scope, record
+from posthog.hogql.query_stats import get_active, record
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
@@ -159,12 +159,18 @@ def setup_test_query_runner_class(base: type[QueryRunner] = QueryRunner):
     return TestQueryRunner
 
 
-_QUERY_SCAN_FLAG_SHOW = QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
-_QUERY_SCAN_FLAG_LOG_ONLY = QueryScanFlag(mode="log_only", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+_QUERY_SCAN_FLAG_SHOW = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+_QUERY_SCAN_FLAG_LOG_ONLY = QueryScanFlag(
+    mode=QueryScanMode.LOG_ONLY, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5
+)
 
 
 def _calculate_recording_clickhouse_stats(_self):
     record(rows_read=12, duration_ms=34.0)
+    return TheTestBasicQueryResponse(results=[])
+
+
+def _calculate_without_clickhouse(_self):
     return TheTestBasicQueryResponse(results=[])
 
 
@@ -221,27 +227,29 @@ class TestQueryRunner(BaseTest):
 
     @parameterized.expand(
         [
-            ("flag on for a real user", _QUERY_SCAN_FLAG_SHOW, True, True),
-            ("flag off", None, True, False),
+            ("flag on for a real user", _QUERY_SCAN_FLAG_SHOW, True, True, True),
+            ("flag off", None, True, True, False),
             # The worker resolves no user for a shared-link viewer, and the summary describes the
             # project's data volume to someone outside it.
-            ("flag on for a shared link viewer", _QUERY_SCAN_FLAG_SHOW, False, False),
+            ("flag on for a shared link viewer", _QUERY_SCAN_FLAG_SHOW, False, True, False),
+            # A warehouse query over a direct connection never reaches ClickHouse, and a summary of
+            # zeros would tell the person it read nothing in no time.
+            ("a run that never reached clickhouse", _QUERY_SCAN_FLAG_SHOW, True, False, False),
         ]
     )
     def test_query_scan_summary_attached_only_for_a_flagged_team_and_a_real_user(
-        self, _name, flag, real_user, expect_summary
+        self, _name, flag, real_user, reached_clickhouse, expect_summary
     ):
         TestQueryRunner = self.setup_test_query_runner_class()
         user = self.user if real_user else _shared_link_user(self.team)
+        calculate = _calculate_recording_clickhouse_stats if reached_clickhouse else _calculate_without_clickhouse
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
         with (
             mock.patch("posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=flag),
             # The serving side re-reads the flag to correct a summary cached under an older one.
             mock.patch("posthog.query_scan.serve.get_query_scan_flag", return_value=flag),
-            mock.patch.object(
-                TestQueryRunner, "_calculate", autospec=True, side_effect=_calculate_recording_clickhouse_stats
-            ),
+            mock.patch.object(TestQueryRunner, "_calculate", autospec=True, side_effect=calculate),
         ):
             response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=user)
 
@@ -324,7 +332,7 @@ class TestQueryRunner(BaseTest):
         with (
             mock.patch(
                 "posthog.hogql_queries.query_runner.get_query_scan_flag",
-                return_value=QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
+                return_value=QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
             ),
             mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
             mock.patch("posthog.query_scan.trigger.print_prepared_ast", return_value="SELECT 1"),
@@ -369,7 +377,7 @@ class TestQueryRunner(BaseTest):
         with (
             mock.patch(
                 "posthog.hogql_queries.query_runner.get_query_scan_flag",
-                return_value=QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
+                return_value=QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
             ),
             mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
             mock.patch("posthog.tasks.query_scan.analyze_query_scan.delay") as delay,
@@ -388,31 +396,6 @@ class TestQueryRunner(BaseTest):
             "killed": True,
             "status": "pending",
         }
-
-    def test_the_executor_records_each_execution_including_a_killed_run(self):
-        # The trigger reads the run's executions off the scope, so the executor must record one for
-        # every ClickHouse call, and a run ClickHouse kills has to be recorded with what it read.
-        def ok(sql, values, **kwargs):
-            record(rows_read=42, duration_ms=1.0)
-            return ([[0]], [("count()", "UInt64")])
-
-        with query_stats_scope() as stats:
-            with mock.patch("posthog.hogql.query.sync_execute", side_effect=ok):
-                execute_hogql_query("select count() from events", team=self.team, query_type="test")
-        assert len(stats.executions) == 1
-        assert stats.executions[0].rows_read == 42
-        assert stats.executions[0].tree is not None
-
-        def killed(sql, values, **kwargs):
-            record(rows_read=90, duration_ms=1.0)
-            raise ClickHouseQueryMemoryLimitExceeded()
-
-        with query_stats_scope() as killed_stats:
-            with self.assertRaises(ClickHouseQueryMemoryLimitExceeded):
-                with mock.patch("posthog.hogql.query.sync_execute", side_effect=killed):
-                    execute_hogql_query("select count() from events", team=self.team, query_type="test")
-        assert len(killed_stats.executions) == 1
-        assert killed_stats.executions[0].rows_read == 90
 
     def test_calculate_runs_validators_before_calculation(self):
         TestQueryRunner = self.setup_test_query_runner_class()

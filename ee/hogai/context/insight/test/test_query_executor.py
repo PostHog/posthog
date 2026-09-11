@@ -29,6 +29,7 @@ from posthog.schema import (
     PathsV2Filter,
     PathsV2Query,
     QueryScanFindingKind,
+    QueryScanMode,
     QueryScanStatus,
     QueryScanWarning,
     RetentionFilter,
@@ -60,7 +61,7 @@ _SCAN_FINDING = QueryScanWarning(
     message="This query has no event filter, so it reads every event.",
     fix="Add an event filter naming the events this question is about. Change nothing else.",
 )
-_SCAN_FLAG = QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+_SCAN_FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
 # ClickHouse says why it stopped a query at this length, which is what makes the order of the
 # error and the scan block matter inside a capped summary.
 _KILLED_RUN_ERROR = (

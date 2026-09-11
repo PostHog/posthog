@@ -10,8 +10,11 @@ from typing import Any
 
 import structlog
 
+from posthog.schema import QueryScanMode, QueryScanStatus, QueryScanSummary, QueryScanWarning
+
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
+from posthog.query_scan.findings import assistant_prompt
 from posthog.query_scan.flag import QueryScanFlag, get_query_scan_flag
 from posthog.query_scan.slot import (
     QueryScanSlot,
@@ -23,12 +26,11 @@ logger = structlog.get_logger(__name__)
 
 @frozen(eq=False)
 class _SlotLookup:
-    """``over_floor``: whether a slot could exist for this response. ``flag``: the state in force now,
-    which a cached response cannot know.
+    """``flag`` is the state in force now, which a cached response cannot know. ``slot`` is None
+    below the floor, where nothing is stored, and when nothing was stored.
     """
 
     flag: QueryScanFlag | None
-    over_floor: bool
     slot: QueryScanSlot | None = None
 
 
@@ -44,26 +46,9 @@ def attach_scan_slot(team: Team, response: Any) -> None:
             # rollback goes rather than claiming a mode nobody granted.
             response.query_scan = None
             return
-        # The cached body carries the mode of the run that filled it, which can have moved since.
-        summary.mode = lookup.flag.mode
-        if not lookup.over_floor:
-            # Below the floor nothing reads the slot, so a status from the old floor cannot be
-            # confirmed.
-            summary.status = None
-            return
-        if lookup.slot is None:
-            # A cached response can carry the status of a run whose slot has since expired.
-            summary.status = None
-            return
-        summary.status = lookup.slot.status
-        if lookup.slot.status != "done":
-            return
-        summary.range_share = lookup.slot.range_share
-        summary.project_share = lookup.slot.project_share
-        summary.killed = lookup.slot.killed
-        # `log_only` collects the analysis without showing it to anyone.
-        if lookup.flag.mode == "show" and lookup.slot.findings and hasattr(response, "warnings"):
-            response.warnings = [*(response.warnings or []), *lookup.slot.findings]
+        findings = apply_slot(summary, lookup.slot, lookup.flag)
+        if findings and hasattr(response, "warnings"):
+            response.warnings = [*(response.warnings or []), *findings]
     except Exception:
         logger.warning("query_scan_attach_failed", team_id=team.pk, exc_info=True)
 
@@ -73,20 +58,15 @@ def scan_summary_with_findings(team: Team, summary: dict[str, Any], cache_key: s
     so the findings ride on the summary. None when the flag is off.
     """
     try:
-        lookup = _look_up(team, summary.get("duration_ms"), cache_key)
+        model = QueryScanSummary.model_validate(summary)
+        lookup = _look_up(team, model.duration_ms, cache_key)
         if lookup.flag is None:
             return None
-        summary = {**summary, "mode": lookup.flag.mode}
-        if not lookup.over_floor:
-            return {**summary, "status": None}
-        if lookup.slot is None:
-            return {**summary, "status": None}
-        folded = {**summary, "status": str(lookup.slot.status)}
-        if lookup.slot.status == "done":
-            folded["range_share"] = lookup.slot.range_share
-            folded["project_share"] = lookup.slot.project_share
-            folded["killed"] = lookup.slot.killed
-            findings = lookup.slot.findings if lookup.flag.mode == "show" else ()
+        findings = apply_slot(model, lookup.slot, lookup.flag)
+        folded = model.model_dump(mode="json", by_alias=True, exclude_none=True)
+        # `status` stays on the dict even when it is None, so a tile can tell an unanalyzed run apart.
+        folded["status"] = folded.get("status")
+        if model.status == QueryScanStatus.DONE:
             folded["warnings"] = [finding.model_dump(by_alias=True, exclude_none=True) for finding in findings]
         return folded
     except Exception:
@@ -94,14 +74,47 @@ def scan_summary_with_findings(team: Team, summary: dict[str, Any], cache_key: s
         return summary
 
 
-def _look_up(team: Team, duration_ms: Any, cache_key: str | None) -> _SlotLookup:
+def apply_slot(summary: QueryScanSummary, slot: QueryScanSlot | None, flag: QueryScanFlag) -> list[QueryScanWarning]:
+    """Correct ``summary`` against the live flag and the stored analysis, and return the findings to show.
+
+    The cached summary carries the mode of the run that filled it, which can have moved since, and
+    a status of a run whose slot has since expired. `log_only` collects the analysis without showing
+    it to anyone, so its findings stay out.
+    """
+    summary.mode = flag.mode
+    if slot is None:
+        summary.status = None
+        return []
+    summary.status = slot.status
+    if slot.status != QueryScanStatus.DONE:
+        return []
+    summary.range_share = slot.range_share
+    summary.project_share = slot.project_share
+    # `killed` describes the run behind the summary, so the run's own flag stands: the slot can hold
+    # the analysis of an earlier run that was stopped while this one finished. Once the analysis is
+    # in, the flag is spelled out rather than left absent.
+    summary.killed = bool(summary.killed)
+    if flag.mode != QueryScanMode.SHOW:
+        return []
+    findings = list(slot.findings)
+    summary.assistant_prompt = assistant_prompt(
+        findings,
+        rows_read=summary.rows_read,
+        duration_ms=summary.duration_ms,
+        range_share=slot.range_share,
+        project_share=slot.project_share,
+        killed=slot.killed,
+        fixable_only=True,
+    )
+    return findings
+
+
+def _look_up(team: Team, duration_ms: int, cache_key: str | None) -> _SlotLookup:
     # The flag is resolved first because a cached summary has to be corrected against it even
-    # when no slot is read. It is cached in-process, so this costs no round trip.
+    # when no slot is read. It is evaluated locally, so this costs no round trip.
     flag = get_query_scan_flag(team)
     if flag is None:
-        return _SlotLookup(flag=None, over_floor=False)
-    if cache_key is None or not isinstance(duration_ms, int) or duration_ms < flag.floor_ms:
-        return _SlotLookup(flag=flag, over_floor=False)
-    return _SlotLookup(
-        flag=flag, over_floor=True, slot=get_slot(team.pk, cache_key, thresholds=flag.thresholds_fingerprint)
-    )
+        return _SlotLookup(flag=None)
+    if cache_key is None or duration_ms < flag.floor_ms:
+        return _SlotLookup(flag=flag)
+    return _SlotLookup(flag=flag, slot=get_slot(team.pk, cache_key, thresholds=flag.thresholds_fingerprint))

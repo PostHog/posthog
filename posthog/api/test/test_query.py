@@ -29,6 +29,9 @@ from posthog.schema import (
     HogQLQuery,
     PersonPropertyFilter,
     PropertyOperator,
+    QueryScanFindingKind,
+    QueryScanMode,
+    QueryScanStatus,
     QueryStatus,
 )
 
@@ -49,7 +52,10 @@ from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
 from posthog.models import PersonalAPIKey
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
+from posthog.query_scan.findings import build_warning
 from posthog.query_scan.flag import QueryScanFlag
+from posthog.query_scan.slot import QueryScanSlot
+from posthog.query_scan.test.slots import stored_slot
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
@@ -1350,26 +1356,18 @@ class TestQueryRetrieve(APIBaseTest):
         self.assertEqual(self.redis_client_mock.delete.call_count, 2)
 
 
-SHOW_FLAG = QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
-LOG_ONLY_FLAG = QueryScanFlag(mode="log_only", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+SHOW_FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+LOG_ONLY_FLAG = QueryScanFlag(mode=QueryScanMode.LOG_ONLY, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
 
-A_STORED_SCAN = json.dumps(
-    {
-        "version": 1,
-        "status": "done",
-        "range_share": 0.8,
-        "project_share": 0.25,
-        "killed": True,
-        "thresholds": SHOW_FLAG.thresholds_fingerprint,
-        "findings": [
-            {
-                "type": "query_scan",
-                "kind": "no_event_filter",
-                "message": "This query read every event in its date range.",
-                "fix": "Add an event filter naming the events this question is about.",
-            }
-        ],
-    }
+A_STORED_SCAN = stored_slot(
+    QueryScanSlot(
+        status=QueryScanStatus.DONE,
+        range_share=0.8,
+        project_share=0.25,
+        killed=True,
+        thresholds=SHOW_FLAG.thresholds_fingerprint,
+        findings=(build_warning(kind=QueryScanFindingKind.NO_EVENT_FILTER, query_kind="HogQLQuery"),),
+    )
 )
 
 
@@ -1396,6 +1394,8 @@ class TestQueryScan(APIBaseTest):
         self.assertEqual(body["project_share"], 0.25)
         self.assertTrue(body["killed"])
         self.assertEqual([warning["kind"] for warning in body["warnings"]], ["no_event_filter"])
+        # "Fix with AI" sends this, so the endpoint builds it rather than the client.
+        self.assertIn("- no_event_filter:", body["assistant_prompt"])
 
     @parameterized.expand(
         [

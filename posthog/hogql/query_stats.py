@@ -39,6 +39,9 @@ class QueryStats:
 
     rows_read: int = 0
     duration_ms: float = 0.0
+    # How many ClickHouse queries the request ran. Zero means it never reached ClickHouse, for
+    # example a warehouse query over a direct connection, so there is nothing to report.
+    query_count: int = 0
     # Runners that record from several threads share one QueryStats.
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
     # References only, filled by the executor, so the job can explain each execution without rerunning it.
@@ -48,6 +51,7 @@ class QueryStats:
         with self.lock:
             self.rows_read += rows_read
             self.duration_ms += duration_ms
+            self.query_count += 1
 
     def record_execution(self, *, tree: ast.Expr, context: HogQLContext, rows_read: int) -> None:
         with self.lock:
@@ -55,6 +59,12 @@ class QueryStats:
 
 
 _accumulator: ContextVar[QueryStats | None] = ContextVar("query_stats_accumulator", default=None)
+
+# The rows of the last query recorded in the current thread, for the executor to attribute to the
+# tree it just ran. Kept per thread rather than read off the shared totals, because runners that
+# fan out over threads share one QueryStats, and a change in its total would charge one thread with
+# rows another read at the same time.
+_last_rows_read: ContextVar[int] = ContextVar("query_stats_last_rows_read", default=0)
 
 
 @contextlib.contextmanager
@@ -93,7 +103,18 @@ def use(stats: QueryStats | None) -> Iterator[None]:
 
 def record(*, rows_read: int, duration_ms: float) -> None:
     """Add one ClickHouse query to the open scope. Does nothing without one."""
+    _last_rows_read.set(rows_read)
     stats = _accumulator.get()
     if stats is None:
         return
     stats.add(rows_read=rows_read, duration_ms=duration_ms)
+
+
+def reset_last_rows_read() -> None:
+    """Forget the last query's rows in this thread, before a run that must not inherit them."""
+    _last_rows_read.set(0)
+
+
+def last_rows_read() -> int:
+    """The rows of the last query recorded in this thread since the reset, or 0."""
+    return _last_rows_read.get()
