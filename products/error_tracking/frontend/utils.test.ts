@@ -281,12 +281,14 @@ describe('issueVisionScannerHandoff', () => {
         })
         expect(handoff.scanner.scanner_config?.prompt).toContain('"TypeError: x is not a function"')
         // Without the issue_id filter on $exception events the scanner silently watches every session.
+        // custom_name carries the error name so the scanner preview reads as this error, not "$exception".
         expect(handoff.scanner.query).toMatchObject({
             kind: 'RecordingsQuery',
             date_from: '2024-01-01T00:00:00.000Z',
             events: [
                 expect.objectContaining({
                     id: '$exception',
+                    custom_name: 'TypeError: x is not a function',
                     properties: [{ key: "issue_id = 'issue-uuid'", type: PropertyFilterType.HogQL }],
                 }),
             ],

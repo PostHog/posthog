@@ -183,6 +183,19 @@ export function issueVisionScannerHandoff(
     issueName: string,
     dateRange: DateRange
 ): ScannerHandoffIntent {
+    // The date range rides along like the replay filters entry point's does; the backend
+    // drops it on save because the scanner's schedule owns time.
+    const query = convertUniversalFiltersToRecordingsQuery({
+        ...dateRange,
+        duration: [],
+        filter_group: getIssueReplayFilterGroup(issueId),
+    })
+    // Label the $exception event with the error name. The scanner's eligible-recordings preview
+    // shows an event by its display name, so without this it reads as a bare "$exception" and looks
+    // like it watches every exception session, hiding the issue_id filter that actually scopes it.
+    const events = query.events?.map((event) =>
+        event.id === '$exception' ? { ...event, custom_name: issueName } : event
+    )
     return {
         source: 'error_tracking',
         scanner: {
@@ -190,13 +203,7 @@ export function issueVisionScannerHandoff(
             description: 'Summarizes what users experienced in sessions that hit this error.',
             scanner_type: 'summarizer',
             scanner_config: { prompt: issueVisionScannerPrompt(issueName), length: 'medium' },
-            // The date range rides along like the replay filters entry point's does; the backend
-            // drops it on save because the scanner's schedule owns time.
-            query: convertUniversalFiltersToRecordingsQuery({
-                ...dateRange,
-                duration: [],
-                filter_group: getIssueReplayFilterGroup(issueId),
-            }),
+            query: { ...query, events },
             // Error-scoped queries match few sessions, so scan them all rather than starting at
             // the wizard's narrow default rate.
             sampling_rate: 1.0,

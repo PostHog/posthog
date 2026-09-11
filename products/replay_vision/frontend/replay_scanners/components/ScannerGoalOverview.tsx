@@ -140,11 +140,13 @@ function pageValues(scanner: ReplayScanner): string[] {
     return property.value.map(String)
 }
 
-/** The names of the query's events or actions, whichever list is asked for. */
+/** The names of the query's events or actions, whichever list is asked for. `custom_name` wins so a
+ * caller that scoped an event (for example error tracking pinning `$exception` to one issue) can label
+ * it with something the reader understands instead of the raw event name. */
 function namedQueryEntities(scanner: ReplayScanner, key: 'events' | 'actions'): string[] {
     const query = scanner.query
     const entities = (query && key in query ? query[key] : null) ?? []
-    return entities.map((entity) => String(entity.name ?? entity.id)).filter(Boolean)
+    return entities.map((entity) => String(entity.custom_name || entity.name || entity.id)).filter(Boolean)
 }
 
 /** The cohorts the scan is limited to. The query carries only ids, so the name is looked up. */

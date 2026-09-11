@@ -72,6 +72,29 @@ describe('eligibleFilterGroups', () => {
         ])
     })
 
+    it("labels an event by its custom_name so a scoped event doesn't read as the bare event", () => {
+        // Error tracking pins $exception to one issue and labels it with the error name. Without
+        // honoring custom_name the preview shows "$exception" and looks like it watches every exception.
+        const groups = eligibleFilterGroups(
+            scanner({
+                query: {
+                    kind: NodeKind.RecordingsQuery,
+                    events: [
+                        {
+                            id: '$exception',
+                            name: '$exception',
+                            type: 'events',
+                            order: 0,
+                            custom_name: 'TypeError: x is not a function',
+                        },
+                    ],
+                },
+            })
+        )
+
+        expect(groups).toEqual([{ label: 'Event', values: ['TypeError: x is not a function'] }])
+    })
+
     it('has no groups when the draft watches every recording', () => {
         expect(eligibleFilterGroups(scanner({ query: { kind: NodeKind.RecordingsQuery } }))).toEqual([])
     })
