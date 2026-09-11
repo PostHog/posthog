@@ -1401,10 +1401,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         (options) => tasksRunCreate(projectId, taskId, createRequest, options),
                         disposables
                     )
-                    getWarmLogic()?.actions.consumeWarm(result.latest_run?.id ?? null)
                     if (!isCurrent()) {
                         return
                     }
+                    getWarmLogic()?.actions.consumeWarm(result.latest_run?.id ?? null)
                     const run = result.latest_run
                     if (!run?.id) {
                         throw new Error('The run response did not include a run')

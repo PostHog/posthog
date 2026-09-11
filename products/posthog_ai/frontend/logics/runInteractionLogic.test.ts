@@ -921,7 +921,7 @@ describe('runInteractionLogic', () => {
         }
     )
 
-    it('warms the resumed run while composing and consumes it before submit', async () => {
+    it('warms the resumed run while composing and consumes it on submission', async () => {
         jest.useFakeTimers()
         setStatus('cancelled')
         logic.actions.setComposerFormValues({ draft: 'continue from the checkpoint' })
