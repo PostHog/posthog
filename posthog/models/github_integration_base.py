@@ -2364,6 +2364,7 @@ class GitHubIntegrationBase:
         timeout: int = 10,
         retry_transient: bool | None = None,
         priority: Priority | None = None,
+        stream: bool = False,
     ) -> requests.Response:
         """Authenticated request against ``https://api.github.com`` returning the raw response.
 
@@ -2409,6 +2410,7 @@ class GitHubIntegrationBase:
                     params=params,
                     json=json_body,
                     timeout=timeout,
+                    stream=stream,
                 )
             except requests.RequestException as exc:
                 if retry_transient and attempt == 0:

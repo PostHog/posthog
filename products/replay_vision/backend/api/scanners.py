@@ -17,6 +17,7 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
+from loginas.utils import is_impersonated_session
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -24,13 +25,15 @@ from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, Val
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import RecordingsQuery
+from posthog.schema import ProductIntentContext, ProductKey, RecordingsQuery
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, set_tags_on_object
-from posthog.event_usage import EventSource, get_event_source, report_user_action
+from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
 from posthog.exceptions import QuotaLimitExceeded
+from posthog.exceptions_capture import capture_exception
+from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
@@ -231,6 +234,30 @@ _QUERY_FILTER_KEYS = (
     "duration",
     "distinct_ids",
 )
+
+
+def _register_replay_vision_intent(
+    request: Request,
+    team: Team,
+    context: ProductIntentContext,
+    metadata: dict[str, Any],
+) -> None:
+    # Call at most once per request: register() writes a row every time, and a bulk scan can carry
+    # hundreds of session ids.
+    # Staff impersonating a customer is not the team's intent, so skip rather than fail the request.
+    if is_impersonated_session(request):
+        return
+    # Best-effort: the scan or create already happened, so a failure must not 500 and invite a retry.
+    try:
+        ProductIntent.register(
+            team=team,
+            product_type=ProductKey.REPLAY_VISION,
+            context=context,
+            user=cast(User, request.user),
+            metadata={**get_request_analytics_properties(request), **metadata},
+        )
+    except Exception as e:
+        capture_exception(e)
 
 
 def _scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
@@ -1704,6 +1731,20 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         )
         return response
 
+    def perform_create(self, serializer: Any) -> None:
+        super().perform_create(serializer)
+        # Saving a scanner means writing a prompt and picking a type, which is the least ambiguous
+        # "wants to use this" signal the product has.
+        _register_replay_vision_intent(
+            self.request,
+            self.team,
+            ProductIntentContext.REPLAY_VISION_SCANNER_CREATED,
+            {
+                "scanner_id": str(serializer.instance.id),
+                "scanner_type": serializer.instance.scanner_type,
+            },
+        )
+
     def perform_destroy(self, instance: ReplayScanner) -> None:
         # Snapshot lifecycle props before the row is deleted.
         properties = _scanner_lifecycle_properties(instance)
@@ -1896,6 +1937,16 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             team=self.team,
             request=request,
         )
+        _register_replay_vision_intent(
+            request,
+            self.team,
+            ProductIntentContext.REPLAY_VISION_SCAN_TRIGGERED,
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "scan_shape": "single",
+            },
+        )
         return Response(
             ObserveResponseSerializer({"workflow_id": workflow_id}).data,
             status=status.HTTP_202_ACCEPTED,
@@ -1948,6 +1999,21 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             },
             team=self.team,
             request=request,
+        )
+        # Once for the batch, not once per session: `register()` writes the row on every call and
+        # `session_ids` can be in the hundreds. Registered even when everything was skipped, because
+        # asking for a scan you didn't get the quota for is still intent.
+        _register_replay_vision_intent(
+            request,
+            self.team,
+            ProductIntentContext.REPLAY_VISION_SCAN_TRIGGERED,
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "scan_shape": "bulk",
+                "requested": len(session_ids),
+                "started": started,
+            },
         )
         # Key off the outcomes, not skip_reason: skip_reason only names the limit that would bind
         # first, and a batch that never reached the cap must not report exhaustion.

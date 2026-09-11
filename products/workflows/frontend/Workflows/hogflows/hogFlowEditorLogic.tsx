@@ -755,6 +755,7 @@ export interface hogFlowEditorLogicActions {
                                       filters: {
                                           all_roles_unassigned?: boolean | undefined
                                           assigned_to_user_ids?: number[] | undefined
+                                          assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                           audience_type?: 'accounts' | 'persons' | undefined
                                           properties: any[]
                                           tag_names?: string[] | undefined
@@ -920,6 +921,7 @@ export interface hogFlowEditorLogicActions {
                             filters: {
                                 all_roles_unassigned?: boolean | undefined
                                 assigned_to_user_ids?: number[] | undefined
+                                assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                 audience_type?: 'accounts' | 'persons' | undefined
                                 properties: any[]
                                 tag_names?: string[] | undefined
@@ -1610,6 +1612,7 @@ export interface hogFlowEditorLogicActions {
                                       filters: {
                                           all_roles_unassigned?: boolean | undefined
                                           assigned_to_user_ids?: number[] | undefined
+                                          assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                           audience_type?: 'accounts' | 'persons' | undefined
                                           properties: any[]
                                           tag_names?: string[] | undefined
@@ -1775,6 +1778,7 @@ export interface hogFlowEditorLogicActions {
                             filters: {
                                 all_roles_unassigned?: boolean | undefined
                                 assigned_to_user_ids?: number[] | undefined
+                                assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                 audience_type?: 'accounts' | 'persons' | undefined
                                 properties: any[]
                                 tag_names?: string[] | undefined
@@ -2751,6 +2755,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 ['channel_source', 'Channel source'],
                                 ['last_message_at', 'Last message at'],
                                 ['last_message_text', 'Last message text'],
+                                ['first_customer_message_text', 'First customer message text'],
                                 ['unread_team_count', 'Unread team'],
                                 ['unread_customer_count', 'Unread customer'],
                                 ['sla', 'SLA'],

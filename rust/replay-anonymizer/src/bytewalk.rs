@@ -14,8 +14,9 @@
 //! the whole walk return `None` — the caller falls back to the parse, which resolves those exactly.
 
 use crate::assets::{
-    is_at_most_one_pixel, is_fetchable_image_attr, is_image_ref_attr, is_media_src_attr, px_length,
-    IMAGE_REF_ATTR_PREFIX, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC,
+    has_usable_srcset, is_at_most_one_pixel, is_fetchable_image_attr, is_image_ref_attr,
+    is_media_src_attr, px_length, IMAGE_REF_ATTR_PREFIX, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS,
+    PLACEHOLDER_SRC,
 };
 use crate::blur::is_image_data_uri;
 use crate::collect::is_image_ref_strict;
@@ -28,7 +29,7 @@ use crate::dom::{
 use crate::event::{SOURCE_INPUT, SOURCE_MUTATION, TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL};
 use crate::images::ImageFallback;
 use crate::scan::{self, Span};
-use crate::srcset::largest_candidate;
+use crate::srcset::candidate_for_scrubbing;
 use crate::text::{redact_emails, scrub_text};
 use crate::url::scrub_url;
 
@@ -944,6 +945,17 @@ impl<'c, 'a> Walker<'c, 'a> {
         if self.bytes.get(start) != Some(&b'{') {
             return self.copy_value(start, out);
         }
+        let prefer_srcset = if tag.eq_ignore_ascii_case("img") {
+            match self.find_member(start, b"srcset").ok()? {
+                Some(span) if scan::is_string(self.bytes, span) => {
+                    let value = scan::unescape(self.bytes, span).ok()?;
+                    has_usable_srcset(&value, self.ctx.keeps_image_refs())
+                }
+                _ => false,
+            }
+        } else {
+            false
+        };
         let mut stashes: Vec<(String, String)> = Vec::new();
         let end = {
             let stashes = &mut stashes;
@@ -956,6 +968,15 @@ impl<'c, 'a> Walker<'c, 'a> {
                     return None;
                 }
                 if kind == TagKind::Media && is_media_src_attr(name) {
+                    if prefer_srcset
+                        && matches!(name, "src" | "rr_src")
+                        && w.bytes.get(vstart) == Some(&b'"')
+                    {
+                        let end = scan::skip_string(w.bytes, vstart).ok()?;
+                        scan::write_json_string(PLACEHOLDER_SRC, out);
+                        w.changed = true;
+                        return Some(end);
+                    }
                     return w.blur_media_src(
                         name,
                         vstart,
@@ -1045,7 +1066,7 @@ impl<'c, 'a> Walker<'c, 'a> {
             return self.copy_value(vstart, out);
         }
         let selected = if name == "srcset" {
-            largest_candidate(existing.as_ref()).map(str::to_string)
+            candidate_for_scrubbing(existing.as_ref()).map(str::to_string)
         } else {
             Some(existing.into_owned())
         };
