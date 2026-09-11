@@ -44,8 +44,7 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
         scoutRunCosts,
         scoutCostRollups,
         expensiveRunCostThreshold,
-    } =
-        useValues(scoutFleetLogic)
+    } = useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()

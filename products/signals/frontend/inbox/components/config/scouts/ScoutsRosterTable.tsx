@@ -40,8 +40,7 @@ export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Elemen
         scoutRunCosts,
         scoutCostRollups,
         expensiveRunCostThreshold,
-    } =
-        useValues(scoutFleetLogic)
+    } = useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
 
     if (rosterScouts.length === 0) {
