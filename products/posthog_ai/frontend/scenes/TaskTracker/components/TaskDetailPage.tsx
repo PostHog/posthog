@@ -4,8 +4,6 @@ import { IconExternal, IconGithub, IconPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { isPiTaskRuntime } from '../../../types/taskTypes'
@@ -25,9 +23,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
     const { task, taskNotFound, taskError, latestRun, selectedRun, isTaskPending, isHeaderLoading, runTaskInFlight } =
         useValues(sceneLogic)
     const { runTask, deleteTask, loadTask } = useActions(sceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { activeCreation, hasDesktopAccess } = useValues(taskTrackerSceneLogic)
-    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const isActiveCreation = activeCreation?.taskId === taskId
 
     if (taskNotFound && !task) {
@@ -99,7 +95,6 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
             selectedRun={selectedRun}
             isHeaderLoading={isHeaderLoading && !isActiveCreation}
             titleActions={titleActions}
-            sceneMenuBarEnabled={sceneMenuBarEnabled}
             onArchive={deleteTask}
             taskError={taskError}
             onRetry={loadTask}
