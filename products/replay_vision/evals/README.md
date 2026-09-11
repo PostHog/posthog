@@ -53,6 +53,13 @@ Use `--trials N` for variance on Gemini nondeterminism and `--eval <case-substri
 
 `output_stability` and `labeled_outcome` deliberately pull in opposite directions, so read them as a pair: a prompt change that only adds churn shows up as `labeled_outcome` flat or up while `output_stability` drops.
 
+Primary verdict agreement and signal counts do not measure recommendation precision.
+The label scorer compares primary outcomes; it does not check each signal's evidence or usefulness.
+Model confidence does not establish whether a signal supports a useful recommendation.
+Successful scans retain the complete structured `signals` list in the private per-case output alongside `signals_count`; no findings produces `signals: []`.
+Compare each finding's type, time range, URL, description, and confidence with the recording before using it as recommendation evidence.
+This suite does not calculate recommendation precision.
+
 ## Running it on a GitHub runner
 
 `.github/workflows/ci-replay-vision-evals.yml` runs the same loop on an ephemeral runner, on manual dispatch only, with `per_type` and `trials` as inputs (GitHub only offers the dispatch once the workflow is on master).
@@ -70,6 +77,7 @@ The dataset contains real session recordings and event data.
 - Keep it in a local or internal location only; never commit it, upload it, or reference its contents in PRs.
 - A dataset expires 30 days after its last collection: the suite refuses to run it, because the consent verification (and the recordings themselves) can lapse after collection. Re-running collect.py re-verifies consent and refreshes the manifest.
 - The suite is `OneShotPrivateEval`, so per-case logs stay in the local `eval_harness/logs/` directory and nothing goes to Braintrust.
+- The retained `signals` can contain session content. Keep these payloads private; never include them in public CI summaries, commits, or pull requests.
 - Dataset-derived content still leaves the machine on three paths. Two reach a model provider: the Gemini scans, which are the same provider call production already makes through `run_scan`, and the `summary_alignment` judge, which sends the recorded and fresh summaries to `gpt-5.4`. The third is the harness's `$ai_evaluation` capture, which stays inside PostHog.
 - The judge calls the OpenAI API directly with `OPENAI_API_KEY`. It does not go through the internal LLM gateway, which a one-shot suite never starts, so nothing sits in front of the provider on that path.
 - That capture posts every run's scores to project 2, keyed `<scanner_type>-<observation_id>`, with the scanner prompt as `$ai_input` and the recorded and fresh outcomes as `$ai_expected`/`$ai_output`. The scores land in that project's offline experiments view, which is where to compare runs over time.
