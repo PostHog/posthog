@@ -566,8 +566,17 @@ class ProjectSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     class Meta:
         model = Project
         # Keep this serializer narrow; legacy Team-compatible fields live on ProjectBackwardCompatSerializer.
-        fields = ["id", "organization_id", "name", "product_description", "created_at", "is_pending_deletion", "tags"]
-        read_only_fields = ["id", "organization_id", "created_at", "is_pending_deletion"]
+        fields = [
+            "id",
+            "organization_id",
+            "name",
+            "product_description",
+            "created_at",
+            "is_pending_deletion",
+            "deletion_scheduled_at",
+            "tags",
+        ]
+        read_only_fields = ["id", "organization_id", "created_at", "is_pending_deletion", "deletion_scheduled_at"]
 
 
 class ProjectBackwardCompatSerializer(
@@ -715,6 +724,7 @@ class ProjectBackwardCompatSerializer(
             "proactive_tasks_enabled",  # Compat with TeamSerializer
             "available_setup_task_ids",  # Compat with TeamSerializer
             "is_pending_deletion",
+            "deletion_scheduled_at",
             "project_id",  # Compat with TeamSerializer
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
@@ -742,6 +752,7 @@ class ProjectBackwardCompatSerializer(
             "uuid",
             "organization",
             "is_pending_deletion",
+            "deletion_scheduled_at",
             "effective_membership_level",
             "has_group_types",
             "group_types",
@@ -1619,20 +1630,28 @@ class ProjectViewSet(
             if warehouse_block_reason:
                 raise exceptions.ValidationError(warehouse_block_reason)
 
-        # Mark as pending deletion so the UI locks this project out until the async task removes it.
+        from posthog.temporal.delete_teams.dispatch import PROJECT_DELETION_DELAY, start_delete_project_data_workflow
+
+        # Mark as pending deletion so the UI locks this project out until the scheduled task removes it.
         project.is_pending_deletion = True
-        project.save(update_fields=["is_pending_deletion"])
+        project.deletion_scheduled_at = timezone.now() + PROJECT_DELETION_DELAY
+        project.save(update_fields=["is_pending_deletion", "deletion_scheduled_at"])
 
         # Hand off all deletion work (bulky postgres, batch exports, project/team records,
         # ClickHouse, email) to the durable Temporal workflow.
-        from posthog.temporal.delete_teams.dispatch import start_delete_project_data_workflow
 
-        start_delete_project_data_workflow(
-            team_ids=team_ids,
-            project_id=project_id,
-            user_id=user.id,
-            project_name=project_name,
-        )
+        try:
+            start_delete_project_data_workflow(
+                team_ids=team_ids,
+                project_id=project_id,
+                user_id=user.id,
+                project_name=project_name,
+            )
+        except Exception:
+            project.is_pending_deletion = False
+            project.deletion_scheduled_at = None
+            project.save(update_fields=["is_pending_deletion", "deletion_scheduled_at"])
+            raise
 
         for team in teams:
             log_activity(
@@ -1663,6 +1682,30 @@ class ProjectViewSet(
             team=teams[0],
             request=self.request,
         )
+
+    @extend_schema(
+        description="Cancel a scheduled project deletion and restore access to the project.",
+        request=None,
+        responses={200: ProjectSerializer},
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="cancel-deletion",
+        permission_classes=[TeamMemberLightManagementPermission],
+    )
+    def cancel_deletion(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = cast(Project, self.get_object())
+        if not project.is_pending_deletion:
+            raise exceptions.ValidationError("This project is not pending deletion.")
+
+        from posthog.temporal.delete_teams.dispatch import cancel_delete_project_data_workflow
+
+        cancel_delete_project_data_workflow(project_id=project.pk)
+        project.is_pending_deletion = False
+        project.deletion_scheduled_at = None
+        project.save(update_fields=["is_pending_deletion", "deletion_scheduled_at"])
+        return response.Response(ProjectSerializer(project, context=self.get_serializer_context()).data)
 
     @action(
         methods=["PATCH"],

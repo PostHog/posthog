@@ -724,6 +724,7 @@ export interface CorrelationConfigType {
 export interface ProjectType extends ProjectBasicType {
     created_at: string
     is_pending_deletion: boolean
+    deletion_scheduled_at: string | null
     tags?: string[]
 }
 
