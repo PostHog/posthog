@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from ..db import WRITER_DB
+from ..db import READER_DB, WRITER_DB
+from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS
 from ..facade.enums import ActorType
 from ..models import QuarantinedIdentifier, Run
 from . import errors, repos
+from .run_queries import SnapshotKey
 
 
 def list_quarantined_identifiers(
@@ -36,6 +38,48 @@ def list_quarantined_identifiers(
         now = timezone.now()
         qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
     return list(qs.order_by("-created_at"))
+
+
+def expiry_soon_cutoff(now: datetime) -> datetime:
+    """The moment past which an expiry is close enough that somebody has to decide about it."""
+    return now + timedelta(days=FLAKINESS_EXPIRY_SOON_DAYS)
+
+
+def is_expiring_soon(entry: QuarantinedIdentifier, cutoff: datetime) -> bool:
+    """Whether an active quarantine runs out inside the window.
+
+    An entry with no expiry never does. It is a standing exception, and nothing about it changes
+    on its own, so there is no date for a reminder to hang off.
+    """
+    return entry.expires_at is not None and entry.expires_at <= cutoff
+
+
+def list_expiring_quarantines(repo_id: UUID, *, now: datetime) -> list[QuarantinedIdentifier]:
+    """Active quarantines that run out inside the window, soonest first.
+
+    An entry leaves this list when somebody extends it past the window, lifts it, or lets it lapse.
+    """
+    return list(
+        QuarantinedIdentifier.objects.using(READER_DB)
+        .filter(repo_id=repo_id, expires_at__gt=now, expires_at__lte=expiry_soon_cutoff(now))
+        # Preload `source_run` so the caller can render the "what was wrong" link without an extra
+        # fetch per row. `Run.metadata` (JSONField) and `Run.error_message` (TextField) can be
+        # large and aren't needed for the summary.
+        .select_related("source_run")
+        .defer("source_run__metadata", "source_run__error_message")
+        .order_by("expires_at")
+    )
+
+
+def active_quarantine_keys(repo_id: UUID, *, now: datetime) -> set[SnapshotKey]:
+    """Every identity under a quarantine that has not run out, whatever its expiry."""
+    return {
+        SnapshotKey(run_type=run_type, identifier=identifier)
+        for run_type, identifier in QuarantinedIdentifier.objects.using(READER_DB)
+        .filter(repo_id=repo_id)
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+        .values_list("run_type", "identifier")
+    }
 
 
 @transaction.atomic(using=WRITER_DB)

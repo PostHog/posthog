@@ -229,7 +229,7 @@ def stamphog_chain() -> Iterator[StamphogChain]:
             )
         )
         stack.enter_context(patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", fake_slack))
-        stack.enter_context(patch("products.stamphog.backend.logic.channel_resolution.SlackIntegration", fake_slack))
+        stack.enter_context(patch("posthog.team_notifications.slack.SlackIntegration", fake_slack))
         stack.enter_context(
             patch(
                 "products.stamphog.backend.logic.digest.build_anthropic_client",

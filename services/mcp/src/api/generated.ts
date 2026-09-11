@@ -12032,6 +12032,8 @@ export namespace Schemas {
     export interface BaselineEntry {
       /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
       quarantine?: BaselineQuarantineSummary | null;
+      /** Accepted variants still recorded against this baseline's current hash. Unlike the 30-day and 90-day counts, this has no time window: an accepted variant keeps matching without a new record. A baseline change resets it to zero. */
+      active_variants_current_baseline: number;
       identifier: string;
       run_type: string;
       /** @nullable */
@@ -12055,6 +12057,8 @@ export namespace Schemas {
 
     export interface BaselineTotals {
       by_run_type: BaselineTotalsByRunType;
+      /** Baselines carrying three or more accepted variants of their current hash. */
+      variant_pileups: number;
       all_snapshots: number;
       recently_tolerated: number;
       frequently_tolerated: number;
@@ -22707,6 +22711,7 @@ export namespace Schemas {
     /**
      * * `table` - table
      * * `view` - view
+     * * `metric` - metric
      */
     export type SubjectTypeEnum = typeof SubjectTypeEnum[keyof typeof SubjectTypeEnum];
 
@@ -22714,6 +22719,7 @@ export namespace Schemas {
     export const SubjectTypeEnum = {
       Table: 'table',
       View: 'view',
+      Metric: 'metric',
     } as const;
 
     /**
@@ -22737,13 +22743,14 @@ export namespace Schemas {
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
-      /** Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).
+      /** Kind of catalog object being checked: 'table', 'view', or 'metric'.
        *
        * * `table` - table
-       * * `view` - view */
+       * * `view` - view
+       * * `metric` - metric */
       readonly subject_type: SubjectTypeEnum;
       /**
-         * Id of the table or view being checked -- the parent resource in the URL.
+         * Id of the table, view, or metric being checked, from the parent resource in the URL.
          * @nullable
          */
       readonly subject_uuid: string | null;
@@ -22940,13 +22947,14 @@ export namespace Schemas {
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
-      /** Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).
+      /** Kind of catalog object being checked: 'table', 'view', or 'metric'.
        *
        * * `table` - table
-       * * `view` - view */
+       * * `view` - view
+       * * `metric` - metric */
       readonly subject_type: SubjectTypeEnum;
       /**
-         * Id of the table or view being checked -- the parent resource in the URL.
+         * Id of the table, view, or metric being checked, from the parent resource in the URL.
          * @nullable
          */
       readonly subject_uuid: string | null;
@@ -23043,6 +23051,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly subject_schema_id: string | null;
+      /**
+         * Current metric name for opening its Tests tab, or null for other subjects.
+         * @nullable
+         */
+      readonly subject_metric_name: string | null;
     }
 
     /**
@@ -23057,9 +23070,9 @@ export namespace Schemas {
      * Per-subject rollup, the same rule the information_schema.data_quality_health table uses.
      */
     export interface DataQualitySubjectHealth {
-      /** 'table' or 'view'. */
+      /** 'table', 'view', or 'metric'. */
       subject_type: string;
-      /** Id of the table or view. */
+      /** Id of the table, view, or metric. */
       subject_uuid: string;
       /** failing (an error-severity check failed), erroring (a check could not run), warn (only warn-severity failures), healthy, or unknown (nothing has run yet). */
       health: string;
@@ -23071,12 +23084,12 @@ export namespace Schemas {
 
     export interface DataQualitySuiteRun {
       readonly id: string;
-      /** manual, materialization, or source_sync. */
+      /** manual, materialization, source_sync, or scheduled. */
       readonly trigger: string;
       /** running, completed, failed, or empty (nothing matched the trigger). */
       readonly status: string;
       /**
-         * 'table' or 'view' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.
+         * 'table', 'view', or 'metric' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.
          * @nullable
          */
       readonly subject_type: string | null;
@@ -25380,6 +25393,8 @@ export namespace Schemas {
      * * `GoogleAdSense` - GoogleAdSense
      * * `Sequenzy` - Sequenzy
      * * `Skio` - Skio
+     * * `Smartlead` - Smartlead
+     * * `Substack` - Substack
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -26721,6 +26736,8 @@ export namespace Schemas {
       GoogleAdSense: 'GoogleAdSense',
       Sequenzy: 'Sequenzy',
       Skio: 'Skio',
+      Smartlead: 'Smartlead',
+      Substack: 'Substack',
     } as const;
 
     /**
@@ -28075,7 +28092,9 @@ export namespace Schemas {
        * * `Cybersource` - Cybersource
        * * `GoogleAdSense` - GoogleAdSense
        * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio */
+       * * `Skio` - Skio
+       * * `Smartlead` - Smartlead
+       * * `Substack` - Substack */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -30121,7 +30140,9 @@ export namespace Schemas {
        * * `Cybersource` - Cybersource
        * * `GoogleAdSense` - GoogleAdSense
        * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio */
+       * * `Skio` - Skio
+       * * `Smartlead` - Smartlead
+       * * `Substack` - Substack */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -38952,7 +38973,9 @@ export namespace Schemas {
        * * `Cybersource` - Cybersource
        * * `GoogleAdSense` - GoogleAdSense
        * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio */
+       * * `Skio` - Skio
+       * * `Smartlead` - Smartlead
+       * * `Substack` - Substack */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -40327,7 +40350,9 @@ export namespace Schemas {
        * * `Cybersource` - Cybersource
        * * `GoogleAdSense` - GoogleAdSense
        * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio */
+       * * `Skio` - Skio
+       * * `Smartlead` - Smartlead
+       * * `Substack` - Substack */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -48589,6 +48614,8 @@ export namespace Schemas {
       projects: JiraProject[];
     }
 
+    export interface JsonValue {}
+
     /**
      * * `2.0` - 2.0
      */
@@ -50784,6 +50811,18 @@ export namespace Schemas {
       notes: string;
     }
 
+    /**
+     * * `above` - Above the band
+     * * `below` - Below the band
+     */
+    export type LogsSeriesBandVerdictEnum = typeof LogsSeriesBandVerdictEnum[keyof typeof LogsSeriesBandVerdictEnum];
+
+
+    export const LogsSeriesBandVerdictEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
     export interface LogsSeriesBandBucket {
       /** Start of the display bucket (UTC). */
       time: string;
@@ -50799,6 +50838,11 @@ export namespace Schemas {
          * @nullable
          */
       upper: number | null;
+      /** Where the observed count sits against the band: above when it exceeds upper, below when it falls under lower. Null while it sits inside the band, or while the band is not ready.
+       *
+       * * `above` - Above the band
+       * * `below` - Below the band */
+      verdict: LogsSeriesBandVerdictEnum | null;
     }
 
     export interface LogsSeriesBandSeries {
@@ -52604,6 +52648,30 @@ export namespace Schemas {
          * @nullable
          */
       readonly duration_ms: number | null;
+    }
+
+    /**
+     * Arguments validated against the selected tool's schema.
+     */
+    export type MCPToolRequestArgs = {[key: string]: JsonValue};
+
+    export interface MCPToolRequest {
+      /** Arguments validated against the selected tool's schema. */
+      args?: MCPToolRequestArgs;
+    }
+
+    /**
+     * Structured tool output for native widgets.
+     */
+    export type MCPToolResponseStructuredContent = {[key: string]: JsonValue} | null;
+
+    export interface MCPToolResponse {
+      /** Formatted tool output for the model. */
+      content: string;
+      /** Structured tool output for native widgets. */
+      structured_content?: MCPToolResponseStructuredContent;
+      /** Whether the tool completed successfully. */
+      success: boolean;
     }
 
     /**
@@ -62059,6 +62127,32 @@ export namespace Schemas {
       results: WebExperimentsAPI[];
     }
 
+    export interface WikiPageProposal {
+      /** Immutable suggested edit ID. Only its author can apply it through the user API. */
+      id: string;
+      /** Task that proposed the edit. */
+      task_id: string;
+      /** Shared wiki page to review. */
+      path: string;
+      /** Page content at the revision the proposal is based on. */
+      original_content: string;
+      /** Proposed page content. This is not published wiki content. */
+      content: string;
+      /** Wiki revision the proposal is based on. */
+      base_head: string;
+      /** When the edit was proposed. */
+      created_at: string;
+    }
+
+    export interface PaginatedWikiPageProposalList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WikiPageProposal[];
+    }
+
     /**
      * * `local` - local
      * * `cloud` - cloud
@@ -63686,13 +63780,14 @@ export namespace Schemas {
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
-      /** Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).
+      /** Kind of catalog object being checked: 'table', 'view', or 'metric'.
        *
        * * `table` - table
-       * * `view` - view */
+       * * `view` - view
+       * * `metric` - metric */
       readonly subject_type?: SubjectTypeEnum;
       /**
-         * Id of the table or view being checked -- the parent resource in the URL.
+         * Id of the table, view, or metric being checked, from the parent resource in the URL.
          * @nullable
          */
       readonly subject_uuid?: string | null;
@@ -68834,7 +68929,7 @@ export namespace Schemas {
      */
     export type PatchedSignalScoutConfigUpdateStructuredOutputSchema = { [key: string]: unknown } | null;
 
-    export interface SignalScoutSlackDestination {
+    export interface SignalScoutSlackDestinationUpdate {
       /**
          * ID of the Slack integration whose bot posts this scout's findings and reports.
          * @minimum 1
@@ -68855,7 +68950,7 @@ export namespace Schemas {
          * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
          */
       users?: string[] | null;
-      /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
+      /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post. */
       thread_reports?: boolean;
     }
 
@@ -68864,9 +68959,9 @@ export namespace Schemas {
       hog_function_id: string;
     }
 
-    export interface SignalScoutOutputDestinations {
+    export interface SignalScoutOutputDestinationsUpdate {
       /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
-      slack?: SignalScoutSlackDestination | null;
+      slack?: SignalScoutSlackDestinationUpdate | null;
       /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
       webhook?: SignalScoutWebhookDestination | null;
     }
@@ -68909,7 +69004,7 @@ export namespace Schemas {
          */
       run_cron_schedule?: string | null;
       /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
-      output_destinations?: SignalScoutOutputDestinations;
+      output_destinations?: SignalScoutOutputDestinationsUpdate;
       /**
          * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
          * @nullable
@@ -70142,6 +70237,29 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
+    }
+
+    export interface PatchedTeamLogsConfig {
+      /** Legacy single-key alias — always the first entry of `logs_distinct_id_attribute_keys`. Read-only; write the plural field instead. */
+      readonly logs_distinct_id_attribute_key?: string;
+      /**
+         * Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_distinct_id_attribute_keys?: string[];
+      /**
+         * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_session_id_attribute_keys?: string[];
+      /**
+         * Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_pattern_message_keys?: string[];
     }
 
     export interface PatchedTeamTracingConfig {
@@ -78757,6 +78875,38 @@ export namespace Schemas {
       readonly window_days: number;
     }
 
+    export interface SignalScoutSlackDestination {
+      /**
+         * ID of the Slack integration whose bot posts this scout's findings and reports.
+         * @minimum 1
+         */
+      integration_id: number;
+      /**
+         * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set.
+         * @maxLength 255
+         * @nullable
+         */
+      channel?: string | null;
+      /**
+         * Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.
+         * @minItems 1
+         * @maxItems 5
+         * @nullable
+         * @items.maxLength 255
+         * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
+         */
+      users?: string[] | null;
+      /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post. */
+      thread_reports?: boolean;
+    }
+
+    export interface SignalScoutOutputDestinations {
+      /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+      slack?: SignalScoutSlackDestination | null;
+      /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+      webhook?: SignalScoutWebhookDestination | null;
+    }
+
     /**
      * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
@@ -80295,6 +80445,19 @@ export namespace Schemas {
       started: boolean;
     }
 
+    /**
+     * Request body for an on-demand (`run now`) scout dispatch.
+     *
+     * Every field is optional: a plain trigger sends no body at all.
+     */
+    export interface SignalScoutManualRunRequest {
+      /**
+         * Optional steering for this run only, such as 'focus on the checkout regression' or 'skip the staging traffic today'. The agent reads it alongside the scout's durable notes and weighs it the same way: it directs attention, it never forces a finding. Use it instead of leaving a scout note that would also steer every later scheduled run. The note is kept on the run for history and is never read by another run. Because the agent reads it verbatim while holding privileged tools, a run that carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor access to skills, the same bar as leaving a note.
+         * @maxLength 1000
+         */
+      note?: string;
+    }
+
     export type SignalScoutRunDetailMetadataDerived = {
       has_emit_report: boolean;
       has_edit_report: boolean;
@@ -80320,6 +80483,7 @@ export namespace Schemas {
       network_access?: string;
       write_scopes?: string[];
       triggered_by?: string;
+      run_note?: string;
       derived?: SignalScoutRunDetailMetadataDerived;
       [key: string]: unknown;
      };
@@ -80418,6 +80582,7 @@ export namespace Schemas {
       network_access?: string;
       write_scopes?: string[];
       triggered_by?: string;
+      run_note?: string;
       derived?: SignalScoutRunSummaryMetadataDerived;
       [key: string]: unknown;
      };
@@ -80516,6 +80681,11 @@ export namespace Schemas {
       slack_notification_min_priority?: AutonomyPriorityEnum | BlankEnum | null;
       /** Whether to add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Assignment is additive, so turning it off never removes an assignee from a pull request that already has one. */
       github_assign_on_pull_request?: boolean;
+      /**
+         * Whether implementation pull requests for reports that suggest this user as reviewer open ready for review instead of draft, so the full CI matrix starts right away. Null follows the project's default_open_pull_request_ready. Applies only when the pull request is created; a pull request somebody converts back to draft stays draft.
+         * @nullable
+         */
+      github_open_pull_request_ready?: boolean | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -80545,6 +80715,11 @@ export namespace Schemas {
       slack_notification_min_priority?: AutonomyPriorityEnum | null;
       /** Add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Turning it off stops future assignment and never removes an existing assignee. */
       github_assign_on_pull_request?: boolean;
+      /**
+         * Open implementation pull requests for reports that suggest this user as reviewer ready for review instead of draft, so the full CI matrix runs without anybody clicking Ready. Null follows the project default. A ready pull request runs the full matrix on every push.
+         * @nullable
+         */
+      github_open_pull_request_ready?: boolean | null;
     }
 
     export interface SlackChannel {
@@ -82145,7 +82320,9 @@ export namespace Schemas {
        * * `Cybersource` - Cybersource
        * * `GoogleAdSense` - GoogleAdSense
        * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio */
+       * * `Skio` - Skio
+       * * `Smartlead` - Smartlead
+       * * `Substack` - Substack */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -83536,7 +83713,9 @@ export namespace Schemas {
        * * `Cybersource` - Cybersource
        * * `GoogleAdSense` - GoogleAdSense
        * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio */
+       * * `Skio` - Skio
+       * * `Smartlead` - Smartlead
+       * * `Substack` - Substack */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -84909,7 +85088,9 @@ export namespace Schemas {
        * * `Cybersource` - Cybersource
        * * `GoogleAdSense` - GoogleAdSense
        * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio */
+       * * `Skio` - Skio
+       * * `Smartlead` - Smartlead
+       * * `Substack` - Substack */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -88419,6 +88600,29 @@ export namespace Schemas {
       readonly sending_allowance: EmailSendingAllowance | null;
     }
 
+    export interface TeamLogsConfig {
+      /** Legacy single-key alias — always the first entry of `logs_distinct_id_attribute_keys`. Read-only; write the plural field instead. */
+      readonly logs_distinct_id_attribute_key: string;
+      /**
+         * Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_distinct_id_attribute_keys: string[];
+      /**
+         * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_session_id_attribute_keys: string[];
+      /**
+         * Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_pattern_message_keys: string[];
+    }
+
     export const TeamMCPGatewayConfigMemberDefaultPreset = {...MCPPolicyPresetEnum,...BlankEnum,} as const
     export const TeamMCPGatewayConfigAgentDefaultPreset = {...MCPPolicyPresetEnum,...BlankEnum,} as const
     export interface TeamMCPGatewayConfig {
@@ -90263,6 +90467,27 @@ export namespace Schemas {
       head_sha: string;
       /** When this page was last changed in the wiki history. */
       updated_at: string;
+    }
+
+    /**
+     * Request body for creating or replacing one wiki page.
+     */
+    export interface WikiPageProposalWrite {
+      /**
+         * Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.
+         * @maxLength 512
+         */
+      path: string;
+      /**
+         * The complete Markdown content for the page.
+         * @maxLength 1000000
+         */
+      content: string;
+      /**
+         * The head_sha returned when reading the page. Required to bind the proposed edit.
+         * @maxLength 64
+         */
+      base_head: string;
     }
 
     /**
@@ -93346,6 +93571,17 @@ export namespace Schemas {
     path: string;
     };
 
+    export type ContextLayerProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type DomainsListParams = {
     /**
      * Number of results to return per page.
@@ -95859,6 +96095,28 @@ export namespace Schemas {
     };
 
     export type DataCatalogMetricsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DataCatalogMetricsCheckSuiteRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DataCatalogMetricsChecksListParams = {
     /**
      * Number of results to return per page.
      */
@@ -101043,8 +101301,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type McpToolsCreate200 = { [key: string]: unknown };
 
     export type MessagingCategoriesListParams = {
     /**

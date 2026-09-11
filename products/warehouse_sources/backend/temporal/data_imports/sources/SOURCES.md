@@ -1375,6 +1375,7 @@ doesn't conflict with concurrent PRs.
 - slash
 - sleuth
 - smaily
+- smartlead
 - smartlook
 - smartrecruiters
 - smartwaiver
@@ -1396,6 +1397,7 @@ doesn't conflict with concurrent PRs.
 - strato
 - strava
 - streamlabs
+- substack
 - sumsub
 - superwall
 - surveymonkey
