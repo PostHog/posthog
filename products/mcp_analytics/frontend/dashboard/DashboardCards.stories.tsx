@@ -7,6 +7,7 @@ import { buildTheme } from 'lib/charts/utils/theme'
 import { mswDecorator } from '~/mocks/browser'
 import { MCPModelBreakdownQuery } from '~/queries/schema/schema-general'
 
+import { MCPAnalyticsDashboardOverview } from '../MCPAnalyticsDashboardOverview'
 import {
     type DailyActivity,
     type HarnessRow,
@@ -336,4 +337,24 @@ export const FlaggedSessions: Story = {
             <NotableSessionsTable sessions={NOTABLE_SESSIONS} loading={false} />
         </div>
     ),
+}
+
+export const OverviewUnknownModels: Story = {
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const { query } = (await request.json()) as { query: { kind: string } }
+                    return [
+                        200,
+                        {
+                            results:
+                                query.kind === 'MCPModelBreakdownQuery' ? [{ model: 'Unknown', total_calls: 100 }] : [],
+                        },
+                    ]
+                },
+            },
+        }),
+    ],
+    render: () => <MCPAnalyticsDashboardOverview />,
 }

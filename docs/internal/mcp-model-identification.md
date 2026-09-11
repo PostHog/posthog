@@ -4,12 +4,15 @@ The MCP analytics model chart shows the six most-used reported model identifiers
 Other models combines the remaining identifiers and counts toward the identified percentage.
 Unknown counts calls with no captured model identifier.
 The coverage summary separates unknown calls from the model ranking.
+It remains visible when every call is unknown, showing 0% identified coverage.
 The ranking shows named models by call count, followed by Other models; all percentages use all calls, including unknown calls, as the denominator.
 Show all models expands a table of individual reported identifiers, loaded on demand in pages of 50.
 The table uses the dashboard filters and keeps unknown calls in the percentage denominator.
 Unknown calls stay in the coverage summary, and changing filters resets the expanded table.
+For a date range ending now, the first page fixes the time bounds for subsequent pages and retries.
+Late-arriving events within those bounds can still affect counts; the table is not a database snapshot.
 The query's `includeAllModels` option enables this ungrouped view; `limit` (1 to 100) and `offset` select a page, and `hasMore` indicates another page is available.
-Explore models opens a Trends table broken down by the reported model identifier, with the dashboard's date range, property filters, and test-account exclusion preserved.
+Explore models opens a Trends table that trims model identifiers and groups missing or blank values under Unknown, with the dashboard's date range, property filters, and test-account exclusion preserved.
 The table can show up to 50 identifiers before grouping the remaining values.
 Identifiers come from client metadata or the agent's self-report; the identified percentage measures reporting coverage, not verified model identity.
 

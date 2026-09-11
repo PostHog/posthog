@@ -1,9 +1,12 @@
 import { HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { buildModelExplorationQuery, summarizeModelBreakdown } from './modelBreakdown'
+import { buildModelExplorationQuery, freezeModelDateRange, summarizeModelBreakdown } from './modelBreakdown'
 
 describe('model breakdown', () => {
+    beforeEach(() => jest.useFakeTimers())
+    afterEach(() => jest.useRealTimers())
+
     it('keeps unknown calls in coverage and the denominator while ranking named models before Other', () => {
         const rows = [
             { model: 'Unknown', total_calls: 50 },
@@ -56,7 +59,28 @@ describe('model breakdown', () => {
 
         expect(query).toMatchObject(filters)
         expect(query.series).toEqual([{ kind: NodeKind.EventsNode, event: '$mcp_tool_call', math: 'total' }])
-        expect(query.breakdownFilter).toMatchObject({ breakdown: '$mcp_llm_model', breakdown_type: 'event' })
+        expect(query.breakdownFilter).toMatchObject({
+            breakdown: "coalesce(nullIf(trim(toString(properties.$mcp_llm_model)), ''), 'Unknown')",
+            breakdown_type: 'hogql',
+        })
         expect(query.trendsFilter?.display).toBe('ActionsTable')
+    })
+    it.each([
+        { date_from: '-14d', expectedFrom: '2026-08-28T07:00:00.000Z' },
+        { date_from: '-1h', expectedFrom: '2026-09-11T14:00:00.000Z' },
+        { date_from: 'all', expectedFrom: 'all' },
+        { date_from: '2026-09-10T14:25:00Z', expectedFrom: '2026-09-10T14:25:00Z' },
+    ])('freezes the open range $date_from in the project timezone', ({ date_from, expectedFrom }) => {
+        jest.setSystemTime(new Date('2026-09-11T15:30:00Z'))
+        expect(freezeModelDateRange({ date_from }, 'America/Los_Angeles')).toEqual({
+            date_from: expectedFrom,
+            date_to: '2026-09-11T15:30:00.000Z',
+            explicitDate: true,
+        })
+    })
+
+    it('preserves a fixed date range', () => {
+        const dateRange = { date_from: '2026-09-01', date_to: '2026-09-05' }
+        expect(freezeModelDateRange(dateRange, 'America/Los_Angeles')).toEqual(dateRange)
     })
 })

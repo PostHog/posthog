@@ -1,4 +1,7 @@
-import { HogQLFilters, MCPModelBreakdownItem, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { dayjs } from 'lib/dayjs'
+import { dateStringToComponents, dateStringToDayJs } from 'lib/utils/dateFilters'
+
+import { DateRange, HogQLFilters, MCPModelBreakdownItem, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType } from '~/types'
 
 export function summarizeModelBreakdown(rows: MCPModelBreakdownItem[]): {
@@ -27,7 +30,30 @@ export function buildModelExplorationQuery(filters: HogQLFilters): TrendsQuery {
         ...filters,
         kind: NodeKind.TrendsQuery,
         series: [{ kind: NodeKind.EventsNode, event: '$mcp_tool_call', math: BaseMathType.TotalCount }],
-        breakdownFilter: { breakdown: '$mcp_llm_model', breakdown_type: 'event', breakdown_limit: 50 },
+        breakdownFilter: {
+            breakdown: "coalesce(nullIf(trim(toString(properties.$mcp_llm_model)), ''), 'Unknown')",
+            breakdown_type: 'hogql',
+            breakdown_limit: 50,
+        },
         trendsFilter: { display: ChartDisplayType.ActionsTable },
+    }
+}
+
+export function freezeModelDateRange(dateRange: DateRange | undefined, timezone: string): DateRange {
+    if (dateRange?.date_to) {
+        return dateRange
+    }
+    const dateFrom = dateRange?.date_from ?? '-7d'
+    const components = dateStringToComponents(dateFrom)
+    let start = components ? dateStringToDayJs(dateFrom, timezone) : null
+    // Match the model query's relative hour rounding before sending an explicit range.
+    if (start && components?.unit === 'hour') {
+        start = start.startOf('hour')
+    }
+    return {
+        ...dateRange,
+        date_from: start?.toISOString() ?? dateFrom,
+        date_to: dayjs().toISOString(),
+        explicitDate: true,
     }
 }

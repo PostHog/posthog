@@ -1,6 +1,9 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 
 import { HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -16,6 +19,12 @@ describe('modelBreakdownLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         initKeaTests()
+        jest.useFakeTimers({ doNotFake: ['setTimeout', 'clearTimeout', 'queueMicrotask'] })
+        jest.setSystemTime(new Date('2026-09-11T15:30:00Z'))
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
     })
 
     it('loads individual models on expansion and preserves filters across pages', async () => {
@@ -37,8 +46,14 @@ describe('modelBreakdownLogic', () => {
         mockApi.query.mockResolvedValueOnce({ results: [{ model: 'example-a', total_calls: 10 }], hasMore: true })
 
         await expectLogic(logic, () => logic.actions.setExpanded(true)).toFinishAllListeners()
+        const frozenDateRange = {
+            date_from: dayjs().tz(MOCK_DEFAULT_TEAM.timezone).startOf('day').subtract(14, 'day').toISOString(),
+            date_to: dayjs().toISOString(),
+            explicitDate: true,
+        }
         expect(mockApi.query).toHaveBeenLastCalledWith({
             ...filters,
+            dateRange: frozenDateRange,
             kind: NodeKind.MCPModelBreakdownQuery,
             includeAllModels: true,
             limit: MODEL_PAGE_SIZE,
@@ -46,10 +61,12 @@ describe('modelBreakdownLogic', () => {
         })
         expect(logic.values.modelPage?.results[0].model).toBe('example-a')
 
+        jest.setSystemTime(new Date('2026-09-12T15:30:00Z'))
         mockApi.query.mockResolvedValueOnce({ results: [{ model: 'example-b', total_calls: 5 }], hasMore: false })
         await expectLogic(logic, () => logic.actions.loadModels(MODEL_PAGE_SIZE)).toFinishAllListeners()
         expect(mockApi.query).toHaveBeenLastCalledWith({
             ...filters,
+            dateRange: frozenDateRange,
             kind: NodeKind.MCPModelBreakdownQuery,
             includeAllModels: true,
             limit: MODEL_PAGE_SIZE,
@@ -83,8 +100,11 @@ describe('modelBreakdownLogic', () => {
             modelPageLoading: false,
         })
 
+        const failedDateRange = mockApi.query.mock.calls[0][0].dateRange
+        jest.setSystemTime(new Date('2026-09-12T15:30:00Z'))
         mockApi.query.mockResolvedValueOnce({ results: [], hasMore: false })
         await expectLogic(logic, () => logic.actions.loadModels(logic.values.requestedOffset)).toFinishAllListeners()
+        expect(mockApi.query.mock.calls[1][0].dateRange).toEqual(failedDateRange)
         expect(logic.values).toMatchObject({
             loadFailed: false,
             modelPage: { results: [], hasMore: false, offset: MODEL_PAGE_SIZE },

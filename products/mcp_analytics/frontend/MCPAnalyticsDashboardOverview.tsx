@@ -33,7 +33,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         harnessRows,
         harnessRowsLoading,
         modelRows,
-        hasKnownModelData,
+        hasModelData,
         dailyActivity,
         activityRowsLoading,
         activityIncompleteTail,
@@ -110,7 +110,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     <div
                         className={cn(
                             'grid grid-cols-1 gap-[22px]',
-                            hasKnownModelData ? 'lg:grid-cols-4' : 'lg:grid-cols-3'
+                            hasModelData ? 'lg:grid-cols-4' : 'lg:grid-cols-3'
                         )}
                     >
                         <div className="flex lg:col-span-2">
@@ -124,9 +124,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                             />
                         </div>
                         <HarnessDonut rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
-                        {hasKnownModelData ? (
-                            <ModelBarChart rows={modelRows} theme={theme} filters={queryFilters} />
-                        ) : null}
+                        {hasModelData ? <ModelBarChart rows={modelRows} theme={theme} filters={queryFilters} /> : null}
                     </div>
                     <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-2">
                         <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />

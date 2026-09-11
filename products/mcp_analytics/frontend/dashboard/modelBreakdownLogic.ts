@@ -2,6 +2,7 @@ import { MakeLogicType, actions, kea, key, listeners, path, props, reducers } fr
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     HogQLFilters,
@@ -9,6 +10,8 @@ import {
     MCPModelBreakdownQueryResponse,
     NodeKind,
 } from '~/queries/schema/schema-general'
+
+import { freezeModelDateRange } from './modelBreakdown'
 
 export const MODEL_PAGE_SIZE = 50
 
@@ -54,15 +57,16 @@ export const modelBreakdownLogic = kea<modelBreakdownLogicType>([
         setExpanded: (expanded: boolean) => ({ expanded }),
         loadModels: (offset: number) => ({ offset }),
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, cache }) => ({
         modelPage: [
             null as ModelPage | null,
             {
                 loadModels: async ({ offset }: { offset: number }, breakpoint): Promise<ModelPage> => {
                     const { dateRange, properties, filterTestAccounts } = props.filters
+                    cache.dateRange ??= freezeModelDateRange(dateRange, teamLogic.values.timezone)
                     const response = (await api.query({
                         kind: NodeKind.MCPModelBreakdownQuery,
-                        dateRange,
+                        dateRange: cache.dateRange,
                         properties,
                         filterTestAccounts,
                         includeAllModels: true,

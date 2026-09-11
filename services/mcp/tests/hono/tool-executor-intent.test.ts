@@ -217,7 +217,7 @@ describe('ToolExecutor analytics capture', () => {
                 if (reason === 'capture_error') {
                     throw new Error('Analytics preparation failed')
                 }
-                return { args, isMissingCapability: false }
+                return { args, isMissingCapability: false, isFeedback: false }
             })
             const captureSpy = vi.spyOn(client, 'captureToolCall').mockImplementation(() => {})
 
