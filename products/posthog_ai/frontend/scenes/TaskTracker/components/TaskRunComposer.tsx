@@ -19,6 +19,7 @@ import { ComposerModelEffortPickers } from '../../../components/composer/Compose
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
+import { ContextUsageChip } from '../../../components/ContextUsageChip'
 
 export function TaskRunComposer({
     logicProps,
@@ -165,6 +166,9 @@ export function TaskRunComposer({
                                 }
                             />
                         </fieldset>
+                        <div className="ml-auto">
+                            <ContextUsageChip />
+                        </div>
                     </Composer.Footer>
                 </Composer.Frame>
                 <AIConsentPopoverWrapper
