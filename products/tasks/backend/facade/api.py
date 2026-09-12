@@ -9987,10 +9987,21 @@ def user_can_control_task(task_id: str | UUID, team_id: int, user_id: int | None
         return False
 
 
+def _is_shareable_artifact(entry: dict) -> bool:
+    """Whether a manifest entry is a file the product offers for sharing.
+
+    Only the agent's deliverables are. The manifest also carries plans, context, user uploads and
+    skill bundles, which the timeline never presents as files, so a public link must never resolve
+    to one — not when it is created, and not when a same-named one arrives later and the owner
+    publishes the changes.
+    """
+    return entry.get("type") == "output" and bool(entry.get("storage_path")) and bool(entry.get("name"))
+
+
 def _output_artifact_entry(task: Task, artifact_id: str) -> dict | None:
     for run in task.runs.only("id", "artifacts"):
         for entry in run.artifacts or []:
-            if entry.get("id") == artifact_id and entry.get("storage_path") and entry.get("name"):
+            if entry.get("id") == artifact_id and _is_shareable_artifact(entry):
                 return entry
     return None
 
@@ -10019,13 +10030,13 @@ def resolve_shared_task_artifact(
 
 
 def _latest_artifact_entry(task_id: UUID, team_id: int, name: str) -> tuple[TaskRun, dict] | None:
-    """The newest undismissed upload with this name across the task's runs, the server-side twin
+    """The newest undismissed output with this name across the task's runs, the server-side twin
     of the desktop's version grouping (newest ``uploaded_at`` wins, then the newest run)."""
     best: tuple[TaskRun, dict] | None = None
     best_key = ""
     for run in TaskRun.objects.filter(task_id=task_id, team_id=team_id).only("id", "artifacts").order_by("-created_at"):
         for entry in run.artifacts or []:
-            if entry.get("name") != name or not entry.get("storage_path") or entry.get("dismissed_at"):
+            if entry.get("name") != name or entry.get("dismissed_at") or not _is_shareable_artifact(entry):
                 continue
             key = str(entry.get("uploaded_at") or "")
             if best is None or key > best_key:

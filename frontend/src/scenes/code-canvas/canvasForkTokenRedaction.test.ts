@@ -11,6 +11,8 @@ describe('canvasForkTokenRedaction', () => {
         ['$pathname', '/desktop/canvas-fork/tok3n'],
         ['$referrer', 'https://us.posthog.com/desktop/canvas-fork/tok3n?utm_source=share'],
         ['$prev_pageview_pathname', '/desktop/canvas-fork/tok3n'],
+        ['$current_url (legacy path)', 'https://us.posthog.com/code/canvas-fork/tok3n'],
+        ['$pathname (legacy path)', '/code/canvas-fork/tok3n'],
     ])('strips the share token from %s', (property, value) => {
         expect(send({ [property]: value })?.[property]).toBe(value.replace('tok3n', '<redacted>'))
     })

@@ -45,7 +45,7 @@ from posthog.ph_client import ph_background_capture
 from posthog.storage import object_storage
 
 from products.canvas.backend import error_reports
-from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
+from products.canvas.backend.capabilities import CapabilityWidening, capability_widening, without_granted_capabilities
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import (
@@ -1429,6 +1429,12 @@ def fork_canvas(
     in another team). Lineage is recorded as plain ids that survive the
     source's deletion. The copy's first build is queued like any publish, under
     the same capacity cap.
+
+    A copy taken across a team boundary drops the source's capability grants.
+    The source declares them, the copy would run them against the caller's
+    project, and nobody in that project reviewed them, so a shared link would
+    otherwise hand a stranger's code this project's data and its own network
+    egress. Same-team copies keep the manifest: it was already reviewed here.
     """
     published = build
     if published is None or published.status != CanvasBuild.STATUS_READY:
@@ -1436,6 +1442,11 @@ def fork_canvas(
     with team_scope(source.team_id):
         version = CanvasSourceVersion.objects.for_team(source.team_id).get(pk=published.source_version_id)
         project = read_source_project(version)
+    capabilities = version.capabilities
+    if source.team_id != team_id:
+        capabilities = without_granted_capabilities(capabilities)
+        if project.get("capabilities"):
+            project = {**project, "capabilities": without_granted_capabilities(project["capabilities"])}
 
     # Same lock-free fail-fast as a publish: the copy's build is queued at the end, and refusing it
     # there would leave a committed canvas row and an uploaded source object behind.
@@ -1465,7 +1476,7 @@ def fork_canvas(
             source_size=size,
             prompt="Copied from a shared canvas",
             created_by=created_by,
-            capabilities=version.capabilities,
+            capabilities=capabilities,
             component_meta=version.component_meta,
         )
         build = _queue_build(fork_version)

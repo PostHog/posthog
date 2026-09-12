@@ -7,7 +7,9 @@ import { BeforeSendFn, CapturedNetworkRequest } from 'posthog-js'
 // $referrer of the page the scene forwards to, and in the recorded request body, where every
 // viewer of our own analytics and replay data could read and reuse it. The interview share page
 // redacts its token the same way, see frontend/src/exporter/index.tsx.
-const FORK_PATH_TOKEN_RE = /(\/desktop\/canvas-fork\/)[^/?#]+/g
+// The legacy /code/canvas-fork/<token> prefix is matched too: links shared before the move still
+// land on it, and its pageview is captured before the redirect to /desktop/canvas-fork/<token>.
+const FORK_PATH_TOKEN_RE = /(\/(?:desktop|code)\/canvas-fork\/)[^/?#]+/g
 const SHARE_TOKEN_FIELD_RE = /("share_token"\s*:\s*")[^"]*"/g
 const REDACTED = '<redacted>'
 

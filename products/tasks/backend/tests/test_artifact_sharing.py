@@ -134,6 +134,23 @@ class TestTaskArtifactSharing(APIBaseTest):
         assert published.json()["shared_artifact_id"] == "art-3"
         assert self._shared_payload(access_token)["task_artifact"]["markdown"] == "# Revised\n"
 
+    def test_a_same_named_private_upload_is_never_pinned_or_reachable(self):
+        access_token = self._enable_sharing("art-1")
+        private = _entry("att-1", "report.md", "artifacts/report-v3.md", "text/markdown", "2026-03-01T00:00:00+00:00")
+        private["type"] = "user_attachment"
+        self.newer_run.artifacts.append(private)
+        self.newer_run.save(update_fields=["artifacts"])
+
+        state = self.client.get(self._sharing_url("art-2")).json()
+        assert (state["shared_artifact_id"], state["latest_artifact_id"]) == ("art-2", "art-2")
+        assert self.client.get(self._sharing_url("att-1")).status_code == status.HTTP_404_NOT_FOUND
+
+        published = self.client.patch(self._sharing_url("art-2"), {"enabled": True})
+
+        assert published.status_code == status.HTTP_200_OK, published.json()
+        assert published.json()["shared_artifact_id"] == "art-2"
+        assert self._shared_payload(access_token)["task_artifact"]["markdown"] == "# Final\n"
+
     def test_publishing_drops_the_expiry_tag_of_whichever_upload_is_served(self):
         with patch("posthog.storage.object_storage.tag") as tag:
             self._enable_sharing("art-1")
