@@ -199,27 +199,27 @@ class TestBuildWindowParams:
 class TestRowsFromResponse:
     def test_accounts_reads_wrapped_key(self) -> None:
         data = {"accounts": [{"accountId": 1}, {"accountId": 2}]}
-        rows = _rows_from_response(AWIN_ENDPOINTS["accounts"], data, publisher_id=None)
+        rows = _rows_from_response(AWIN_ENDPOINTS["accounts"], data)
         assert rows == [{"accountId": 1}, {"accountId": 2}]
 
     def test_bare_list_endpoint(self) -> None:
         data = [{"id": 1}, {"id": 2}]
-        rows = _rows_from_response(AWIN_ENDPOINTS["transactions"], data, publisher_id=99)
+        rows = _rows_from_response(AWIN_ENDPOINTS["transactions"], data, AwinFanoutTarget(publisher_id=99))
         assert rows == [{"id": 1}, {"id": 2}]
 
     def test_inject_publisher_id_when_configured(self) -> None:
         data = [{"id": 1}]
-        rows = _rows_from_response(AWIN_ENDPOINTS["programmes"], data, publisher_id=42)
+        rows = _rows_from_response(AWIN_ENDPOINTS["programmes"], data, AwinFanoutTarget(publisher_id=42))
         assert rows == [{"id": 1, "publisherId": 42}]
 
     def test_inject_does_not_overwrite_existing_publisher_id(self) -> None:
         data = [{"id": 1, "publisherId": 7}]
-        rows = _rows_from_response(AWIN_ENDPOINTS["programmes"], data, publisher_id=42)
+        rows = _rows_from_response(AWIN_ENDPOINTS["programmes"], data, AwinFanoutTarget(publisher_id=42))
         assert rows == [{"id": 1, "publisherId": 7}]
 
     def test_non_dict_rows_are_dropped(self) -> None:
         data = [{"id": 1}, "junk", None]
-        rows = _rows_from_response(AWIN_ENDPOINTS["transactions"], data, publisher_id=1)
+        rows = _rows_from_response(AWIN_ENDPOINTS["transactions"], data, AwinFanoutTarget(publisher_id=1))
         assert rows == [{"id": 1}]
 
     def test_commission_groups_flattens_envelope_onto_each_group(self) -> None:
@@ -232,7 +232,9 @@ class TestRowsFromResponse:
             "ratesEnd": "2024-06-01T00:00:00Z",
             "commissionGroups": [{"groupId": 1, "type": "fix"}, {"groupId": 2, "type": "percentage"}],
         }
-        rows = _rows_from_response(AWIN_ENDPOINTS["commission_groups"], data, publisher_id=42, advertiser_id=9)
+        rows = _rows_from_response(
+            AWIN_ENDPOINTS["commission_groups"], data, AwinFanoutTarget(publisher_id=42, advertiser_id=9)
+        )
 
         assert rows == [
             {
@@ -256,13 +258,17 @@ class TestRowsFromResponse:
     def test_commission_groups_tolerates_a_missing_rates_end(self) -> None:
         # ratesEnd is omitted while the rates are ongoing.
         data = {"ratesStart": "2024-01-01T00:00:00Z", "commissionGroups": [{"groupId": 1}]}
-        rows = _rows_from_response(AWIN_ENDPOINTS["commission_groups"], data, publisher_id=42, advertiser_id=9)
+        rows = _rows_from_response(
+            AWIN_ENDPOINTS["commission_groups"], data, AwinFanoutTarget(publisher_id=42, advertiser_id=9)
+        )
         assert rows == [{"groupId": 1, "ratesStart": "2024-01-01T00:00:00Z", "publisherId": 42, "advertiserId": 9}]
 
     def test_programme_details_object_becomes_one_row_with_both_ids(self) -> None:
         # The payload is the programme, not a list of them, and carries neither id in its root.
         data = {"kpi": {"epc": 0.5}, "programmeInfo": {"id": 9, "name": "Acme"}}
-        rows = _rows_from_response(AWIN_ENDPOINTS["programme_details"], data, publisher_id=42, advertiser_id=9)
+        rows = _rows_from_response(
+            AWIN_ENDPOINTS["programme_details"], data, AwinFanoutTarget(publisher_id=42, advertiser_id=9)
+        )
         assert rows == [
             {"kpi": {"epc": 0.5}, "programmeInfo": {"id": 9, "name": "Acme"}, "publisherId": 42, "advertiserId": 9}
         ]
@@ -271,7 +277,7 @@ class TestRowsFromResponse:
         # The rows carry only the publisher's own fields, so without this the lookup can't be joined
         # back to the advertiser it belongs to.
         data = [{"id": 7, "name": "Some publisher"}]
-        rows = _rows_from_response(AWIN_ENDPOINTS["advertiser_publishers"], data, publisher_id=None, advertiser_id=90)
+        rows = _rows_from_response(AWIN_ENDPOINTS["advertiser_publishers"], data, AwinFanoutTarget(advertiser_id=90))
         assert rows == [{"id": 7, "name": "Some publisher", "advertiserId": 90}]
 
 
@@ -324,25 +330,30 @@ class TestFanoutTargets:
             targets = _fanout_targets(AWIN_ENDPOINTS["commission_groups"], MagicMock(), {}, MagicMock())
 
         assert targets == [
-            AwinFanoutTarget(account_id=10, advertiser_id=1),
-            AwinFanoutTarget(account_id=10, advertiser_id=2),
-            AwinFanoutTarget(account_id=20, advertiser_id=2),
+            AwinFanoutTarget(publisher_id=10, advertiser_id=1),
+            AwinFanoutTarget(publisher_id=10, advertiser_id=2),
+            AwinFanoutTarget(publisher_id=20, advertiser_id=2),
         ]
 
 
 class TestFormatPath:
     @parameterized.expand(
         [
-            ("transactions", "/publishers/5/transactions/"),
-            ("commission_groups", "/publishers/5/commissiongroups"),
-            ("reports_publisher", "/advertisers/5/reports/publisher"),
-            ("advertiser_publishers", "/advertisers/5/publishers"),
+            ("transactions", AwinFanoutTarget(publisher_id=5), "/publishers/5/transactions/"),
+            (
+                "commission_groups",
+                AwinFanoutTarget(publisher_id=5, advertiser_id=9),
+                "/publishers/5/commissiongroups",
+            ),
+            ("reports_publisher", AwinFanoutTarget(advertiser_id=9), "/advertisers/9/reports/publisher"),
+            ("advertiser_publishers", AwinFanoutTarget(advertiser_id=9), "/advertisers/9/publishers"),
         ]
     )
-    def test_account_id_lands_in_the_right_path_segment(self, endpoint: str, expected: str) -> None:
-        # Advertiser-scoped endpoints take the account id in /advertisers/, publisher-scoped ones in
-        # /publishers/, so swapping them 404s (or worse, reads another account's data).
-        target = AwinFanoutTarget(account_id=5, advertiser_id=9)
+    def test_each_id_lands_in_the_path_segment_that_accepts_it(
+        self, endpoint: str, target: AwinFanoutTarget, expected: str
+    ) -> None:
+        # A programme-scoped path holds both ids, so a template naming the wrong one reads another
+        # account rather than failing loudly.
         assert _format_path(AWIN_ENDPOINTS[endpoint], target) == expected
 
 
@@ -395,11 +406,11 @@ class TestGetRows:
         assert len(batches) == 2
         assert {row["publisherId"] for batch in batches for row in batch} == {999}
         # State saved after each account so a crash resumes at the right one.
-        assert [s.account_id for s in manager.saved] == [10, 20]
+        assert [s.publisher_id for s in manager.saved] == [10, 20]
 
     @time_machine.travel("2024-06-01", tick=False)
     def test_resume_skips_already_synced_accounts(self) -> None:
-        manager = FakeResumableManager(state=AwinResumeConfig(account_id=20, window_start=None))
+        manager = FakeResumableManager(state=AwinResumeConfig(publisher_id=20, window_start=None))
         fetched_publishers: list[int] = []
 
         def fake_fetch(session: Any, path: str, headers: Any, params: Any, logger: Any) -> Any:
@@ -512,11 +523,11 @@ class TestGetRows:
         ]
         assert [row["advertiserId"] for batch in batches for row in batch] == [1, 2]
         # State carries the programme too, so a crash resumes at the right (publisher, advertiser) pair.
-        assert [(s.account_id, s.advertiser_id) for s in manager.saved] == [(10, 1), (10, 2)]
+        assert [(s.publisher_id, s.advertiser_id) for s in manager.saved] == [(10, 1), (10, 2)]
 
     @time_machine.travel("2024-06-01", tick=False)
     def test_programme_fanout_resumes_at_the_saved_pair(self) -> None:
-        manager = FakeResumableManager(state=AwinResumeConfig(account_id=10, advertiser_id=2, window_start=None))
+        manager = FakeResumableManager(state=AwinResumeConfig(publisher_id=10, advertiser_id=2, window_start=None))
         fetched_advertisers: list[str] = []
 
         def fake_fetch(session: Any, path: str, headers: Any, params: Any, logger: Any) -> Any:

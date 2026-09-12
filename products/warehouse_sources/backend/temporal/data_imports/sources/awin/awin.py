@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -33,22 +32,26 @@ class AwinRetryableError(Exception):
     """Transient Awin API failure (429 throttling or 5xx) worth retrying."""
 
 
-@dataclasses.dataclass
+@frozen
 class AwinResumeConfig:
-    # The publisher account currently being processed. A stable account-ID bookmark (not a positional
-    # index) so accounts added/removed between a crash and the retry can't resume us into the wrong one.
-    account_id: Optional[int] = None
-    # The joined-programme advertiser within `account_id`, for endpoints that fan out over both.
+    # The fan-out target last processed. A stable id bookmark (not a positional index) so accounts
+    # added or removed between a crash and the retry can't resume us into the wrong one.
+    publisher_id: Optional[int] = None
     advertiser_id: Optional[int] = None
-    # ISO start of the date window last yielded for `account_id`. `None` for non-windowed endpoints.
+    # ISO start of the date window last yielded for that target. `None` for non-windowed endpoints.
     window_start: Optional[str] = None
 
 
 @frozen
 class AwinFanoutTarget:
-    """One unit of fan-out work: the account whose path we call, and the programme within it."""
+    """One unit of fan-out work: the ids that select the rows for a single request.
 
-    account_id: int
+    A publisher endpoint sets only `publisher_id` and an advertiser endpoint only `advertiser_id`.
+    The programme-scoped endpoints set both, because they sit on a publisher path and take the
+    advertiser as a query param.
+    """
+
+    publisher_id: Optional[int] = None
     advertiser_id: Optional[int] = None
 
 
@@ -143,32 +146,23 @@ def _fanout_targets(
 ) -> list[AwinFanoutTarget]:
     if config.kind == "advertiser_fanout":
         return [
-            AwinFanoutTarget(account_id=account_id)
-            for account_id in _discover_account_ids(session, headers, logger, "advertiser")
+            AwinFanoutTarget(advertiser_id=advertiser_id)
+            for advertiser_id in _discover_account_ids(session, headers, logger, "advertiser")
         ]
 
     publisher_ids = _discover_account_ids(session, headers, logger, "publisher")
     if config.kind == "publisher_fanout":
-        return [AwinFanoutTarget(account_id=publisher_id) for publisher_id in publisher_ids]
+        return [AwinFanoutTarget(publisher_id=publisher_id) for publisher_id in publisher_ids]
 
     return [
-        AwinFanoutTarget(account_id=publisher_id, advertiser_id=advertiser_id)
+        AwinFanoutTarget(publisher_id=publisher_id, advertiser_id=advertiser_id)
         for publisher_id in publisher_ids
         for advertiser_id in _discover_joined_advertiser_ids(session, headers, logger, publisher_id)
     ]
 
 
 def _format_path(config: AwinEndpointConfig, target: AwinFanoutTarget) -> str:
-    if config.kind == "advertiser_fanout":
-        return config.path.format(advertiser_id=target.account_id)
-    return config.path.format(publisher_id=target.account_id)
-
-
-def _target_ids(config: AwinEndpointConfig, target: AwinFanoutTarget) -> tuple[Optional[int], Optional[int]]:
-    """Resolve the (publisherId, advertiserId) a target's rows belong to."""
-    if config.kind == "advertiser_fanout":
-        return None, target.account_id
-    return target.account_id, target.advertiser_id
+    return config.path.format(publisher_id=target.publisher_id, advertiser_id=target.advertiser_id)
 
 
 def _to_datetime(value: Any) -> Optional[datetime]:
@@ -245,7 +239,7 @@ def _windows_for_account(
 
 
 def _rows_from_response(
-    config: AwinEndpointConfig, data: Any, publisher_id: Optional[int], advertiser_id: Optional[int] = None
+    config: AwinEndpointConfig, data: Any, target: Optional[AwinFanoutTarget] = None
 ) -> list[dict[str, Any]]:
     if config.single_row:
         rows = [data] if isinstance(data, dict) else []
@@ -260,10 +254,12 @@ def _rows_from_response(
     for row in rows:
         for key, value in envelope.items():
             row.setdefault(key, value)
-        if config.inject_publisher_id and publisher_id is not None:
-            row.setdefault("publisherId", publisher_id)
-        if config.inject_advertiser_id and advertiser_id is not None:
-            row.setdefault("advertiserId", advertiser_id)
+        if target is None:
+            continue
+        if config.inject_publisher_id and target.publisher_id is not None:
+            row.setdefault("publisherId", target.publisher_id)
+        if config.inject_advertiser_id and target.advertiser_id is not None:
+            row.setdefault("advertiserId", target.advertiser_id)
     return rows
 
 
@@ -281,7 +277,7 @@ def _resume_index(
     for index, (window, target) in enumerate(work_items):
         window_start = window[0].isoformat() if window is not None else None
         if (
-            target.account_id == resume.account_id
+            target.publisher_id == resume.publisher_id
             and target.advertiser_id == resume.advertiser_id
             and window_start == resume.window_start
         ):
@@ -306,7 +302,7 @@ def get_rows(
 
     if config.kind == "accounts":
         data = _fetch(session, config.path, headers, config.extra_params, logger)
-        rows = _rows_from_response(config, data, publisher_id=None)
+        rows = _rows_from_response(config, data)
         if rows:
             yield rows
         return
@@ -333,12 +329,11 @@ def get_rows(
             if window is None
             else _build_window_params(config, *window, incremental_field, region)
         )
-        if target.advertiser_id is not None:
+        if config.kind == "publisher_programme_fanout":
             params["advertiserId"] = str(target.advertiser_id)
 
         data = _fetch(session, _format_path(config, target), headers, params, logger)
-        publisher_id, advertiser_id = _target_ids(config, target)
-        rows = _rows_from_response(config, data, publisher_id, advertiser_id)
+        rows = _rows_from_response(config, data, target)
         if rows:
             yield rows
         # Save after processing each work item. A crash before this line re-fetches the same item on
@@ -346,7 +341,7 @@ def get_rows(
         # window is simply re-fetched (a no-op).
         resumable_source_manager.save_state(
             AwinResumeConfig(
-                account_id=target.account_id,
+                publisher_id=target.publisher_id,
                 advertiser_id=target.advertiser_id,
                 window_start=window[0].isoformat() if window is not None else None,
             )

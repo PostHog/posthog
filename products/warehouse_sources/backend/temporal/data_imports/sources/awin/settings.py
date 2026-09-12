@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -47,7 +49,7 @@ REGION_OPTIONS: list[tuple[str, str]] = [
 DEFAULT_REGION = "GB"
 
 
-@dataclass
+@frozen
 class AwinEndpointConfig:
     name: str
     kind: AwinEndpointKind
