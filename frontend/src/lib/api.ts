@@ -7469,7 +7469,7 @@ async function handleFetch(
         error = e
     }
 
-    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
+    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error, new Date().getTime() - startTime)
 
     if (error || !response) {
         if (error && (error as any).name === 'AbortError') {

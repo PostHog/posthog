@@ -1,6 +1,7 @@
 import {
     ApiError,
     NetworkError,
+    isRequestTimeoutFailure,
     isScopeNotFoundError,
     isTransientServerError,
     shouldReportApiFailure,
@@ -148,6 +149,20 @@ describe('api-error', () => {
             const error = await ApiError.fromResponse(new Response(JSON.stringify(body), { status: 403 }))
 
             expect(shouldReportApiFailure(error)).toBe(false)
+        })
+    })
+
+    describe('isRequestTimeoutFailure', () => {
+        it.each([
+            ['a gateway timeout', 504, null, true],
+            ['a request dropped after running long', null, 104000, true],
+            // A browser that cannot reach the server fails in well under a second, so the query is
+            // not what has to change.
+            ['a request that failed at once', null, 200, false],
+            ['a status-less failure of unknown length', null, null, false],
+            ['a server error', 500, 104000, false],
+        ])('decides whether %s ran until something gave up', (_, status, elapsedMs, expected) => {
+            expect(isRequestTimeoutFailure(status, elapsedMs)).toBe(expected)
         })
     })
 
