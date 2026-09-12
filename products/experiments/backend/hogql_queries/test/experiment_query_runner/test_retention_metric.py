@@ -267,20 +267,20 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         for experiment, expected_control, expected_test in zip(experiments, (1, 0), (0, 1)):
             with self.subTest(experiment=experiment.name):
-                result = cast(
-                    ExperimentQueryResponse,
-                    ExperimentQueryRunner(
-                        query=ExperimentQuery(
-                            experiment_id=experiment.id,
-                            kind="ExperimentQuery",
-                            metric=metric,
-                            precomputation_mode=PrecomputationMode.PRECOMPUTED
-                            if use_precomputation
-                            else PrecomputationMode.DIRECT,
-                        ),
-                        team=self.team,
-                    ).calculate(),
+                runner = ExperimentQueryRunner(
+                    query=ExperimentQuery(
+                        experiment_id=experiment.id,
+                        kind="ExperimentQuery",
+                        metric=metric,
+                        precomputation_mode=PrecomputationMode.PRECOMPUTED
+                        if use_precomputation
+                        else PrecomputationMode.DIRECT,
+                    ),
+                    team=self.team,
                 )
+                result = cast(ExperimentQueryResponse, runner.calculate())
+                assert runner._is_precomputed is use_precomputation
+                assert runner._metric_events_precomputed is use_precomputation
                 assert result.baseline is not None and result.variant_results is not None
                 assert (result.baseline.number_of_samples, result.baseline.sum) == (1, expected_control)
                 assert (result.variant_results[0].number_of_samples, result.variant_results[0].sum) == (
@@ -356,21 +356,21 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             "products.experiments.backend.hogql_queries.exposure_query_logic.posthoganalytics.feature_enabled",
             return_value=rollout_enabled,
         ):
-            result = cast(
-                ExperimentQueryResponse,
-                ExperimentQueryRunner(
-                    query=ExperimentQuery(
-                        experiment_id=experiment.id,
-                        kind="ExperimentQuery",
-                        metric=metric,
-                        precomputation_mode=PrecomputationMode.PRECOMPUTED
-                        if use_precomputation
-                        else PrecomputationMode.DIRECT,
-                    ),
-                    team=self.team,
-                ).calculate(),
+            runner = ExperimentQueryRunner(
+                query=ExperimentQuery(
+                    experiment_id=experiment.id,
+                    kind="ExperimentQuery",
+                    metric=metric,
+                    precomputation_mode=PrecomputationMode.PRECOMPUTED
+                    if use_precomputation
+                    else PrecomputationMode.DIRECT,
+                ),
+                team=self.team,
             )
+            result = cast(ExperimentQueryResponse, runner.calculate())
 
+        assert runner._is_precomputed is use_precomputation
+        assert runner._metric_events_precomputed is use_precomputation
         assert result.baseline is not None
         assert result.variant_results is not None
         self.assertEqual(result.baseline.number_of_samples, 1)
@@ -447,13 +447,13 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         for mode in (PrecomputationMode.DIRECT, PrecomputationMode.PRECOMPUTED):
             with self.subTest(mode=mode):
-                result = cast(
-                    ExperimentQueryResponse,
-                    ExperimentQueryRunner(
-                        query=ExperimentQuery(experiment_id=experiment.id, metric=metric, precomputation_mode=mode),
-                        team=self.team,
-                    ).calculate(),
+                runner = ExperimentQueryRunner(
+                    query=ExperimentQuery(experiment_id=experiment.id, metric=metric, precomputation_mode=mode),
+                    team=self.team,
                 )
+                result = cast(ExperimentQueryResponse, runner.calculate())
+                assert runner._is_precomputed is (mode == PrecomputationMode.PRECOMPUTED)
+                assert runner._metric_events_precomputed is (mode == PrecomputationMode.PRECOMPUTED)
                 assert result.baseline is not None and result.variant_results is not None
                 assert (result.baseline.number_of_samples, result.baseline.sum) == (1, 1)
                 assert (result.variant_results[0].number_of_samples, result.variant_results[0].sum) == (1, 0)

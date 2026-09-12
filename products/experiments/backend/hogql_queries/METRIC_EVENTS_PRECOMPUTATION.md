@@ -224,6 +224,17 @@ If ingestion changes the UUID derivation, update this comparison and its regress
 
 The default-off `experiments-retention-metric-events-preaggregation` flag controls this precomputation.
 
+### Known limitation: monthly retention
+
+The API accepts `month` retention windows, but the scan and completion-join limits convert each month to 30 days.
+The retention predicate uses calendar months instead.
+These limits can exclude a valid completion before the retention predicate evaluates it.
+For example, a one-month window from January 2, 2024, at 00:10 UTC includes February 2 at 00:10 UTC, which is 31 days later.
+The query incorrectly excludes that completion.
+This limitation affects both literal and exposure starts, with direct and precomputed queries.
+The editor offers only day and hour windows.
+Correct monthly retention requires calendar-aware scan and join limits; selecting a direct query does not avoid this limitation.
+
 ## Key files
 
 | File                                        | Purpose                                                                                                                 |
