@@ -1,0 +1,26 @@
+/* Source for the stylesheet the messaging preference pages load.
+ *
+ * Those pages are Django templates, not part of the app bundle, and they used to pull Tailwind
+ * from cdn.tailwindcss.com. That is a third-party script on a page reached from an email link
+ * that carries a signed subscriber token, and Tailwind's play CDN compiles in the browser and is
+ * not meant for production. Compiling here removes both problems and leaves the markup alone.
+ *
+ * This is deliberately the stock Tailwind theme rather than the app's. The templates use default
+ * palette names (bg-gray-50, bg-blue-500, text-amber-600), which `common/tailwind` replaces with
+ * PostHog CSS variables, so building them against the app theme would drop those utilities.
+ *
+ * Regenerate with `pnpm --filter=@posthog/frontend build:message-preferences` after editing
+ * either template. The output is committed so the dev server and collectstatic both have it,
+ * the same way frontend/public/posthog-ai-onboarding holds committed build output.
+ *
+ * That script pins the CLI through npx rather than adding a dependency. Adding one regenerates
+ * the lockfile, and doing so here also bumped unlayer-types and a @types/node resolution that
+ * have nothing to do with this page. Keep the version matched to the other @tailwindcss/*
+ * entries in frontend/package.json.
+ */
+
+/* `source(none)` turns off automatic source detection. Without it Tailwind also scans up from
+ * this file into frontend/src, which made the output four times larger and, worse, let it
+ * satisfy classes these templates never reference. */
+@import 'tailwindcss' source(none);
+@source '../../../posthog/templates/message_preferences';
