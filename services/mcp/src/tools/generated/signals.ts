@@ -30,6 +30,9 @@ const inboxReportArtefactsCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportArtefactsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.claim_id !== undefined) {
+            body['claim_id'] = params.claim_id
+        }
         if (params.artefact_type !== undefined) {
             body['artefact_type'] = params.artefact_type
         }
@@ -200,6 +203,15 @@ const inboxReportsClaim = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsClaimSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.claim_id !== undefined) {
+            body['claim_id'] = params.claim_id
+        }
+        if (params.pull_requests !== undefined) {
+            body['pull_requests'] = params.pull_requests
+        }
+        if (params.takeover !== undefined) {
+            body['takeover'] = params.takeover
+        }
         if (params.pr_url !== undefined) {
             body['pr_url'] = params.pr_url
         }
@@ -278,6 +290,7 @@ const inboxReportsList = (): ToolBase<
                     'source_products',
                     'scout_name',
                     'is_suggested_reviewer',
+                    'pull_requests',
                     'implementation_pr_url',
                     'implementation_pr_state',
                     'implementation_pr_merged',
@@ -302,7 +315,7 @@ const inboxReportsList = (): ToolBase<
                 },
                 '/inbox'
             ),
-            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can replace the current owner.\nIf you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to attach it. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
+            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
         )
     },
 })
@@ -329,7 +342,7 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can replace the current owner.\nIf you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to attach it. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
+            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
         )
     },
 })

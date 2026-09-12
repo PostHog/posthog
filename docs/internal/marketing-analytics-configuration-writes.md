@@ -31,3 +31,9 @@ The new dashboard shows undismissed ad-source connection suggestions from the ex
 Each Setup section also lists its dismissed suggestions behind Show dismissed, with an individual Restore action. This remains available when all suggestions in that section are dismissed.
 
 The new dashboard also embeds the existing Retention explorer when `marketing-analytics-retention` is enabled. It shares the acquisition date range and keeps the explorer’s cohort controls, reload and empty state. Previous-period comparison and the traffic test-account filter do not apply to Retention.
+
+With `new-marketing-analytics-dashboard` enabled, Marketing Analytics opens directly without the product welcome screen or its setup reminder. Existing setup status and local skip preferences remain unchanged; disabling the flag restores the previous onboarding behavior. Configuration remains available in Setup.
+
+The bypass waits for feature flags before mounting setup detection. The explicit `?empty_state` preview still takes precedence.
+
+With `new-marketing-analytics-dashboard` enabled, Ad performance reuses the existing ad spend dashboard. Its conversion-goal switch appears only when goals are configured and defaults to on. Turning it off limits the summary and table queries to ad-platform metrics, including platform-reported conversions, and omits saved and draft PostHog conversion goals. This preference applies only to Ad performance; leaving the tab or disabling the dashboard flag restores the legacy queries and saved column choices. Ad performance keeps source status and reconnect controls visible when loading sources fails, without entering legacy onboarding.
