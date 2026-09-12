@@ -54963,7 +54963,7 @@ export namespace Schemas {
      * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
      */
     export interface ScannerResult {
-      /** Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`. */
+      /** Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `scanner_type` and `confidence`, but `confidence` is null when the model left it out. */
       model_output: unknown;
       /**
          * Number of PostHog Signals emitted from this observation.

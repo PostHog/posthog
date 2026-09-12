@@ -27,7 +27,7 @@ class MonitorLlmResponse(BaseModel, frozen=True):
 
     reasoning: str = Field(description=_REASONING_DESCRIPTION)
     verdict: MonitorVerdict = Field(description=_VERDICT_DESCRIPTION)
-    confidence: float = confidence_field()
+    confidence: float | None = confidence_field()
 
 
 class MonitorOutput(BaseScannerOutput, frozen=True):

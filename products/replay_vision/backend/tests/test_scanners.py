@@ -747,6 +747,15 @@ class TestSummarizerScannerSteps:
         assert (out.title, out.summary, out.confidence) == ("Onboarding", "Walked through demo", 0.8)
         assert signals == []
 
+    def test_assemble_keeps_a_summary_whose_confidence_the_model_left_out(self) -> None:
+        scanner = scanner_from_db(
+            _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
+        )
+        summary = SummarizerSummaryResponse.model_validate({"title": "Onboarding", "summary": "Walked through demo"})
+        out, _ = scanner.assemble({"summary": summary})
+        assert isinstance(out, SummarizerOutput)
+        assert (out.title, out.summary, out.confidence) == ("Onboarding", "Walked through demo", None)
+
     def test_output_round_trip_ignores_legacy_facet_fields(self) -> None:
         # Rows written by the old facet turn still load; the extra keys are dropped rather than rejected.
         stored = {
@@ -915,3 +924,32 @@ class TestSignalSideMission:
         # The description is embedded for free-text search, so leaked `(t …)` markers must never reach it.
         signal = SignalFinding.model_validate({**self._VALID_SIGNAL, "description": raw})
         assert signal.description == clean
+
+
+class TestConfidenceIsOptional:
+    """A model that answers everything else must not have its whole turn discarded over one missing scalar."""
+
+    @pytest.mark.parametrize(
+        "scanner_config,scanner_type,answer",
+        [
+            ({"prompt": "did the user export?"}, ScannerType.MONITOR, {"reasoning": "r", "verdict": "yes"}),
+            ({"prompt": "p", "tags": ["checkout"]}, ScannerType.CLASSIFIER, {"reasoning": "r", "tags": ["checkout"]}),
+            (
+                {"prompt": "p", "scale": {"min": 0, "max": 1, "label": "quality"}},
+                ScannerType.SCORER,
+                {"reasoning": "r", "score": 0.5},
+            ),
+            ({"prompt": "p"}, ScannerType.SUMMARIZER, {"title": "t", "summary": "s"}),
+        ],
+    )
+    def test_a_core_answer_without_confidence_parses(
+        self, scanner_config: dict, scanner_type: ScannerType, answer: dict
+    ) -> None:
+        scanner = scanner_from_db(_build_replay_scanner(scanner_type=scanner_type, scanner_config=scanner_config))
+        (core_step,) = scanner.core_steps()
+        assert core_step.response_model.model_validate(answer).model_dump()["confidence"] is None
+
+    @pytest.mark.parametrize("value", [-0.1, 1.1])
+    def test_a_confidence_outside_the_range_is_still_rejected(self, value: float) -> None:
+        with pytest.raises(ValidationError):
+            MonitorLlmResponse(reasoning="r", verdict="yes", confidence=value)
