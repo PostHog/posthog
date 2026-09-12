@@ -46,6 +46,8 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
     PersonalOrProjectSecretApiKeyRateThrottle,
     ProjectSecretApiKeyTeamRateThrottle,
+    ReplayLinkabilityBurstRateThrottle,
+    ReplayLinkabilitySustainedRateThrottle,
     SessionBucketsBurstRateThrottle,
     SessionBucketsSustainedRateThrottle,
     SessionContextsBurstRateThrottle,
@@ -1538,7 +1540,15 @@ class EnterpriseExperimentsViewSet(
         request=None,
         responses={200: OpenApiResponse(response=ExperimentReplayLinkabilitySerializer)},
     )
-    @action(methods=["GET"], detail=True, url_path="replay_linkability", required_scopes=["experiment:read"])
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path="replay_linkability",
+        required_scopes=["experiment:read"],
+        # Scans live events, and the caller is the session-authenticated experiment page, which the
+        # viewset's inherited personal-API-key throttles don't cover.
+        throttle_classes=[ReplayLinkabilityBurstRateThrottle, ReplayLinkabilitySustainedRateThrottle],
+    )
     def replay_linkability(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Whether this experiment's flag produces anything a recordings filter can match.
 
