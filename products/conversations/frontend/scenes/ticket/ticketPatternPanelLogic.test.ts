@@ -45,4 +45,18 @@ describe('ticketPatternPanelLogic', () => {
 
         await expectLogic(logic).toNotHaveDispatchedActions(['loadPatterns'])
     })
+
+    it('loads the patterns when the feature flag arrives after mount', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        logic = ticketPatternPanelLogic({ ticketId: 'a-ticket' })
+        logic.mount()
+
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadPatterns'])
+
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_PATTERNS], {
+            [FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_PATTERNS]: true,
+        })
+
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+    })
 })

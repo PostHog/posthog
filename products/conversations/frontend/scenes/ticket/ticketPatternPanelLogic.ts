@@ -1,5 +1,6 @@
-import { MakeLogicType, afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { MakeLogicType, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -81,9 +82,14 @@ export const ticketPatternPanelLogic = kea<ticketPatternPanelLogicType>([
                 !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_PATTERNS],
         ],
     }),
-    afterMount(({ actions, values }) => {
-        if (values.patternsEnabled) {
-            actions.loadPatterns()
-        }
-    }),
+    // A subscription instead of afterMount: flags can resolve after the logic mounts, and a
+    // one-time mount check would then never load. This fires with the value at mount and again
+    // when the flag turns on, so only flagged teams pay for the lookup query.
+    subscriptions(({ actions }) => ({
+        patternsEnabled: (patternsEnabled: boolean, wasEnabled: boolean | undefined) => {
+            if (patternsEnabled && !wasEnabled) {
+                actions.loadPatterns()
+            }
+        },
+    })),
 ])
