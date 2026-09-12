@@ -5773,6 +5773,7 @@ export class PostHogAPIClient {
       default_slack_notification_channel: string | null;
       autostart_base_branches: Record<string, string>;
       max_reports_per_day: number | null;
+      default_open_pull_request_ready: boolean;
     }>,
   ): Promise<SignalTeamConfig> {
     const teamId = await this.getTeamId();
@@ -5818,6 +5819,7 @@ export class PostHogAPIClient {
       slack_notification_integration_id: number | null;
       slack_notification_channel: string | null;
       slack_notification_min_priority: string | null;
+      github_open_pull_request_ready: boolean | null;
     }>,
   ): Promise<SignalUserAutonomyConfig> {
     const url = new URL(`${this.api.baseUrl}/api/users/@me/signal_autonomy/`);
