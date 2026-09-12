@@ -40,7 +40,7 @@ Missing consent state blocks v2 collection.
 
 The independent DynamoDB table stores session keys, team image keys, consent state, deletion markers, and distinct-ID associations.
 A session has one data key.
-A team has one image key per consent period.
+A team has one image key per consent period and session start month.
 KMS wraps each data key with an encryption context that binds its owner, purpose, and consent timestamp.
 Payload encryption uses XSalsa20-Poly1305.
 The authenticated payload also binds the dataset kind and, for images, the object or reference being encrypted.
@@ -98,18 +98,35 @@ This mechanism covers encrypted v2 objects.
 It does not erase legacy plaintext objects, previously downloaded data, derived training artifacts, or a trained model.
 Legacy dataset retirement needs a separate storage operation before claiming deletion across the entire bucket.
 
+## Monthly key deletion
+
+Key creation writes a month index entry in the same DynamoDB transaction as the wrapped key.
+The index uses 32 partitions named `month:<YYYY-MM>:shard:<0..31>` and stores key locations, without copying wrapped keys.
+Session keys and image keys appear in this index.
+
+Run `python manage.py delete_ai_training_month YYYY-MM` to permanently block that UTC session month and remove its keys.
+The command uses strongly consistent queries and bounded writes.
+Rerun the command after an interrupted run; it preserves the month block and safely repeats completed pages.
+Readers reject blocked months even when a wrapped key remains during deletion.
+Existing read leases expire within five minutes.
+The matching monthly S3 folders can then be removed from each dataset.
+Deleting a month does not affect another month's image keys.
+
 ## Data layout and readers
 
-| Dataset                   | Default path                                                | Encryption key                          |
-| ------------------------- | ----------------------------------------------------------- | --------------------------------------- |
+All v2 S3 datasets use a `YYYY-MM` directory derived from the session UUIDv7 start timestamp in UTC.
+A session that crosses a month boundary stays in its start month, including late blocks and image fetches.
+
+| Dataset                   | Default path                                                        | Encryption key                          |
+| ------------------------- | ------------------------------------------------------------------- | --------------------------------------- |
 | Replay blocks             | `rrweb_2/<month>/`                                                  | Session                                 |
-| Metadata catalog          | `block-metadata/v2/<month>/`                      | Each row's payload uses its session key |
+| Metadata catalog          | `block-metadata/v2/<month>/`                                        | Each row's payload uses its session key |
 | Inline image shards       | `scrubbed-images/v2/<month>/<team>/<grant>/shards/`                 | Team and consent period                 |
 | Inline image lookups      | `scrubbed-images/v2/<month>/<team>/<grant>/lookup/<hash>.encrypted` | Team and consent period                 |
 | Inline image indexes      | `scrubbed-images/v2/<month>/<team>/<grant>/index/`                  | Team and consent period                 |
 | URL images                | `scrubbed-images/v2/<month>/<team>/<grant>/url/<hash>`              | Team and consent period                 |
-| Score pages               | `score/v2/<month>/dt=<event-date>/`                               | Each row's payload uses its session key |
-| Completed score manifests | `score/v2-manifests/<month>/dt=<event-date>/`                     | No payload data or keys                 |
+| Score pages               | `score/v2/<month>/dt=<event-date>/`                                 | Each row's payload uses its session key |
+| Completed score manifests | `score/v2-manifests/<month>/dt=<event-date>/`                       | No payload data or keys                 |
 
 Metadata catalogs expose raw `team_id`, `session_id`, `consent_granted_at`, `format_version`, and an encrypted `payload`.
 Distinct IDs, URLs, block locations, and replay indexes are inside that payload.
@@ -146,6 +163,9 @@ Inline images have an encrypted lookup for each reference, published after the s
 Readers fetch that lookup directly; a missing image does not require a scan of the team's image history.
 Source deduplication includes the session, so deleting one source session cannot suppress another session's copy.
 The v2 image-fetch frontier uses a separate, initially empty DynamoDB history table.
+Its URL history expires eight days after the end of the session's UTC month.
+Explicit HTTP freshness or cache restrictions can shorten this expiry; they cannot extend it.
+Robots.txt and TDM reservation caches keep their shared origin keys and existing expiry rules.
 It does not inherit v1 seen flags or successful fetch results.
 
 ML Kafka producers write `ai_research_ingestion_version: 1` or `2`.
@@ -172,10 +192,3 @@ When both aliases are set, the `AI_RESEARCH_REPLAY_*` value takes precedence, in
 The wrapped HMAC secret keeps the single name `SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY` in both the environment and secret store.
 It has no new alias.
 Renaming configuration must not rotate that key.
-
-All v2 S3 datasets use a `YYYY-MM` directory derived from the session UUIDv7 start timestamp in UTC.
-A session that crosses a month boundary stays in its start month, including late blocks and image fetches.
-Image references and image-fetch history keys include that month, so a fetch in one month does not suppress another month.
-Robots.txt and TDM reservation policy caches remain shared by origin across all months.
-Metadata and score writers split batches that contain multiple session months.
-Score manifests cover completed pages within each session month; event-date subdirectories remain below that month.

@@ -100,16 +100,22 @@ _FORMAT_CASES = json.loads(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["mixed", "raw_only", "legacy_only", "empty", "deleted"])
+@pytest.mark.parametrize("mode", ["mixed", "raw_only", "legacy_only", "empty", "deleted", "monthly"])
 @pytest.mark.parametrize("env_prefix", ["AI_RESEARCH_REPLAY_", "SESSION_RECORDING_ML_"])
 async def test_exports_sessions_to_the_same_format_as_the_mirror(mode: str, env_prefix: str) -> None:
     cases = [
         case
         for case in _FORMAT_CASES
-        if mode == "mixed"
+        if mode in ("mixed", "monthly")
         or (mode in ("raw_only", "deleted") and case["rawIdentifiers"])
         or (mode == "legacy_only" and not case["rawIdentifiers"])
     ]
+    if mode == "monthly":
+        hex_timestamp = f"{int(datetime(2026, 10, 1, tzinfo=UTC).timestamp() * 1000):012x}"
+        session_id = f"{hex_timestamp[:8]}-{hex_timestamp[8:]}-7000-8000-000000000007"
+        cases.append(
+            {"sessionId": session_id, "rawIdentifiers": True, "storedSessionId": session_id, "storedTeamId": "7"}
+        )
     started_at = datetime(2026, 9, 12, 12, 30, tzinfo=UTC)
     rows = [(7, case["sessionId"], started_at, 0.75) for case in cases]
     pages = [rows[i : i + 2] for i in range(0, len(rows), 2)]
@@ -155,8 +161,14 @@ async def test_exports_sessions_to_the_same_format_as_the_mirror(mode: str, env_
     assert result.rows == (0 if mode == "deleted" else len(rows))
     assert all(call.args == ("s3",) for call in client.call_args_list)
     uploads = client.return_value.put_object.call_args_list
-    assert len(uploads) == 2
-    for raw_identifiers, prefix in [(False, "score"), (True, "score/v2")]:
+    assert len(uploads) == (3 if mode == "monthly" else 2 if any(case["rawIdentifiers"] for case in cases) else 1)
+    for raw_identifiers, prefix in [
+        (False, "score"),
+        (True, "score/v2/2026-09"),
+        *([(True, "score/v2/2026-10")] if mode == "monthly" else []),
+    ]:
+        if raw_identifiers and not any(case["rawIdentifiers"] for case in cases):
+            continue
         upload = next(
             call.kwargs for call in uploads if call.kwargs["Key"] == f"{prefix}/dt=2026-09-12/part-0000-of-0001.parquet"
         )
@@ -184,7 +196,15 @@ async def test_exports_sessions_to_the_same_format_as_the_mirror(mode: str, env_
                 "surfacing_score": 0.75,
             }
             for case in cases
-            if case["rawIdentifiers"] == raw_identifiers and mode != "deleted"
+            if case["rawIdentifiers"] == raw_identifiers
+            and mode != "deleted"
+            and (
+                not raw_identifiers
+                or datetime.fromtimestamp(
+                    int(case["sessionId"][:8] + case["sessionId"][9:13], 16) / 1000, UTC
+                ).strftime("%Y-%m")
+                == prefix.rsplit("/", 1)[-1]
+            )
         ]
 
 
@@ -209,7 +229,7 @@ def test_score_destination_accepts_both_setting_names(prefix: str) -> None:
         assert destination.endpoint == "https://storage.example.com"
         assert destination.access_key_id == "test-access-key"
         assert destination.secret_access_key == "test-secret-key"
-        assert score_export_object_key("2026-09-12", 0, 1).startswith("custom-scores/v2/")
+        assert score_export_object_key("2026-09-12", 0, 1, session_month="2026-09").startswith("custom-scores/v2/")
 
 
 @pytest.mark.parametrize("bucket", ["canonical-bucket", ""])
@@ -263,8 +283,13 @@ async def test_plans_encrypted_exports_for_event_days_before_uuid_cutoff() -> No
 
 
 @pytest.mark.asyncio
-async def test_encrypted_export_keeps_range_bounds_until_complete_and_skips_deleted_keys() -> None:
+@pytest.mark.parametrize("invalid_timestamp", [False, True])
+async def test_encrypted_export_keeps_range_bounds_until_complete_and_skips_deleted_keys(
+    invalid_timestamp: bool,
+) -> None:
     session_id = next(case["sessionId"] for case in _FORMAT_CASES if case["rawIdentifiers"])
+    if invalid_timestamp:
+        session_id = "ffffffff-ffff-7000-8000-000000000007"
     upper = ScoreCursor(team_id=8, session_id=session_id)
     rows = [(7, session_id, datetime(2026, 9, 12, 12, tzinfo=UTC), 0.75)]
     partition = ExportPartitionSpec(day="2026-09-12", chunk_id=0, of_chunks=1)
@@ -293,14 +318,29 @@ async def test_encrypted_export_keeps_range_bounds_until_complete_and_skips_dele
         assert last.rows == 0
         assert last.next_page is None
         uploads = client.return_value.put_object.call_args_list
-        assert len(uploads) == 2
+        assert len(uploads) == (0 if invalid_timestamp else 1)
+        assert first.session_months == ([] if invalid_timestamp else ["2026-09"])
+        assert last.session_months == []
         assert all(call.kwargs["Key"].endswith(".parquet") for call in uploads)
-        assert pq.read_table(io.BytesIO(uploads[0].kwargs["Body"])).num_rows == 0
+        if uploads:
+            assert pq.read_table(io.BytesIO(uploads[0].kwargs["Body"])).num_rows == 0
+        client.return_value.get_paginator.return_value.paginate.return_value = [
+            {"CommonPrefixes": [{"Prefix": "score/v2-manifests/2026-08/"}]},
+            {"CommonPrefixes": [{"Prefix": "score/v2-manifests/2026-09/"}]},
+        ]
         await environment.run(
             publish_encrypted_score_manifest_activity,
-            EncryptedScoreManifest(partition=partition, export_id=page.export_id, pages=2),
+            EncryptedScoreManifest(
+                partition=partition, export_id=page.export_id, pages=2, session_months=first.session_months
+            ),
         )
-        manifest = client.return_value.put_object.call_args.kwargs
+        manifests = [
+            call.kwargs
+            for call in client.return_value.put_object.call_args_list
+            if call.kwargs["Key"].endswith(".json")
+        ]
+        assert {item["Key"].split("/")[2] for item in manifests} == {"2026-08", "2026-09"}
+        manifest = manifests[-1]
         assert manifest["Key"].endswith("test-export.json")
         assert json.loads(manifest["Body"])["pages"] == 2
         assert fetch.call_args.args[1]["cursor_session_id"] == session_id

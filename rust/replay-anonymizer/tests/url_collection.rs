@@ -644,7 +644,7 @@ fn a_refusal_is_counted_with_a_reason() {
 #[test]
 fn consent_scoped_refs_survive_compressed_snapshot_fields() {
     use posthog_replay_anonymizer::{compression, ImageCollection};
-    let namespace = "v2:7:1789380000000";
+    let namespace = "v2:7:1789380000000:2026-09";
     let snapshot = json!({"node": {"type": 2, "tagName": "div", "id": 1,
         "attributes": {}, "childNodes": [
             {"type": 2, "tagName": "img", "id": 2, "attributes": {"src": "https://cdn.example.com/a.png"}, "childNodes": []},
@@ -691,11 +691,11 @@ fn consent_scoped_refs_survive_compressed_snapshot_fields() {
         assert!(nodes[0]["attributes"]["data-anon-image-ref-src"]
             .as_str()
             .unwrap()
-            .starts_with("imageurl:v2:7:1789380000000:"));
+            .starts_with("imageurl:v2:7:1789380000000:2026-09:"));
         assert!(nodes[1]["attributes"]["src"]
             .as_str()
             .unwrap()
-            .starts_with("image:v2:7:1789380000000:"));
+            .starts_with("image:v2:7:1789380000000:2026-09:"));
         assert_eq!(output.meta.urls.len(), 1);
         assert_eq!(output.meta.images.len(), 1);
     }

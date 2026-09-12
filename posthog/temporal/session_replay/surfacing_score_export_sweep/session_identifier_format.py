@@ -10,3 +10,9 @@ def uses_raw_session_identifiers(session_id: str) -> bool:
         return False
     started_at_ms = int(session_id[:8] + session_id[9:13], 16)
     return started_at_ms >= RAW_SESSION_IDENTIFIERS_START_MS
+
+
+def session_start_month(session_id: str) -> str:
+    if _SESSION_UUID_V7.fullmatch(session_id) is None:
+        raise ValueError("ML monthly partitions require a UUIDv7 session ID")
+    return datetime.fromtimestamp(int(session_id[:8] + session_id[9:13], 16) / 1000, UTC).strftime("%Y-%m")

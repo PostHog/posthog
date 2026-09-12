@@ -145,12 +145,13 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
                       this.config.SESSION_RECORDING_V2_S3_PREFIX,
                       this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
                   ),
-                  new S3SessionBatchFileStorage(
-                      s3Client,
-                      bucket,
-                      prefix,
-                      this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
-                  )
+                  (month) =>
+                      new S3SessionBatchFileStorage(
+                          s3Client,
+                          bucket,
+                          month ? `${prefix}/${month}` : prefix,
+                          this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
+                      )
               )
             : new BlackholeSessionBatchFileStorage()
 

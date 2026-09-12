@@ -33,7 +33,7 @@ import {
     PSEUDONYM_TEAM,
     pseudonymize,
 } from './pseudonymize'
-import { usesRawSessionIdentifiers } from './session-identifier-format'
+import { sessionStartMonth, usesRawSessionIdentifiers } from './session-identifier-format'
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 
@@ -174,15 +174,17 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
 
         const teamKeys = teamKeysFor(input.team.teamId, headers.session_id)
         const privacyKeys = privacy?.keys(input.team.teamId, headers.session_id)
-        const referenceNamespace =
-            privacyKeys && usesRawSessionIdentifiers(headers.session_id)
-                ? `v2:${input.team.teamId}:${privacyKeys.image.identity.consentGrantedAt}`
-                : undefined
-        const imageTeamId = referenceNamespace ?? teamKeys?.teamId
+        let referenceNamespace: string | undefined
+        let imageTeamId: string | undefined
         const t0 = performance.now()
         const callStartEpochMs = performance.timeOrigin + t0
         let result
         try {
+            referenceNamespace =
+                privacyKeys && usesRawSessionIdentifiers(headers.session_id)
+                    ? `v2:${input.team.teamId}:${privacyKeys.image.identity.consentGrantedAt}:${sessionStartMonth(headers.session_id)}`
+                    : undefined
+            imageTeamId = referenceNamespace ?? teamKeys?.teamId
             result = await getRustAnonymizer().anonymizeKafkaPayload(
                 message.value,
                 contentEncoding,

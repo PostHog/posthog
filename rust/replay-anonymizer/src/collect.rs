@@ -68,10 +68,17 @@ pub fn is_image_ref_strict(s: &str) -> bool {
         .or_else(|| s.strip_prefix("imageurl:v2:"))
     {
         let parts: Vec<&str> = rest.split(':').collect();
-        return parts.len() == 3
+        return parts.len() == 4
             && is_raw_team_id(parts[0])
             && is_raw_team_id(parts[1])
-            && is_ref_hash(parts[2]);
+            && parts[2].len() == 7
+            && parts[2].as_bytes()[..4].iter().all(u8::is_ascii_digit)
+            && parts[2].as_bytes()[4] == b'-'
+            && matches!(
+                &parts[2][5..],
+                "01" | "02" | "03" | "04" | "05" | "06" | "07" | "08" | "09" | "10" | "11" | "12"
+            )
+            && is_ref_hash(parts[3]);
     }
     if let Some(rest) = s.strip_prefix("image:") {
         let Some((team, hash)) = rest.split_once(':') else {

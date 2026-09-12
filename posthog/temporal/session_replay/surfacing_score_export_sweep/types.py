@@ -74,6 +74,7 @@ class EncryptedScorePageResult:
     rows: int
     bytes_written: int
     next_page: EncryptedScorePage | None
+    session_months: list[str] = field(default_factory=list)
 
 
 @frozen
@@ -81,6 +82,8 @@ class EncryptedScoreManifest:
     partition: ExportPartitionSpec
     export_id: str
     pages: int
+    session_months: list[str] = field(default_factory=list)
+    month_page_counts: dict[str, int] = field(default_factory=dict)
 
 
 @frozen
@@ -93,3 +96,5 @@ class EncryptedScoreExport:
     pages: int = 0
     rows: int = 0
     bytes_written: int = 0
+    session_months: list[str] = field(default_factory=list)
+    month_page_counts: dict[str, int] = field(default_factory=dict)

@@ -10,6 +10,7 @@ rather than going stale.
 from __future__ import annotations
 
 import io
+import re
 import json
 from collections.abc import Callable
 from dataclasses import replace
@@ -55,6 +56,7 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.s3 import (
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.session_identifier_format import (
     RAW_SESSION_IDENTIFIERS_START_MS,
+    session_start_month,
     uses_raw_session_identifiers,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.types import (
@@ -212,6 +214,10 @@ def _encrypted_score_batch(rows: list[_ScoredRow], reader: TrainingDataKeyReader
         key = keys.get(TrainingKeyLocation.session(team_id, session_id))
         if key is None:
             continue
+        try:
+            session_start_month(session_id)
+        except (ValueError, OverflowError, OSError):
+            continue
         records.append(
             {
                 "team_id": str(team_id),
@@ -241,15 +247,24 @@ def _upload(key: str, body: bytes) -> None:
     upload_parquet(s3, bucket=dest.bucket, key=key, body=body)
 
 
+def _monthly_score_tables(rows: list[_ScoredRow], table: pa.Table) -> dict[str, pa.Table]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        try:
+            groups.setdefault(session_start_month(row[1]), [])
+        except (ValueError, OverflowError, OSError):
+            continue
+    for record in table.to_pylist():
+        groups[session_start_month(record["session_id"])].append(record)
+    return {month: pa.Table.from_pylist(records, schema=_ENCRYPTED_SCORE_SCHEMA) for month, records in groups.items()}
+
+
 @activity.defn
 async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportPartitionResult:
     activity.heartbeat({"phase": "fetch", "day": spec.day, "chunk_id": spec.chunk_id})
 
-    sinks = {False: io.BytesIO(), True: io.BytesIO()}
-    writers = {
-        raw: pq.ParquetWriter(sink, _ENCRYPTED_SCORE_SCHEMA if raw else _PARQUET_SCHEMA, compression="snappy")
-        for raw, sink in sinks.items()
-    }
+    sinks = {"legacy": io.BytesIO()}
+    writers = {"legacy": pq.ParquetWriter(sinks["legacy"], _PARQUET_SCHEMA, compression="snappy")}
     cursor = _FIRST_PAGE
     rows_total = 0
     secret: bytes | None = None
@@ -266,17 +281,19 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
                     except (PseudonymKeyNotConfiguredError, PseudonymKeyFingerprintMismatchError) as error:
                         raise ApplicationError(str(error), type=type(error).__name__, non_retryable=True) from error
                 table = await sync_to_async(_page_table, thread_sensitive=False)(legacy_rows, secret)
-                await sync_to_async(writers[False].write_table, thread_sensitive=False)(table)
+                await sync_to_async(writers["legacy"].write_table, thread_sensitive=False)(table)
                 rows_total += table.num_rows
             if raw_rows and not spec.legacy_only:
                 if reader is None:
                     reader = _score_key_reader()
                 table = await sync_to_async(_encrypted_page_table, thread_sensitive=False)(
-                    raw_rows,
-                    reader,
-                    lambda: activity.heartbeat({"phase": "encrypt", "day": spec.day, "chunk_id": spec.chunk_id}),
+                    raw_rows, reader, lambda: activity.heartbeat({"phase": "encrypt"})
                 )
-                await sync_to_async(writers[True].write_table, thread_sensitive=False)(table)
+                for month, month_table in _monthly_score_tables(raw_rows, table).items():
+                    if month not in writers:
+                        sinks[month] = io.BytesIO()
+                        writers[month] = pq.ParquetWriter(sinks[month], _ENCRYPTED_SCORE_SCHEMA, compression="snappy")
+                    await sync_to_async(writers[month].write_table, thread_sensitive=False)(month_table)
                 rows_total += table.num_rows
             if len(rows) < EXPORT_PAGE_MAX_ROWS:
                 break
@@ -288,11 +305,11 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
 
     activity.heartbeat({"phase": "upload", "day": spec.day, "chunk_id": spec.chunk_id, "rows": rows_total})
     bytes_written = 0
-    for raw_identifiers, sink in sinks.items():
-        if raw_identifiers and spec.legacy_only:
-            continue
+    for month, sink in sinks.items():
         body = sink.getvalue()
-        key = score_export_object_key(spec.day, spec.chunk_id, spec.of_chunks, raw_identifiers=raw_identifiers)
+        key = score_export_object_key(
+            spec.day, spec.chunk_id, spec.of_chunks, session_month=None if month == "legacy" else month
+        )
         await sync_to_async(_upload, thread_sensitive=False)(key, body)
         bytes_written += len(body)
 
@@ -321,8 +338,6 @@ def _publish_encrypted_score_manifest(manifest: EncryptedScoreManifest) -> None:
         raise RuntimeError("ML score export destination not configured")
     partition = manifest.partition
     base = f"dt={partition.day}/part-{partition.chunk_id:04d}-of-{partition.of_chunks:04d}"
-    manifest_key = f"{score_export_prefix()}/v2-manifests/{base}/{manifest.export_id}.json"
-    prefix = f"{score_export_prefix()}/v2/{base}/export={manifest.export_id}/"
     client = boto3_client(
         "s3",
         region_name=destination.region,
@@ -331,12 +346,26 @@ def _publish_encrypted_score_manifest(manifest: EncryptedScoreManifest) -> None:
         aws_secret_access_key=destination.secret_access_key,
         config=Config(connect_timeout=5, read_timeout=30, retries={"max_attempts": 3}),
     )
-    client.put_object(
-        Bucket=destination.bucket,
-        Key=manifest_key,
-        ContentType="application/json",
-        Body=json.dumps({"prefix": prefix, "pages": manifest.pages}).encode(),
-    )
+    manifest_root = f"{score_export_prefix()}/v2-manifests/"
+    months = set(manifest.session_months)
+    for page in client.get_paginator("list_objects_v2").paginate(
+        Bucket=destination.bucket, Prefix=manifest_root, Delimiter="/"
+    ):
+        for item in page.get("CommonPrefixes", []):
+            month = item["Prefix"][len(manifest_root) :].rstrip("/")
+            if re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", month):
+                months.add(month)
+    for month in sorted(months):
+        manifest_key = f"{score_export_prefix()}/v2-manifests/{month}/{base}/{manifest.export_id}.json"
+        prefix = f"{score_export_prefix()}/v2/{month}/{base}/export={manifest.export_id}/"
+        client.put_object(
+            Bucket=destination.bucket,
+            Key=manifest_key,
+            ContentType="application/json",
+            Body=json.dumps(
+                {"prefix": prefix, "pages": manifest.pages, "month_pages": manifest.month_page_counts.get(month, 0)}
+            ).encode(),
+        )
 
 
 def _encrypted_query_parameters(spec: ExportPartitionSpec, cursor: ScoreCursor, page_size: int) -> dict[str, str | int]:
@@ -402,18 +431,24 @@ async def export_encrypted_scores_page_activity(page: EncryptedScorePage) -> Enc
     table = await sync_to_async(_encrypted_page_table, thread_sensitive=False)(
         rows, _score_key_reader(), lambda: activity.heartbeat({"phase": "encrypt", "page": page.page})
     )
-    sink = io.BytesIO()
-    pq.write_table(table, sink, compression="snappy")
+    monthly_tables = _monthly_score_tables(rows, table)
+    bytes_written = 0
     partition = page.partition
-    key = (
-        f"{score_export_prefix()}/v2/dt={partition.day}/"
-        f"part-{partition.chunk_id:04d}-of-{partition.of_chunks:04d}/export={page.export_id}/page-{page.page:08d}.parquet"
-    )
-    body = sink.getvalue()
-    await sync_to_async(_upload, thread_sensitive=False)(key, body)
+    for month, month_table in monthly_tables.items():
+        sink = io.BytesIO()
+        pq.write_table(month_table, sink, compression="snappy")
+        key = (
+            f"{score_export_prefix()}/v2/{month}/dt={partition.day}/"
+            f"part-{partition.chunk_id:04d}-of-{partition.of_chunks:04d}/export={page.export_id}/page-{page.page:08d}.parquet"
+        )
+        body = sink.getvalue()
+        await sync_to_async(_upload, thread_sensitive=False)(key, body)
+        bytes_written += len(body)
     next_page = None
     if len(rows) == ENCRYPTED_EXPORT_PAGE_ROWS:
         cursor = ScoreCursor(team_id=rows[-1][0], session_id=rows[-1][1])
         if cursor != page.upper:
             next_page = replace(page, page=page.page + 1, cursor=cursor)
-    return EncryptedScorePageResult(rows=table.num_rows, bytes_written=len(body), next_page=next_page)
+    return EncryptedScorePageResult(
+        rows=table.num_rows, bytes_written=bytes_written, next_page=next_page, session_months=sorted(monthly_tables)
+    )

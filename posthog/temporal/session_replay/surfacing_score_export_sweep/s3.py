@@ -1,5 +1,5 @@
 """Destination config, object-key layout, and upload helper — same
-`{prefix}/v2/dt=.../part-*.parquet` layout as the ML mirror's Parquet store, but
+`{prefix}/v2/<session-month>/dt=.../part-*.parquet` layout as the ML mirror's Parquet store, but
 with deterministic part names so re-runs overwrite.
 
 The destination is its own `AI_RESEARCH_REPLAY_SCORE_EXPORT_S3_*` config
@@ -55,8 +55,8 @@ def score_export_prefix() -> str:
     return get_ai_research_replay_env(SCORE_EXPORT_PREFIX_ENV_VAR, DEFAULT_SCORE_EXPORT_PREFIX)
 
 
-def score_export_object_key(day: str, chunk_id: int, of_chunks: int, *, raw_identifiers: bool = True) -> str:
-    prefix = f"{score_export_prefix()}/v2" if raw_identifiers else score_export_prefix()
+def score_export_object_key(day: str, chunk_id: int, of_chunks: int, *, session_month: str | None = None) -> str:
+    prefix = f"{score_export_prefix()}/v2/{session_month}" if session_month else score_export_prefix()
     return f"{prefix}/dt={day}/part-{chunk_id:04d}-of-{of_chunks:04d}.parquet"
 
 

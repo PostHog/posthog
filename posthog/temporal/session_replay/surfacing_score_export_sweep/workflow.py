@@ -120,6 +120,8 @@ class ExportEncryptedScoresWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: EncryptedScoreExport) -> ExportPartitionResult:
+        session_months = set(inputs.session_months)
+        month_page_counts = dict(inputs.month_page_counts)
         cursor = inputs.cursor
         boundaries = list(inputs.boundaries)
         needs_plan = inputs.needs_plan
@@ -148,6 +150,9 @@ class ExportEncryptedScoresWorkflow(PostHogWorkflow):
                 heartbeat_timeout=EXPORT_PARTITION_HEARTBEAT_TIMEOUT,
                 retry_policy=RetryPolicy(maximum_attempts=EXPORT_PARTITION_MAX_ATTEMPTS),
             )
+            session_months.update(exported.session_months)
+            for month in exported.session_months:
+                month_page_counts[month] = month_page_counts.get(month, 0) + 1
             bytes_written += exported.bytes_written
             rows += exported.rows
             pages += 1
@@ -165,11 +170,19 @@ class ExportEncryptedScoresWorkflow(PostHogWorkflow):
                         pages=pages,
                         rows=rows,
                         bytes_written=bytes_written,
+                        session_months=sorted(session_months),
+                        month_page_counts=month_page_counts,
                     )
                 )
         await workflow.execute_activity(
             publish_encrypted_score_manifest_activity,
-            EncryptedScoreManifest(partition=inputs.partition, export_id=inputs.export_id, pages=pages),
+            EncryptedScoreManifest(
+                partition=inputs.partition,
+                export_id=inputs.export_id,
+                pages=pages,
+                session_months=sorted(session_months),
+                month_page_counts=month_page_counts,
+            ),
             start_to_close_timeout=LIST_PARTITIONS_ACTIVITY_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=EXPORT_PARTITION_MAX_ATTEMPTS),
         )

@@ -88,10 +88,16 @@ async def test_bounds_concurrent_partition_activities(encrypted: bool, page_limi
             elif shape == "overflow" and activity_input.page == 1:
                 assert activity_input.cursor == ScoreCursor(team_id=7, session_id="before-first")
                 assert activity_input.upper == ScoreCursor(team_id=7, session_id="first")
-            return EncryptedScorePageResult(rows=2, bytes_written=100, next_page=next_page)
+            return EncryptedScorePageResult(
+                rows=2,
+                bytes_written=100,
+                next_page=next_page,
+                session_months=["2026-09" if activity_input.page == 0 else "2026-10"],
+            )
         if activity is publish_encrypted_score_manifest_activity:
             assert isinstance(activity_input, EncryptedScoreManifest)
             assert activity_input.pages == completed_pages.get(activity_input.partition.chunk_id, 0) == expected_pages
+            assert activity_input.session_months == ([] if shape == "empty" else ["2026-09", "2026-10"])
             published.add(activity_input.partition.chunk_id)
             return None
         assert activity is export_scores_partition_activity
