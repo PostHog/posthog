@@ -502,7 +502,25 @@ Agentic research writes metrics atomically with the matching title, summary, and
 
 **Write surface.** `SignalReportArtefactViewSet` exposes POST / PATCH / DELETE for any type (a status write appends a new latest-wins row), the bespoke `suggested_reviewers` PUT, and a `diff` action that renders a `commit` artefact's branch against the repository default branch via `GitHubIntegration.get_diff` (GitHub compare API, validated repo/ref/sha). All gated by `scope_object = "task"` (`task:write`). Custom agents queue artefacts during a run via `CustomSignalAgent.register_artefact`, persisted in the report's transaction and attributed to the agent's task — except `commit` (written automatically by the signed-commit harness) and `task_run` (written by report persistence), which never need registering there.
 
-**Task↔report association.** A `task_run` artefact _is_ the association (no link table): its `task` FK is the task it records. Associating is just POSTing a `task_run` (its `content.task_id` defaults from the header — "associate me"); the reports list accepts `?task_id=`. Auto-start idempotency does **not** key on this freeform, API-mutable log — it uses a legacy `SignalReportTask` implementation row, which auto-start dual-writes alongside the `task_run` artefact (see Autonomy & Auto-Start).
+Claim content stores a server-generated `display_name`: a phase label for internal agents, or the user name plus external client (for example, "Alex's Codex").
+Unknown clients use "Alex's agent". The label is fixed at claim time and does not participate in ownership checks; older claims can omit it.
+
+**Claims and task association.** Agents use the claim endpoint to start or resume work, attach `pull_requests`, and release ownership.
+The returned `claim_id` identifies the work attempt; stale or foreign claims are rejected, and taking another actor's claim requires explicit `takeover=true`.
+The shared ownership helper derives the active owner from the latest `work_claim` artefact and its `work_release` entries.
+Internal task agents automatically receive a `task_run` association on claim; clients do not write task associations separately.
+Notes, commits, and PR links can reference the claim without mixing that context into actor attribution.
+Attribution identifies the authenticated user plus coding-agent name, or the internal task, and describes who attached the PR rather than its GitHub author.
+
+**Pull requests.** `SignalReportPullRequest` stores GitHub identity and state per team; `pull_request` artefacts link it to reports and optional claims.
+Reads combine these links with legacy assignments and task outputs, while all new writes use artefacts and shared PR state.
+The shared PR reader requires a team ID and excludes reports and links outside that team.
+Only legacy assignments are backfilled; task-output PRs remain readable without a full backfill.
+`SignalReportAssignment` is a read-only fallback until backfilled; once claim history exists it cannot restore a released owner.
+GitHub-verified state takes precedence over imported snapshots, and merged is terminal.
+A report completes when every linked PR is closed or merged: resolved if any merged, otherwise suppressed.
+Legacy single-PR fields select an active PR first, then merged before closed, with deterministic ordering.
+Auto-start retains its `SignalReportTask` implementation gate alongside task-run artefacts.
 
 Notes:
 
