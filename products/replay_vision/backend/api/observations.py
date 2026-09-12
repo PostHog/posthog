@@ -128,7 +128,7 @@ class ScannerResultSerializer(serializers.Serializer):
     """Mirrors `temporal.types.ScannerResult` for OpenAPI generation."""
 
     model_output = serializers.JSONField(
-        help_text="Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `scanner_type`, and `confidence` unless the model left it out.",
+        help_text="Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `scanner_type` and `confidence`, but `confidence` is null when the model left it out.",
     )
     signals_count = serializers.IntegerField(
         min_value=0,
