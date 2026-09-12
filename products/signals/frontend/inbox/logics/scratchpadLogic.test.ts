@@ -205,6 +205,20 @@ describe('scratchpadLogic', () => {
         expect(logic.values.hasActiveFilters).toBe(false)
     })
 
+    // Report-pipeline stages write to this keyspace under a `pipeline:` identity. The ledger's
+    // Scout column already calls them what they are, so counting them as scouts would make the
+    // header claim more scouts than wrote.
+    it('leaves the pipeline writers out of the scouts stat', async () => {
+        logic.actions.loadEntriesSuccess([
+            { ...entry('pattern:apm:p95', 'note'), created_by_skill: 'signals-scout-apm' },
+            { ...entry('baseline:apm:error-rate', 'note'), created_by_skill: 'signals-scout-apm' },
+            { ...entry('judged:report-1', 'note'), created_by_skill: 'pipeline:report-research' },
+            { ...entry('watchlist:manual', 'note'), created_by_skill: null },
+        ])
+
+        expect(logic.values.windowStats.scouts).toBe(1)
+    })
+
     // The bookkeeping kinds outnumber the durable knowledge, which is the whole reason the switch
     // exists. A key whose prefix is not a known kind is a topic, not a kind, and must survive it.
     it('drops only the bookkeeping kinds when the switch is on', async () => {

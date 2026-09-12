@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SCRATCHPAD_PAGE_SIZE, scratchpadLogic } from '../../logics/scratchpadLogic'
-import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
+import { PIPELINE_WRITER_PREFIX, isPipelineWriter, stripScoutPrefix } from '../../utils/scoutRunsWindow'
 import { KIND_TAG_TYPE, isReportUuid, scratchpadKindOf, scratchpadTopicOf } from '../../utils/scratchpadKeys'
 
 // Below 52rem the six columns stop fitting, so every row collapses into one stacked cell. Broken
@@ -20,9 +20,6 @@ import { KIND_TAG_TYPE, isReportUuid, scratchpadKindOf, scratchpadTopicOf } from
 // rather than built from a constant, because Tailwind only emits a class it can read in the source.
 const WIDE_ONLY = '@max-[52rem]/ledger:hidden'
 const NARROW_ONLY = 'hidden @max-[52rem]/ledger:table-cell'
-// Pipeline stages write to the scratchpad too. They are not scouts and have no scout page, so the
-// Scout column names the stage and says which it is rather than linking nowhere.
-const PIPELINE_PREFIX = 'pipeline:'
 
 /**
  * The fleet's memory as a dense, newest-first ledger: one row per entry, every signal as a column,
@@ -99,12 +96,18 @@ export function ScratchpadLedger(): JSX.Element {
     )
 }
 
+// Pipeline stages write to the scratchpad too. They are not scouts and have no scout page, so the
+// Scout column names the stage and says which it is rather than linking nowhere.
 function ScoutCell({ skillName }: { skillName: string | null | undefined }): JSX.Element {
     if (!skillName) {
         return <span className="text-xs text-muted">—</span>
     }
-    if (skillName.startsWith(PIPELINE_PREFIX)) {
-        return <span className="truncate text-xs text-muted">{skillName.slice(PIPELINE_PREFIX.length)} (pipeline)</span>
+    if (isPipelineWriter(skillName)) {
+        return (
+            <span className="truncate text-xs text-muted">
+                {skillName.slice(PIPELINE_WRITER_PREFIX.length)} (pipeline)
+            </span>
+        )
     }
     return (
         <Link to={urls.inboxScout(skillName)} subtle className="truncate text-xs">
