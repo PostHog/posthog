@@ -70,4 +70,22 @@ describe('AuthorizedUrlsStep', () => {
         ])
         await waitFor(() => expect(onContinue).toHaveBeenCalledTimes(1))
     })
+
+    it('stays on the step when a second URL fails validation', async () => {
+        const onContinue = jest.fn()
+
+        logic.actions.setAuthorizedUrls(['https://example.com'])
+        render(<AuthorizedUrlsStep onContinue={onContinue} onSkip={jest.fn()} />)
+        fireEvent.click(screen.getByText('Add new authorized URL'))
+        fireEvent.change(screen.getByPlaceholderText(/Enter a URL/), { target: { value: 'example.com' } })
+
+        await expectLogic(logic, () => {
+            fireEvent.click(screen.getByText('Continue'))
+        }).toDispatchActions(['submitProposedUrlFailure'])
+        await act(async () => undefined)
+
+        expect(onContinue).not.toHaveBeenCalled()
+        expect(logic.values.isAddUrlFormVisible).toBe(true)
+        expect(logic.values.authorizedUrls).toEqual(['https://example.com'])
+    })
 })
