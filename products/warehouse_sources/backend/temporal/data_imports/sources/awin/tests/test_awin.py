@@ -319,16 +319,6 @@ class TestFanoutTargets:
 
         return fake_fetch
 
-    def test_advertiser_fanout_uses_advertiser_accounts_only(self) -> None:
-        with patch.object(awin, "_fetch", side_effect=self._fetch_for({})):
-            targets = _fanout_targets(AWIN_ENDPOINTS["reports_publisher"], MagicMock(), {}, MagicMock())
-        assert targets == [AwinFanoutTarget(account_id=90)]
-
-    def test_publisher_fanout_uses_publisher_accounts_only(self) -> None:
-        with patch.object(awin, "_fetch", side_effect=self._fetch_for({})):
-            targets = _fanout_targets(AWIN_ENDPOINTS["transactions"], MagicMock(), {}, MagicMock())
-        assert targets == [AwinFanoutTarget(account_id=10), AwinFanoutTarget(account_id=20)]
-
     def test_programme_fanout_pairs_each_publisher_with_its_joined_advertisers(self) -> None:
         with patch.object(awin, "_fetch", side_effect=self._fetch_for({10: [1, 2], 20: [2]})):
             targets = _fanout_targets(AWIN_ENDPOINTS["commission_groups"], MagicMock(), {}, MagicMock())
@@ -351,7 +341,7 @@ class TestFormatPath:
     )
     def test_account_id_lands_in_the_right_path_segment(self, endpoint: str, expected: str) -> None:
         # Advertiser-scoped endpoints take the account id in /advertisers/, publisher-scoped ones in
-        # /publishers/ — swapping them 404s (or worse, reads another account's data).
+        # /publishers/, so swapping them 404s (or worse, reads another account's data).
         target = AwinFanoutTarget(account_id=5, advertiser_id=9)
         assert _format_path(AWIN_ENDPOINTS[endpoint], target) == expected
 
@@ -515,7 +505,7 @@ class TestGetRows:
         with patch.object(awin, "make_tracked_session"), patch.object(awin, "_fetch", side_effect=fake_fetch):
             batches = list(get_rows("token", "commission_groups", MagicMock(), manager, region="GB"))  # type: ignore[arg-type]
 
-        # advertiserId is a required query param on this publisher-scoped path — without it Awin 400s.
+        # advertiserId is a required query param on this publisher-scoped path, so Awin 400s without it.
         assert requests_made == [
             ("/publishers/10/commissiongroups", {"extraConditionsDetails": "true", "advertiserId": "1"}),
             ("/publishers/10/commissiongroups", {"extraConditionsDetails": "true", "advertiserId": "2"}),

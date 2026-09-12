@@ -15,9 +15,9 @@ DEFAULT_BACKFILL_DAYS = 365
 # over a fixed trailing window rather than an incremental scroll.
 DEFAULT_REPORT_LOOKBACK_DAYS = 30
 
-# `accounts` is a single top-level call. Every other endpoint fans out: over the publisher accounts
-# the token can see, over its advertiser accounts, or — for the publisher-scoped endpoints that also
-# require an advertiserId query param — over each publisher's joined programmes.
+# `accounts` is a single top-level call. Every other endpoint fans out over the publisher accounts
+# the token can see, over its advertiser accounts, or over each publisher's joined programmes. The
+# last kind is for publisher-scoped paths that also require an advertiserId query param.
 AwinEndpointKind = Literal["accounts", "publisher_fanout", "advertiser_fanout", "publisher_programme_fanout"]
 
 # Awin's aggregated report endpoints require a `region` query param naming the account's market
@@ -179,7 +179,7 @@ AWIN_ENDPOINTS: dict[str, AwinEndpointConfig] = {
         path="/advertisers/{advertiser_id}/reports/publisher",
         # The advertiser-side counterpart of reports_advertiser; rows carry both ids already. Awin's
         # spec shows a {body, statusCode, statusCodeValue} wrapper on both reports, but that is a
-        # Spring ResponseEntity artifact — the service returns the bare array reports_advertiser
+        # Spring ResponseEntity artifact, so the service returns the bare array reports_advertiser
         # already reads.
         primary_keys=["advertiserId", "publisherId"],
         date_windowed=True,
