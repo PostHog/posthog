@@ -245,6 +245,7 @@ export enum Scene {
     CustomerJourneyTemplates = 'CustomerJourneyTemplates',
     SupportTicketDetail = 'SupportTicketDetail',
     SupportSettings = 'SupportSettings',
+    SupportPatterns = 'SupportPatterns',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
@@ -414,6 +415,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Support (conversations)
     [Scene.SupportTickets]: AccessControlResourceType.Ticket,
     [Scene.SupportTicketDetail]: AccessControlResourceType.Ticket,
+    [Scene.SupportPatterns]: AccessControlResourceType.Ticket,
 
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,

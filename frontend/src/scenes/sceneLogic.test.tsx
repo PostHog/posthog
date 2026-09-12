@@ -188,6 +188,32 @@ describe('sceneLogic', () => {
         }
     })
 
+    it('denies the support patterns scene without ticket access', async () => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                effective_resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT?.effective_resource_access_control,
+                    [AccessControlResourceType.Ticket]: AccessControlLevel.None,
+                },
+            } as AppContext
+
+            logic.actions.setScene(Scene.SupportPatterns, 'supportPatterns', {
+                params: {},
+                searchParams: {},
+                hashParams: {},
+            })
+
+            await expectLogic(logic).toMatchValues({
+                sceneId: Scene.SupportPatterns,
+                activeSceneId: Scene.ErrorAccessDenied,
+            })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
+    })
+
     describe('/home honors the configured homepage', () => {
         const dashboardHomepage = {
             id: 'homepage-dashboard-42',
