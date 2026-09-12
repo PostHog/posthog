@@ -83,13 +83,16 @@ def install_hooks(stack: ExitStack, controller: Controller, image_id: str) -> No
                 raise ValueError("Approval command belongs to another attempt")
             controller.proxy_targets[attempt.id] = sandbox_url
             sandbox_url = f"{controller.url}/proxy/{attempt.id}"
-        return proxy(
+        response = proxy(
             sandbox_url=sandbox_url,
             connection_token=connection_token,
             sandbox_connect_token=sandbox_connect_token,
             payload=payload,
             sandbox_token_param=sandbox_token_param,
         )
+        if attempt and payload.get("method") == "cancel":
+            attempt.faults["model"].record("cancel_forwarded", run_id=attempt.run_id, status=response.status_code)
+        return response
 
     stack.enter_context(
         patch("products.tasks.backend.logic.services.workflow_dispatch.execute_after_commit", transaction.on_commit)

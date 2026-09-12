@@ -31,7 +31,7 @@ class Attempt:
         self.output = output / self.id
         self.output.mkdir(parents=True)
         self.timeline: list[dict[str, JsonValue]] = []
-        names: tuple[FaultName, ...] = ("registration", "worker", "approval")
+        names: tuple[FaultName, ...] = ("registration", "worker", "approval", "approval_confirmation", "model")
         self.faults = {name: Fault(name, self.timeline) for name in names}
         self.errors: list[str] = []
         self.replay: Replay | None = None
@@ -96,6 +96,7 @@ class Attempt:
             self.user.current_team = self.team
             self.user.is_email_verified = True
             self.user.credentials_reviewed_at = timezone.now()
+            self.user.has_seen_product_intro_for = {"posthog_ai_onboarding": True}
             self.user.save()
             EventDefinition.objects.create(team=self.team, name="synthetic_workspace_opened")
             UserTasksConfig.objects.for_team(self.team.id).create(
@@ -158,6 +159,32 @@ class Attempt:
             self.insight = Insight.objects.create(
                 team=self.connected_team, created_by=self.connected_user, name="Synthetic original insight"
             )
+
+    def seed_editors(self) -> list[JsonValue]:
+        from posthog.models.file_system.file_system_view_log import log_file_system_view
+
+        from products.product_analytics.backend.models.insight import Insight
+
+        if self.task_id is not None or Insight.objects.filter(team=self.team).exists():
+            raise ValueError("Editor resources must be seeded once, before starting the attempt")
+        resources: list[JsonValue] = []
+        for suffix, value in (("A", 11), ("B", 22)):
+            query: dict[str, JsonValue] = {
+                "kind": "DataVisualizationNode",
+                "display": "ActionsTable",
+                "source": {"kind": "HogQLQuery", "query": f"SELECT {value} AS original_{suffix.lower()}"},
+            }
+            insight = Insight.objects.create(
+                team=self.team,
+                created_by=self.user,
+                name=f"Synthetic editor {suffix}",
+                query=query,
+                favorited=True,
+                saved=True,
+            )
+            log_file_system_view(user=self.user, obj=insight)
+            resources.append({"id": insight.id, "short_id": insight.short_id, "query": query})
+        return resources
 
     def public(self) -> dict[str, JsonValue]:
         return {

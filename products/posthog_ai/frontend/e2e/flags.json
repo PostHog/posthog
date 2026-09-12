@@ -1,5 +1,6 @@
 {
     "tasks": { "value": true, "consumers": ["browser", "backend"] },
+    "phai-sandbox-mode": { "value": true, "consumers": ["browser"] },
     "tasks-cloud-runs-sandbox-event-ingest": { "value": true, "consumers": ["backend"] },
     "tasks-stream-via-proxy": { "value": true, "consumers": ["browser", "backend"] },
     "tasks-agent-proxy-keep-stream-open": { "value": true, "consumers": ["backend"] },

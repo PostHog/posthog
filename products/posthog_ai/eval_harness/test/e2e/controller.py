@@ -4,6 +4,7 @@ import json
 import logging
 import secrets
 import threading
+from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import cast
@@ -14,7 +15,7 @@ from pydantic import JsonValue
 
 from .attempt import Attempt
 from .faults import FaultName
-from .replay import ResponseStep, fixture_events, object_value, sse_frames
+from .replay import ResponseStep, encoded_text, fixture_events, object_value, sse_frames
 
 
 class Controller:
@@ -64,9 +65,21 @@ class Controller:
                     connections.close_all()
                 self.send_response(status)
                 self.send_header("Content-Type", content_type)
-                self.send_header("Content-Length", str(len(response)))
+                if isinstance(response, bytes):
+                    self.send_header("Content-Length", str(len(response)))
+                else:
+                    self.send_header("Connection", "close")
+                    self.close_connection = True
                 self.end_headers()
-                self.wfile.write(response)
+                try:
+                    for chunk in [response] if isinstance(response, bytes) else response:
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                except Exception as error:
+                    controller.record_error(f"{type(error).__name__}: {error}")
+                    raise
 
         self.server = ThreadingHTTPServer(("0.0.0.0", 0), Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -89,7 +102,7 @@ class Controller:
 
     def handle(
         self, method: str, path: str, headers: dict[str, str], body: dict[str, JsonValue]
-    ) -> tuple[int, str, bytes]:
+    ) -> tuple[int, str, bytes | Iterator[bytes]]:
         headers = {key.lower(): value for key, value in headers.items()}
         if path.startswith("/control/"):
             if not secrets.compare_digest(headers.get("authorization", ""), f"Bearer {self.token}"):
@@ -104,6 +117,10 @@ class Controller:
             return self.json({"customer": None})
         if method == "GET" and path == "/billing/api/products-v2":
             return self.json({"products": []})
+        if method == "GET" and path == "/billing/api/v2/usage/team_options/":
+            return self.json({"team_id_options": []})
+        if method == "GET" and path in {"/billing/api/v2/usage/", "/billing/api/v2/spend/"}:
+            return self.json({"status": "ok", "type": "timeseries", "customer_id": "synthetic", "results": []})
         if method == "PATCH" and path == "/billing/api/billing/":
             if body.get("org_customer_email") not in attempt.emails:
                 raise ValueError("Billing update belongs to another attempt")
@@ -131,6 +148,9 @@ class Controller:
                 f"{target}/command", json=body, headers={"Authorization": headers["authorization"]}, timeout=30
             )
             attempt.faults["approval"].record("forwarded", request_id=request_id, status=response.status_code)
+            confirmation = attempt.faults["approval_confirmation"]
+            if response.ok and (generation := confirmation.reach(request_id)):
+                confirmation.wait_for_release(generation)
             return response.status_code, "application/json", response.content
         if method == "GET" and path in {"/v1/models", "/posthog_ai/v1/models", "/posthog_code/v1/models"}:
             project = headers.get("x-posthog-project-id")
@@ -214,8 +234,10 @@ class Controller:
                 or body.get("tools")
             ):
                 raise ValueError("Unexpected SDK title request")
-            message = json.dumps(body.get("messages"))
-            if attempt.replay is None or not any(step.user_message in message for step in attempt.replay.steps):
+            message = json.dumps(body.get("messages"), ensure_ascii=False)
+            if attempt.replay is None or not any(
+                encoded_text(step.user_message) in message for step in attempt.replay.steps
+            ):
                 raise ValueError("SDK title does not belong to the declared conversation")
             if message in attempt.sdk_titles:
                 raise ValueError("Duplicate SDK title request")
@@ -241,7 +263,19 @@ class Controller:
         )
         if provider is None or attempt.replay is None:
             raise ValueError(f"Unexpected provider endpoint {path}")
-        return 200, "text/event-stream", attempt.replay.respond(provider, body)
+        index, frames = attempt.replay.respond(provider, body)
+
+        def stream_response() -> Iterator[bytes]:
+            # Open the SDK's SSE reader before pausing, so cancellation can abort a real streaming request.
+            first, remainder = frames.split(b"\n\n", 1)
+            yield first + b"\n\n"
+            fault = attempt.faults["model"]
+            if generation := fault.reach(str(index)):
+                fault.wait_for_release(generation)
+            fault.record("response_released", step=index, run_id=run_id)
+            yield remainder
+
+        return 200, "text/event-stream", stream_response()
 
     def control(self, method: str, path: str, body: dict[str, JsonValue]) -> JsonValue:
         if path == "health" and method == "GET":
@@ -297,6 +331,8 @@ class Controller:
             if not isinstance(steps, list):
                 raise ValueError("Expected response steps")
             attempt.configure([ResponseStep.model_validate(step) for step in steps])
+        elif operation == "seed_editors":
+            return attempt.seed_editors()
         elif operation.startswith("fault/"):
             _, name, action = operation.split("/")
             fault = attempt.faults[cast(FaultName, name)]

@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 
 class ToolResult(BaseModel):
@@ -22,6 +22,7 @@ class ResponseStep(BaseModel):
     fixture: Literal["text", "insight-update", "tool-search"]
     user_message: str
     tool_result: ToolResult | None = None
+    history_contains: list[str] = Field(default_factory=list)
     substitutions: dict[str, str]
 
 
@@ -66,14 +67,26 @@ def content_blocks(item: dict[str, JsonValue]) -> list[dict[str, JsonValue]]:
     return [block for block in content if isinstance(block, dict)] if isinstance(content, list) else []
 
 
+def encoded_text(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)[1:-1]
+
+
 def validate_step(step: ResponseStep, provider: str, body: dict[str, JsonValue]) -> None:
     if provider != step.provider or body.get("model") != step.model or body.get("stream") is not True:
         raise ValueError(f"Expected streaming {step.provider}/{step.model}")
     items = request_items(provider, body)
     users = [item for item in items if item.get("role") == "user"]
-    # Anthropic represents tool results as a user turn; they do not advance the human conversation.
-    users = [item for item in users if not any(block.get("type") == "tool_result" for block in content_blocks(item))]
-    if not users or step.user_message not in json.dumps(users[-1], ensure_ascii=False):
+    # Claude can combine a follow-up with tool results after interruption; tool payloads alone aren't human turns.
+    users = [
+        item
+        for item in users
+        if not any(block.get("type") == "tool_result" for block in content_blocks(item))
+        or any(
+            block.get("type") == "text" and step.user_message in str(block.get("text", ""))
+            for block in content_blocks(item)
+        )
+    ]
+    if not users or encoded_text(step.user_message) not in json.dumps(users[-1], ensure_ascii=False):
         raise ValueError("Unexpected human conversation step")
     results = [
         block
@@ -135,7 +148,7 @@ class Replay:
         for step in steps:
             fixture_events(step)
 
-    def respond(self, provider: str, body: dict[str, JsonValue]) -> bytes:
+    def respond(self, provider: str, body: dict[str, JsonValue]) -> tuple[int, bytes]:
         with self.lock:
             try:
                 if self.cursor == len(self.steps):
@@ -143,19 +156,22 @@ class Replay:
                 step = self.steps[self.cursor]
                 validate_step(step, provider, body)
                 transcript = json.dumps(request_items(provider, body), ensure_ascii=False)
+                if any(encoded_text(value) not in transcript for value in step.history_contains):
+                    raise ValueError("Expected assistant or tool history is missing")
                 expected_messages = list(dict.fromkeys(prior.user_message for prior in self.steps[: self.cursor + 1]))
-                positions = [transcript.find(message) for message in expected_messages]
+                positions = [transcript.find(encoded_text(message)) for message in expected_messages]
                 if any(position < 0 for position in positions) or positions != sorted(positions):
                     raise ValueError("Conversation history does not match the declared response sequence")
                 frames = sse_frames(fixture_events(step))
                 self.consumed.append(
                     {"step": self.cursor, "provider": provider, "model": step.model, "fixture": step.fixture}
                 )
+                index = self.cursor
                 self.cursor += 1
-                return frames
             except Exception as error:
                 self.errors.append(str(error))
                 raise
+        return index, frames
 
     def verify(self) -> None:
         if self.errors or self.cursor != len(self.steps):
