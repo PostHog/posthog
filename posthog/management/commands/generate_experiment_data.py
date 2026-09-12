@@ -471,37 +471,38 @@ class Command(BaseCommand):
             return
 
         experiment_id = options.get("experiment_id")
-        config_path = options.get("config")
-
-        # Validate required arguments
         if not experiment_id:
             raise ValueError("--experiment-id is missing!")
 
+        experiment_config = self._load_config(options.get("config"), experiment_type)
+
+        self._generate_experiment_data(team, experiment_id, experiment_config, options)
+
+    def _load_config(self, config_path: str | None, experiment_type: str | None) -> ExperimentConfig:
         if config_path is None and experiment_type is None:
             raise ValueError("--config <path-to-file> or --type trends|funnel is missing!")
 
         if config_path:
             with open(config_path) as config_file:
                 config_data = json.load(config_file)
-
             try:
-                # Use the ExperimentConfig model to parse and validate the JSON data
-                experiment_config = ExperimentConfig(**config_data)
+                return ExperimentConfig(**config_data)
             except ValidationError as e:
                 raise ValueError(f"Invalid configuration: {e}")
-        else:
-            experiment_config = get_default_config(experiment_type)
 
+        return get_default_config(experiment_type)
+
+    def _generate_experiment_data(
+        self, team: Team, experiment_id: str, experiment_config: ExperimentConfig, options: dict[str, Any]
+    ) -> None:
         variants = list(experiment_config.variants.keys())
+        weights = [v.weight for v in experiment_config.variants.values()]
         variant_counts = dict.fromkeys(variants, 0)
 
         generate_replays = options.get("generate_session_replays", False)
         replay_probability = options.get("replay_probability", 0.3)
-        replay_count = 0
-
         create_person_profiles = options.get("create_person_profiles", False)
         person_properties_ratio = options.get("person_properties_ratio", 0.7)
-        persons_created = 0
 
         # Production emits both events during the migration window, so mirror that.
         exposure_events = [DEFAULT_EXPOSURE_EVENT]
@@ -509,17 +510,16 @@ class Command(BaseCommand):
             exposure_events.append(EXPERIMENT_EXPOSURE_EVENT)
 
         multiple_pct = options.get("multiple_pct", 0) / 100
+
+        replay_count = 0
+        persons_created = 0
         multiple_count = 0
 
         for _ in range(experiment_config.number_of_users):
-            variant = random.choices(
-                variants,
-                weights=[v.weight for v in experiment_config.variants.values()],
-            )[0]
+            variant = random.choices(variants, weights=weights)[0]
             variant_counts[variant] += 1
             distinct_id = str(uuid.uuid4())
             session_id = str(uuid.uuid4())
-            feature_flag_property = f"$feature/{experiment_id}"
             random_timestamp = datetime.fromtimestamp(
                 random.uniform(
                     experiment_config.start_timestamp.timestamp(),
@@ -527,136 +527,219 @@ class Command(BaseCommand):
                 )
             )
 
-            # Create person profile if enabled
             if create_person_profiles:
-                is_identified = random.random() < person_properties_ratio
-                person_properties = self._generate_person_properties(is_identified)
-
-                # Send $identify event to create/update person profile
-                # In backend SDKs, we need to send an event with $set properties
-                posthoganalytics.capture(
-                    distinct_id=distinct_id,
-                    event="$identify",
-                    timestamp=random_timestamp,
-                    properties={
-                        "$set": person_properties,
-                    },
-                )
+                self._create_person_profile(distinct_id, random_timestamp, person_properties_ratio)
                 persons_created += 1
 
-            # Generate exposure properties based on configured probabilities
-            exposure_props: dict[str, Any] = {}
-            for prop_key, prop_options in experiment_config.exposure_properties.items():
-                values = [opt.value for opt in prop_options]
-                weights = [opt.probability for opt in prop_options]
-                exposure_props[prop_key] = random.choices(values, weights=weights)[0]
+            exposure_props = self._sample_exposure_properties(experiment_config)
+            self._emit_exposures(
+                distinct_id, session_id, experiment_id, variant, random_timestamp, exposure_events, exposure_props
+            )
 
-            for event in exposure_events:
-                posthoganalytics.capture(
-                    distinct_id=distinct_id,
-                    event=event,
-                    timestamp=random_timestamp,
-                    properties={
-                        feature_flag_property: variant,
-                        "$feature_flag_response": variant,
-                        "$feature_flag": experiment_id,
-                        "$session_id": session_id,
-                        **exposure_props,
-                    },
-                )
+            if self._emit_multiple_exposure(
+                distinct_id,
+                session_id,
+                experiment_id,
+                variant,
+                variants,
+                random_timestamp,
+                exposure_events,
+                multiple_pct,
+            ):
+                multiple_count += 1
 
-            if multiple_pct > 0 and random.random() < multiple_pct:
-                other_variants = [v for v in variants if v != variant]
-                if other_variants:
-                    other_variant = random.choice(other_variants)
-                    for event in exposure_events:
-                        posthoganalytics.capture(
-                            distinct_id=distinct_id,
-                            event=event,
-                            timestamp=random_timestamp + timedelta(minutes=1),
-                            properties={
-                                feature_flag_property: other_variant,
-                                "$feature_flag_response": other_variant,
-                                "$feature_flag": experiment_id,
-                                "$session_id": session_id,
-                            },
-                        )
-                    multiple_count += 1
+            self._emit_actions(
+                distinct_id,
+                session_id,
+                experiment_id,
+                variant,
+                experiment_config.variants[variant].actions,
+                random_timestamp,
+            )
 
-            should_stop = False
-            minutes_after_exposure = 0
-            for action in experiment_config.variants[variant].actions:
-                for _ in range(action.count):
-                    if random.random() < action.probability:
-                        # Prepare properties dictionary
-                        properties: dict[str, Any] = {
-                            f"$feature/{experiment_id}": variant,
-                            "$session_id": session_id,
-                        }
-
-                        # Add custom properties, sampling from distributions if needed
-                        for prop_name, prop_value in action.properties.items():
-                            if isinstance(prop_value, Distribution):
-                                # Sample from normal distribution
-                                if prop_value.distribution == "normal":
-                                    properties[prop_name] = random.gauss(
-                                        prop_value.params.mean, prop_value.params.stddev
-                                    )
-                            else:
-                                properties[prop_name] = prop_value
-                        minutes_after_exposure += action.time_delay
-                        posthoganalytics.capture(
-                            distinct_id=distinct_id,
-                            event=action.event,
-                            timestamp=random_timestamp + timedelta(minutes=minutes_after_exposure),
-                            properties=properties,
-                        )
-                    else:
-                        if action.required_for_next:
-                            should_stop = True
-                            break
-                if should_stop:
-                    break
-
-            # Generate session replay data for this session if enabled
             if generate_replays and random.random() < replay_probability:
+                self._generate_replay(team, experiment_id, variant, distinct_id, session_id, random_timestamp)
                 replay_count += 1
-                # Generate session replay with some activity
-                produce_replay_summary(
-                    team_id=team.pk,
-                    session_id=session_id,
-                    distinct_id=distinct_id,
-                    first_timestamp=random_timestamp,
-                    last_timestamp=random_timestamp + timedelta(minutes=random.randint(5, 30)),
-                    first_url=f"https://example.com/experiment/{experiment_id}/{variant}",
-                    click_count=random.randint(5, 50),
-                    keypress_count=random.randint(10, 100),
-                    mouse_activity_count=random.randint(20, 200),
-                    active_milliseconds=random.randint(30000, 300000),  # 30s to 5min active time
-                    console_log_count=random.randint(0, 10),
-                    console_warn_count=random.randint(0, 3),
-                    console_error_count=random.randint(0, 2),
-                    ensure_analytics_event_in_session=False,  # We already have events from above
-                    retention_period_days=90,
-                )
 
         # TODO: need to figure out how to wait for the data to be flushed. shutdown() doesn't work as expected.
         time.sleep(3)
         posthoganalytics.shutdown()
 
+        self._log_summary(
+            experiment_id,
+            experiment_config.number_of_users,
+            variant_counts,
+            replay_count if generate_replays else None,
+            persons_created if create_person_profiles else None,
+            multiple_count,
+        )
+
+    def _create_person_profile(self, distinct_id: str, timestamp: datetime, person_properties_ratio: float) -> None:
+        is_identified = random.random() < person_properties_ratio
+        person_properties = self._generate_person_properties(is_identified)
+
+        # Backend SDKs create or update a person profile through an event that carries $set.
+        posthoganalytics.capture(
+            distinct_id=distinct_id,
+            event="$identify",
+            timestamp=timestamp,
+            properties={"$set": person_properties},
+        )
+
+    def _sample_exposure_properties(self, experiment_config: ExperimentConfig) -> dict[str, Any]:
+        exposure_props: dict[str, Any] = {}
+        for prop_key, prop_options in experiment_config.exposure_properties.items():
+            values = [opt.value for opt in prop_options]
+            weights = [opt.probability for opt in prop_options]
+            exposure_props[prop_key] = random.choices(values, weights=weights)[0]
+        return exposure_props
+
+    def _emit_exposures(
+        self,
+        distinct_id: str,
+        session_id: str,
+        experiment_id: str,
+        variant: str,
+        timestamp: datetime,
+        exposure_events: list[str],
+        exposure_props: dict[str, Any],
+    ) -> None:
+        for event in exposure_events:
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event=event,
+                timestamp=timestamp,
+                properties={
+                    f"$feature/{experiment_id}": variant,
+                    "$feature_flag_response": variant,
+                    "$feature_flag": experiment_id,
+                    "$session_id": session_id,
+                    **exposure_props,
+                },
+            )
+
+    def _emit_multiple_exposure(
+        self,
+        distinct_id: str,
+        session_id: str,
+        experiment_id: str,
+        variant: str,
+        variants: list[str],
+        timestamp: datetime,
+        exposure_events: list[str],
+        multiple_pct: float,
+    ) -> bool:
+        if multiple_pct <= 0 or random.random() >= multiple_pct:
+            return False
+
+        other_variants = [v for v in variants if v != variant]
+        if not other_variants:
+            return False
+
+        other_variant = random.choice(other_variants)
+        for event in exposure_events:
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event=event,
+                timestamp=timestamp + timedelta(minutes=1),
+                properties={
+                    f"$feature/{experiment_id}": other_variant,
+                    "$feature_flag_response": other_variant,
+                    "$feature_flag": experiment_id,
+                    "$session_id": session_id,
+                },
+            )
+        return True
+
+    def _emit_actions(
+        self,
+        distinct_id: str,
+        session_id: str,
+        experiment_id: str,
+        variant: str,
+        actions: list[ActionConfig],
+        timestamp: datetime,
+    ) -> None:
+        minutes_after_exposure = 0
+        for action in actions:
+            for _ in range(action.count):
+                if random.random() >= action.probability:
+                    # A required action that does not fire ends this user's funnel.
+                    if action.required_for_next:
+                        return
+                    continue
+
+                properties = self._build_action_properties(experiment_id, session_id, variant, action)
+                minutes_after_exposure += action.time_delay
+                posthoganalytics.capture(
+                    distinct_id=distinct_id,
+                    event=action.event,
+                    timestamp=timestamp + timedelta(minutes=minutes_after_exposure),
+                    properties=properties,
+                )
+
+    def _build_action_properties(
+        self, experiment_id: str, session_id: str, variant: str, action: ActionConfig
+    ) -> dict[str, Any]:
+        properties: dict[str, Any] = {
+            f"$feature/{experiment_id}": variant,
+            "$session_id": session_id,
+        }
+        for prop_name, prop_value in action.properties.items():
+            if isinstance(prop_value, Distribution):
+                if prop_value.distribution == "normal":
+                    properties[prop_name] = random.gauss(prop_value.params.mean, prop_value.params.stddev)
+            else:
+                properties[prop_name] = prop_value
+        return properties
+
+    def _generate_replay(
+        self,
+        team: Team,
+        experiment_id: str,
+        variant: str,
+        distinct_id: str,
+        session_id: str,
+        timestamp: datetime,
+    ) -> None:
+        produce_replay_summary(
+            team_id=team.pk,
+            session_id=session_id,
+            distinct_id=distinct_id,
+            first_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(minutes=random.randint(5, 30)),
+            first_url=f"https://example.com/experiment/{experiment_id}/{variant}",
+            click_count=random.randint(5, 50),
+            keypress_count=random.randint(10, 100),
+            mouse_activity_count=random.randint(20, 200),
+            active_milliseconds=random.randint(30000, 300000),  # 30s to 5min active time
+            console_log_count=random.randint(0, 10),
+            console_warn_count=random.randint(0, 3),
+            console_error_count=random.randint(0, 2),
+            ensure_analytics_event_in_session=False,  # We already have events from above
+            retention_period_days=90,
+        )
+
+    def _log_summary(
+        self,
+        experiment_id: str,
+        number_of_users: int,
+        variant_counts: dict[str, int],
+        replay_count: int | None,
+        persons_created: int | None,
+        multiple_count: int,
+    ) -> None:
         logging.info(f"Generated data for {experiment_id}")
         logging.info(f"Variant counts: {variant_counts}")
-        if generate_replays:
+        if replay_count is not None:
+            logging.info(f"Generated {replay_count} session replays ({replay_count / number_of_users:.1%} of sessions)")
+        if persons_created is not None:
             logging.info(
-                f"Generated {replay_count} session replays ({replay_count / experiment_config.number_of_users:.1%} of sessions)"
-            )
-        if create_person_profiles:
-            logging.info(
-                f"Created {persons_created} person profiles ({persons_created / experiment_config.number_of_users:.1%} of users)"
+                f"Created {persons_created} person profiles ({persons_created / number_of_users:.1%} of users)"
             )
         if multiple_count > 0:
             logging.info(
-                f"Generated {multiple_count} multiple-variant exposures ({multiple_count / experiment_config.number_of_users:.1%} of users)"
+                f"Generated {multiple_count} multiple-variant exposures ({multiple_count / number_of_users:.1%} of users)"
             )
 
     def _generate_person_properties(self, is_identified: bool) -> dict[str, Any]:
