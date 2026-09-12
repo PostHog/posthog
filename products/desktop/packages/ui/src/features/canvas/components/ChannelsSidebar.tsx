@@ -116,7 +116,6 @@ function ChannelPanes({
       >
         <div className="relative h-full w-1/2 min-w-0" inert={!showList}>
           <ChannelsList />
-          <ChannelsFab />
         </div>
         <div className="h-full w-1/2 min-w-0" inert={showList}>
           {channelId && (

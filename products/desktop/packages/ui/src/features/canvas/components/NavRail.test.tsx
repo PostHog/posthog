@@ -84,6 +84,22 @@ vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
   ActivityHoverCard: () => <div>Recent activity card</div>,
 }));
+vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
+  ChannelsFab: ({
+    channelId,
+    placement,
+  }: {
+    channelId?: string;
+    placement?: string;
+  }) => (
+    <button
+      type="button"
+      aria-label="Create"
+      data-placement={placement}
+      data-channel-id={channelId}
+    />
+  ),
+}));
 
 import { browserTabsStore } from "@posthog/core/browser-tabs/browserTabsStore";
 import { DESKTOP_HOME_FLAG, type RailVisit } from "@posthog/shared";
@@ -142,6 +158,44 @@ describe("NavRail", () => {
     useChannelPaneStore.setState({ pane: "channel" });
     rememberVisits({});
     clearKeepListForRoute();
+  });
+
+  // The rail is the one column every destination keeps, so the create button
+  // is always reachable from it.
+  describe("create button", () => {
+    it.each(["/", "/spaces", "/inbox/pulls/$reportId"])(
+      "keeps the create button directly above Search on %s",
+      (fullPath) => {
+        mocks.fullPath = fullPath;
+
+        render(<NavRail />);
+
+        const buttonLabels = screen
+          .getAllByRole("button")
+          .map((button) => button.getAttribute("aria-label"));
+        expect(buttonLabels.slice(-4)).toEqual([
+          "Create",
+          "Search",
+          "Settings",
+          "Project switcher",
+        ]);
+        expect(screen.getByLabelText("Create")).toHaveAttribute(
+          "data-placement",
+          "rail",
+        );
+      },
+    );
+
+    it("files into the space you are in", () => {
+      useCurrentChannelStore.setState({ currentChannelId: "ch-1" });
+
+      render(<NavRail />);
+
+      expect(screen.getByLabelText("Create")).toHaveAttribute(
+        "data-channel-id",
+        "ch-1",
+      );
+    });
   });
 
   it("hides Home when its feature flag is off", () => {

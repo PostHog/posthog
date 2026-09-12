@@ -34,6 +34,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/features/canvas/components/CreateChannelModal", () => ({
+  CreateChannelModal: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog">New space dialog</div> : null,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => mocks.channelsLayout,
 }));
@@ -297,6 +301,19 @@ describe("ChannelsList", () => {
       renderList();
       expect(screen.queryByRole("heading", { name: "Spaces" })).toBeNull();
       expect(screen.getByText("Channels")).toBeTruthy();
+    });
+
+    // The heading's "+" is the list's way to a new space now that nothing
+    // floats over it; off the layout the floating button still offers one.
+    it("starts a new space from the Spaces heading on the layout only", async () => {
+      const view = renderList();
+      await userEvent.click(screen.getByRole("button", { name: "New space" }));
+      expect(screen.getByRole("dialog")).toHaveTextContent("New space dialog");
+
+      view.unmount();
+      mocks.channelsLayout = false;
+      renderList();
+      expect(screen.queryByRole("button", { name: "New space" })).toBeNull();
     });
   });
 
