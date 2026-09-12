@@ -46,7 +46,7 @@ function codeOnly(expression: string): string {
             const end = expression.indexOf('*/', index + 2)
             index = end === -1 ? expression.length : end + 2
             code += ' '
-        } else if (char === '-' && expression[index + 1] === '-') {
+        } else if (isLineComment(expression, index)) {
             const end = expression.indexOf('\n', index)
             index = end === -1 ? expression.length : end
             code += ' '
@@ -70,6 +70,18 @@ function codeOnly(expression: string): string {
     }
 
     return code
+}
+
+/**
+ * True where a line comment starts. The lexer spells one `--`, `//` or `#`, and skips each to the
+ * end of the line. A `#` followed by a digit is a positional reference instead.
+ */
+function isLineComment(expression: string, index: number): boolean {
+    const pair = expression.slice(index, index + 2)
+    if (pair === '--' || pair === '//') {
+        return true
+    }
+    return expression[index] === '#' && !/[0-9]/.test(expression[index + 1] ?? '')
 }
 
 /** The parts of an f-string body the parser evaluates, which is what sits between the braces. */

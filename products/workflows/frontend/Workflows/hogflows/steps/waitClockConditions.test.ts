@@ -34,6 +34,9 @@ describe('waitClockConditions', () => {
             // The parser reads neither of these as code.
             ['block comment', "person.properties.plan == 'pro' /* now() */"],
             ['line comment', "person.properties.plan == 'pro' -- now()"],
+            // The lexer spells a line comment three ways, and skips all of them.
+            ['slash line comment', "person.properties.plan == 'pro' // now()"],
+            ['hash comment', "person.properties.plan == 'pro' # now()"],
             ['f-string text outside the braces', "f'now() {person.properties.plan}' == 'pro'"],
         ])('accepts a %s', (_name, expression) => {
             expect(findClockFunction({ properties: [hogql(expression)] })).toBeNull()
