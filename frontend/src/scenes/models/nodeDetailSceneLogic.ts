@@ -187,7 +187,8 @@ export interface nodeDetailSceneLogicMeta {
             node: DataModelingNode | null,
             savedQuery: DataWarehouseSavedQuery | null,
             savedQuerySettled: boolean,
-            savedQueryError: boolean
+            savedQueryError: boolean,
+            savedQueryLoading: boolean
         ) => boolean
         sceneResolved: (node: DataModelingNode | null, savedQuerySettled: boolean) => boolean
         availableTabs: (
@@ -283,7 +284,16 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         node: {
             __default: null as DataModelingNode | null,
             loadNode: async () => {
-                return await api.dataModelingNodes.get(props.id)
+                try {
+                    return await api.dataModelingNodes.get(props.id)
+                } catch (error) {
+                    // The node API drops a node whose saved query is gone, so a stale link 404s.
+                    // The scene has a not-found page for that, and no defect to report.
+                    if (!(error instanceof ApiError) || error.status !== 404) {
+                        throw error
+                    }
+                    return null
+                }
             },
             updateNodeDescription: async ({ description }) => {
                 const updated = await api.dataModelingNodes.update(props.id, { description })
@@ -338,15 +348,18 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         ],
         nodeType: [(s) => [s.node], (node: DataModelingNode | null) => node?.type ?? null],
         // A node whose saved query the API answers for with a 404. The panels offer no retry,
-        // because repeating the request cannot bring the query back.
+        // because repeating the request cannot bring the query back. A retry after a failure keeps
+        // every other term true, so the loading state is what holds the claim back until it lands.
         savedQueryMissing: [
-            (s) => [s.node, s.savedQuery, s.savedQuerySettled, s.savedQueryError],
+            (s) => [s.node, s.savedQuery, s.savedQuerySettled, s.savedQueryError, s.savedQueryLoading],
             (
                 node: DataModelingNode | null,
                 savedQuery: DataWarehouseSavedQuery | null,
                 savedQuerySettled: boolean,
-                savedQueryError: boolean
-            ): boolean => !!node?.saved_query_id && savedQuerySettled && !savedQueryError && !savedQuery,
+                savedQueryError: boolean,
+                savedQueryLoading: boolean
+            ): boolean =>
+                !!node?.saved_query_id && savedQuerySettled && !savedQueryError && !savedQueryLoading && !savedQuery,
         ],
         // Which tabs exist depends on the saved query too, so a node that has one is only resolved
         // once that request settles. Deciding earlier renders a tab bar we then have to change.
