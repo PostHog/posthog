@@ -405,6 +405,7 @@ class TestResolvedTicketEvidence(BaseTest):
 
         assert [revision.ticket_id for revision in revisions] == [ticket.id]
         assert revisions[0].resolution_comment_id == human.id
+        assert revisions[0].revision_at == human.created_at
         assert replies is not None
         assert replies.replies == ("The rate limit is 1000 events per hour",)
 

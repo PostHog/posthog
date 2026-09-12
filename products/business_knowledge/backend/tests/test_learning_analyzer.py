@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
 
@@ -86,6 +86,7 @@ def _evidence(*, ticket_number: int = 42) -> EvidenceRef:
         ticket_id=_TICKET_ID,
         ticket_number=ticket_number,
         resolution_comment_id=_COMMENT_ID,
+        revision_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 
 
@@ -144,6 +145,7 @@ def _setup_sync(team: Team) -> tuple[KnowledgeLearningRun, AnalyzeLearningEviden
         ticket_id=evidence.ticket_id,
         ticket_number=evidence.ticket_number,
         resolution_comment_id=evidence.resolution_comment_id,
+        revision_at=evidence.revision_at,
     )
     run = _create_run(team, evidence)
     return run, AnalyzeLearningEvidenceInput(team_id=team.id, run_id=str(run.id), evidence=evidence)

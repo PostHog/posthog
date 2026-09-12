@@ -25,6 +25,7 @@ class ConversationsLearningProvider:
                 ticket_id=revision.ticket_id,
                 ticket_number=revision.ticket_number,
                 resolution_comment_id=revision.resolution_comment_id,
+                revision_at=revision.revision_at,
             )
             for revision in list_resolved_ticket_revisions(team_id, since=since, limit=limit)
         ]

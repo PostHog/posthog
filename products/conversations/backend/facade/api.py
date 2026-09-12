@@ -527,7 +527,7 @@ def list_resolved_ticket_revisions(
         for comment in public_human_ticket_replies(comment_team_ids, [str(ticket.id) for ticket in tickets])
         .order_by("item_id", "-created_at", "-id")
         .distinct("item_id")
-        .only("id", "item_id")
+        .only("id", "item_id", "created_at")
     }
     revisions: list[ResolvedTicketRevision] = []
     for ticket in tickets:
@@ -539,6 +539,7 @@ def list_resolved_ticket_revisions(
                 ticket_id=ticket.id,
                 ticket_number=ticket.ticket_number,
                 resolution_comment_id=resolution_comment.id,
+                revision_at=max(ticket.updated_at, resolution_comment.created_at),
                 source_team_id=ticket.team_id,
                 display_label=f"ticket #{ticket.ticket_number}",
                 deep_link=f"{settings.SITE_URL}/project/{ticket.team_id}/support/tickets/{ticket.ticket_number}",

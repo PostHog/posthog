@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from io import StringIO
 from uuid import UUID
 
@@ -91,6 +91,7 @@ class TestEvidenceRef(SimpleTestCase):
             "ticket_id": _TICKET_ID,
             "ticket_number": 42,
             "resolution_comment_id": _COMMENT_ID,
+            "revision_at": datetime(2026, 1, 1, tzinfo=UTC),
         }
         kwargs.update(overrides)
         return kwargs
@@ -105,6 +106,7 @@ class TestEvidenceRef(SimpleTestCase):
             ("uppercase_provider", {"provider": "Conversations"}),
             ("zero_source_team", {"source_team_id": 0}),
             ("zero_ticket_number", {"ticket_number": 0}),
+            ("naive_revision_time", {"revision_at": datetime(2026, 1, 1)}),
         ]
     )
     def test_invalid_ref_is_rejected(self, _name: str, overrides: dict) -> None:
