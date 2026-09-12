@@ -253,7 +253,12 @@ def _validation_state(
 
 
 def _is_blocked(item: PendingValidationDate, state: dict[tuple[date, int], list[dict[str, int] | None]]) -> bool:
-    return any(counts is None or counts == item.expected_rows_by_model for counts in state.get(item.key, []))
+    # A completed validation may hold counts for a model deleted since; a deleted model never
+    # returns, so only a model the validation has not seen at these counts reopens the group.
+    return any(
+        counts is None or all(counts.get(model_id) == n for model_id, n in item.expected_rows_by_model.items())
+        for counts in state.get(item.key, [])
+    )
 
 
 def _claim_date(pipeline: AutoresearchPipeline, pending: PendingValidationDate) -> AutoresearchRun | None:
@@ -344,12 +349,18 @@ def _persist_completed(
     total_rows = 0
     with transaction.atomic():
         # A run that completed or started for this group while the queries ran is missing from
-        # the counts the fetch was checked against.
+        # the counts the fetch was checked against. A model deleted meanwhile takes its run out
+        # of the group; its evidence is still written below, so that alone does not fail it.
         now = django_timezone.now()
-        current = {item.key: item.expected_rows_by_model for item in _scored_groups(pipeline)}
-        if current.get(pending.key) != pending.expected_rows_by_model or pending.key in _groups_still_scoring(
-            pipeline, now=now
-        ):
+        current = {item.key: item.expected_rows_by_model for item in _scored_groups(pipeline)}.get(pending.key, {})
+        changed = any(pending.expected_rows_by_model.get(model_id) != n for model_id, n in current.items())
+        vanished = set(pending.expected_rows_by_model) - set(current)
+        vanished_but_present = (
+            AutoresearchModel.objects.filter(pk__in=vanished, pipeline=pipeline, team_id=pipeline.team_id).exists()
+            if vanished
+            else False
+        )
+        if changed or vanished_but_present or pending.key in _groups_still_scoring(pipeline, now=now):
             raise OnlineValidationError(
                 f"The inference runs for {pending.prediction_date.isoformat()} changed while it was being validated; "
                 "retrying on the next pass"
@@ -386,6 +397,7 @@ def _prediction_filter() -> str:
         " AND properties['$autoresearch_pipeline_id'] = {pipeline_id}"
         " AND properties['$autoresearch_prediction_date'] = {prediction_date}"
         " AND properties['$autoresearch_model_id'] IN {model_ids}"
+        " AND properties['$autoresearch_horizon_days'] = {horizon_days}"
         " AND properties['$autoresearch_person_id'] != ''"
         " AND timestamp >= {emitted_from} AND timestamp < {emitted_before}"
     )
@@ -397,6 +409,8 @@ def _prediction_values(pipeline: AutoresearchPipeline, pending: PendingValidatio
         "pipeline_id": str(pipeline.pk),
         "prediction_date": pending.prediction_date.isoformat(),
         "model_ids": tuple(pending.expected_rows_by_model),
+        # Property values read back as strings, whatever type scoring emitted.
+        "horizon_days": str(pending.horizon_days),
         "emitted_from": pending.window_start,
         "emitted_before": pending.emitted_before,
     }

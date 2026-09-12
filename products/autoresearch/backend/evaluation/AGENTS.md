@@ -52,7 +52,7 @@ All the heavy work — the HogQL queries and the sklearn metrics — happens ins
   To get a populated view locally, backdate: `autoresearch_score --prediction-date <past>` or `--backfill-days N` emits already-matured predictions.
 - **A backfill's date fails validation until its events are all in ClickHouse.** The fetch compares against the run's `rows_scored`, so a pass that runs seconds after a backfill records a `FAILED` run and the next pass picks the date up.
 - **Backdated events are refused by scoring when the team sets `drop_events_older_than_seconds`**, so no inference run is recorded and validation has nothing to look for.
-- **A deleted model takes its evidence with it.** Its inference runs lose their model and drop out of the candidates, and its prediction events are not fetched. A model deleted mid-validation is recorded in the run's `per_model` as `deleted` and skipped for the model update.
+- **A deleted model takes its evidence with it.** Its inference runs lose their model and drop out of the candidates, and its prediction events are not fetched. A model deleted mid-validation is recorded in the run's `per_model` as `deleted` and skipped for the model update, and its absence does not reopen the group.
 - **A completed date is never revisited.** An outcome event that reaches ClickHouse more than `OUTCOME_INGESTION_GRACE` after the window closed (an offline SDK buffer flushed days late) reads as a negative in the stored metrics.
 - **Only the AUC needs both classes.** An all-negative day still records Brier, calibration error, and lift, which is where calibration matters for a rare target.
 

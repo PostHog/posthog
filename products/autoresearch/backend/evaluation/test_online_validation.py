@@ -268,6 +268,21 @@ class TestFindPendingValidationDates(TeamScopedTestMixin, BaseTest):
 
         assert [(p.horizon_days, p.expected_rows_by_model) for p in pending] == [(7, {str(self.model.pk): 5})]
 
+    def test_a_deleted_model_does_not_reopen_a_validated_date(self):
+        matured = date(2026, 9, 1)
+        other = AutoresearchModel.objects.create(
+            pipeline=self.pipeline, role=AutoresearchModel.Role.CHALLENGER, model_recipe={"stub": True}, recipe_hash="x"
+        )
+        _inference_run(self.pipeline, self.model, matured, rows_scored=5)
+        _inference_run(self.pipeline, other, matured, rows_scored=3)
+        _validation_run(
+            self.pipeline, matured, AutoresearchRun.Status.COMPLETED, counts={str(self.model.pk): 5, str(other.pk): 3}
+        )
+
+        other.delete()
+
+        assert find_pending_validation_dates(self.pipeline) == []
+
     def test_a_validated_date_becomes_pending_again_when_its_inference_runs_change(self):
         matured = date(2026, 9, 1)
         _inference_run(self.pipeline, self.model, matured, rows_scored=5)
@@ -358,6 +373,8 @@ class TestRunOnlineValidationForPipeline(TeamScopedTestMixin, BaseTest):
         assert prediction_call.kwargs["user"] == self.user
         assert prediction_call.kwargs["query"].values["limit"] == 5
         assert prediction_call.kwargs["query"].values["model_ids"] == (str(self.champion.pk),)
+        assert prediction_call.kwargs["query"].values["horizon_days"] == "7"
+        assert "$autoresearch_horizon_days'] = {horizon_days}" in prediction_call.kwargs["query"].query
         assert prediction_call.kwargs["query"].values["emitted_from"] == datetime(2026, 9, 1, tzinfo=UTC)
         assert label_call.kwargs["query"].values["window_start"] == datetime(2026, 9, 1, tzinfo=UTC)
         assert label_call.kwargs["query"].values["window_end"] == datetime(2026, 9, 8, tzinfo=UTC)
@@ -428,6 +445,24 @@ class TestRunOnlineValidationForPipeline(TeamScopedTestMixin, BaseTest):
         if status == AutoresearchRun.Status.COMPLETED:
             pending = find_pending_validation_dates(self.pipeline)
             assert [set(p.expected_rows_by_model) for p in pending] == [{str(self.champion.pk), str(challenger.pk)}]
+
+    def test_a_model_deleted_mid_validation_keeps_its_evidence_on_the_run(self):
+        hogql = _fake_hogql(predictions=self._prediction_rows(4), labels=[["user-0"], ["user-1"]])
+        inner = hogql.side_effect
+
+        def delete_the_model_then_answer(**kwargs):
+            if "argMax" not in kwargs["query"].query:
+                AutoresearchModel.objects.filter(pk=self.champion.pk).delete()
+            return inner(**kwargs)
+
+        with patch.object(online_validation, "run_hogql", MagicMock(side_effect=delete_the_model_then_answer)):
+            runs = run_online_validation_for_pipeline(self.pipeline)
+
+        assert [r.status for r in runs] == [AutoresearchRun.Status.COMPLETED]
+        per_model = runs[0].metrics["per_model"][str(self.champion.pk)]
+        assert per_model["model_role"] == "deleted"
+        assert per_model["realized_auc"] == 1.0
+        assert find_pending_validation_dates(self.pipeline) == []
 
     def test_a_pipeline_without_a_creator_fails_before_any_query(self):
         self.pipeline.created_by = None
