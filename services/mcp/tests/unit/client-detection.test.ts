@@ -213,20 +213,25 @@ describe('isToolsModeClient', () => {
     )
 
     it.each([
-        // ChatGPT never self-reports a client name; the surface is UA-only.
-        ['openai-mcp/1.0.0 (ChatGPT)'],
+        // ChatGPT is the unlabeled openai-mcp surface — bare in both the client name
+        // and the User-Agent, whichever the transport carries.
+        [undefined, 'openai-mcp/1.0.0'],
+        ['openai-mcp', undefined],
         // Older Cursor builds omit clientInfo.name and identify only via UA.
-        ['Cursor/3.1.15 (darwin arm64)'],
-    ])('returns true for the name-less user-agent %s', (userAgent) => {
-        expect(isToolsModeClient(undefined, userAgent)).toBe(true)
+        [undefined, 'Cursor/3.1.15 (darwin arm64)'],
+    ])('returns true for client name %s / user-agent %s', (clientName, userAgent) => {
+        expect(isToolsModeClient(clientName, userAgent)).toBe(true)
     })
 
-    it.each([['openai-mcp/1.0.0'], ['openai-mcp/1.0.0 (Codex)'], ['openai-mcp/1.0.0 (Agent Builder)']])(
-        'returns false for the non-ChatGPT openai-mcp surface %s',
-        (userAgent) => {
-            expect(isToolsModeClient(undefined, userAgent)).toBe(false)
-        }
-    )
+    it.each([
+        // Every non-consumer openai-mcp surface carries a parenthetical label in both
+        // the client name and the UA, so it stays on the CLI default.
+        ['openai-mcp (Codex)', 'openai-mcp/1.0.0 (Codex)'],
+        ['openai-mcp (Responses API)', 'openai-mcp/1.0.0 (Responses API)'],
+        ['openai-mcp (Agent Builder)', 'openai-mcp/1.0.0 (Agent Builder)'],
+    ])('returns false for the labeled openai-mcp surface %s', (clientName, userAgent) => {
+        expect(isToolsModeClient(clientName, userAgent)).toBe(false)
+    })
 
     it.each([['claude-code'], ['mcp-inspector'], ['some-random-tool'], [''], [undefined]])(
         'returns false for client name %s',
@@ -501,7 +506,7 @@ describe('MCPClientProfile', () => {
             ).toBe(false)
         })
 
-        it.each([['openai-mcp/1.0.0'], ['openai-mcp/1.0.0 (ChatGPT)']])(
+        it.each([['openai-mcp/1.0.0'], ['openai-mcp/1.0.0 (Responses API)']])(
             'stays true for the non-Codex openai-mcp user-agent %s',
             (userAgent) => {
                 expect(new MCPClientProfile({ userAgent }).capabilities.supportsInstructions).toBe(true)
