@@ -1459,6 +1459,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1515,6 +1516,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1666,6 +1668,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1689,6 +1692,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1733,6 +1737,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1756,6 +1761,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1806,6 +1812,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1828,6 +1835,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
