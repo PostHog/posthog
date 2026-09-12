@@ -100,7 +100,7 @@ echo
 echo "SKIP_ASYNC_MIGRATIONS_SETUP=0 celery -A posthog worker ${FLAGS[*]}"
 echo
 
-./bin/migrate-check
+./bin/migrate-check --skip-checks
 
 SKIP_ASYNC_MIGRATIONS_SETUP=0 CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES celery -A posthog worker ${FLAGS[*]} &
 
