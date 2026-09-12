@@ -1,9 +1,35 @@
-from django.db import OperationalError
+from posthog.test.base import BaseTest
+
+from django.db import DEFAULT_DB_ALIAS, OperationalError, connection
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from prometheus_client import Counter
+from rest_framework.exceptions import APIException
 
-from posthog.api.statement_timeout import is_query_canceled
+from posthog.api.statement_timeout import is_query_canceled, statement_timeout
+
+TEST_TIMED_OUT_COUNTER = Counter("test_statement_timeout_total", "Test only.")
+
+
+def current_statement_timeout() -> str:
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW statement_timeout")
+        return cursor.fetchone()[0]
+
+
+class TestStatementTimeoutInsideAnOuterTransaction(BaseTest):
+    # BaseTest wraps each test in a transaction, so the helper runs as a savepoint here, which is
+    # the case where a SET LOCAL would otherwise outlive the block.
+    @parameterized.expand([["an explicit cap", "7s"], ["no cap", "0"]])
+    def test_puts_the_outer_timeout_back_when_the_block_succeeds(self, _name: str, outer_value: str) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL statement_timeout = %s", [outer_value])
+
+        with statement_timeout(DEFAULT_DB_ALIAS, 250, APIException, TEST_TIMED_OUT_COUNTER):
+            assert current_statement_timeout() == "250ms"
+
+        assert current_statement_timeout() == outer_value
 
 
 class TestIsQueryCanceled(SimpleTestCase):
