@@ -677,14 +677,14 @@ Note: Azure DevOps is one of the largest APIs in this batch (47 spec areas in th
 
 ## Babelforce — gaps
 
-Today (8): `agent_groups`, `agents`, `calls`, `conversations`, `numbers`, `queues`, `recordings`, `sms`
+Today (14): `agent_groups`, `agents`, `calls`, `conversation_events`, `conversations`, `event_definitions`, `numbers`, `outbound_campaign_statistics`, `outbound_campaigns`, `outbound_leads`, `outbound_lists`, `queues`, `recordings`, `sms`
 
 Diffed against: <https://apps.babelforce.com/developer-hub/manager/>
 
-- [ ] `GET /api/v2/conversations/{conversationId}/events` — per-conversation event timeline - the transition history behind the conversations we already sync (high)
-- [ ] `GET /api/v2/events` — workspace-wide event stream; the core analytical fact table for a contact-center source (high)
-- [ ] `GET /api/v2/outbound/campaigns and /{id}/statistics` — outbound dialer campaigns plus their performance stats - a whole product area with no coverage (high)
-- [ ] `GET /api/v2/outbound/lists and /{id}/leads` — dialer lists and the leads dialed, joinable to calls (medium)
+- [x] `GET /api/v2/conversations/{conversationId}/events` — per-conversation event timeline - the transition history behind the conversations we already sync (high)
+- [x] `GET /api/v2/events` — workspace-wide event stream; the core analytical fact table for a contact-center source (high)
+- [x] `GET /api/v2/outbound/campaigns and /{id}/statistics` — outbound dialer campaigns plus their performance stats - a whole product area with no coverage (high)
+- [x] `GET /api/v2/outbound/lists and /{id}/leads` — dialer lists and the leads dialed, joinable to calls (medium)
 - [ ] `GET /api/v2/calls/reporting/simple/{reportType}` — pre-aggregated call report dimensions the vendor exposes alongside the raw reporting feed (medium)
 - [ ] `GET /api/v2/queues/{queueId}/selections` — queue-to-agent/group/tag routing membership - resolves which agents serve which queue (medium)
 - [ ] `GET /api/v2/users and /api/v2/users/roles` — user and role lookup distinct from agents, resolving actor IDs on events and audit rows (medium)
@@ -694,7 +694,7 @@ Diffed against: <https://apps.babelforce.com/developer-hub/manager/>
 - [ ] `GET /api/v2/audit/request` — API audit trail of who changed what (low)
 - [ ] `GET /api/v2/logs` — platform logs for call-flow debugging (low)
 
-Note: The developer hub serves a Swagger UI whose visible initializer points at the petstore default; the real spec (babelforce API 0.7.0, ~110 paths) is embedded in https://apps.babelforce.com/developer-hub/manager/swagger-ui-init.js. Excluded config surfaces: applications, routings, triggers, business-hours, calendars, prompts, integrations, settings, babeldesk dashboards/widgets, sessions.
+Note: The developer hub serves a Swagger UI whose visible initializer points at the petstore default; the real spec (babelforce API 0.7.0, ~110 paths) is embedded in https://apps.babelforce.com/developer-hub/manager/swagger-ui-init.js. Excluded config surfaces: applications, routings, triggers, business-hours, calendars, prompts, integrations, settings, babeldesk dashboards/widgets, sessions. `GET /api/v2/events` turned out to be the catalog of event types available for automations (id, type, name, code, label), not a stream of events that happened, so it landed as the `event_definitions` lookup table; the per-conversation timeline in `conversation_events` is the fact table the note was reaching for.
 
 ## BambooHR — **thin**
 

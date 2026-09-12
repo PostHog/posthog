@@ -1,8 +1,9 @@
 import re
 import time
 import dataclasses
+from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import PreparedRequest, Request, Response, Session
 
@@ -16,13 +17,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 DEFAULT_ENVIRONMENT = "services"
-PAGE_SIZE = 100
 
 # The environment is the babelforce subdomain the customer's account lives on (usually
 # "services", or a custom subdomain for dedicated environments). It becomes part of the
@@ -34,8 +41,11 @@ _ENVIRONMENT_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
 class BabelforceResumeConfig:
     # Page index of the next unfetched page and the frozen request window; both are persisted
     # so a resumed run reissues the identical query (same date window, next page).
-    next_page: int
-    params: dict[str, Any]
+    next_page: Optional[int] = None
+    params: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Fan-out checkpoint for a child endpoint: which parents are done, which one was in flight
+    # and how far its pages had been read. Round-tripped into `initial_paginator_state`.
+    fanout: Optional[dict[str, Any]] = None
 
 
 class BabelforceAuth(AuthConfigBase):
@@ -195,7 +205,9 @@ def _to_epoch(value: Any) -> Optional[int]:
 def _build_params(
     config: BabelforceEndpointConfig, from_timestamp: Optional[int], to_timestamp: Optional[int]
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"max": PAGE_SIZE}
+    params: dict[str, Any] = {}
+    if config.paginated:
+        params["max"] = config.page_size
     if config.supports_date_created_filter:
         # Documented on the call reporting endpoint as unix-second filters. The upper bound is
         # frozen at sync start so page contents stay stable while new calls arrive mid-sync;
@@ -207,6 +219,23 @@ def _build_params(
     return params
 
 
+def _paginator_for(config: BabelforceEndpointConfig) -> BasePaginator:
+    return BabelforcePaginator() if config.paginated else SinglePagePaginator()
+
+
+def _client_config(environment: str, access_id: str, access_token: str, paginator: BasePaginator) -> ClientConfig:
+    return {
+        "base_url": _base_url(environment),
+        "headers": {"Accept": "application/json"},
+        "auth": BabelforceAuth(access_id, access_token),
+        # Pre-built session so responses (SMS bodies, phone numbers, recording URLs) stay out
+        # of sample capture and both credentials are value-redacted; redirects are pinned off.
+        "session": _make_session(access_id, access_token),
+        "allow_redirects": False,
+        "paginator": paginator,
+    }
+
+
 def validate_credentials(environment: str, access_id: str, access_token: str) -> bool:
     """Confirm the access ID/token pair is valid with a one-row agents listing."""
     ok, _status = validate_via_probe(
@@ -215,6 +244,44 @@ def validate_credentials(environment: str, access_id: str, access_token: str) ->
         headers=_get_headers(access_id, access_token),
     )
     return ok
+
+
+def _fanout_resource(
+    config: BabelforceEndpointConfig,
+    environment: str,
+    access_id: str,
+    access_token: str,
+    team_id: int,
+    job_id: str,
+    save_checkpoint: Callable[[Optional[dict[str, Any]]], None],
+    initial_paginator_state: Optional[dict[str, Any]],
+) -> Iterable[Any]:
+    """Fetch a per-parent endpoint once for every row of its parent listing."""
+    assert config.fanout is not None
+    parent_config = BABELFORCE_ENDPOINTS[config.fanout.parent_name]
+
+    return cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=BABELFORCE_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=_client_config(environment, access_id, access_token, _paginator_for(parent_config)),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            # No per-parent endpoint documents a time filter, so a fan-out is always full refresh.
+            db_incremental_field_last_value=None,
+            should_use_incremental_field=False,
+            # Both halves of every fan-out pair share a pagination style, so one page-size param
+            # (or none, for the outbound endpoints that take no paging params) covers both.
+            page_size_param="max" if parent_config.paginated else None,
+            parent_endpoint_extra={"paginator": _paginator_for(parent_config), "data_selector": "items"},
+            child_endpoint_extra={"paginator": _paginator_for(config), "data_selector": "items"},
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        ),
+    )
 
 
 def babelforce_source(
@@ -229,76 +296,88 @@ def babelforce_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = BABELFORCE_ENDPOINTS[endpoint]
-
-    initial_paginator_state: Optional[dict[str, Any]] = None
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None:
-        # Reuse the saved window and page so the resumed run continues the identical query.
-        params = dict(resume.params)
-        initial_paginator_state = {"next_page": resume.next_page}
+
+    if config.fanout is not None:
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Saved AFTER each child page is yielded, so a crash re-yields the last page (merge
+            # dedupes on primary key) rather than skipping it.
+            if state:
+                resumable_source_manager.save_state(BabelforceResumeConfig(fanout=dict(state)))
+
+        items: Iterable[Any] = _fanout_resource(
+            config,
+            environment,
+            access_id,
+            access_token,
+            team_id,
+            job_id,
+            save_fanout_checkpoint,
+            resume.fanout if resume is not None else None,
+        )
+        column_hints = None
     else:
-        from_timestamp = _to_epoch(db_incremental_field_last_value) if should_use_incremental_field else None
-        to_timestamp = int(time.time()) if config.supports_date_created_filter else None
-        params = _build_params(config, from_timestamp, to_timestamp)
+        initial_paginator_state: Optional[dict[str, Any]] = None
+        if resume is not None and resume.next_page is not None:
+            # Reuse the saved window and page so the resumed run continues the identical query.
+            params = dict(resume.params)
+            initial_paginator_state = {"next_page": resume.next_page}
+        else:
+            from_timestamp = _to_epoch(db_incremental_field_last_value) if should_use_incremental_field else None
+            to_timestamp = int(time.time()) if config.supports_date_created_filter else None
+            params = _build_params(config, from_timestamp, to_timestamp)
 
-    session = _make_session(access_id, access_token)
+        rest_config: RESTAPIConfig = {
+            "client": _client_config(environment, access_id, access_token, _paginator_for(config)),
+            "resource_defaults": {},
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": params,
+                        "data_selector": "items",
+                    },
+                }
+            ],
+        }
 
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": _base_url(environment),
-            "headers": {"Accept": "application/json"},
-            "auth": BabelforceAuth(access_id, access_token),
-            # Pre-built session so responses (SMS bodies, phone numbers, recording URLs) stay out
-            # of sample capture and both credentials are value-redacted; redirects are pinned off.
-            "session": session,
-            "allow_redirects": False,
-            "paginator": BabelforcePaginator(),
-        },
-        "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": params,
-                    "data_selector": "items",
-                },
-            }
-        ],
-    }
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Persist only while a next page remains; save AFTER the page is yielded so a crash
+            # re-yields the last page (merge dedupes on primary key) rather than skipping it.
+            if state and state.get("next_page") is not None:
+                resumable_source_manager.save_state(
+                    BabelforceResumeConfig(next_page=int(state["next_page"]), params=params)
+                )
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only while a next page remains; save AFTER the page is yielded so a crash
-        # re-yields the last page (merge dedupes on primary key) rather than skipping it.
-        if state and state.get("next_page") is not None:
-            resumable_source_manager.save_state(
-                BabelforceResumeConfig(next_page=int(state["next_page"]), params=params)
-            )
-
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        # The date window is baked into ``params`` above (frozen at sync start), so the framework's
-        # server-side incremental injection is intentionally not used.
-        db_incremental_field_last_value=None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            # The date window is baked into ``params`` above (frozen at sync start), so the framework's
+            # server-side incremental injection is intentionally not used.
+            db_incremental_field_last_value=None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+        items = resource
+        column_hints = resource.column_hints
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
-        primary_keys=[config.primary_key],
-        # The reporting API doesn't document a sort order or expose a sort param, so we can't
-        # assume ascending arrival. "desc" makes the pipeline finalize the incremental watermark
-        # only after a fully successful sync, which is correct for any actual ordering; the
-        # server-side dateCreated window bounds what each run re-reads.
+        items=lambda: items,
+        primary_keys=config.primary_keys,
+        # The reporting API doesn't document a sort order or expose a sort param, and a fan-out
+        # returns rows grouped by parent, so we can't assume ascending arrival. "desc" makes the
+        # pipeline finalize the incremental watermark only after a fully successful sync, which is
+        # correct for any actual ordering; the server-side dateCreated window bounds what each run
+        # re-reads.
         sort_mode="desc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        column_hints=resource.column_hints,
+        column_hints=column_hints,
     )
