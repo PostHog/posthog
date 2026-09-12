@@ -6,6 +6,8 @@ import contextlib
 import pytest
 from unittest.mock import MagicMock, patch
 
+import aiohttp
+
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.temporal.common.clickhouse import (
     ClickHouseAllReplicasAreStaleError,
@@ -551,3 +553,108 @@ async def test_stream_query_as_jsonl_handles_whitespace_only_lines(clickhouse_cl
     assert results[0] == {"id": 1}
     assert results[1] == {"id": 2}
     assert results[2] == {"id": 3}
+
+
+# A query killed inside ClickHouse writes its reason into the response it had already
+# started sending. Those bytes are not Arrow, which is why they reach us as a parse error.
+CLICKHOUSE_TRAILER = (
+    b"Code: 241. DB::Exception: Memory limit (total) exceeded: would use 226.99 GiB. "
+    b"(MEMORY_LIMIT_EXCEEDED) (version 26.6.4.55 (official build))\n"
+    b"282 ogwjwxxtaytridhz\n"
+    b"__exception__\n"
+)
+
+
+@pytest.mark.parametrize(
+    "chunks,recorded,expected_type,expected_fragment,reads_log",
+    [
+        ([(CLICKHOUSE_TRAILER, True)], None, ClickHouseMemoryLimitExceededError, "241", False),
+        (
+            None,
+            ClickHouseTooManyBytesError("Code: 307. Limit for bytes to read exceeded"),
+            ClickHouseTooManyBytesError,
+            "307",
+            True,
+        ),
+        (None, ClickHouseQueryNotFound("some-query-id"), aiohttp.ClientPayloadError, "not completed", True),
+        (None, None, aiohttp.ClientPayloadError, "not completed", True),
+    ],
+    ids=["trailer_names_the_error", "cut_first_log_answers", "cut_first_log_silent", "query_finished_fine"],
+)
+async def test_astream_query_as_arrow_reports_why_the_query_stopped(
+    clickhouse_client, chunks, recorded, expected_type, expected_fragment, reads_log
+):
+    """ClickHouse sends 200 before it streams, so a later failure arrives as a torn stream.
+
+    Two facts have to survive. The error belongs to the query, not the transport, whether
+    it is read from the tail of the response or from the query log. And when neither can
+    say, the transport error stays, because "the query ran fine" and "we could not find
+    out" are different answers and only one of them is the caller's.
+    """
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.content.at_eof = lambda: True
+
+    if chunks is None:
+
+        async def mock_readchunk():
+            raise aiohttp.ClientPayloadError("Response payload is not completed")
+    else:
+        remaining = list(chunks)
+
+        async def mock_readchunk():
+            return remaining.pop(0) if remaining else (b"", False)
+
+    mock_response.content.readchunk = mock_readchunk
+
+    @contextlib.asynccontextmanager
+    async def mock_post(*args, **kwargs):
+        yield mock_response
+
+    log_reads = []
+
+    async def mock_check(query_id, raise_on_error=True):
+        log_reads.append(query_id)
+        if recorded is not None:
+            raise recorded
+        return ClickHouseQueryStatus.FINISHED
+
+    with (
+        patch.object(clickhouse_client, "apost_query", mock_post),
+        patch.object(clickhouse_client, "acheck_query", mock_check),
+        patch("posthog.temporal.common.clickhouse.QUERY_LOG_FLUSH_WAIT_SECONDS", 0),
+    ):
+        with pytest.raises(expected_type) as exc_info:
+            async for _ in clickhouse_client.astream_query_as_arrow("SELECT 1", query_id="some-query-id"):
+                pass
+
+    assert expected_fragment in str(exc_info.value)
+    # Waiting out a flush interval to be told what the response already said would be
+    # latency spent on an answer we hold.
+    assert bool(log_reads) is reads_log
+
+
+async def test_astream_query_as_arrow_keeps_the_stream_error_when_no_query_id(clickhouse_client):
+    """Without a query id there is nothing to look up, so the caller keeps the error it got."""
+    mock_response = MagicMock()
+    mock_response.status = 200
+
+    async def mock_readchunk():
+        raise aiohttp.ClientPayloadError("Response payload is not completed")
+
+    mock_response.content.readchunk = mock_readchunk
+
+    @contextlib.asynccontextmanager
+    async def mock_post(*args, **kwargs):
+        yield mock_response
+
+    async def fail_if_called(query_id, raise_on_error=True):
+        raise AssertionError("must not look up a query log entry without a query id")
+
+    with (
+        patch.object(clickhouse_client, "apost_query", mock_post),
+        patch.object(clickhouse_client, "acheck_query", fail_if_called),
+    ):
+        with pytest.raises(aiohttp.ClientPayloadError):
+            async for _ in clickhouse_client.astream_query_as_arrow("SELECT 1"):
+                pass
