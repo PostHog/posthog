@@ -1,6 +1,6 @@
 import os
-from collections.abc import Callable
-from typing import Any, Optional
+from collections.abc import Callable, Sequence
+from typing import IO, Any, Optional
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -11,6 +11,7 @@ __all__ = [
     "generate_rsa_private_key_pem",
     "get_from_env",
     "get_list",
+    "is_interactive_shell",
     "str_to_bool",
 ]
 
@@ -30,6 +31,27 @@ def assert_debug_not_in_production(*, debug: bool, cloud_deployment: Optional[st
             "is_cloud() treats it as cloud and it is allowed with DEBUG. "
             "(DEBUG=1 is injected by the flox env: .flox/env/manifest.toml [vars].)"
         )
+
+
+def is_interactive_shell(argv: Sequence[str], stdin: IO[str]) -> bool:
+    """Report whether this process opens a REPL a person types into.
+
+    Matches Django's own subcommand resolution (argv[1]; global options come after the
+    subcommand, not before). `shell -c` and `shell < script.py` run a script and exit, so
+    they are scripted invocations rather than prompts, and the tty check excludes both.
+    `shell_plus` is intentionally excluded: it has no command override to restore the log
+    level once the REPL opens, so forcing ERROR would silence its whole session. For
+    `dbshell` there is no Python REPL (it execs the DB client), so nothing to restore.
+    """
+    if len(argv) < 2 or argv[1] not in ("shell", "dbshell"):
+        return False
+    if any(argument in ("-c", "--command") or argument.startswith("--command=") for argument in argv[2:]):
+        return False
+    try:
+        return stdin.isatty()
+    except (AttributeError, OSError, ValueError):
+        # A closed or replaced stdin cannot be a prompt.
+        return False
 
 
 def generate_rsa_private_key_pem() -> str:
