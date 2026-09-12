@@ -21,8 +21,13 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
     assert_clickhouse_records_in_s3,
+    has_valid_credentials,
     run_activity,
 )
+
+pytestmark = [
+    pytest.mark.skipif(not has_valid_credentials(), reason="AWS credentials not set in environment"),
+]
 
 
 @pytest.fixture(scope="module")
