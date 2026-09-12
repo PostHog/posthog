@@ -1762,10 +1762,15 @@ class InsightViewSet(
 
         Only a request that sorts or filters on it does. Every other request reads the value off
         the page after pagination, in one query for the whole page.
+
+        The date parameters are tested for presence, not for a value, because `_filter_request`
+        applies those filters on key presence alone.
         """
         params = self.request.query_params
-        return params.get("order") in ("last_viewed_at", "-last_viewed_at") or bool(
-            params.get("last_viewed_date_from") or params.get("last_viewed_date_to")
+        return (
+            params.get("order") in ("last_viewed_at", "-last_viewed_at")
+            or "last_viewed_date_from" in params
+            or "last_viewed_date_to" in params
         )
 
     @tracer.start_as_current_span("insight_api_list")

@@ -2877,6 +2877,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         if order:
             assert [result["id"] for result in response["results"]] == [recent_id, older_id]
 
+    @parameterized.expand([("date_from", "last_viewed_date_from"), ("date_to", "last_viewed_date_to")])
+    def test_insight_list_accepts_an_empty_last_viewed_date_filter(self, _name: str, param: str) -> None:
+        self.dashboard_api.create_insight({"short_id": "emptydate"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={param: ""})
+
+        assert response.status_code == status.HTTP_200_OK
+
     def test_trending_insights_orders_by_view_count_then_recency(self) -> None:
         # Bypass the API for the unviewed insight — `dashboard_api.create_insight` auto-creates
         # an InsightViewed row, which would defeat the "no views = excluded" assertion below.
