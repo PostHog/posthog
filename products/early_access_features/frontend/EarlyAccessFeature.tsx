@@ -25,7 +25,6 @@ import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyt
 import { SceneSelect } from 'lib/components/Scenes/SceneSelect'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -82,6 +81,7 @@ import {
 } from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assignee/AssigneeSelect'
 
+import { openEarlyAccessFeatureDeleteDialog } from './earlyAccessFeatureDeleteDialog'
 import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { InstructionsModal } from './InstructionsModal'
 
@@ -204,6 +204,13 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         return <LemonSkeleton active />
     }
 
+    const openDeleteDialog = (): void => {
+        // Every delete entry point sits behind a check that the feature is saved, so it has an id here.
+        openEarlyAccessFeatureDeleteDialog(earlyAccessFeature.name, () =>
+            deleteEarlyAccessFeature((earlyAccessFeature as EarlyAccessFeatureType).id)
+        )
+    }
+
     const destinationFilters: CyclotronJobFiltersType | null =
         !isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature
             ? {
@@ -250,28 +257,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                 opensFloatingUi
                                 disabled={!!accessControlDisabledReason}
                                 tooltip={accessControlDisabledReason ?? undefined}
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: 'Permanently delete feature?',
-                                        description:
-                                            'Doing so will remove any opt in conditions from the feature flag.',
-                                        primaryButton: {
-                                            children: 'Delete',
-                                            type: 'primary',
-                                            status: 'danger',
-                                            'data-attr': 'confirm-delete-feature',
-                                            onClick: () => {
-                                                deleteEarlyAccessFeature(
-                                                    (earlyAccessFeature as EarlyAccessFeatureType)?.id
-                                                )
-                                            },
-                                        },
-                                        secondaryButton: {
-                                            children: 'Close',
-                                            type: 'secondary',
-                                        },
-                                    })
-                                }}
+                                onClick={openDeleteDialog}
                                 data-attr={`${RESOURCE_TYPE}-menubar-delete`}
                             >
                                 <IconTrash />
@@ -296,6 +282,24 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     forceEdit={isEditingFeature || isNewEarlyAccessFeature}
                     actions={
                         <>
+                            {!isNewEarlyAccessFeature && (
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.EarlyAccessFeature}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={userAccessLevel}
+                                >
+                                    <LemonButton
+                                        type="secondary"
+                                        status="danger"
+                                        icon={<IconTrash />}
+                                        onClick={openDeleteDialog}
+                                        data-attr={`${RESOURCE_TYPE}-header-delete`}
+                                        size="small"
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                </AccessControlAction>
+                            )}
                             {!earlyAccessFeatureLoading ? (
                                 canShowSaveButtons ? (
                                     <>
@@ -522,26 +526,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                             </ButtonPrimitive>
                         )}
                         <ButtonPrimitive
-                            onClick={() => {
-                                LemonDialog.open({
-                                    title: 'Permanently delete feature?',
-                                    description: 'Doing so will remove any opt in conditions from the feature flag.',
-                                    primaryButton: {
-                                        children: 'Delete',
-                                        type: 'primary',
-                                        status: 'danger',
-                                        'data-attr': 'confirm-delete-feature',
-                                        onClick: () => {
-                                            // conditional above ensures earlyAccessFeature is not NewEarlyAccessFeature
-                                            deleteEarlyAccessFeature((earlyAccessFeature as EarlyAccessFeatureType)?.id)
-                                        },
-                                    },
-                                    secondaryButton: {
-                                        children: 'Close',
-                                        type: 'secondary',
-                                    },
-                                })
-                            }}
+                            onClick={openDeleteDialog}
                             variant="danger"
                             menuItem
                             disabled={!!accessControlDisabledReason}
