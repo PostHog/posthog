@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 
 import { useMocks } from '~/mocks/jest'
+import { performQuery } from '~/queries/query'
 import {
     ExperimentMetric,
     ExperimentMetricType,
@@ -63,6 +64,7 @@ describe('ExperimentMetricForm', () => {
     }
 
     beforeEach(() => {
+        jest.mocked(performQuery).mockReset().mockResolvedValue({ results: [] })
         useMocks({
             get: {
                 '/api/projects/:team/actions/': { results: [] },
@@ -117,6 +119,39 @@ describe('ExperimentMetricForm', () => {
         expect(screen.getByText(/Preview unavailable/)).toBeInTheDocument()
         expect(screen.queryByText('No recent activity')).not.toBeInTheDocument()
         expect(screen.queryByText('Conversion window limit')).not.toBeInTheDocument()
+    })
+
+    it.each(['missing query', 'failed query'])('does not show zero activity for a %s', async (reason) => {
+        const funnelMetric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: reason === 'missing query' ? [] : [{ kind: NodeKind.EventsNode, event: 'returned' }],
+        }
+        if (reason === 'failed query') {
+            jest.mocked(performQuery).mockRejectedValueOnce(new Error('Preview query failed'))
+        }
+
+        render(<ExperimentMetricForm metric={funnelMetric} handleSetMetric={jest.fn()} filterTestAccounts={false} />)
+
+        expect(
+            await screen.findByText('Preview unavailable. Check the metric settings and try again.')
+        ).toBeInTheDocument()
+        expect(screen.queryByText('No recent activity')).not.toBeInTheDocument()
+        expect(screen.queryByText('0')).not.toBeInTheDocument()
+    })
+
+    it.each([0, 12])('shows a resolved activity count of %i', async (count) => {
+        jest.mocked(performQuery).mockResolvedValueOnce({ results: [{ aggregated_value: count }] })
+        const eventMetric: ExperimentRetentionMetric = {
+            ...metric,
+            start_event: { kind: NodeKind.EventsNode, event: 'signup' },
+        }
+
+        render(<ExperimentMetricForm metric={eventMetric} handleSetMetric={jest.fn()} filterTestAccounts={false} />)
+
+        expect(await screen.findByText(count.toLocaleString())).toBeInTheDocument()
+        expect(screen.queryByText(/Preview unavailable/)).not.toBeInTheDocument()
+        expect(screen.queryAllByText('No recent activity')).toHaveLength(count === 0 ? 1 : 0)
     })
 
     it('keeps the completion source when changing an exposure metric to a mean metric', () => {

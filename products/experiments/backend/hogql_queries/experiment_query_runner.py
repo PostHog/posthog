@@ -81,7 +81,7 @@ from products.experiments.backend.hogql_queries.utils import (
     get_variant_results,
     split_baseline_and_test_variants,
 )
-from products.experiments.backend.metric_utils import get_default_metric_title
+from products.experiments.backend.metric_utils import get_default_metric_title, validate_exposure_retention_metric
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -249,6 +249,12 @@ class ExperimentQueryRunner(QueryRunner):
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
+
+        if isinstance(self.query.metric, ExperimentRetentionMetric):
+            try:
+                validate_exposure_retention_metric(self.query.metric)
+            except ValueError as error:
+                raise ValidationError(str(error)) from error
 
         try:
             self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)

@@ -9,6 +9,7 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     EventPropertyFilter,
@@ -38,6 +39,31 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
     snapshot_replace_all_numbers = True
+
+    @parameterized.expand(
+        [
+            ("last_exposure", FunnelConversionWindowTimeUnit.DAY, StartHandling.LAST_SEEN, "requires first_seen"),
+            (
+                "monthly_exposure",
+                FunnelConversionWindowTimeUnit.MONTH,
+                StartHandling.FIRST_SEEN,
+                "requires a day or hour retention window",
+            ),
+        ]
+    )
+    def test_query_rejects_invalid_exposure_retention(self, name, unit, start_handling, expected_error):
+        experiment = self.create_experiment(feature_flag=self.create_feature_flag())
+        metric = ExperimentRetentionMetric(
+            start_event=ExperimentExposureMetricSource(),
+            completion_event=EventsNode(event="returned"),
+            retention_window_start=0,
+            retention_window_end=1,
+            retention_window_unit=unit,
+            start_handling=start_handling,
+        )
+
+        with self.assertRaisesRegex(ValidationError, expected_error):
+            ExperimentQueryRunner(query=ExperimentQuery(experiment_id=experiment.id, metric=metric), team=self.team)
 
     @parameterized.expand(
         [

@@ -23,6 +23,7 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     event_or_action_to_filter,
 )
 from products.experiments.backend.hogql_queries.experiment_metric_values import get_retention_window_extension_seconds
+from products.experiments.backend.metric_utils import validate_exposure_retention_metric
 
 if TYPE_CHECKING:
     from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
@@ -62,11 +63,9 @@ class RetentionQueryBuilder:
 
     def get_metric_events_window_extension_seconds(self) -> int:
         """
-        How far past the experiment end date the metric-events scan must extend.
-        A completion event can land up to retention_window_end after a start event
-        that itself lands up to conversion_window after the last exposure, so the
-        extension is the sum — unlike funnel/mean, where the conversion window alone
-        bounds it.
+        Literal starts need the conversion window plus the retention window.
+        Exposure starts need only the retention window, with a buffer for the final calendar period and timezone changes.
+        The exact retention predicate excludes completions outside the selected period.
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
         return get_retention_window_extension_seconds(self._b.metric)
@@ -204,8 +203,7 @@ class RetentionQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
-        if self.uses_exposure_as_start() and self._b.metric.start_handling != StartHandling.FIRST_SEEN:
-            raise ValueError("Exposure-based retention requires first_seen start handling")
+        validate_exposure_retention_metric(self._b.metric)
 
         if self.uses_exposure_as_start():
             start_events_body = "FROM exposures"
@@ -532,6 +530,11 @@ class RetentionQueryBuilder:
         )
 
     def build_distinct_exposure_occurrence_predicate(self) -> ast.Expr:
+        """Exclude an exposure copy without excluding independent events at the same timestamp.
+
+        A timestamp-only exclusion would remove valid completions, even for a different completion event type.
+        The timestamp comparison avoids hash work when ClickHouse short-circuit evaluation is enabled.
+        """
         if not self.uses_exposure_as_start():
             return ast.Constant(value=True)
 
@@ -597,6 +600,8 @@ class RetentionQueryBuilder:
 
         This is a performance optimization - we'll do the exact retention window
         calculation in the entity_metrics CTE.
+
+        Exposure starts reuse the full scan extension as a deliberately broad bound.
 
         For DAY/HOUR units that use timestamp truncation, we add a buffer to account
         for the truncation window. This ensures that same-period retention (e.g., [0,0])

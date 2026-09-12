@@ -93,7 +93,7 @@ const loadEventCount = async (
         setEventCount(count)
     } catch (error) {
         lemonToast.error(JSON.stringify(error))
-        setEventCount(0)
+        setEventCount(null)
     } finally {
         setIsLoading(false)
     }
@@ -761,15 +761,13 @@ export function ExperimentMetricForm({
                             <Spinner />
                             <span className="text-muted">Loading recent activity...</span>
                         </div>
+                    ) : eventCount === null ? (
+                        <div className="text-muted">Preview unavailable. Check the metric settings and try again.</div>
                     ) : (
                         <div className="flex flex-col gap-1">
-                            <div className="text-2xl font-semibold">
-                                {eventCount !== null ? eventCount.toLocaleString() : '0'}
-                            </div>
+                            <div className="text-2xl font-semibold">{eventCount.toLocaleString()}</div>
                             <div className="text-sm text-muted">
-                                {eventCount !== null && eventCount > 0
-                                    ? `${getEventTypeLabel()} in the past 2 weeks`
-                                    : 'No recent activity'}
+                                {eventCount > 0 ? `${getEventTypeLabel()} in the past 2 weeks` : 'No recent activity'}
                             </div>
                         </div>
                     )}

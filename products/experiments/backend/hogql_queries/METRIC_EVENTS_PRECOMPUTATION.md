@@ -211,7 +211,8 @@ The scan extension is `conversion_window + retention_window_end` for literal sta
 Exposure starts ignore the conversion window.
 Day scans include two additional days: one for the final calendar period, and one to cover timezone offset changes.
 Hour scans include one additional hour for the final period.
-Other units include one additional second so that the exclusive scan limit includes the exact retention boundary.
+Exposure starts accept only day and hour windows, through both the API and direct queries.
+Experiment metrics and shared metrics use the same validation rule.
 The live scan, precomputed scan, completion join, and precomputation eligibility check use the same extension for exposure starts.
 The retention predicate still excludes completions outside the selected period.
 
@@ -220,18 +221,22 @@ It derives the copy UUID with UUIDv5 and namespace `1b7c9119-5953-4668-97b7-ab0e
 Exposure retention excludes both records of the selected occurrence, in either direction.
 The identity comparison applies the UUIDv5 version and variant bits to the SHA1 digest.
 An independent event with the same timestamp can still count as a completion.
+The timestamp comparison comes before the copy-identity comparisons.
+ClickHouse skips the hash work for different timestamps when `short_circuit_function_evaluation` is `enable` or `force_enable`.
+Disabling this setting preserves correctness but adds hash work for those completion rows.
 If ingestion changes the UUID derivation, update this comparison and its regression tests together.
 
 The default-off `experiments-retention-metric-events-preaggregation` flag controls this precomputation.
 
 ### Known limitation: monthly retention
 
-The API accepts `month` retention windows, but the scan and completion-join limits convert each month to 30 days.
+For literal starts, the API accepts `month` retention windows, but the scan and completion-join limits convert each month to 30 days.
 The retention predicate uses calendar months instead.
 These limits can exclude a valid completion before the retention predicate evaluates it.
 For example, a one-month window from January 2, 2024, at 00:10 UTC includes February 2 at 00:10 UTC, which is 31 days later.
 The query incorrectly excludes that completion.
-This limitation affects both literal and exposure starts, with direct and precomputed queries.
+This limitation affects literal starts, with direct and precomputed queries.
+Exposure starts reject monthly windows instead of returning an incomplete result.
 The editor offers only day and hour windows.
 Correct monthly retention requires calendar-aware scan and join limits; selecting a direct query does not avoid this limitation.
 
