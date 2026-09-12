@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -17,7 +19,7 @@ FanOut = Literal["none", "workspace", "organization", "project", "task", "goal",
 PRIMARY_KEY = "gid"
 
 
-@dataclass
+@frozen
 class AsanaEndpointConfig:
     name: str
     fan_out: FanOut

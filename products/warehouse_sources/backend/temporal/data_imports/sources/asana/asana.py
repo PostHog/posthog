@@ -1,6 +1,8 @@
 import dataclasses
 from typing import Any, Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.asana.settings import (
     ASANA_ENDPOINTS,
     AsanaEndpointConfig,
@@ -60,7 +62,7 @@ def _resource(name: str, path: str, params: dict[str, Any], *, paginated: bool =
     }
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class _ParentSpec:
     """A resource fetched only to resolve gids for the endpoints that fan out over it."""
 
