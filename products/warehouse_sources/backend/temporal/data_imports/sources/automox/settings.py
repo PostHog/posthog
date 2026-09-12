@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import timedelta
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
@@ -14,7 +16,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@frozen
 class AutomoxEndpointConfig:
     # Console API path, relative to https://console.automox.com/api. May contain an
     # `{org_id}` placeholder resolved at sync time.
@@ -63,7 +65,7 @@ class AutomoxEndpointConfig:
     fan_out: "AutomoxFanOutConfig | None" = None
 
 
-@dataclass
+@frozen
 class AutomoxFanOutConfig:
     # List endpoint walked to enumerate the parents. It does not have to be a synced table.
     parent: AutomoxEndpointConfig

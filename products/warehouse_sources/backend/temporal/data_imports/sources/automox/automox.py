@@ -1,5 +1,4 @@
 import json
-import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -10,6 +9,8 @@ import structlog
 from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.automox.settings import (
     AUTOMOX_ENDPOINTS,
@@ -49,7 +50,7 @@ class AutomoxOrganizationError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class AutomoxResumeConfig:
     # Zero-indexed page of the next request. Automox paginates with page/limit, so persisting the
     # page number lets a sync pick back up after a heartbeat timeout.
@@ -350,6 +351,14 @@ def _request_params(
     return params
 
 
+@frozen
+class _EndpointPage:
+    number: int
+    # `True` when this is the resource's last page, so the caller stops instead of advancing.
+    is_last: bool
+    rows: list[dict[str, Any]]
+
+
 def _iter_pages(
     session: requests.Session,
     config: AutomoxEndpointConfig,
@@ -360,8 +369,8 @@ def _iter_pages(
     org_uuid: str | None,
     incremental_value: str | None = None,
     transform: Optional[PayloadTransform] = None,
-) -> Iterator[tuple[int, bool, list[dict[str, Any]]]]:
-    """Walk one endpoint path, yielding ``(page, is_last_page, rows)`` until it is exhausted."""
+) -> Iterator[_EndpointPage]:
+    """Walk one endpoint path, yielding a page at a time until the resource is exhausted."""
     page = start_page
     while True:
         url = _build_url(path, _request_params(config, page, org_id, org_uuid, incremental_value))
@@ -372,7 +381,7 @@ def _iter_pages(
         # Decide on the raw page length: the caller's filtering can shrink a page without meaning
         # the resource is exhausted.
         is_last = not config.paginated or len(rows) < config.page_size
-        yield page, is_last, rows
+        yield _EndpointPage(number=page, is_last=is_last, rows=rows)
         if is_last:
             return
         page += 1
@@ -407,13 +416,13 @@ def _iter_fan_out_rows(
     if resume is not None and resume.parent_page is not None:
         parent_page, skip_parents, child_page = resume.parent_page, resume.parent_index, resume.page
 
-    for page, _, parents in _iter_pages(session, fan_out.parent, parent_path, logger, parent_page, org_id, org_uuid):
+    for parent_batch in _iter_pages(session, fan_out.parent, parent_path, logger, parent_page, org_id, org_uuid):
         # Resuming re-reads the parent page and skips the parents already walked. Automox does not
         # promise a stable order across requests, so a parent added mid-sync can shift the page;
         # the merge dedupes whatever is re-read, and the next full sync picks up anything shifted.
-        for index in range(skip_parents, len(parents)):
+        for index in range(skip_parents, len(parent_batch.rows)):
             start_child_page, child_page = child_page, 0
-            parent = parents[index]
+            parent = parent_batch.rows[index]
             parent_value = parent.get(fan_out.parent_field)
             if parent_value is None:
                 continue
@@ -421,19 +430,23 @@ def _iter_fan_out_rows(
             child_path = path.replace(fan_out.placeholder, str(parent_value))
             parent_columns = {column: parent.get(field) for field, column in fan_out.include_from_parent.items()}
 
-            for child_page_number, is_last, raw_rows in _iter_pages(
+            for child_batch in _iter_pages(
                 session, config, child_path, logger, start_child_page, org_id, org_uuid, transform=transform
             ):
-                rows = [{**parent_columns, **row} for row in _sanitize_rows(config, raw_rows, org_id)]
+                rows = [{**parent_columns, **row} for row in _sanitize_rows(config, child_batch.rows, org_id)]
                 if rows:
                     yield rows
                 # Save AFTER yielding so a crash re-runs the last batch rather than skipping it.
-                if not is_last:
+                if not child_batch.is_last:
                     resumable_source_manager.save_state(
-                        AutomoxResumeConfig(page=child_page_number + 1, parent_page=page, parent_index=index)
+                        AutomoxResumeConfig(
+                            page=child_batch.number + 1, parent_page=parent_batch.number, parent_index=index
+                        )
                     )
 
-            resumable_source_manager.save_state(AutomoxResumeConfig(page=0, parent_page=page, parent_index=index + 1))
+            resumable_source_manager.save_state(
+                AutomoxResumeConfig(page=0, parent_page=parent_batch.number, parent_index=index + 1)
+            )
         skip_parents = 0
 
 
@@ -488,7 +501,7 @@ def get_rows(
         )
         return
 
-    for page, is_last, raw_rows in _iter_pages(
+    for batch in _iter_pages(
         session,
         config,
         path,
@@ -499,15 +512,15 @@ def get_rows(
         incremental_value,
         transform,
     ):
-        rows = _sanitize_rows(config, raw_rows, org_id)
+        rows = _sanitize_rows(config, batch.rows, org_id)
         if rows:
             yield rows
 
         # Save AFTER yielding so a crash re-runs from the last persisted page rather than skipping
         # ahead; the merge dedupes any re-pulled rows on the primary key.
-        if not is_last:
+        if not batch.is_last:
             resumable_source_manager.save_state(
-                AutomoxResumeConfig(page=page + 1, incremental_param_value=incremental_value)
+                AutomoxResumeConfig(page=batch.number + 1, incremental_param_value=incremental_value)
             )
 
 
