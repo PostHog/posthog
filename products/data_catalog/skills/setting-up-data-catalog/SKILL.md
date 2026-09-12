@@ -59,21 +59,44 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
 
 ## Flow 2 — Maintenance (reviewing the queue)
 
-1. **Pull the review queue** in one pass. The `id` on each row is what the promotion tools need:
+1. **Pull the review queue.** Each `posthog:execute-sql` call accepts one statement, so run these
+   three queries as three separate calls. The `id` on each row is what the promotion tools need:
+
+   Metrics — `posthog:execute-sql`:
 
    ```sql
-   SELECT id, name, status, is_drifted, description FROM system.information_schema.metrics WHERE status = 'proposed';
+   SELECT id, name, status, is_drifted, description, unit, definition, definition_kind, confidence, reasoning, source_insight_short_id
+   FROM system.information_schema.metrics WHERE status = 'proposed';
+   ```
+
+   Relationship proposals — `posthog:execute-sql`:
+
+   ```sql
    SELECT id, source_table, source_column, target_table, target_column, field_name, configuration, evidence, confidence, reasoning
    FROM system.information_schema.relationship_proposals;
+   ```
+
+   Certifications — `posthog:execute-sql`:
+
+   ```sql
    SELECT id, target_name, target_id, target_kind, status, proposed_status, notes
    FROM system.information_schema.certifications WHERE status = 'proposed';
    ```
 
-   Surface the full payload before asking for confirmation: for a join, the `field_name` and
-   `configuration` are copied verbatim into the real join on accept, and `evidence` holds the sampling
-   match rates and sample values to summarize; for a certification, `target_id` disambiguates which
-   physical table the mark applies to when two live tables share a name, and `proposed_status` tells you
-   whether the row asks to certify the source or to deprecate it.
+   Each call returns at most 100 rows by default, and 500 at most. A larger queue drops its oldest
+   rows with no warning, so the queue can look reviewed while old proposals stay hidden. Before you
+   trust a queue as complete, count it first with `SELECT count() FROM <table> WHERE <same filter>`.
+   If the count is above 100, read that queue with an explicit order and limit, such as `ORDER BY id
+LIMIT 500`. Page through anything above 500 with `OFFSET`.
+
+   Surface the full payload before asking for confirmation: for a metric, `description` never states the
+   calculation, so summarize its `definition` (with `definition_kind` and `unit`) plus `confidence` and
+   `reasoning` before you ask to approve, because the human vouches for the definition and not the
+   summary; for a join, the `field_name` and `configuration` are copied verbatim into the real join on
+   accept, and `evidence` holds the sampling match rates and sample values to summarize; for a
+   certification, `target_id` disambiguates which physical table the mark applies to when two live tables
+   share a name, and `proposed_status` tells you whether the row asks to certify the source or to
+   deprecate it.
 
    Each entity type keeps its pending queue separate from its usable/verified surface, so an agent
    without this skill never mistakes an unreviewed item for an approved one:
