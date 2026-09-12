@@ -165,6 +165,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             and access_level_satisfied_for_resource("warehouse_table", level, "viewer")
         }
 
+    def _readable_team_schema_ids(self) -> list:
+        schemas = list(
+            ExternalDataSchema.objects.filter(team_id=self.team_id, deleted=False).select_related("source", "table")
+        )
+        return list(self._readable_schema_ids(schemas))
+
     def _require_organization_admin(self, request: Request, action: str) -> Response | None:
         if not request.user.is_authenticated:
             return Response(
@@ -364,6 +370,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
 
         source_ids = list(self._readable_sources().values_list("id", flat=True))
+        schema_ids = self._readable_team_schema_ids()
         saved_query_ids = list(
             self._readable(DataWarehouseSavedQuery.objects.filter(team_id=self.team_id)).values_list("id", flat=True)
         )
@@ -384,6 +391,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
                         WHERE edj.team_id = %s AND edj.status = 'Running' AND edj.created_at >= %s
                           AND edj.pipeline_id = ANY(%s::uuid[])
+                          AND (edj.schema_id IS NULL OR edj.schema_id = ANY(%s::uuid[]))
                     ),
                     modeling_jobs AS (
                         SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
@@ -405,6 +413,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         self.team_id,
                         cutoff_time,
                         source_ids,
+                        schema_ids,
                         self.team_id,
                         cutoff_time,
                         saved_query_ids,
@@ -458,6 +467,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
 
         source_ids = list(self._readable_sources().values_list("id", flat=True))
+        schema_ids = self._readable_team_schema_ids()
         saved_query_ids = list(
             self._readable(DataWarehouseSavedQuery.objects.filter(team_id=self.team_id)).values_list("id", flat=True)
         )
@@ -478,6 +488,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
                         WHERE edj.team_id = %s AND edj.status = 'Completed' AND edj.created_at >= %s
                           AND edj.pipeline_id = ANY(%s::uuid[])
+                          AND (edj.schema_id IS NULL OR edj.schema_id = ANY(%s::uuid[]))
                     ),
                     modeling_jobs AS (
                         SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
@@ -499,6 +510,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         self.team_id,
                         cutoff_time,
                         source_ids,
+                        schema_ids,
                         self.team_id,
                         cutoff_time,
                         saved_query_ids,

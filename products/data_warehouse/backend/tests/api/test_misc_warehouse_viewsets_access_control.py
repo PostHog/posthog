@@ -196,7 +196,8 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         for token in blocked_tokens:
             self.assertNotIn(token, body)
 
-    def test_data_health_issues_hides_a_sync_denied_on_its_table(self):
+    @parameterized.expand(["data_health_issues", "running_activity", "completed_activity"])
+    def test_collection_actions_hide_a_sync_denied_on_its_table(self, action_path: str):
         # A schema inherits access from the table it syncs, so a deny on the table has to hide it
         # even when the source above it stays readable.
         self._create_access_control(self.viewer_user, access_level="viewer")
@@ -222,6 +223,15 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
                 status="Failed",
                 latest_error=f"{label}_schema_error",
             )
+            for job_status in ("Running", "Completed"):
+                ExternalDataJob.objects.create(
+                    team=self.team,
+                    pipeline=source,
+                    schema=schemas[label],
+                    status=job_status,
+                    rows_synced=10,
+                    latest_error=f"{label}_schema_error",
+                )
         self._create_access_control(
             self.viewer_user,
             resource="warehouse_table",
@@ -230,13 +240,12 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         )
         self.client.force_login(self.viewer_user)
 
-        response = self.client.get(self._path("data_health_issues/"))
+        response = self.client.get(self._path(f"{action_path}/"))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.content.decode()
         self.assertIn("allowed_schema", body)
         self.assertNotIn("blocked_schema", body)
-        self.assertNotIn("blocked_schema_error", body)
 
     def test_managed_warehouse_status_excludes_blocked_and_direct_sources(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
