@@ -40,7 +40,11 @@ describe('<LoginForm />', () => {
         login.actions.setGeneralError('invalid_credentials', 'Invalid email or password.')
         render(<LoginForm />)
 
-        await userEvent.click(screen.getByTestId('login-error-reset-password'))
+        const link = screen.getByTestId('login-error-reset-password')
+        // The href carries the target too, so a new-tab open reaches the reset page
+        expect(removeProjectIdIfPresent(link.getAttribute('href') ?? '')).toEqual('/reset?email=test%40posthog.com')
+
+        await userEvent.click(link)
 
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual('/reset')
         expect(router.values.searchParams.email).toEqual('test@posthog.com')
