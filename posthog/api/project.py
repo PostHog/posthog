@@ -24,37 +24,40 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 
-# These are imported from team.py for now. They are part of the legacy /api/environments/ surface and are
+# These are imported from the team API package for now. They are part of the legacy /api/environments/ surface and are
 # expected to move project-side (or to a neutral module) in a later PR once /api/environments/ is retired —
-# project.py must NOT depend on team.py at that point. The parity *logic* (config writes, retention check,
+# project.py must NOT depend on the team API package at that point. The parity *logic* (config writes, retention check,
 # and the team-config actions) is defined locally below rather than imported, so it survives that removal.
-from posthog.api.team import (
-    TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS,
-    TEAM_CONFIG_FIELDS,
-    TEAM_CONFIG_MEMBER_FIELDS_SET,
-    EvaluationContextSuggestionRequestSerializer,
-    EvaluationContextSuggestionResponseSerializer,
-    EventIngestionRestrictionSerializer,
-    TeamCustomerAnalyticsConfigSerializer,
-    TeamFeatureFlagPolicyConfigSerializer,
-    TeamLogsConfigSerializer,
-    TeamMarketingAnalyticsConfigSerializer,
-    TeamRevenueAnalyticsConfigSerializer,
-    TeamSerializer,
-    TeamTracingConfigSerializer,
-    TeamWorkflowsConfigSerializer,
-    _default_data_color_theme_id,
-    _format_serializer_errors,
-    get_or_mint_live_events_token,
+from posthog.api.team.conversations_settings import (
     handle_conversations_token_on_update,
+    report_conversations_settings_changes,
+)
+from posthog.api.team.integration_config import (
+    TeamLogsConfigSerializer,
+    TeamTracingConfigSerializer,
     handle_experiments_config,
     handle_logs_config,
     handle_tracing_config,
-    report_conversations_settings_changes,
-    team_event_ingestion_restrictions_view,
     validate_secret_token_generation,
-    validate_team_attrs,
 )
+from posthog.api.team.live_events import _default_data_color_theme_id, get_or_mint_live_events_token
+from posthog.api.team.marketing_config import TeamMarketingAnalyticsConfigSerializer
+from posthog.api.team.settings_validation import _format_serializer_errors, validate_team_attrs
+from posthog.api.team.team_config import (
+    TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS,
+    TEAM_CONFIG_FIELDS,
+    TEAM_CONFIG_MEMBER_FIELDS_SET,
+    TeamCustomerAnalyticsConfigSerializer,
+    TeamFeatureFlagPolicyConfigSerializer,
+    TeamRevenueAnalyticsConfigSerializer,
+    TeamWorkflowsConfigSerializer,
+)
+from posthog.api.team.team_serializer import (
+    EvaluationContextSuggestionRequestSerializer,
+    EvaluationContextSuggestionResponseSerializer,
+    TeamSerializer,
+)
+from posthog.api.team.viewsets import EventIngestionRestrictionSerializer, team_event_ingestion_restrictions_view
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
@@ -140,7 +143,7 @@ MAX_ALLOWED_PROJECTS_PER_ORG = 2000
 
 # --- Backward-compatibility logic for the /api/projects/ surface ---
 # These mirror the behaviour of the legacy /api/environments/ (TeamViewSet/TeamSerializer) endpoints, operating
-# on a project's passthrough Team. They live here — not imported from team.py — so /api/projects/ keeps working
+# on a project's passthrough Team. They live here — not imported from the team API package — so /api/projects/ keeps working
 # after /api/environments/ is retired. Until then both surfaces intentionally carry equivalent logic; the
 # introspection test in test_team_project_parity.py guards against drift.
 def capture_team_config_diff(team: Team, key: str, before: dict, after: dict, *, context: dict) -> None:

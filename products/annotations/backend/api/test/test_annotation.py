@@ -345,7 +345,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         instance = Annotation.objects.create(organization=self.organization, team=self.team, created_by=self.user)
         self.client.force_login(new_user)
 
-        with patch("posthog.api.team.report_user_action"):
+        with patch("posthog.api.team.viewsets.report_user_action"):
             response = self.client.delete(f"/api/projects/{self.team.id}/annotations/{instance.pk}/")
 
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
