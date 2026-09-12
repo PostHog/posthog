@@ -49,6 +49,32 @@ close but wrong, create the corrected check and delete the old one — the asser
 config) is immutable and the subject is fixed by the URL, so an update that tries to change them is
 rejected. Update is only for metadata, severity, and ownership.
 
+## Resolve the subject
+
+Every create, run, and check-type call needs the subject's UUID, and the two queries above return
+names and columns, not IDs. Resolve the ID first:
+
+- **Saved query (view).** Call `posthog:view-list` with `search=<subject name>` and take the
+  result's `id`. That value is the `saved_query_id`.
+- **Warehouse table (imported or self-managed).** The subject name is the warehouse table's own
+  name: an imported source prefixes it (e.g. `stripe_charge`), while a self-managed table (a linked
+  bucket) keeps the name it was created with. Resolve the `id` by exact match against the table
+  catalog, which lists both kinds:
+
+  ```sql
+  SELECT id FROM system.data_warehouse_tables WHERE name = 'stripe_charge'
+  ```
+
+  That value is the `table_id`. Do not use `posthog:external-data-schemas-list` to resolve it: a
+  self-managed table has no schema row there, and for an imported table its `search` matches the
+  source-side schema name (e.g. `Charge`), not the prefixed table name, so two sources exposing a
+  schema of the same name are indistinguishable.
+
+`posthog:data-quality-check-types` also requires `saved_query_id`. Its catalog is static, so pass any
+view's `id`; the returned schemas apply to tables too. A project with only imported tables has no view
+to pass, so that reader can skip the call: the same per-type config is in the
+`data-quality-check-create-on-table` tool description and under "Choosing checks" below.
+
 ## Choosing checks
 
 Aim for a handful that would actually catch a real regression, not blanket coverage. A model with
