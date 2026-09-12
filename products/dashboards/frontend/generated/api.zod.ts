@@ -3592,7 +3592,7 @@ export const DashboardsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     tags: zod
         .array(zod.string().max(dashboardsBulkUpdateTagsCreateBodyTagsItemMax))
         .max(dashboardsBulkUpdateTagsCreateBodyTagsMax)
-        .describe('Tag names to add, remove, or set.'),
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
 export const dashboardsCreateFromTemplateJsonCreateBodyNameMax = 400

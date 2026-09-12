@@ -17,6 +17,7 @@ RELATED_OBJECTS = (
     "endpoint",
     "replay_scanner",
     "project",
+    "experiment",
 )
 
 
@@ -125,6 +126,16 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         # posthog_project is read on nearly every request, so creating this FK's database
         # constraint inline would lock it. A later migration adds the constraint NOT VALID
         # and validates it separately.
+        db_constraint=False,
+    )
+    experiment = models.ForeignKey(
+        "experiments.Experiment",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+        # Same deferred-FK pattern as project: the constraint lands NOT VALID in a later
+        # migration and is validated separately, keeping the lock on posthog_experiment brief.
         db_constraint=False,
     )
 

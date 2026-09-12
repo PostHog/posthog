@@ -322,7 +322,7 @@ class TestBulkUpdateTags(APIBaseTest):
         assert data["updated"][0]["id"] == dashboard.id
         assert len(data["skipped"]) == 1
         assert data["skipped"][0]["id"] == missing_id
-        assert data["skipped"][0]["reason"] == "Not found"
+        assert data["skipped"][0]["reason"] == "Not found or no edit access"
 
     def test_tags_are_normalized_via_tagify(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="dash")
@@ -408,7 +408,7 @@ class TestBulkUpdateTags(APIBaseTest):
         data = response.json()
         assert data["updated"] == []
         assert len(data["skipped"]) == 1
-        assert data["skipped"][0]["reason"] == "Not found"
+        assert data["skipped"][0]["reason"] == "Not found or no edit access"
         other_dashboard.refresh_from_db()
         actual_tags = list(other_dashboard.tagged_items.values_list("tag__name", flat=True))
         assert actual_tags == ["other-tag"]

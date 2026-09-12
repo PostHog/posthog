@@ -315,7 +315,7 @@ export const InsightsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     tags: zod
         .array(zod.string().max(insightsBulkUpdateTagsCreateBodyTagsItemMax))
         .max(insightsBulkUpdateTagsCreateBodyTagsMax)
-        .describe('Tag names to add, remove, or set.'),
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
 /**
