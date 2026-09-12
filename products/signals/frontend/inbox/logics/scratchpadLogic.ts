@@ -7,13 +7,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { signalsReportsRetrieve, signalsScoutScratchpadSearch } from 'products/signals/frontend/generated/api'
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
-import {
-    BOOKKEEPING_KINDS,
-    isReportUuid,
-    scratchpadKindOf,
-    scratchpadTopicOf,
-} from '../utils/scratchpadKeys'
 import { SCOUT_ROSTER_WINDOW_HOURS } from '../utils/scoutRunsWindow'
+import { BOOKKEEPING_KINDS, isReportUuid, scratchpadKindOf, scratchpadTopicOf } from '../utils/scratchpadKeys'
 
 // Search reruns the server-side ILIKE on every keystroke; debounce so typing doesn't
 // fire a request per character.
@@ -101,7 +96,10 @@ export function describeLoadedSpan(entries: ScratchpadEntryApi[] | null): string
 }
 
 /** Counts of each distinct value across the rows, most common first, blanks dropped. */
-function facetsOf(entries: ScratchpadEntryApi[], valueOf: (entry: ScratchpadEntryApi) => string | null): ScratchpadFacet[] {
+function facetsOf(
+    entries: ScratchpadEntryApi[],
+    valueOf: (entry: ScratchpadEntryApi) => string | null
+): ScratchpadFacet[] {
     const counts = new Map<string, number>()
     for (const entry of entries) {
         const value = valueOf(entry)
@@ -311,15 +309,15 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         setTopicFilter: (topicFilter: string[]) => ({ topicFilter }),
         setTimeFilter: (timeFilter: ScratchpadTimeFilter) => ({ timeFilter }),
         setHideBookkeeping: (hideBookkeeping: boolean) => ({ hideBookkeeping }),
-        clearFilters: true,
+        clearFilters: () => ({}),
         toggleEntry: (key: string) => ({ key }),
         loadFullContent: (key: string) => ({ key }),
         loadFullContentSuccess: (key: string, content: string) => ({ key, content }),
         loadFullContentFailure: (key: string) => ({ key }),
-        loadOlderEntries: true,
+        loadOlderEntries: () => ({}),
         appendOlderEntries: (entries: ScratchpadEntryApi[], hasMore: boolean) => ({ entries, hasMore }),
-        loadOlderEntriesFailure: true,
-        resolveReportTitles: true,
+        loadOlderEntriesFailure: () => ({}),
+        resolveReportTitles: () => ({}),
         setReportTitle: (reportId: string, title: string | null) => ({ reportId, title }),
     }),
 
@@ -365,10 +363,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
 
     reducers({
         searchText: ['', { setSearchText: (_, { searchText }) => searchText, clearFilters: () => '' }],
-        scoutFilter: [
-            [] as string[],
-            { setScoutFilter: (_, { scoutFilter }) => scoutFilter, clearFilters: () => [] },
-        ],
+        scoutFilter: [[] as string[], { setScoutFilter: (_, { scoutFilter }) => scoutFilter, clearFilters: () => [] }],
         kindFilter: [[] as string[], { setKindFilter: (_, { kindFilter }) => kindFilter, clearFilters: () => [] }],
         topicFilter: [[] as string[], { setTopicFilter: (_, { topicFilter }) => topicFilter, clearFilters: () => [] }],
         timeFilter: [
@@ -610,10 +605,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         // Report UUIDs on screen whose title hasn't been looked up yet, newest first and capped.
         unresolvedReportIds: [
             (s) => [s.filteredEntries, s.reportTitles],
-            (
-                filteredEntries: ScratchpadEntryApi[] | null,
-                reportTitles: Record<string, string | null>
-            ): string[] => {
+            (filteredEntries: ScratchpadEntryApi[] | null, reportTitles: Record<string, string | null>): string[] => {
                 const ids: string[] = []
                 for (const entry of filteredEntries ?? []) {
                     const topic = scratchpadTopicOf(entry.key)

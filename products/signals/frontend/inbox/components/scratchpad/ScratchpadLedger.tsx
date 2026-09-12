@@ -11,8 +11,14 @@ import { urls } from 'scenes/urls'
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SCRATCHPAD_PAGE_SIZE, scratchpadLogic } from '../../logics/scratchpadLogic'
-import { KIND_TAG_TYPE, isReportUuid, scratchpadKindOf, scratchpadTopicOf, shortenUuid } from '../../utils/scratchpadKeys'
 import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
+import {
+    KIND_TAG_TYPE,
+    isReportUuid,
+    scratchpadKindOf,
+    scratchpadTopicOf,
+    shortenUuid,
+} from '../../utils/scratchpadKeys'
 
 // Below this the six columns stop fitting, so every row collapses into one stacked cell. Measured
 // on the container, not the viewport: the panel gets about 520 px once the nav and a side panel
@@ -36,8 +42,7 @@ export function ScratchpadLedger(): JSX.Element {
             title: 'Updated',
             key: 'updated',
             className: `${NARROW}:hidden w-32`,
-            render: (_, entry) =>
-                entry.updated_at ? <TZLabel time={entry.updated_at} className="text-xs" /> : null,
+            render: (_, entry) => (entry.updated_at ? <TZLabel time={entry.updated_at} className="text-xs" /> : null),
         },
         {
             title: 'Scout',
@@ -103,11 +108,7 @@ function ScoutCell({ skillName }: { skillName: string | null | undefined }): JSX
         return <span className="text-xs text-muted">—</span>
     }
     if (skillName.startsWith(PIPELINE_PREFIX)) {
-        return (
-            <span className="truncate text-xs text-muted">
-                {skillName.slice(PIPELINE_PREFIX.length)} (pipeline)
-            </span>
-        )
+        return <span className="truncate text-xs text-muted">{skillName.slice(PIPELINE_PREFIX.length)} (pipeline)</span>
     }
     return (
         <Link to={urls.inboxScout(skillName)} subtle className="truncate text-xs">
@@ -186,7 +187,9 @@ function CarriedCell({ entry }: { entry: ScratchpadEntryApi }): JSX.Element {
     }
     const days = carriedDays(entry)
     return (
-        <span className="whitespace-nowrap text-xs text-muted">{days === null ? '—' : days < 1 ? 'new' : `${days} d`}</span>
+        <span className="whitespace-nowrap text-xs text-muted">
+            {days === null ? '—' : days < 1 ? 'new' : `${days} d`}
+        </span>
     )
 }
 

@@ -8,8 +8,8 @@ import { pluralize } from 'lib/utils/strings'
 
 import type { ScratchpadFacet, ScratchpadTimeFilter } from '../../logics/scratchpadLogic'
 import { scratchpadLogic } from '../../logics/scratchpadLogic'
-import { BOOKKEEPING_KINDS } from '../../utils/scratchpadKeys'
 import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
+import { BOOKKEEPING_KINDS } from '../../utils/scratchpadKeys'
 import { ScratchpadLedger } from './ScratchpadLedger'
 
 const TIME_OPTIONS: { value: ScratchpadTimeFilter; label: string }[] = [
@@ -104,7 +104,12 @@ export function ScratchpadPanel(): JSX.Element {
                         onChange={setScoutFilter}
                         labelOf={stripScoutPrefix}
                     />
-                    <FacetSelect placeholder="Kind: any" facets={kindFacets} value={kindFilter} onChange={setKindFilter} />
+                    <FacetSelect
+                        placeholder="Kind: any"
+                        facets={kindFacets}
+                        value={kindFilter}
+                        onChange={setKindFilter}
+                    />
                     <FacetSelect
                         placeholder="Topic: any"
                         facets={topicFacets}
@@ -281,8 +286,7 @@ function ScratchpadEmptyState({
     return (
         <div className="flex flex-col items-center gap-2 rounded border border-dashed border-primary bg-bg-light px-4 py-8 text-center text-sm text-muted">
             <span>
-                No entries match. Clear the filters to see everything from the{' '}
-                {loadedSpanLabel ?? 'loaded window'}.
+                No entries match. Clear the filters to see everything from the {loadedSpanLabel ?? 'loaded window'}.
             </span>
             <LemonButton type="secondary" size="small" onClick={onClearFilters}>
                 Clear filters
