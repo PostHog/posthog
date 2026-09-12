@@ -31,10 +31,9 @@ export function TicketPatternPanel({ ticketId }: TicketPatternPanelProps): JSX.E
                         <span className="font-medium">{pattern.title}</span>
                     </div>
                     <div className="text-sm text-muted">
-                        <span translate="no">
-                            This ticket is one of {pattern.ticket_count} from {pattern.requester_count}{' '}
-                            {pattern.requester_count === 1 ? 'customer' : 'customers'}
-                        </span>
+                        This ticket is one of <span translate="no">{pattern.ticket_count}</span> from{' '}
+                        <span translate="no">{pattern.requester_count}</span>{' '}
+                        <span>{pattern.requester_count === 1 ? 'customer' : 'customers'}</span>
                         {pattern.status === 'open' ? ' that nobody has reviewed yet.' : '.'}{' '}
                         <Link to={urls.supportPatterns(pattern.status)}>See the pattern</Link>
                     </div>
