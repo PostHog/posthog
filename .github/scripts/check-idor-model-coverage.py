@@ -387,9 +387,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
     user_scoped: set[str] = set()
     no_scope: set[str] = set()
 
-    # Billing alerts are organization-scoped through BillingAlertConfiguration. Team is only an
-    # execution context; claim and event records inherit scope through their canonical parent.
     organization_scoped_overrides = {
+        "AITrainingConsent",  # Plain organization_id survives organization deletion.
+        # Billing alerts inherit scope through BillingAlertConfiguration; team is an execution context.
         "BillingAlertConfiguration",
         "BillingAlertEvaluationClaim",
         "BillingAlertEvent",
