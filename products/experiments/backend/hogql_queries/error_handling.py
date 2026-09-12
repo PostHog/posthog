@@ -223,9 +223,11 @@ def _emit_runner_terminal_error_event(runner: Any, error: Exception) -> None:
 
 def _metric_config_error(runner: Any, error: Exception, log_event: str, message: str) -> ValidationError:
     """Turn a ClickHouse error that the metric's own query caused into an actionable
-    ValidationError. Keeps it out of error tracking, and classify_experiment_query_error maps the
-    result to validation_error, so the recalculation worker fails it permanently instead of
-    retrying a query that can only fail again.
+    ValidationError. The blanket handler below never sees the error, so this decorator runs no
+    capture_exception on it, and classify_experiment_query_error maps the result to
+    validation_error, so the recalculation worker fails it permanently instead of retrying a query
+    that can only fail again. QueryRunner.run still captures the ValidationError at its own
+    boundary, because classify_query_error has no branch for a DRF ValidationError.
     """
     logger.warning(
         log_event,
