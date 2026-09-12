@@ -20,7 +20,6 @@ export interface persistedTestLogicActions {
 
 export type persistedTestLogicType = MakeLogicType<persistedTestLogicValues, persistedTestLogicActions>
 
-const LAZY_DEFAULT_KEY = 'lib.keaLocalStoragePersistence.persistedTestLogic.lazyDefault'
 const MAPPING_KEY = 'lib.keaLocalStoragePersistence.persistedTestLogic.mapping'
 
 const persistedTestLogic = kea<persistedTestLogicType>([
@@ -41,9 +40,10 @@ const persistedTestLogic = kea<persistedTestLogicType>([
 ])
 
 // Guards patches/kea-localstorage@3.1.0.patch: kea 4 passes the full store state as a third
-// argument and resolves a lazy default from it, and the plugin used to drop that argument and
-// to write values that JSON.parse cannot read back. Either one leaves a persisted reducer
-// without a default, which kea throws on for every dispatch left in the session.
+// argument and resolves a lazy default from it, and the plugin used to drop that argument. That
+// leaves a persisted reducer without a default, which kea throws on for every dispatch left in
+// the session. The plugin also wrote the string "undefined" over a value it could not parse,
+// which every later load then failed to parse as well.
 describe('kea-localstorage persistence guard', () => {
     beforeEach(() => {
         window.localStorage.clear()
@@ -54,21 +54,20 @@ describe('kea-localstorage persistence guard', () => {
         persistedTestLogic.mount()
 
         expect(persistedTestLogic.values.lazyDefault).toEqual('resolved')
-        expect(JSON.parse(window.localStorage.getItem(LAZY_DEFAULT_KEY) as string)).toEqual('resolved')
     })
 
     it.each([
         ['a value written before this fix', 'undefined'],
         ['a value that was never JSON', '[object Object]'],
-    ])('replaces %s with a readable one', (_label, stored) => {
+    ])('drops %s instead of leaving it in storage', (_label, stored) => {
         window.localStorage.setItem(MAPPING_KEY, stored)
         initKeaTests(false)
         persistedTestLogic.mount()
 
         expect(persistedTestLogic.values.mapping).toEqual({})
-        expect(JSON.parse(window.localStorage.getItem(MAPPING_KEY) as string)).toEqual({})
+        expect(window.localStorage.getItem(MAPPING_KEY)).toBeNull()
 
         persistedTestLogic.actions.toggle('one')
-        expect(persistedTestLogic.values.mapping).toEqual({ one: true })
+        expect(JSON.parse(window.localStorage.getItem(MAPPING_KEY) as string)).toEqual({ one: true })
     })
 })
