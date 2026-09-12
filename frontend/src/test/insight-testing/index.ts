@@ -8,6 +8,7 @@ export {
     buildFunnelsQuery,
     buildStickinessQuery,
     buildTrendsQuery,
+    INSIGHT_TEST_ID,
     renderInsight,
     renderInsightPage,
     renderWithInsights,

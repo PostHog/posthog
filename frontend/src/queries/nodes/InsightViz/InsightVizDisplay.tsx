@@ -318,6 +318,7 @@ export function InsightVizDisplay({
                     <InsightEmptyState
                         heading={context?.emptyStateHeading}
                         detail={context?.emptyStateDetail}
+                        insightVizProps={insightProps}
                         sampleDataVariant="funnel"
                     />
                 )

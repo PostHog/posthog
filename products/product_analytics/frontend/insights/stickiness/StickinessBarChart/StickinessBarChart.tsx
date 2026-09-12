@@ -187,6 +187,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
             <InsightEmptyState
                 heading={context?.emptyStateHeading}
                 detail={context?.emptyStateDetail}
+                insightVizProps={insightProps}
                 sampleDataVariant="bar"
             />
         )
