@@ -52,6 +52,7 @@ class ResolvedTicketRevision:
     ticket_id: UUID
     ticket_number: int
     resolution_comment_id: UUID
+    revision_at: datetime
     source_team_id: int
     display_label: str
     deep_link: str
