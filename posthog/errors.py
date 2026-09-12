@@ -176,6 +176,11 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorNoCommonType(err.message, code=err.code, code_name="no_common_type")
     elif name == "NOT_AN_AGGREGATE":
         return CHQueryErrorNotAnAggregate(err.message, code=err.code, code_name="not_an_aggregate")
+    elif name == "FUNCTION_THROW_IF_VALUE_IS_NON_ZERO":
+        # The message is the label the query author gave throwIf, so it already names the cause.
+        return CHQueryErrorFunctionThrowIfValueIsNonZero(
+            err.message, code=err.code, code_name="function_throw_if_value_is_non_zero"
+        )
     elif name == "UNKNOWN_FUNCTION":
         return CHQueryErrorUnknownFunction(err.message, code=err.code, code_name="unknown_function")
     elif name == "TYPE_MISMATCH":
@@ -279,6 +284,10 @@ class CHQueryErrorNoCommonType(ExposedCHQueryError):
 
 
 class CHQueryErrorNotAnAggregate(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorFunctionThrowIfValueIsNonZero(ExposedCHQueryError):
     pass
 
 
