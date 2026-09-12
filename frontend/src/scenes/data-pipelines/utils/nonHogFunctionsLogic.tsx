@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { parseGithubRepoURL } from 'lib/utils/url'
+import { legacyPluginTemplateId } from 'scenes/hog-functions/hog-function-utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -138,6 +139,9 @@ export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
                             name: pluginConfig.name || plugin?.name || 'Unknown app',
                             description: pluginConfig.description || plugin?.description || '',
                             type: 'destination',
+                            // The bundled template this config runs. A migrated legacy_destination
+                            // carries the same one, which is how the list drops the superseded row.
+                            template_id: legacyPluginTemplateId(plugin?.url),
                             created_by: null,
                             created_at: '',
                             updated_at: pluginConfig.updated_at,
