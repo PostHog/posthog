@@ -50,8 +50,8 @@ function WarningDetail({
             return (
                 <>
                     The feature flag {flagLink} has a <strong>0% rollout</strong>, so no new users enter the experiment.
-                    Results already collected still cover the users exposed before the rollout changed. End the
-                    experiment with a conclusion, or increase the rollout percentage to collect more data.
+                    Results collected so far are not affected. End the experiment with a conclusion, or increase the
+                    rollout percentage to collect more data.
                 </>
             )
         case 'ended_but_multiple_variants_rolled_out':
