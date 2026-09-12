@@ -13,7 +13,7 @@ live rows leaves a three-week window where a dormant account is invisible.
 import uuid
 from collections.abc import Iterator
 
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 import structlog
@@ -103,22 +103,33 @@ def sweep_blocklisted_gateway_credentials() -> SweepResult:
 
 
 def _gateway_bearing_candidates() -> Iterator[OAuthAccessToken]:
-    """Every gateway-bearing credential a ban still has to reach, as two reads.
+    """Every gateway-bearing credential a ban still has to reach.
 
-    Asked as one `expires > now OR refresh_token IS NOT NULL` filter, the scope index
-    cannot carry the condition: the OR reaches across the reverse join, so every
-    gateway-scoped row joins the refresh table before anything is discarded, and a tick
-    that revokes nothing still pays for the whole estate. Each half below filters before
-    it joins, and they split the estate on `expires`, so no row is read twice.
+    The reachability half of the question is asked as EXISTS rather than as
+    `refresh_token__isnull=False`. The latter reads as a reverse join, so the planner
+    joins every gateway-scoped row to the refresh table before the OR discards
+    anything, and a tick that revokes nothing still pays for the whole estate. EXISTS
+    answers the same question from the one-to-one's unique index, and only for the
+    rows that failed the cheaper `expires` test.
+
+    It stays one statement, so one snapshot covers both halves. Asked as two, a refresh
+    rotating between them would delete the expired row and insert a live replacement
+    that neither statement could see, and the ban would miss a tick.
 
     Only the columns the loop reads are selected. `application` is loaded on demand by
     the revoke path, which a tick that finds nobody never reaches.
     """
-    now = timezone.now()
-    gateway_bearing = (
+    return (
         OAuthAccessToken.objects.alias(scope_tokens=oauth_scope_tokens_expression())
         .filter(scope_tokens__overlap=sorted(GATEWAY_BEARING_SCOPES), application_id__isnull=False)
         .filter(user__isnull=False)
+        # An expired row is only worth reading for the refresh token hanging off it.
+        # Server-minted sandbox tokens carry this scope, expire in hours, have no
+        # refresh token and are kept 30 days, so admitting every expired row scans
+        # that backlog for credentials a ban cannot reach.
+        .filter(
+            Q(expires__gt=timezone.now()) | Q(Exists(OAuthRefreshToken.objects.filter(access_token_id=OuterRef("pk"))))
+        )
         .select_related("user")
         .only(
             "application_id",
@@ -128,19 +139,8 @@ def _gateway_bearing_candidates() -> Iterator[OAuthAccessToken]:
             "user__email",
             "user__uuid",
         )
+        .iterator(chunk_size=_CHUNK_SIZE)
     )
-    live = gateway_bearing.filter(expires__gt=now)
-    # An expired row is only worth reading for the refresh token hanging off it.
-    # Server-minted sandbox tokens carry this scope, expire in hours, have no
-    # refresh token and are kept 30 days, so admitting every expired row scans
-    # that backlog for credentials a ban cannot reach. EXISTS answers that from
-    # the one-to-one's unique index instead of joining the refresh table.
-    refreshable = gateway_bearing.filter(
-        Exists(OAuthRefreshToken.objects.filter(access_token_id=OuterRef("pk"))),
-        expires__lte=now,
-    )
-    for queryset in (live, refreshable):
-        yield from queryset.iterator(chunk_size=_CHUNK_SIZE)
 
 
 def _organization_ids(token: OAuthAccessToken) -> tuple[str, ...]:

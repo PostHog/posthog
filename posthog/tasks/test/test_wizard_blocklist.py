@@ -161,8 +161,8 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
 
     @patch("posthog.tasks.wizard_blocklist.wizard_identity_blocked", return_value=True)
     def test_a_live_token_with_no_refresh_token_is_still_a_candidate(self, mock_blocked: MagicMock) -> None:
-        # The live half of the read stands on `expires` alone; requiring a refresh
-        # token there would leave a first-party session banned in name only.
+        # Reachability is one side of an OR, not a precondition; requiring a refresh
+        # token would leave a live first-party session banned in name only.
         OAuthAccessToken.objects.create(
             user=self.user,
             application=self.application,
