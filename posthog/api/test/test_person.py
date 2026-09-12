@@ -1871,7 +1871,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(pdi_is_deleted, 0)
 
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
-    def test_patch_user_property_activity(self):
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_patch_user_property_activity(self, mock_capture):
         person = _create_person(
             team=self.team,
             distinct_ids=["1", "2", "3"],
