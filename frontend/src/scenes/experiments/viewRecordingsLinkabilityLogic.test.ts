@@ -46,7 +46,7 @@ describe('viewRecordingsLinkabilityLogic', () => {
         ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockResolvedValue({
             exposure_event_linkable: true,
             flag_property_linkable: null,
-            window_days: 7,
+            max_window_days: 7,
         })
     })
 
@@ -88,7 +88,7 @@ describe('viewRecordingsLinkabilityLogic', () => {
         ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockResolvedValue({
             exposure_event_linkable: false,
             flag_property_linkable: false,
-            window_days: 7,
+            max_window_days: 7,
         })
         logic = viewRecordingsLinkabilityLogic({ experiment: experimentBase })
         logic.mount()

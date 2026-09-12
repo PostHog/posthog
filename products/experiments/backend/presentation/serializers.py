@@ -1775,8 +1775,8 @@ class ExperimentReplayLinkabilitySerializer(serializers.Serializer):
     exposure_event_linkable = serializers.BooleanField(
         allow_null=True,
         help_text=(
-            "Whether exposure events for this experiment's flag were seen carrying a `$session_id` in the "
-            "last `window_days`. Scoped to the flag, unlike the taxonomy `seen_together` fact, which answers "
+            "Whether exposure events for this experiment's flag were seen carrying a `$session_id` inside the "
+            "scan window. Scoped to the flag, unlike the taxonomy `seen_together` fact, which answers "
             "for the event name across the whole project and so reads as linkable for a server-evaluated flag "
             "in any project that also evaluates flags on the client. Null when the scan couldn't answer "
             "(action-based exposure criteria, an experiment that never launched, or a refused scan); treat "
@@ -1787,11 +1787,17 @@ class ExperimentReplayLinkabilitySerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Whether the `$feature/<flag_key>` stand-in the recordings surfaces fall back to was seen carrying "
-            "a `$session_id` in the last `window_days`. Only scanned when `exposure_event_linkable` is false, "
+            "a `$session_id` inside the same scan window. Only scanned when `exposure_event_linkable` is false, "
             "so it is null whenever the exposure event itself can match; treat null as linkable."
         ),
     )
-    window_days = serializers.IntegerField(help_text="How many days back the scan read.")
+    max_window_days = serializers.IntegerField(
+        help_text=(
+            "The longest window a scan reads. The scan is clipped to the experiment's own run, so an "
+            "experiment that started inside this window is read from its start date, and a stopped "
+            "experiment is read back from its end date rather than from now."
+        )
+    )
 
 
 class ExperimentSessionBucketRequestSerializer(serializers.Serializer):

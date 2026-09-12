@@ -70,7 +70,8 @@ class FlagSessionCoverage:
     # Events stamped with `$feature/<flag_key>`, carrying a session id, inside the window. Only
     # scanned when `exposure_event` is False, since that is the only case where a surface reads it.
     flag_property: Optional[bool]
-    window_days: int = COVERAGE_WINDOW_DAYS
+    # A ceiling, not the window a scan read: `_coverage_window` clips it to the experiment's run.
+    max_window_days: int = COVERAGE_WINDOW_DAYS
 
 
 def _coverage_window(experiment: Experiment) -> Optional[tuple[datetime, datetime]]:

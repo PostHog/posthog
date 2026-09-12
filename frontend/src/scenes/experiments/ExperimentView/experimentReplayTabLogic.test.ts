@@ -161,7 +161,7 @@ type InSessionExposureResponse = {
     uses_stamped_fallback: boolean
 }
 
-const FLAG_COVERAGE_LINKABLE = { exposure_event_linkable: true, flag_property_linkable: null, window_days: 7 }
+const FLAG_COVERAGE_LINKABLE = { exposure_event_linkable: true, flag_property_linkable: null, max_window_days: 7 }
 
 // The common case: in-session evidence is the exposure event itself, and the scope can answer.
 const IN_SESSION_AVAILABLE: InSessionExposureResponse = {
@@ -473,7 +473,7 @@ describe('experimentReplayTabLogic', () => {
         ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockResolvedValue({
             exposure_event_linkable: false,
             flag_property_linkable: false,
-            window_days: 7,
+            max_window_days: 7,
         })
         const serverSide = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 55 } as Experiment })
         serverSide.mount()
@@ -1087,7 +1087,7 @@ describe('experimentReplayTabLogic', () => {
         ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockResolvedValue({
             exposure_event_linkable: false,
             flag_property_linkable: true,
-            window_days: 7,
+            max_window_days: 7,
         })
         const unlinkable = experimentReplayTabLogic({
             experiment: { ...EXPERIMENT, id: 112, start_date: daysAgo(10), end_date: null } as Experiment,

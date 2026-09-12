@@ -1555,7 +1555,7 @@ class EnterpriseExperimentsViewSet(
                 {
                     "exposure_event_linkable": coverage.exposure_event,
                     "flag_property_linkable": coverage.flag_property,
-                    "window_days": coverage.window_days,
+                    "max_window_days": coverage.max_window_days,
                 }
             ).data
         )
