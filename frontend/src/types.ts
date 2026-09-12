@@ -7470,6 +7470,7 @@ export type HogFunctionConfigurationContextId =
     | 'logs-alerting'
     | 'health-alerts'
     | 'batch-export-alerts'
+    | 'feature-flag-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -7478,6 +7479,7 @@ export type HogFunctionSubTemplateIdType =
     | 'pa-rageclick'
     | 'activity-log'
     | 'feature-flag-change'
+    | 'feature-flag-stale'
     | 'error-tracking-issue-created'
     | 'error-tracking-issue-reopened'
     | 'error-tracking-issue-spiking'

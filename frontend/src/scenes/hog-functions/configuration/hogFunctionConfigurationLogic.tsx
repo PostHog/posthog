@@ -1484,15 +1484,28 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                                     item_id: 'abcdef',
                                                 },
                                             }
-                                          : {
-                                                event: '$pageview',
-                                                properties: {
-                                                    $current_url: currentUrl,
-                                                    $browser: 'Chrome',
-                                                    $ip: '89.160.20.129',
-                                                    this_is_an_example_event: true,
-                                                },
-                                            }),
+                                          : contextId === 'feature-flag-alerts'
+                                            ? {
+                                                  event: '$feature_flag_stale',
+                                                  properties: {
+                                                      flag_id: '1',
+                                                      flag_key: 'example-flag',
+                                                      flag_name: 'Example flag',
+                                                      reason: 'Flag has not been called in 45 days',
+                                                      evidence_class: 'not_called_recently',
+                                                      days_since_evidence: 45,
+                                                      last_called_at: dayjs().subtract(45, 'day').toISOString(),
+                                                  },
+                                              }
+                                            : {
+                                                  event: '$pageview',
+                                                  properties: {
+                                                      $current_url: currentUrl,
+                                                      $browser: 'Chrome',
+                                                      $ip: '89.160.20.129',
+                                                      this_is_an_example_event: true,
+                                                  },
+                                              }),
                               },
                               person:
                                   contextId !== 'error-tracking'

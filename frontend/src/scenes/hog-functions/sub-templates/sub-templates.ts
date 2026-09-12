@@ -160,6 +160,12 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
             ],
         },
     },
+    'feature-flag-stale': {
+        sub_template_id: 'feature-flag-stale',
+        type: 'internal_destination',
+        context_id: 'feature-flag-alerts',
+        filters: { source: 'internal-events', events: [{ id: '$feature_flag_stale', type: 'events' }] },
+    },
     'discussion-mention': {
         sub_template_id: 'discussion-mention',
         type: 'internal_destination',
@@ -276,6 +282,11 @@ function buildFlagChangeVerbPhrase(): string {
 }
 
 const FLAG_CHANGE_VERB_PHRASE = buildFlagChangeVerbPhrase()
+
+// reason is the sentence the flag page shows, e.g. "Flag has not been called in 45 days"
+const FLAG_STALE_LINK = '{project.url}/feature_flags/{event.properties.flag_id}'
+const FLAG_STALE_MESSAGE =
+    'Feature flag `{event.properties.flag_key}` may be stale: {event.properties.reason}. Review its usage and code references before removing it.'
 
 interface HealthAlertTemplateCopy {
     slackHeader: string
@@ -856,7 +867,8 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             name: 'Notify Microsoft Teams for feature flag changes',
             description: 'Posts a message to Microsoft Teams when a feature flag is changed',
             inputs: {
-                content: {
+                // The Teams template reads text, not content
+                text: {
                     value: `**${FLAG_ACTOR_NAME}** ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
@@ -890,6 +902,83 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
                 text: {
                     value: `*${FLAG_ACTOR_NAME}* ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
+                },
+            },
+        },
+    ],
+    'feature-flag-stale': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['feature-flag-stale'],
+            template_id: 'template-webhook',
+            name: 'Notify webhook when a feature flag becomes stale',
+            description: 'Send a webhook when a feature flag stops being evaluated or is fully rolled out',
+            inputs: {
+                body: {
+                    value: {
+                        summary: FLAG_STALE_MESSAGE,
+                        flag_id: '{event.properties.flag_id}',
+                        flag_key: '{event.properties.flag_key}',
+                        flag_name: '{event.properties.flag_name}',
+                        reason: '{event.properties.reason}',
+                        evidence_class: '{event.properties.evidence_class}',
+                        days_since_evidence: '{event.properties.days_since_evidence}',
+                        link: FLAG_STALE_LINK,
+                    },
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['feature-flag-stale'],
+            template_id: 'template-discord',
+            name: 'Notify Discord when a feature flag becomes stale',
+            description: 'Posts a message to Discord when a feature flag stops being evaluated or is fully rolled out',
+            inputs: {
+                content: {
+                    value: `${FLAG_STALE_MESSAGE}\n${FLAG_STALE_LINK}`,
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['feature-flag-stale'],
+            template_id: 'template-microsoft-teams',
+            name: 'Notify Microsoft Teams when a feature flag becomes stale',
+            description:
+                'Posts a message to Microsoft Teams when a feature flag stops being evaluated or is fully rolled out',
+            inputs: {
+                text: {
+                    value: `${FLAG_STALE_MESSAGE}\n${FLAG_STALE_LINK}`,
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['feature-flag-stale'],
+            template_id: 'template-slack',
+            name: 'Notify Slack when a feature flag becomes stale',
+            description: 'Posts a message to Slack when a feature flag stops being evaluated or is fully rolled out',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            text: {
+                                text: FLAG_STALE_MESSAGE,
+                                type: 'mrkdwn',
+                            },
+                            type: 'section',
+                        },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: FLAG_STALE_LINK,
+                                    text: { text: 'View feature flag', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: FLAG_STALE_MESSAGE,
                 },
             },
         },
@@ -1734,6 +1823,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'health-alerts'
         case '$batch_export_run_failed':
             return 'batch-export-alerts'
+        case '$feature_flag_stale':
+            return 'feature-flag-alerts'
         default:
             return 'standard'
     }

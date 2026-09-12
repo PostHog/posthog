@@ -94,6 +94,7 @@ from products.feature_flags.backend.tasks import (
     compute_feature_flag_metrics,
     drain_flag_definitions_rebuild_requests,
     feature_flags_local_eval_canary_task,
+    notify_stale_feature_flags,
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
     sync_cross_region_flags_task,
@@ -471,6 +472,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="15"),
         cleanup_stale_flags_expiry_tracking_task.s(),
         name="flags cache expiry tracking cleanup",
+    )
+
+    # Stale feature flag notifications - daily at 6:45 AM
+    sender.add_periodic_task(
+        crontab(hour="6", minute="45"),
+        notify_stale_feature_flags.s(),
+        name="notify stale feature flags",
     )
 
     # Feature flag metrics for Grafana dashboards - hourly at minute 30
