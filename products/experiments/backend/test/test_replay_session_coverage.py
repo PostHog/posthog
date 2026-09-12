@@ -106,6 +106,15 @@ class TestReplaySessionCoverage(ClickhouseTestMixin, APIBaseTest):
         if exposure_criteria is not None:
             experiment.exposure_criteria = exposure_criteria
             experiment.save()
+            # The criteria's own event, captured without a session id, so the exposure verdict is a
+            # definite absence and the stand-in gate is what leaves the property unknown.
+            _create_event(
+                team=self.team,
+                event="backend_exposure",
+                distinct_id="someone",
+                timestamp=timezone.now() - timedelta(days=1),
+                properties={},
+            )
         self._flag_call("someone", "server-side-flag", session_id=flag_call_session_id)
         _create_event(
             team=self.team,
@@ -141,13 +150,16 @@ class TestReplaySessionCoverage(ClickhouseTestMixin, APIBaseTest):
         self.team.test_account_filters = [{"key": "$host", "value": "localhost", "operator": "is_not", "type": "event"}]
         self.team.save()
         _create_person(team_id=self.team.pk, distinct_ids=["internal"])
+        _create_person(team_id=self.team.pk, distinct_ids=["customer"])
         experiment = self._experiment("server-side-flag")
         experiment.exposure_criteria = {"filterTestAccounts": True}
         experiment.save()
-        # The only session-linked evidence of either kind belongs to an account the list drops.
+        # The only session-linked evidence of either kind belongs to an account the list drops,
+        # while the population the list does show is exposed without a session id.
         self._flag_call(
             "internal", "server-side-flag", session_id="0198f2e4-0000-7000-8000-000000000001", host="localhost"
         )
+        self._flag_call("customer", "server-side-flag", session_id=None, host="app.example.com")
         _create_event(
             team=self.team,
             event="$pageview",
@@ -165,7 +177,19 @@ class TestReplaySessionCoverage(ClickhouseTestMixin, APIBaseTest):
         assert coverage.exposure_event is False
         assert coverage.flag_property is False
 
-    def test_coverage_older_than_the_window_does_not_count(self) -> None:
+    @parameterized.expand(
+        [
+            # Nothing recent to judge, so the older evidence neither counts nor reads as absence: a
+            # flag quiet for a week is unknown, and every caller fails open on that.
+            ("nothing since", False, None),
+            # Recent exposures carrying no session id, so the window answers on its own and the
+            # older linked event still doesn't count.
+            ("recent exposures with no session id", True, False),
+        ]
+    )
+    def test_coverage_older_than_the_window_does_not_count(
+        self, _name: str, recent_exposure: bool, expected: bool | None
+    ) -> None:
         _create_person(team_id=self.team.pk, distinct_ids=["someone"])
         experiment = self._experiment("server-side-flag")
         experiment.start_date = timezone.now() - timedelta(days=COVERAGE_WINDOW_DAYS + 30)
@@ -176,9 +200,11 @@ class TestReplaySessionCoverage(ClickhouseTestMixin, APIBaseTest):
             session_id="0198f2e4-0000-7000-8000-000000000002",
             days_ago=COVERAGE_WINDOW_DAYS + 5,
         )
+        if recent_exposure:
+            self._flag_call("someone", "server-side-flag", session_id=None)
         flush_persons_and_events()
 
-        assert resolve_flag_session_coverage(self.team, experiment).exposure_event is False
+        assert resolve_flag_session_coverage(self.team, experiment).exposure_event is expected
 
     @parameterized.expand(
         [

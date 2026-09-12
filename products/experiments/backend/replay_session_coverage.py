@@ -17,10 +17,10 @@ The flag-property scan has no event name to prune on, so it only runs when the e
 already reported no coverage, and only for the default exposure events, the only ones a surface
 stands in for — the minority case, and the only one where the answer changes what a surface does.
 Both scans stop at the first matching row and are capped, so an unbounded window can't turn a
-tab's mount into a long query. An unknown answer (a refused or failed scan, an
-action-based exposure criteria, an experiment that never launched) is reported as `None`, and
-every caller treats that as "assume it matches", the fail-open posture the rest of the
-linkability seam takes.
+tab's mount into a long query. An unknown answer (a refused or failed scan, an action-based
+exposure criteria, an experiment that never launched, a window holding no exposure event at all)
+is reported as `None`, and every caller treats that as "assume it matches", the fail-open posture
+the rest of the linkability seam takes.
 """
 
 import logging
@@ -69,7 +69,8 @@ class FlagSessionCoverage:
     `None` means the scan couldn't answer, never "no": callers fail open on it.
     """
 
-    # Exposure events for this flag, carrying a session id, inside the window.
+    # Exposure events for this flag, carrying a session id, inside the window. False only when the
+    # window held exposure events and none of them carried one.
     exposure_event: Optional[bool]
     # Events stamped with `$feature/<flag_key>`, carrying a session id, inside the window. Only
     # scanned when `exposure_event` is False, since that is the only case where a surface reads it.
@@ -93,8 +94,16 @@ def _coverage_window(experiment: Experiment) -> Optional[tuple[datetime, datetim
     return window_start, window_end
 
 
-def _has_session_linked_row(team: Team, where: list[ast.Expr]) -> Optional[bool]:
-    """Whether any event matches `where` while carrying a session id.
+def _session_id_present() -> ast.Expr:
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.NotEq,
+        left=ast.Field(chain=["$session_id"]),
+        right=ast.Constant(value=""),
+    )
+
+
+def _has_matching_row(team: Team, where: list[ast.Expr]) -> Optional[bool]:
+    """Whether any event matches `where`.
 
     One row is enough, so the scan stops at the first match instead of counting. A failure is
     `None` rather than False: a refused scan must not read as evidence of absence.
@@ -102,16 +111,7 @@ def _has_session_linked_row(team: Team, where: list[ast.Expr]) -> Optional[bool]
     query = ast.SelectQuery(
         select=[ast.Constant(value=1)],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-        where=ast.And(
-            exprs=[
-                *where,
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotEq,
-                    left=ast.Field(chain=["$session_id"]),
-                    right=ast.Constant(value=""),
-                ),
-            ]
-        ),
+        where=ast.And(exprs=where),
         limit=ast.Constant(value=1),
     )
     try:
@@ -124,6 +124,20 @@ def _has_session_linked_row(team: Team, where: list[ast.Expr]) -> Optional[bool]
         logger.warning("experiment replay session coverage scan failed", exc_info=True, extra={"team_id": team.pk})
         return None
     return bool(response.results)
+
+
+def _session_id_coverage(team: Team, where: list[ast.Expr]) -> Optional[bool]:
+    """Whether the events matching `where` carry a session id.
+
+    False means matching events exist and none of them carried one. A window holding no matching
+    event at all says nothing about whether these events carry a session id, so that is `None`, the
+    same unknown a refused scan reports: a flag quiet for a week must not read as a flag whose
+    events can't match a recording. The second probe runs only once the first found nothing.
+    """
+    linked = _has_matching_row(team, [*where, _session_id_present()])
+    if linked is not False:
+        return linked
+    return False if _has_matching_row(team, where) is True else None
 
 
 def _window_bounds(window_start: datetime, window_end: datetime) -> list[ast.Expr]:
@@ -171,7 +185,7 @@ def resolve_flag_session_coverage(team: Team, experiment: Experiment) -> FlagSes
     # kept them would answer over a wider population than the list and read one internal browser
     # session as coverage the real population doesn't have.
     test_account_conditions = get_test_accounts_filter(team, experiment.exposure_criteria)
-    exposure_covered = _has_session_linked_row(
+    exposure_covered = _session_id_coverage(
         team,
         [
             *_window_bounds(window_start, window_end),
@@ -190,11 +204,15 @@ def resolve_flag_session_coverage(team: Team, experiment: Experiment) -> FlagSes
     # that something specific happened, which the stamped flag property doesn't imply. Scanning it
     # there would answer a question no surface can act on, and read as a usable fallback.
     if exposure_covered is False and exposure_event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT):
-        flag_property_covered = _has_session_linked_row(
+        # A plain probe, not the verdict above: `$feature/<flag_key>` is stamped by the client
+        # SDK, which always attaches a session id, so no stamped event in the window means there is
+        # nothing for a filter to match rather than a question the window couldn't answer.
+        flag_property_covered = _has_matching_row(
             team,
             [
                 *_window_bounds(window_start, window_end),
                 *test_account_conditions,
+                _session_id_present(),
                 # `notEmpty(ifNull(...))` rather than a `!=` comparison: HogQL reads a null as
                 # "not equal", so comparing an absent property to the empty string matches every
                 # event that never carried it.
