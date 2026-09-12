@@ -487,6 +487,18 @@ WHITENOISE_MAX_AGE = get_from_env("WHITENOISE_MAX_AGE", 3600, type_cast=int)
 # non-prod (e.g. dev deploy smoke-tests) can raise it without weakening the prod default.
 SIGNUP_IP_THROTTLE_RATE = get_from_env("SIGNUP_IP_THROTTLE_RATE", "5/day")
 
+# Per-caller daily ceilings on POST /provisioning/account_requests (see
+# ee.api.agentic_provisioning.throttling), independent of the calling partner's own budget.
+PROVISIONING_ACCOUNT_REQUESTS_PER_IP_PER_DAY = get_from_env(
+    "PROVISIONING_ACCOUNT_REQUESTS_PER_IP_PER_DAY", 10, type_cast=int
+)
+PROVISIONING_ACCOUNT_REQUESTS_PER_EMAIL_ROOT_PER_DAY = get_from_env(
+    "PROVISIONING_ACCOUNT_REQUESTS_PER_EMAIL_ROOT_PER_DAY", 3, type_cast=int
+)
+PROVISIONING_ACCOUNT_REQUESTS_PER_DOMAIN_PER_DAY = get_from_env(
+    "PROVISIONING_ACCOUNT_REQUESTS_PER_DOMAIN_PER_DAY", 20, type_cast=int
+)
+
 # Billing usage and spend exports stream a file from the billing service for as long as the
 # browser reads it, so both limits are per user (see ee.api.billing): how often an export may
 # start, and how many may be open at once.
