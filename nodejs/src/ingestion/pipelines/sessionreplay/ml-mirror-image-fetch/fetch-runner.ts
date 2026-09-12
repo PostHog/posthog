@@ -2,12 +2,9 @@ import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
 
 import type { ImageFetchBlockReason } from './block-reason'
+import { fetchCandidateHistoryKey } from './collected-urls-record'
 import { FetchCandidate, MAX_HOPS, RepublishReason } from './collected-urls-record'
-import {
-    ConfigurationPolicyPass,
-    ConfigurationPolicyService,
-    explicitFreshnessLifetimeMs,
-} from './configuration-policy'
+import { ConfigurationPolicyPass, ConfigurationPolicyService } from './configuration-policy'
 import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata, UrlCrawlHistoryItem } from './crawl-history'
 import { FetchCandidateLease, FetchCandidateQueue } from './fetch-candidate-queue'
 import { FrontierPublisher, RepublishBatch, RepublishResult } from './frontier-publisher'
@@ -24,6 +21,7 @@ import { OriginRequestScheduler } from './origin-request-scheduler'
 import { canonicalizeUrl } from './politeness-key'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
+import { urlHistoryExpiresAtMs } from './url-history-expiry'
 
 export type ShedReason =
     | 'breaker_open'
@@ -353,7 +351,7 @@ export class FetchRunner implements FetchPass {
             )
         }
 
-        const previous = stored.get(candidate.originalRef)
+        const previous = stored.get(fetchCandidateHistoryKey(candidate))
         const previousUrl = previous?.kind === 'url' ? previous : undefined
         const result = await ImageFetchProcessingMetrics.measure('candidate_fetch', () =>
             this.fetcher.fetch(candidate.currentUrl, {
@@ -609,9 +607,7 @@ export class FetchRunner implements FetchPass {
         refusalReason: FetchRefusalReason | 'none' = 'none'
     ): FetchAttempt {
         const nowMs = Date.now()
-        const minimumNextFetchAtMs = nowMs + this.options.seenTtlSeconds * 1000
-        const explicitNextFetchAtMs = cache ? nowMs + explicitFreshnessLifetimeMs(cache, nowMs) : 0
-        const nextFetchAtMs = Math.max(minimumNextFetchAtMs, explicitNextFetchAtMs)
+        const nextFetchAtMs = urlHistoryExpiresAtMs(candidate.originalRef, nowMs, this.options.seenTtlSeconds, cache)
         ImageFetchRequestMetrics.observeCompletedUrl(
             outcome,
             refusalReason,
@@ -627,7 +623,7 @@ export class FetchRunner implements FetchPass {
             lost: false,
             history: {
                 kind: 'url',
-                key: candidate.originalRef,
+                key: fetchCandidateHistoryKey(candidate),
                 nextFetchAtMs,
                 storageExpiresAtMs: nextFetchAtMs,
                 outcome: String(outcome),

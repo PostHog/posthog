@@ -5,6 +5,7 @@ import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared
 import { PSEUDONYM_DISTINCT_ID, PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
 
 export interface MlBlockMetadataRow {
+    format_version?: 2
     session_start_ts_ms?: number
     replay_index_entries?: ReplayIndexEntry[]
     replay_index_truncated?: boolean

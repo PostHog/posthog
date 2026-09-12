@@ -7,9 +7,9 @@ import { buildMlMirrorServerConfig } from './ingestion-session-replay-ml-mirror-
 describe('image fetch consumer wiring', () => {
     it.each([
         ['the default', {}, 2, 102_400],
-        ['four consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 4 }, 4, 102_400],
-        ['eight consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 8 }, 8, 204_800],
-        ['sixteen consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 16 }, 16, 409_600],
+        ['four consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 4 }, 4, 164_096],
+        ['eight consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 8 }, 8, 328_192],
+        ['sixteen consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 16 }, 16, 656_384],
     ])('creates %s number of Kafka group members', (_name, overrides, expectedConsumers, expectedQueueBudget) => {
         const serverConfig = buildMlMirrorServerConfig(overrides)
         const consumerConfigs = buildImageFetchConsumerConfigs(serverConfig)
@@ -26,7 +26,7 @@ describe('image fetch consumer wiring', () => {
             expectedQueueBudget - expectedConsumers
         )
         expect(Number(consumerOverrides['queued.max.messages.kbytes']) * 1024).toBeGreaterThanOrEqual(
-            serverConfig.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES + 64 * 1024
+            serverConfig.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES * 2 + 64 * 1024
         )
     })
 

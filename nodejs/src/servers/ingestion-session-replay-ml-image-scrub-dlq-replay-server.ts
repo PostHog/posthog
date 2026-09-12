@@ -1,12 +1,12 @@
 import { initializePrometheusLabels } from '~/common/api/router'
 import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { logger } from '~/common/utils/logger'
 import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import { replayBatch } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/dlq-replay'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
-import { logger } from '../common/utils/logger'
 import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 import {
     IngestionSessionReplayMlMirrorServerConfig,
@@ -59,7 +59,7 @@ export class IngestionSessionReplayMlImageScrubDlqReplayServer implements NodeSe
 
         // A separate group from the scrub consumer's, and its own topic, so a replay run cannot
         // disturb the offsets of the lane it is feeding.
-        const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES + 64 * 1024
+        const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES * 2 + 64 * 1024
         const consumer = new KafkaConsumer(
             {
                 topic: dlqTopic,

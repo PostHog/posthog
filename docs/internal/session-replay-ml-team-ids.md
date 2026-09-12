@@ -85,6 +85,9 @@ Its team IDs refer to the original environment, without resolving a child enviro
 
 Distinct IDs and sessions have a many-to-many relationship.
 Ingestion records both directions of each association before publishing data.
+Each batch reads the organization/team directory entry with its initial state.
+It creates missing entries before session keys.
+This lets consent withdrawal discover every team without rewriting the directory in each key transaction.
 Team and distinct-ID lookups use 32 session shards with strongly consistent queries; they do not require ClickHouse or an eventually consistent secondary index.
 Deleting one distinct ID deletes each complete associated session, including events with other distinct IDs.
 A later event for a blocked distinct ID also blocks its session.
@@ -114,13 +117,17 @@ Deleting a month does not affect another month's image keys.
 
 ## Data layout and readers
 
-| Dataset              | Default path                                   | Encryption key                          |
-| -------------------- | ---------------------------------------------- | --------------------------------------- |
-| Replay blocks        | `rrweb_2/`                                     | Session                                 |
-| Metadata catalog     | `block-metadata/v2/dt=<arrival-date>/`         | Each row's payload uses its session key |
-| Inline image shards  | `scrubbed-images/v2/<team>/<grant>/shards/`    | Team and consent period                 |
-| Inline image indexes | `scrubbed-images/v2/<team>/<grant>/index/`     | Team and consent period                 |
-| URL images           | `scrubbed-images/v2/<team>/<grant>/url/<hash>` | Team and consent period                 |
+All v2 S3 datasets use a `YYYY-MM` directory derived from the session UUIDv7 start timestamp in UTC.
+A session that crosses a month boundary stays in its start month, including late blocks and image fetches.
+
+| Dataset              | Default path                                                        | Encryption key                          |
+| -------------------- | ------------------------------------------------------------------- | --------------------------------------- |
+| Replay blocks        | `rrweb_2/<month>/`                                                  | Session                                 |
+| Metadata catalog     | `block-metadata/v2/<month>/`                                        | Each row's payload uses its session key |
+| Inline image shards  | `scrubbed-images/v2/<month>/<team>/<grant>/shards/`                 | Team and consent period                 |
+| Inline image lookups | `scrubbed-images/v2/<month>/<team>/<grant>/lookup/<hash>.encrypted` | Team and consent period                 |
+| Inline image indexes | `scrubbed-images/v2/<month>/<team>/<grant>/index/`                  | Team and consent period                 |
+| URL images           | `scrubbed-images/v2/<month>/<team>/<grant>/url/<hash>`              | Team and consent period                 |
 
 Metadata catalogs expose raw `team_id`, `session_id`, `consent_granted_at`, `format_version`, and an encrypted `payload`.
 Distinct IDs, URLs, block locations, and replay indexes are inside that payload.
@@ -128,12 +135,13 @@ V2 does not write a separate plaintext replay index.
 
 Athena can select catalog rows but cannot decrypt replay fields.
 Training readers must bulk-read live keys and consent before decrypting.
+If a download exceeds the key read lifetime, readers must check live eligibility again before decryption.
 Cross-account readers use the full DynamoDB table ARN and the prod-us KMS key ARN.
 Both accounts must authorize the reader role.
 Readers have key-read and decrypt permissions; they cannot create keys or change deletion state.
 
 Use metadata block locations and byte ranges to fetch recordings, then decrypt before decompressing.
-Include all relevant metadata arrival dates when collecting a session with late blocks.
+Read metadata from the session start month, including blocks that arrive in later months.
 
 Join analytics on both raw team and session IDs, or on team and distinct IDs.
 Remove identifiers from model inputs.
@@ -141,11 +149,18 @@ Resolve image references before training because they contain team IDs.
 
 ## Images and Kafka
 
-V2 references are `image:v2:<team>:<grant>:<hash>` and `imageurl:v2:<team>:<grant>:<hash>`.
-Images do not deduplicate across teams or consent periods.
+V2 references are `image:v2:<team>:<grant>:<month>:<hash>` and `imageurl:v2:<team>:<grant>:<month>:<hash>`.
+Images do not deduplicate across teams, consent periods or session months.
 Source messages use session keys; stored scrubbed images use team image keys.
+Consumers reject malformed UUIDv7 session identifiers before reading DynamoDB.
+Oversized identifiers cannot fail a whole bulk key lookup.
+Inline images have an encrypted lookup for each reference, published after the shard and its index.
+Readers fetch that lookup directly; a missing image does not require a scan of the team's image history.
 Source deduplication includes the session, so deleting one source session cannot suppress another session's copy.
 The v2 image-fetch frontier uses a separate, initially empty DynamoDB history table.
+Its URL history expires eight days after the end of the session's UTC month.
+Explicit HTTP freshness or cache restrictions can shorten this expiry; they cannot extend it.
+Robots.txt and TDM reservation caches keep their shared origin keys and existing expiry rules.
 It does not inherit v1 seen flags or successful fetch results.
 
 ML Kafka producers write `ai_research_ingestion_version: 1` or `2`.
@@ -171,3 +186,8 @@ When both aliases are set, the `AI_RESEARCH_REPLAY_*` value takes precedence, in
 The wrapped HMAC secret keeps the single name `SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY` in both the environment and secret store.
 It has no new alias.
 Renaming configuration must not rotate that key.
+
+V2 data uses `YYYY-MM` directories from the session UUIDv7 start timestamp in UTC.
+Recording blocks, metadata, image shards, image lookups and URL images retain that month across late arrivals.
+V2 image references include `<team>:<grant>:<month>:<hash>`, so the image-fetch seen history is independent for each month.
+Robots.txt and TDM reservation caches remain shared by origin across months.

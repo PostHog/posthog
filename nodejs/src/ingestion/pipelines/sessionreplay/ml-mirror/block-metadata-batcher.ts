@@ -2,11 +2,14 @@
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
 
 import { findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { parseBlockMetadataMessages } from './block-metadata-message'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
 import { MlParquetSinkMetrics } from './metrics'
+import { MlEncryptedEnvelope } from './privacy/crypto'
+import { MlKafkaEncryption, ingestionVersion } from './privacy/transport'
 
 /** The subset of the Kafka consumer the batcher needs: storing offsets it has durably written. */
 export interface OffsetStore {
@@ -20,6 +23,7 @@ export interface BlockMetadataBatcherOptions {
 }
 
 export class BlockMetadataBatcher {
+    private encrypted: MlEncryptedEnvelope[] = []
     private buffer: MlBlockMetadataRow[] = []
     private bufferedBytes = 0
     private pendingOffsets = new Map<string, TopicPartitionOffset>()
@@ -29,7 +33,8 @@ export class BlockMetadataBatcher {
         private readonly store: BlockMetadataParquetStore,
         private readonly offsetStore: OffsetStore,
         private readonly options: BlockMetadataBatcherOptions,
-        nowMs: number
+        nowMs: number,
+        private readonly privacy?: MlKafkaEncryption
     ) {
         this.lastFlushMs = nowMs
     }
@@ -39,8 +44,32 @@ export class BlockMetadataBatcher {
         for (const message of messages) {
             this.bufferedBytes += message.value?.length ?? 0
         }
-        for (const row of parseBlockMetadataMessages(messages)) {
-            this.buffer.push(row)
+        const decoded = this.privacy
+            ? await this.privacy.read(messages, 'metadata')
+            : messages.map((message) => {
+                  if (ingestionVersion(message) === 2) {
+                      throw new Error('ML v2 metadata requires privacy configuration')
+                  }
+                  return { message, original: message, key: undefined, invalid: undefined }
+              })
+        MlParquetSinkMetrics.incRowsRejected('privacy', messages.length - decoded.length)
+        let encryptedRows = 0
+        for (const { original, key, invalid } of decoded) {
+            if (invalid) {
+                MlParquetSinkMetrics.incRowsRejected('invalid_envelope')
+            }
+            if (key) {
+                this.encrypted.push(parseJSON(original.value!.toString()) as MlEncryptedEnvelope)
+                encryptedRows++
+            }
+        }
+        MlParquetSinkMetrics.incRowsParsed(encryptedRows)
+        for (const row of parseBlockMetadataMessages(
+            decoded.filter(({ key, invalid }) => !key && !invalid).map(({ message }) => message)
+        )) {
+            if (row.format_version !== 2) {
+                this.buffer.push(row)
+            }
         }
         // Track the next offset to read per partition (highest seen + 1), accumulated across batches.
         for (const offset of findOffsetsToCommit(messages)) {
@@ -53,7 +82,7 @@ export class BlockMetadataBatcher {
 
     private shouldFlush(nowMs: number): boolean {
         if (
-            this.buffer.length >= this.options.maxRows ||
+            this.buffer.length + this.encrypted.length >= this.options.maxRows ||
             this.bufferedBytes >= (this.options.maxBytes ?? 32 * 1024 * 1024)
         ) {
             return true
@@ -70,8 +99,12 @@ export class BlockMetadataBatcher {
      */
     public async flush(nowMs: number): Promise<void> {
         this.lastFlushMs = nowMs
-        const wroteObject = this.buffer.length > 0
-        if (wroteObject) {
+        const wroteObject = this.buffer.length > 0 || this.encrypted.length > 0
+        if (this.encrypted.length > 0) {
+            await this.store.writeEncrypted(this.encrypted)
+            this.encrypted = []
+        }
+        if (this.buffer.length > 0) {
             await this.store.write(this.buffer)
             this.buffer = []
         }

@@ -1,8 +1,10 @@
 import { PutObjectCommandInput, S3Client } from '@aws-sdk/client-s3'
 import { ParquetReader } from '@dsnp/parquetjs'
+import { register } from 'prom-client'
 
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
+import { TrainingEncryptionVector } from './privacy/test-vectors'
 import { replayIndexPartitions } from './replay-index'
 
 const row = (sessionId: string, teamId: string): MlBlockMetadataRow => ({
@@ -50,6 +52,7 @@ describe('BlockMetadataParquetStore', () => {
     let s3: S3Client
 
     beforeEach(() => {
+        register.resetMetrics()
         puts = []
         s3 = {
             send: jest.fn((cmd: { input: PutObjectCommandInput }) => {
@@ -57,6 +60,50 @@ describe('BlockMetadataParquetStore', () => {
                 return Promise.resolve({})
             }),
         } as unknown as S3Client
+    })
+
+    it('splits encrypted metadata by session month rather than upload time', async () => {
+        const envelopes = ['2026-09-30T23:59:59.999Z', '2026-10-01T00:00:00Z'].map((date) => {
+            const hex = Date.parse(date).toString(16).padStart(12, '0')
+            return {
+                ...TrainingEncryptionVector.envelope,
+                context: {
+                    ...TrainingEncryptionVector.envelope.context,
+                    sessionId: `${hex.slice(0, 8)}-${hex.slice(8)}-7000-8000-000000000007`,
+                },
+            }
+        })
+        await new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod').writeEncrypted(envelopes)
+        expect(puts.map((put) => put.Key?.split('/').slice(0, 3).join('/'))).toEqual([
+            'block-metadata/v2/2026-09',
+            'block-metadata/v2/2026-10',
+        ])
+        for (const [index, put] of puts.entries()) {
+            const records = await readRows(put.Body)
+            expect(records.map((record) => record.session_id)).toEqual([envelopes[index].context.sessionId])
+        }
+    })
+
+    it.each([false, true])('counts encrypted uploads and failures: %s', async (failed) => {
+        if (failed) {
+            jest.mocked(s3.send).mockImplementationOnce(() => Promise.reject(new Error('upload failed')))
+        }
+        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const write = store.writeEncrypted([TrainingEncryptionVector.envelope])
+        if (failed) {
+            await expect(write).rejects.toThrow('upload failed')
+        } else {
+            await write
+        }
+        const rows = await register.getSingleMetric('ml_mirror_parquet_sink_rows_written_total')!.get()
+        const failures = await register.getSingleMetric('ml_mirror_parquet_sink_write_errors_total')!.get()
+        expect(rows.values[0].value).toBe(failed ? 0 : 1)
+        expect(failures.values[0].value).toBe(failed ? 1 : 0)
+        if (!failed) {
+            expect((await readRows(puts[0].Body))[0].payload).toEqual(
+                Buffer.from(JSON.stringify(TrainingEncryptionVector.envelope))
+            )
+        }
     })
 
     it.each([
@@ -119,6 +166,12 @@ describe('BlockMetadataParquetStore', () => {
             ]).values(),
         ].flat()
         expect(entries.find((entry) => entry.kind === 'full_snapshot')?.url).toBeNull()
+    })
+
+    it('rejects plaintext v2 metadata before writing any objects', async () => {
+        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        await expect(store.write([{ ...row('session', '42'), format_version: 2 }])).rejects.toThrow('encrypted storage')
+        expect(puts).toHaveLength(0)
     })
 
     it('writes one dt-partitioned Parquet object that round-trips', async () => {

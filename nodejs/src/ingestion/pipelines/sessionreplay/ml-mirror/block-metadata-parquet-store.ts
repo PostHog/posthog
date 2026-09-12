@@ -1,13 +1,17 @@
 /** Sorts, encodes, and uploads a batch of block-metadata rows as one dt-partitioned Parquet object in the ML bucket. */
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { ParquetSchema } from '@dsnp/parquetjs'
 import { randomUUID } from 'crypto'
 
 import { logger } from '~/common/utils/logger'
+import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 import { MlBlockMetadataRow } from './block-metadata-row'
 import { MlParquetSinkMetrics } from './metrics'
 import { rowsToParquetBuffer } from './parquet-writer'
+import { MlEncryptedEnvelope } from './privacy/crypto'
 import { replayIndexPartitions, replayIndexToParquetBuffer } from './replay-index'
+import { sessionStartMonth } from './session-identifier-format'
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
@@ -34,6 +38,65 @@ export class BlockMetadataParquetStore {
         if (rows.length === 0) {
             return
         }
+        if (rows.some((row) => row.format_version === 2)) {
+            throw new Error('ML v2 metadata must use encrypted storage')
+        }
+        await this.writeDataset(rows, this.prefix, `${this.prefix}-replay-index/v1`)
+    }
+
+    public async writeEncrypted(envelopes: MlEncryptedEnvelope[]): Promise<void> {
+        if (envelopes.length === 0) {
+            return
+        }
+        const months = new Map<string, MlEncryptedEnvelope[]>()
+        for (const envelope of envelopes) {
+            const month = sessionStartMonth(envelope.context.sessionId ?? '')
+            const group = months.get(month) ?? []
+            group.push(envelope)
+            months.set(month, group)
+        }
+        for (const [month, group] of months) {
+            await this.writeEncryptedMonth(month, group)
+        }
+    }
+
+    private async writeEncryptedMonth(month: string, envelopes: MlEncryptedEnvelope[]): Promise<void> {
+        let body: Buffer
+        try {
+            const schema = new ParquetSchema({
+                format_version: { type: 'INT64' },
+                team_id: { type: 'UTF8' },
+                session_id: { type: 'UTF8' },
+                consent_granted_at: { type: 'INT64' },
+                payload: { type: 'BYTE_ARRAY' },
+            })
+            body = await parquetRecordsToBuffer(
+                schema,
+                envelopes.map((envelope) => ({
+                    format_version: 2n,
+                    team_id: String(envelope.context.teamId),
+                    session_id: envelope.context.sessionId,
+                    consent_granted_at: BigInt(envelope.context.consentGrantedAt),
+                    payload: Buffer.from(JSON.stringify(envelope)),
+                }))
+            )
+            await this.s3Client.send(
+                new PutObjectCommand({
+                    Bucket: this.bucket,
+                    Key: `${this.prefix}/v2/${month}/part-${this.nodeId}-${Date.now()}-${++this.seq}.parquet`,
+                    Body: body,
+                    ContentType: 'application/vnd.apache.parquet',
+                }),
+                { abortSignal: AbortSignal.timeout(30_000) }
+            )
+        } catch (error) {
+            MlParquetSinkMetrics.incWriteError()
+            throw error
+        }
+        MlParquetSinkMetrics.observeWrite(envelopes.length, body.length)
+    }
+
+    private async writeDataset(rows: MlBlockMetadataRow[], prefix: string, indexPrefix: string): Promise<void> {
         // Sorting clusters a recording's blocks together for better compression and reads.
         rows.sort((a, b) => cmp(a.team_id, b.team_id) || cmp(a.session_id, b.session_id))
         let body: Buffer
@@ -48,7 +111,7 @@ export class BlockMetadataParquetStore {
                 await this.s3Client.send(
                     new PutObjectCommand({
                         Bucket: this.bucket,
-                        Key: `${this.prefix}-replay-index/v1/${partition}/part-${this.nodeId}-${Date.now()}-${this.seq}.parquet`,
+                        Key: `${indexPrefix}/${partition}/part-${this.nodeId}-${Date.now()}-${this.seq}.parquet`,
                         Body: indexBody,
                         ContentType: 'application/vnd.apache.parquet',
                     })
@@ -57,7 +120,7 @@ export class BlockMetadataParquetStore {
             }
             body = await rowsToParquetBuffer(rows)
             bounds = eventTimeBounds(rows)
-            key = this.objectKey(new Date(bounds.minMs).toISOString().slice(0, 10))
+            key = this.objectKey(prefix, new Date(bounds.minMs).toISOString().slice(0, 10))
             await this.s3Client.send(
                 new PutObjectCommand({
                     Bucket: this.bucket,
@@ -81,9 +144,9 @@ export class BlockMetadataParquetStore {
     }
 
     /** Partition by event date (`dt=`), but keep a write-time stamp + seq + pod id in the name for uniqueness. */
-    private objectKey(dt: string): string {
+    private objectKey(prefix: string, dt: string): string {
         this.seq += 1
-        return `${this.prefix}/dt=${dt}/part-${this.nodeId}-${Date.now()}-${this.seq}.parquet`
+        return `${prefix}/dt=${dt}/part-${this.nodeId}-${Date.now()}-${this.seq}.parquet`
     }
 }
 

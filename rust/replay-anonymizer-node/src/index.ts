@@ -142,9 +142,9 @@ export function initAnonymizer(allow: AllowListsInput): void {
  *
  * `cv` payloads re-emit as zstd; the reader dispatches on magic bytes.
  *
- * Non-empty `pseudoTeam` + `contentKey` (the per-team HMAC pseudonym and content-hash key — never
- * the raw team id or master secret) enable the image-collection lane: inlined images are replaced
- * with `image:<pseudoTeam>:<hash>` refs (hash = keyed HMAC of the bytes) instead of the inline
+ * Non-empty `teamId` + `contentKey` enable image collection using the raw team ID and per-team
+ * content HMAC key. The master secret stays with the caller. Inlined images are replaced
+ * with `image:<teamId>:<hash>` refs (hash = keyed HMAC of the bytes) instead of the inline
  * blur, and the original bytes come back in `images`/`meta.images` for the caller to produce to
  * the scrub topic.
  *
@@ -152,21 +152,23 @@ export function initAnonymizer(allow: AllowListsInput): void {
  * image's `src` keeps the media placeholder, a namespaced sibling attribute carries its ref, and
  * its original URL comes back in `meta.urls` for the caller to hand to the fetch lane.
  *
- * The two lanes are independent: either, both, or neither. Only `contentKey` needs `pseudoTeam`.
+ * The two lanes are independent: either, both, or neither. Only `contentKey` needs `teamId`.
  */
 export async function anonymizeKafkaPayload(
     payload: Buffer,
     contentEncoding?: string | null,
-    pseudoTeam?: string | null,
+    teamId?: string | null,
     contentKey?: string | null,
-    urlKey?: string | null
+    urlKey?: string | null,
+    referenceNamespace?: string | null
 ): Promise<AnonymizeKafkaPayloadResult> {
     const result = await native.anonymizeKafkaPayload(
         payload,
         contentEncoding ?? undefined,
-        pseudoTeam ?? undefined,
+        teamId ?? undefined,
         contentKey ?? undefined,
-        urlKey ?? undefined
+        urlKey ?? undefined,
+        referenceNamespace ?? undefined
     )
     // Timings are best-effort telemetry: a malformed timings blob must never fail the message.
     let timings: AnonymizeTimings | null = null

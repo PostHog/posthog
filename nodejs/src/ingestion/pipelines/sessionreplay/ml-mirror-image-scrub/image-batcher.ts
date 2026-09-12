@@ -3,6 +3,14 @@ import { LibrdKafkaError, Message, TopicPartitionOffset } from 'node-rdkafka'
 import { findOffsetsToCommit, parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
+import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
+import {
+    CONSENT_GRANTED_AT_HEADER,
+    INGESTION_VERSION_HEADER,
+    imageKeyId,
+    tableKeyString,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/schema'
+import { ingestionVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/transport'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 import { parseImageRef } from './content-ref'
@@ -64,8 +72,12 @@ const REVOKED_PARTITION_CODES = new Set([
 
 /** The batch index is what lets offsets advance across the messages planning skipped. */
 interface PlannedScrub {
+    sessionMonth?: string
+    consentGrantedAt?: number
+    encryptedValue?: Buffer
     index: number
     ref: string
+    teamId?: string
     pseudoTeam?: string
     hash: string
     source: 'bytes' | 'url'
@@ -155,7 +167,8 @@ export class ImageBatcher {
         private readonly scrubClient: ScrubClient,
         private readonly options: ImageBatcherOptions,
         nowMs: number,
-        private readonly deadLetters: DeadLetterSink | null = null
+        private readonly deadLetters: DeadLetterSink | null = null,
+        private readonly privacy?: MlPrivacyRuntime
     ) {
         // 0 would admit nothing and spin the loop forever; NaN would skip it entirely, committing
         // offsets for unprocessed messages. Fail at boot rather than either.
@@ -192,7 +205,41 @@ export class ImageBatcher {
         if (messages.length) {
             ImageScrubConsumerMetrics.observeBatchMessages(messages.length)
         }
-        const planned = this.planBatch(messages)
+        const decoded = this.privacy
+            ? await this.privacy.kafka.read(messages, 'image-source', true)
+            : messages.map((message) => {
+                  if (ingestionVersion(message) === 2) {
+                      throw new Error('ML v2 images require privacy configuration')
+                  }
+                  return { message, original: message, invalid: undefined }
+              })
+        for (const entry of decoded.filter((entry) => entry.invalid)) {
+            if (!this.deadLetters) {
+                throw new Error('Invalid encrypted ML image requires a dead-letter destination')
+            }
+            await this.deadLetters.park({
+                ref: entry.original.key?.toString() ?? '',
+                bytes: entry.original.value ?? Buffer.alloc(0),
+                headers: parseKafkaHeaders(entry.original.headers),
+                detail: {
+                    reason: 'invalid_encryption',
+                    sourceTopic: entry.original.topic,
+                    sourcePartition: entry.original.partition,
+                    sourceOffset: entry.original.offset,
+                },
+            })
+        }
+        const byOriginal = new Map(
+            decoded.filter((entry) => !entry.invalid).map((entry) => [entry.original, entry.message])
+        )
+        const planned = this.planBatch(
+            messages.map((message) => byOriginal.get(message) ?? { ...message, value: null })
+        )
+        for (const item of planned) {
+            if (item.consentGrantedAt !== undefined) {
+                item.encryptedValue = messages[item.index].value ?? undefined
+            }
+        }
 
         // A sliding window rather than fixed groups: every completion immediately admits the next
         // image, so the sidecar never waits on the slowest member of a group before being given more
@@ -366,8 +413,14 @@ export class ImageBatcher {
             const headers = parseKafkaHeaders(m.headers)
             const allowedTransportHeaders =
                 parsed.source === 'url'
-                    ? [CONTENT_TYPE_HEADER, CONTENT_ENCODING_HEADER, CAPTURE_TIMESTAMP_HEADER]
-                    : [CAPTURE_TIMESTAMP_HEADER]
+                    ? [
+                          CONTENT_TYPE_HEADER,
+                          CONTENT_ENCODING_HEADER,
+                          CAPTURE_TIMESTAMP_HEADER,
+                          INGESTION_VERSION_HEADER,
+                          CONSENT_GRANTED_AT_HEADER,
+                      ]
+                    : [CAPTURE_TIMESTAMP_HEADER, INGESTION_VERSION_HEADER, CONSENT_GRANTED_AT_HEADER]
             const transportHeaders = Object.fromEntries(
                 allowedTransportHeaders
                     .filter((header) => headers[header] !== undefined)
@@ -377,6 +430,9 @@ export class ImageBatcher {
             const candidate: PlannedScrub = {
                 index,
                 ref,
+                teamId: parsed.teamId,
+                consentGrantedAt: parsed.consentGrantedAt,
+                sessionMonth: parsed.sessionMonth,
                 pseudoTeam: parsed.pseudoTeam,
                 hash: parsed.hash,
                 source: parsed.source,
@@ -504,13 +560,23 @@ export class ImageBatcher {
         ImageScrubConsumerMetrics.incScrubbed()
         if (planned.source === 'url') {
             return {
+                teamId: planned.teamId,
+                consentGrantedAt: planned.consentGrantedAt,
+                sessionMonth: planned.sessionMonth,
                 hash: planned.hash,
                 bytes,
                 sourcePartition: planned.sourcePartition,
                 sourceOffset: planned.sourceOffset,
             }
         }
-        return { pseudoTeam: planned.pseudoTeam!, hash: planned.hash, bytes }
+        return {
+            consentGrantedAt: planned.consentGrantedAt,
+            sessionMonth: planned.sessionMonth,
+            teamId: planned.teamId,
+            pseudoTeam: planned.pseudoTeam,
+            hash: planned.hash,
+            bytes,
+        }
     }
 
     private rememberContentAddressedRef(planned: PlannedScrub): void {
@@ -541,11 +607,11 @@ export class ImageBatcher {
             try {
                 await this.deadLetters!.park({
                     ref: planned.ref,
-                    bytes: planned.value,
+                    bytes: planned.encryptedValue ?? planned.value,
                     headers: planned.transportHeaders,
                     detail: {
                         ...poisoned.detail,
-                        pseudoTeam: planned.pseudoTeam,
+                        ...(planned.teamId ? { teamId: planned.teamId } : { pseudoTeam: planned.pseudoTeam }),
                         hash: planned.hash,
                         sourceTopic: planned.sourceTopic,
                         sourcePartition: planned.sourcePartition,
@@ -588,6 +654,22 @@ export class ImageBatcher {
     public async flush(nowMs: number): Promise<void> {
         this.lastFlushMs = nowMs
         if (this.buffer.length > 0) {
+            const imageKeys = this.privacy
+                ? await this.privacy.reader.read(
+                      this.buffer.flatMap(({ image }) =>
+                          image.consentGrantedAt === undefined
+                              ? []
+                              : [imageKeyId(Number(image.teamId), image.consentGrantedAt, image.sessionMonth!)]
+                      )
+                  )
+                : new Map()
+            this.buffer = this.buffer.filter(
+                ({ image }) =>
+                    image.consentGrantedAt === undefined ||
+                    imageKeys.has(
+                        tableKeyString(imageKeyId(Number(image.teamId), image.consentGrantedAt, image.sessionMonth!))
+                    )
+            )
             const inlineItems = this.buffer.filter(
                 (item): item is ScrubbedRef & { image: ScrubbedImage } => item.source === 'bytes'
             )
@@ -598,22 +680,62 @@ export class ImageBatcher {
                 urlItems.map(async (item) => {
                     const outcome = await this.scrubConcurrency.run({
                         debugTag: item.image.hash,
-                        fn: () => this.store.writeUrlImage(item.image),
+                        fn: () =>
+                            this.store.writeUrlImage(
+                                item.image,
+                                item.image.consentGrantedAt === undefined
+                                    ? undefined
+                                    : imageKeys.get(
+                                          tableKeyString(
+                                              imageKeyId(
+                                                  Number(item.image.teamId),
+                                                  item.image.consentGrantedAt,
+                                                  item.image.sessionMonth!
+                                              )
+                                          )
+                                      )
+                            ),
                     })
                     if (outcome === 'created' && item.capturedAtMs !== undefined) {
                         ImageScrubConsumerMetrics.observeCaptureToS3('url', item.capturedAtMs, Date.now())
                     }
                 })
             )
-            if (inlineItems.length > 0) {
-                const { bytes } = await this.store.writeShard(inlineItems.map((item) => item.image))
+            const groups = new Map<string, typeof inlineItems>()
+            for (const item of inlineItems) {
+                const groupId =
+                    item.image.consentGrantedAt === undefined
+                        ? String(item.image.teamId !== undefined)
+                        : `${item.image.teamId}:${item.image.consentGrantedAt}:${item.image.sessionMonth}`
+                const group = groups.get(groupId) ?? []
+                group.push(item)
+                groups.set(groupId, group)
+            }
+            for (const items of groups.values()) {
+                if (items.length === 0) {
+                    continue
+                }
+                const { bytes } = await this.store.writeShard(
+                    items.map((item) => item.image),
+                    items[0].image.consentGrantedAt === undefined
+                        ? undefined
+                        : imageKeys.get(
+                              tableKeyString(
+                                  imageKeyId(
+                                      Number(items[0].image.teamId),
+                                      items[0].image.consentGrantedAt,
+                                      items[0].image.sessionMonth!
+                                  )
+                              )
+                          )
+                )
                 const storedAtMs = Date.now()
-                for (const item of inlineItems) {
+                for (const item of items) {
                     if (item.capturedAtMs !== undefined) {
                         ImageScrubConsumerMetrics.observeCaptureToS3('inline', item.capturedAtMs, storedAtMs)
                     }
                 }
-                ImageScrubConsumerMetrics.observeShard(inlineItems.length, bytes)
+                ImageScrubConsumerMetrics.observeShard(items.length, bytes)
             }
             this.buffer = []
             this.bufferBytes = 0

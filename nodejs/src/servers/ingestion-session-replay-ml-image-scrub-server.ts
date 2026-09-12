@@ -9,6 +9,7 @@ import { KafkaDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirr
 import { ImageBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-batcher'
 import { ImageShardStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-shard-store'
 import { ScrubClient } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/scrub-client'
+import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
@@ -50,6 +51,7 @@ export function buildImageScrubConsumerConfig(config: IngestionSessionReplayMlMi
 
 export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
+    private privacy?: MlPrivacyRuntime
     private config: IngestionSessionReplayMlMirrorServerConfig
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
 
@@ -72,6 +74,10 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
     private async startServices(): Promise<void> {
         initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
 
+        if (this.config.AI_RESEARCH_REPLAY_PRIVACY_TABLE) {
+            this.privacy = new MlPrivacyRuntime(this.config)
+            await this.privacy.start()
+        }
         const s3Client = requireS3Client(buildSessionRecordingS3Client(this.config))
         const store = new ImageShardStore(
             s3Client,
@@ -103,7 +109,7 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
             deadLetters !== null
         )
 
-        const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES + 64 * 1024
+        const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES * 2 + 64 * 1024
         const consumer = new KafkaConsumer(buildImageScrubConsumerConfig(this.config), {
             'fetch.message.max.bytes': maximumRecordBytes,
             'max.partition.fetch.bytes': maximumRecordBytes,
@@ -120,7 +126,8 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
                 dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS,
             },
             Date.now(),
-            deadLetters
+            deadLetters,
+            this.privacy
         )
         await scrubClient.waitUntilReachable()
         await consumer.connect((messages) => {
@@ -147,7 +154,10 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
-            additionalCleanup: () => this.producerRegistry?.disconnectAll(),
+            additionalCleanup: async () => {
+                this.privacy?.stop()
+                await this.producerRegistry?.disconnectAll()
+            },
             redisPools: [],
         }
     }
