@@ -313,6 +313,11 @@ def test_missing_token_error_is_non_retryable(error_msg: str) -> None:
         "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
         # auth.hubspot_refresh_access_token, exhausted after tenacity's 5 in-process attempts
         "You have reached your rate limit.",
+        # PostHog's own egress proxy throttling the CONNECT tunnel, surfaced by requests as a
+        # ProxyError from hubspot_access_token_is_valid or any other api.hubapi.com call.
+        "HTTPSConnectionPool(host='api.hubapi.com', port=443): Max retries exceeded with url: "
+        "/oauth/v1/access-tokens/redacted (Caused by ProxyError('Cannot connect to proxy.', "
+        "OSError('Tunnel connection failed: 429 Too Many Requests')))",
     ],
 )
 def test_transient_http_error_is_retryable(error_msg: str) -> None:
@@ -320,6 +325,14 @@ def test_transient_http_error_is_retryable(error_msg: str) -> None:
     assert any(pattern in error_msg for pattern in patterns), (
         f"HubSpot error {error_msg!r} did not match any retryable pattern"
     )
+
+
+def test_proxy_auth_rejection_is_not_mistaken_for_tunnel_429() -> None:
+    """A deterministic proxy-auth rejection is not a transient tunnel gateway status — it must
+    stay reportable rather than being swallowed by the 429 tunnel pattern."""
+    error_msg = "Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 407 Proxy Authentication Required'))"
+    patterns = HubspotSource().get_retryable_errors()
+    assert not any(pattern in error_msg for pattern in patterns)
 
 
 class TestApiVersion:

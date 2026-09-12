@@ -175,6 +175,12 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             # documented rate-limit wording so this self-recovering condition doesn't get tracked
             # as noise once Temporal's activity retry picks it back up.
             "You have reached your rate limit.",
+            # PostHog's own egress proxy answering the CONNECT tunnel with a 429, surfaced by
+            # requests as a ProxyError. Not HubSpot's fault or the customer's — the proxy itself is
+            # throttling, which clears on its own, the same reasoning bing_ads and linkedin_ads apply
+            # to the same tunnel status. Match the status only; the message also carries a volatile
+            # access-token/report URL.
+            "Tunnel connection failed: 429",
         }
 
     # TODO: clean up hubspot job inputs to not have two auth config options
