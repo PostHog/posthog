@@ -1,5 +1,7 @@
 import os
+import sys
 import threading
+import subprocess
 
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
@@ -15,6 +17,7 @@ from posthog.celery_task_names import (
     VERIFY_FLAGS_CACHE_TASK_NAME,
     VERIFY_TEAM_METADATA_CACHE_TASK_NAME,
 )
+from posthog.management.commands.run_autoreload_celery import Command as RunAutoreloadCeleryCommand
 from posthog.tasks.tasks import clickhouse_errors_count
 
 
@@ -113,3 +116,33 @@ class TestCeleryMetrics(TestCase):
                 labels={"name": "NO_ZOOKEEPER", "replica": "ch1", "shard": "1"},
             ),
         )
+
+
+class TestWorkerStartupImports(TestCase):
+    def test_task_discovery_does_not_resolve_the_urlconf(self) -> None:
+        # The URLconf imports every product's API module graph, so resolving it here makes an import
+        # error in code the worker never runs crash-loop the worker and beat.
+        probe = (
+            "import django, sys;"
+            "django.setup();"
+            "from posthog.celery import app;"
+            "app.loader.import_default_modules();"
+            "print('posthog.urls' in sys.modules)"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", probe],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "DJANGO_SETTINGS_MODULE": "posthog.settings"},
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip().splitlines()[-1] == "False", result.stdout
+
+    def test_autoreload_wrapper_does_not_run_django_system_checks(self) -> None:
+        # bin/start-celery starts the local worker and beat through this command, and Django runs
+        # the system checks before handle(). The URL checks resolve the URLconf, so the checks pull
+        # in the same product API graph that CELERY_SKIP_CHECKS keeps out of Celery's Django fixup.
+        command = RunAutoreloadCeleryCommand()
+        with patch.object(command, "check") as check, patch.object(command, "handle", return_value=None):
+            command.execute(force_color=False, no_color=False, skip_checks=False, type="worker", no_reload=True)
+        check.assert_not_called()

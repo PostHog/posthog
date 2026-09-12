@@ -37,7 +37,7 @@ if [[ -n $INJECT_EC2_CLIENT_RACK ]]; then
   export KAFKA_PRODUCER_CLIENT_ID=$(echo $KAFKA_PRODUCER_CLIENT_ID | envsubst)
 fi
 
-./bin/migrate-check
+./bin/migrate-check --skip-checks
 
 cd nodejs
 

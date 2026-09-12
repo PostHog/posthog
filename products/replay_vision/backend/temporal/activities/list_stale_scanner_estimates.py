@@ -5,7 +5,7 @@ from django.utils import timezone
 from temporalio import activity
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
-from products.replay_vision.backend.queries import (
+from products.replay_vision.backend.queries.scanner_volume_estimate import (
     DISABLED_ESTIMATE_STALE_AFTER,
     ESTIMATE_RETRY_BACKOFF,
     ESTIMATE_STALE_AFTER,

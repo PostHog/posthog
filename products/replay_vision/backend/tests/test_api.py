@@ -47,8 +47,8 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
-from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
+from products.replay_vision.backend.queries.scanner_volume_estimate import ESTIMATE_STALE_AFTER, SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
 from products.replay_vision.backend.search import ObservationMatch

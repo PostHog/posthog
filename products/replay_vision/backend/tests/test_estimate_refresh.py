@@ -25,18 +25,16 @@ from posthog.models import Organization, Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.queries import (
+from products.replay_vision.backend.queries.scanner_volume_estimate import (
+    _ESTIMATE_EVENTS_SAMPLE_FACTOR,
+    BATCH_ESTIMATE_BUDGET,
     DISABLED_ESTIMATE_STALE_AFTER,
     ESTIMATE_STALE_AFTER,
     SAVE_ESTIMATE_BUDGET,
     ScannerVolumeEstimate,
+    estimate_scanner_session_volume,
     project_monthly_observations,
     refresh_scanner_estimate,
-)
-from products.replay_vision.backend.queries.scanner_volume_estimate import (
-    _ESTIMATE_EVENTS_SAMPLE_FACTOR,
-    BATCH_ESTIMATE_BUDGET,
-    estimate_scanner_session_volume,
 )
 from products.replay_vision.backend.temporal.activities.list_stale_scanner_estimates import (
     list_stale_scanner_estimates_activity,

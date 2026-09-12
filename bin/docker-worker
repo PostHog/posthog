@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-./bin/migrate-check
+./bin/migrate-check --skip-checks
 
 # Stop any background jobs on exit
 trap 'kill $(jobs -p)' EXIT

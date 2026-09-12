@@ -15,6 +15,11 @@ WATCH_DIRS = ["posthog", "ee", "products"]
 class Command(BaseCommand):
     help = "Run Celery with watchman-based auto-reload"
 
+    # Django's system checks resolve the URLconf, which imports every product's API module graph.
+    # An import error in a product this process never runs would otherwise stop the local worker
+    # and beat at startup. posthog/celery.py keeps the same checks out of Celery's Django fixup.
+    requires_system_checks = []
+
     def add_arguments(self, parser):
         parser.add_argument("--type", type=str, required=True, choices=("worker", "beat"), help="Process type")
         parser.add_argument("--no-reload", action="store_true", help="Disable auto-reload")
