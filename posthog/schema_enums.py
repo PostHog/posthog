@@ -232,6 +232,7 @@ class AssistantDataVisualizationDisplayType(StrEnum):
     BOLD_NUMBER = "BoldNumber"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
