@@ -247,6 +247,18 @@ export function LoginForm(): JSX.Element {
                                 </Link>
                             </>
                         )}
+                        {generalError.code === 'invalid_credentials' && (
+                            <p className="mt-1 mb-0">
+                                <span>Forgot your password?</span>{' '}
+                                <Link
+                                    to={[urls.passwordReset(), { email: login.email }]}
+                                    data-attr="login-error-reset-password"
+                                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                                >
+                                    Reset it by email
+                                </Link>
+                            </p>
+                        )}
                     </div>
                 )}
                 {generalError?.code === 'invalid_credentials' && (
