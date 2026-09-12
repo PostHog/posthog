@@ -30,6 +30,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project import Project
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.permissions import (
@@ -1584,3 +1585,78 @@ class TestActiveOrganizationPermission(SimpleTestCase):
         view.detail = True
 
         self.assertTrue(self.permission.has_permission(request, view))
+
+
+class TestScopedKeyDenialMessages(BaseTest):
+    def setUp(self):
+        super().setUp()
+        _, self.second_team = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user, team_fields={"name": "Second project"}
+        )
+        _, _, self.member_org_team = Organization.objects.bootstrap(user=self.user, name="Member organization")
+        outsider = User.objects.create(email="outsider@example.com")
+        _, _, self.foreign_team = Organization.objects.bootstrap(user=outsider, name="Foreign organization")
+
+    def _key(self, *, scoped_teams=None, scoped_organizations=None) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="scoped key",
+            secure_value=hash_key_value(value),
+            scopes=["*"],
+            scoped_teams=scoped_teams or [],
+            scoped_organizations=scoped_organizations or [],
+        )
+        return value
+
+    def _denial(self, key: str, team_id: int) -> str:
+        response = self.client.get(
+            f"/api/projects/{team_id}/feature_flags/", headers={"authorization": f"Bearer {key}"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        return response.json()["detail"]
+
+    def test_project_denial_names_the_owning_organization_and_the_keys_projects(self):
+        key = self._key(scoped_teams=[self.team.id])
+
+        detail = self._denial(key, self.second_team.id)
+
+        self.assertIn(f"ID {self.second_team.id}", detail)
+        self.assertIn(f"organization '{self.organization.name}'", detail)
+        self.assertIn(f"'{self.team.name}' (ID {self.team.id})", detail)
+
+    def test_project_denial_hides_the_organization_name_from_a_non_member(self):
+        key = self._key(scoped_teams=[self.team.id])
+
+        detail = self._denial(key, self.foreign_team.id)
+
+        self.assertIn(f"ID {self.foreign_team.id}", detail)
+        self.assertNotIn("Foreign organization", detail)
+
+    def test_organization_denial_names_the_requested_project_and_the_keys_organizations(self):
+        key = self._key(scoped_organizations=[str(self.organization.id)])
+
+        detail = self._denial(key, self.member_org_team.id)
+
+        self.assertIn(f"project (ID {self.member_org_team.id})", detail)
+        self.assertIn(f"'{self.organization.name}' (ID {self.organization.id})", detail)
+
+    @parameterized.expand(
+        [
+            ("project", True, "second_team", "project_not_in_key_scope"),
+            ("organization", False, "member_org_team", "organization_not_in_key_scope"),
+        ]
+    )
+    def test_denial_is_captured_as_an_event(self, _name, scoped_to_a_project, team_attr, expected_reason):
+        key = (
+            self._key(scoped_teams=[self.team.id])
+            if scoped_to_a_project
+            else self._key(scoped_organizations=[str(self.organization.id)])
+        )
+
+        with patch("posthoganalytics.capture") as mock_capture:
+            self._denial(key, getattr(self, team_attr).id)
+
+        denials = [call for call in mock_capture.call_args_list if call.kwargs.get("event") == "api key scope denied"]
+        self.assertEqual(len(denials), 1)
+        self.assertEqual(denials[0].kwargs["properties"]["denial_reason"], expected_reason)
