@@ -27,26 +27,12 @@ export interface sourcesDataLogicActions {
         errorObject?: any
     }
     loadSourcesSuccess: (
-        dataWarehouseSources:
-            | PaginatedResponse<ExternalDataSource>
-            | {
-                  count: number
-                  next: null
-                  previous: null
-                  results: never[]
-              },
+        dataWarehouseSources: PaginatedResponse<ExternalDataSource>,
         payload?: {
             value: true
         }
     ) => {
-        dataWarehouseSources:
-            | PaginatedResponse<ExternalDataSource>
-            | {
-                  count: number
-                  next: null
-                  previous: null
-                  results: never[]
-              }
+        dataWarehouseSources: PaginatedResponse<ExternalDataSource>
         payload?: {
             value: true
         }
@@ -126,7 +112,7 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
         dataWarehouseSources: [
             null as PaginatedResponse<ExternalDataSource> | null,
             {
-                loadSources: async (_, breakpoint) => {
+                loadSources: async (_, breakpoint): Promise<PaginatedResponse<ExternalDataSource>> => {
                     await breakpoint(300)
                     actions.abortAnyRunningQuery()
 
@@ -159,7 +145,8 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
                         // clobber its state with an empty result.
                         breakpoint()
                         cache.abortController = null
-                        return { results: [], count: 0, next: null, previous: null }
+                        const emptyResult = { results: [], count: 0, next: null, previous: null }
+                        return emptyResult
                     }
                 },
                 updateSource: async (source: ExternalDataSource) => {

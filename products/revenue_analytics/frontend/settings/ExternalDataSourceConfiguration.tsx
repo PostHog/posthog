@@ -16,14 +16,15 @@ import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { AccessControlLevel, AccessControlResourceType, ExternalDataSource } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
+import type { ExternalDataSourceSummaryApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { disableRevenueSourceModalLogic } from './disableRevenueSourceModalLogic'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
-const VALID_REVENUE_SOURCES: ExternalDataSource['source_type'][] = ['Stripe']
+const VALID_REVENUE_SOURCES: ExternalDataSourceSummaryApi['source_type'][] = ['Stripe']
 
 export function ExternalDataSourceConfiguration(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, joins } = useValues(revenueAnalyticsSettingsLogic)
@@ -42,7 +43,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
     const revenueSources =
         dataWarehouseSources?.results.filter((source) => VALID_REVENUE_SOURCES.includes(source.source_type)) ?? []
 
-    const disabledReasonForRevenueAnalyticsConfig = (source: ExternalDataSource): string | undefined => {
+    const disabledReasonForRevenueAnalyticsConfig = (source: ExternalDataSourceSummaryApi): string | undefined => {
         if (!source.revenue_analytics_config.enabled) {
             return 'Revenue analytics is not enabled for this source'
         }
@@ -105,7 +106,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                         key: 'source',
                         title: '',
                         width: 0,
-                        render: (_, source: ExternalDataSource) => {
+                        render: (_, source: ExternalDataSourceSummaryApi) => {
                             if (dataWarehouseSourcesLoading) {
                                 return <Spinner size="medium" />
                             }
@@ -116,7 +117,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                     {
                         key: 'prefix',
                         title: 'Source',
-                        render: (_, source: ExternalDataSource) => {
+                        render: (_, source: ExternalDataSourceSummaryApi) => {
                             return (
                                 <span className="inline-flex items-centet gap-2">
                                     <Link to={urls.dataWarehouseSource(`managed-${source.id}`)}>
@@ -127,7 +128,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                         minAccessLevel={AccessControlLevel.Editor}
                                     >
                                         <LemonSwitch
-                                            checked={source.revenue_analytics_config.enabled}
+                                            checked={!!source.revenue_analytics_config.enabled}
                                             disabledReason={dataWarehouseSourcesLoading ? 'Updating...' : undefined}
                                             onChange={(checked) => {
                                                 if (!checked && managedViewsetsEnabled) {
@@ -158,7 +159,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                 </Tooltip>
                             </span>
                         ),
-                        render: (_, source: ExternalDataSource) => {
+                        render: (_, source: ExternalDataSourceSummaryApi) => {
                             const sourcePrefix = source.prefix
                                 ? `${source.source_type.toLowerCase()}.${source.prefix.replace(/_+$/, '')}`
                                 : source.source_type.toLowerCase()
@@ -242,7 +243,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                 </Tooltip>
                             </span>
                         ),
-                        render: (_, source: ExternalDataSource) => {
+                        render: (_, source: ExternalDataSourceSummaryApi) => {
                             const sourcePrefix = source.prefix
                                 ? `${source.source_type.toLowerCase()}.${source.prefix.replace(/_+$/, '')}`
                                 : source.source_type.toLowerCase()
@@ -331,12 +332,14 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                 </Tooltip>
                             </span>
                         ),
-                        render: (_, source: ExternalDataSource) => {
+                        render: (_, source: ExternalDataSourceSummaryApi) => {
                             return (
                                 <LemonSwitch
                                     checked={
-                                        source.revenue_analytics_config.enabled &&
-                                        source.revenue_analytics_config.include_invoiceless_charges
+                                        !!(
+                                            source.revenue_analytics_config.enabled &&
+                                            source.revenue_analytics_config.include_invoiceless_charges
+                                        )
                                     }
                                     disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
                                     onChange={(checked) =>

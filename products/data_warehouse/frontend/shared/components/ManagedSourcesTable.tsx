@@ -27,7 +27,7 @@ import { AccessControlLevel, AccessControlResourceType, ExternalDataSchemaStatus
 import { StatusTagSetting } from 'products/data_warehouse/frontend/utils'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
-import { sourceManagementLogic } from '../logics/sourceManagementLogic'
+import { sourceSummariesLogic } from '../logics/sourceSummariesLogic'
 import { FreeHistoricalSyncsBanner } from './FreeHistoricalSyncsBanner'
 import { DATA_WAREHOUSE_APP_SOURCE } from './metrics/DataWarehouseMetrics'
 // eslint-disable-next-line import/no-cycle
@@ -42,9 +42,9 @@ const SCHEMA_STATUS_ORDER: ExternalDataSchemaStatus[] = [
 ]
 
 export function ManagedSourcesTable(): JSX.Element {
-    const { filteredManagedSources, dataWarehouseSourcesLoading, sourceReloadingById, managedSearchTerm } =
-        useValues(sourceManagementLogic)
-    const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(sourceManagementLogic)
+    const { filteredManagedSourceSummaries, sourceSummariesLoading, sourceReloadingById, managedSearchTerm } =
+        useValues(sourceSummariesLogic)
+    const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(sourceSummariesLogic)
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
@@ -65,8 +65,8 @@ export function ManagedSourcesTable(): JSX.Element {
             </div>
             <LemonTable
                 id="managed-sources"
-                dataSource={filteredManagedSources}
-                loading={dataWarehouseSourcesLoading}
+                dataSource={filteredManagedSourceSummaries}
+                loading={sourceSummariesLoading}
                 disableTableWhileLoading={false}
                 pagination={{ pageSize: 10 }}
                 scrollToTopOnPageChange={false}
@@ -87,7 +87,20 @@ export function ManagedSourcesTable(): JSX.Element {
                 columns={[
                     {
                         width: 0,
-                        render: (_, source) => <SourceIcon type={source.source_type} engine={source.engine} />,
+                        render: (_, source) => (
+                            <SourceIcon
+                                type={source.source_type}
+                                engine={
+                                    source.engine === 'duckdb' ||
+                                    source.engine === 'mysql' ||
+                                    source.engine === 'postgres' ||
+                                    source.engine === 'redshift' ||
+                                    source.engine === 'snowflake'
+                                        ? source.engine
+                                        : undefined
+                                }
+                            />
+                        ),
                     },
                     {
                         title: 'Source',
@@ -121,10 +134,7 @@ export function ManagedSourcesTable(): JSX.Element {
                         title: 'Total Rows Synced',
                         key: 'rows_synced',
                         tooltip: 'Total number of rows synced across all schemas in this source',
-                        render: (_, source) =>
-                            source.schemas
-                                .reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
-                                .toLocaleString(),
+                        render: (_, source) => source.rows_synced.toLocaleString(),
                     },
                     ...(showMetrics
                         ? [
@@ -159,20 +169,24 @@ export function ManagedSourcesTable(): JSX.Element {
                             if (!source.status) {
                                 return null
                             }
-                            const syncingSchemas = source.schemas.filter((s) => s.should_sync)
-                            const counts = SCHEMA_STATUS_ORDER.map((status) => ({
-                                status,
-                                schemas: syncingSchemas.filter((s) => s.status === status),
-                            })).filter(({ schemas }) => schemas.length > 0)
+                            const counts = SCHEMA_STATUS_ORDER.map((status) => {
+                                const schemaNames = source.schema_status_names[status] ?? []
+                                return { status, schemaNames, count: schemaNames.length }
+                            }).filter(({ count }) => count > 0)
 
                             if (counts.length === 0) {
                                 // Source has schemas but none are enabled — source.status can be stale
                                 // ("Running" from before they were disabled), so show a neutral tag instead.
-                                if (source.schemas.length > 0) {
+                                if (source.schemas_count > 0) {
                                     return <LemonTag type="muted">Not syncing</LemonTag>
                                 }
                                 const tagContent = (
-                                    <LemonTag type={StatusTagSetting[source.status] || 'default'}>
+                                    <LemonTag
+                                        type={
+                                            StatusTagSetting[source.status as keyof typeof StatusTagSetting] ||
+                                            'default'
+                                        }
+                                    >
                                         {source.status}
                                     </LemonTag>
                                 )
@@ -188,16 +202,18 @@ export function ManagedSourcesTable(): JSX.Element {
                             const sourceUrl = urls.dataWarehouseSource(`managed-${source.id}`)
                             return (
                                 <div className="flex flex-wrap gap-1">
-                                    {counts.map(({ status, schemas }) => (
+                                    {counts.map(({ status, schemaNames, count }) => (
                                         <Tooltip
                                             key={status}
                                             interactive
                                             title={
-                                                <ul className="list-disc pl-4 m-0">
-                                                    {schemas.map((s) => (
-                                                        <li key={s.id}>{s.label ?? s.name}</li>
-                                                    ))}
-                                                </ul>
+                                                schemaNames.length > 0 ? (
+                                                    <ul className="list-disc pl-4 m-0">
+                                                        {schemaNames.map((schemaName) => (
+                                                            <li key={schemaName}>{schemaName}</li>
+                                                        ))}
+                                                    </ul>
+                                                ) : undefined
                                             }
                                         >
                                             <LemonTag
@@ -205,7 +221,7 @@ export function ManagedSourcesTable(): JSX.Element {
                                                 forceClickable
                                                 onClick={() => router.actions.push(sourceUrl)}
                                             >
-                                                {schemas.length} {status.toLowerCase()}
+                                                {count} {status.toLowerCase()}
                                             </LemonTag>
                                         </Tooltip>
                                     ))}
@@ -230,7 +246,10 @@ export function ManagedSourcesTable(): JSX.Element {
                                                     <AccessControlAction
                                                         resourceType={AccessControlResourceType.ExternalDataSource}
                                                         minAccessLevel={AccessControlLevel.Editor}
-                                                        userAccessLevel={source.user_access_level}
+                                                        userAccessLevel={
+                                                            (source.user_access_level as AccessControlLevel | null) ??
+                                                            undefined
+                                                        }
                                                     >
                                                         {({ disabledReason }) => (
                                                             <Tooltip title="Start the data import for this schema again">
@@ -252,7 +271,10 @@ export function ManagedSourcesTable(): JSX.Element {
                                                     <AccessControlAction
                                                         resourceType={AccessControlResourceType.ExternalDataSource}
                                                         minAccessLevel={AccessControlLevel.Editor}
-                                                        userAccessLevel={source.user_access_level}
+                                                        userAccessLevel={
+                                                            (source.user_access_level as AccessControlLevel | null) ??
+                                                            undefined
+                                                        }
                                                     >
                                                         {({ disabledReason }) => (
                                                             <LemonButton

@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api, { PaginatedResponse } from 'lib/api'
@@ -167,5 +168,13 @@ describe('sourceManagementLogic', () => {
 
         resolveShallowLoad?.({ tables: {}, joins: [] } as DatabaseSchemaQueryResponse)
         await shallowLoad
+    })
+
+    it('does not load full sources on the summary-backed sources page', () => {
+        router.actions.push('/data-management/sources')
+
+        logic.mount()
+
+        expect(api.externalDataSources.list).not.toHaveBeenCalled()
     })
 })

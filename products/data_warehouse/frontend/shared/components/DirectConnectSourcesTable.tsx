@@ -5,13 +5,13 @@ import { LemonButton, LemonDialog, LemonInput, LemonTable, Spinner } from '@post
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { sourceManagementLogic } from '../logics/sourceManagementLogic'
+import { sourceSummariesLogic } from '../logics/sourceSummariesLogic'
 import { SourceIcon } from './SourceIcon'
 
 export function DirectConnectSourcesTable(): JSX.Element {
-    const { filteredDirectSources, directSearchTerm, sourceReloadingById, dataWarehouseSourcesLoading } =
-        useValues(sourceManagementLogic)
-    const { setDirectSearchTerm, reloadSource, deleteSource } = useActions(sourceManagementLogic)
+    const { filteredDirectSourceSummaries, directSearchTerm, sourceReloadingById, sourceSummariesLoading } =
+        useValues(sourceSummariesLogic)
+    const { setDirectSearchTerm, reloadSource, deleteSource } = useActions(sourceSummariesLogic)
 
     return (
         <div>
@@ -25,8 +25,8 @@ export function DirectConnectSourcesTable(): JSX.Element {
             </div>
             <LemonTable
                 id="direct-connect-sources"
-                dataSource={filteredDirectSources}
-                loading={dataWarehouseSourcesLoading}
+                dataSource={filteredDirectSourceSummaries}
+                loading={sourceSummariesLoading}
                 pagination={{ pageSize: 10 }}
                 scrollToTopOnPageChange={false}
                 columns={[
