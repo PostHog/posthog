@@ -157,6 +157,7 @@ from products.dashboards.backend.facade.api import (
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
+    attach_last_viewed_at,
     insight_variables_for_team,
     map_stale_to_latest,
     recent_viewers_by_insight,
@@ -1756,6 +1757,17 @@ class InsightViewSet(
     def _is_basic_request(self) -> bool:
         return self.action in ("list", "retrieve") and str_to_bool(self.request.query_params.get("basic", "0"))
 
+    def _needs_last_viewed_at_in_sql(self) -> bool:
+        """Whether the list query has to carry the correlated `last_viewed_at` subquery.
+
+        Only a request that sorts or filters on it does. Every other request reads the value off
+        the page after pagination, in one query for the whole page.
+        """
+        params = self.request.query_params
+        return params.get("order") in ("last_viewed_at", "-last_viewed_at") or bool(
+            params.get("last_viewed_date_from") or params.get("last_viewed_date_to")
+        )
+
     @tracer.start_as_current_span("insight_api_list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         span = trace.get_current_span()
@@ -1773,11 +1785,12 @@ class InsightViewSet(
 
     def paginate_queryset(self, queryset):
         page = super().paginate_queryset(queryset)
-        if (
-            page is not None
-            and getattr(self, "action", None) == "list"
-            and not self._is_basic_request()
-            and not isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
+        if page is None or getattr(self, "action", None) != "list":
+            return page
+        if not self._needs_last_viewed_at_in_sql():
+            attach_last_viewed_at(page)
+        if not self._is_basic_request() and not isinstance(
+            self.request.successful_authenticator, SharingAccessTokenAuthentication
         ):
             tiles = [tile for insight in page for tile in insight.dashboard_tiles.all()]
             self.user_permissions.set_preloaded_dashboard_tiles(tiles)
@@ -1814,7 +1827,11 @@ class InsightViewSet(
         # Insights are retrieved under /environments/ because they include team-specific query results,
         # but they are in fact project-level, rather than environment-level
         assert self.team.project_id is not None
-        queryset = self.queryset.filter(team__project_id=self.team.project_id)
+        # Resolved to ids rather than joined through `team__project_id`: the join to the team table
+        # keeps the planner off every `team_id`-leading index on this table, including the one the
+        # default sort needs.
+        team_ids = list(Team.objects.filter(project_id=self.team.project_id).values_list("id", flat=True))
+        queryset = self.queryset.filter(team_id__in=team_ids)
 
         include_deleted = False
 
@@ -1856,7 +1873,8 @@ class InsightViewSet(
 
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
-            queryset = with_last_viewed_at(queryset)
+            if self._needs_last_viewed_at_in_sql():
+                queryset = with_last_viewed_at(queryset)
             queryset = self._filter_request(self.request, queryset)
 
         return self.order_queryset(queryset)
