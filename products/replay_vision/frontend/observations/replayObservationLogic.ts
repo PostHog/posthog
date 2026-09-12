@@ -111,10 +111,10 @@ export interface ObservationNeighbors {
     next: string | null
 }
 
-/** The page the scanner table last loaded, so an observation opened from it paints, and knows prev/next, before its own read lands. */
+/** The page the scanner table last loaded, so a row opened from it paints before its own read lands. */
 export const handedOffPage: { current: ObservationPageHandoff | null } = { current: null }
 
-/** Prev/next from the handed-off page; null when either side lies outside it or the page was loaded under other filters. */
+/** Null when a neighbor lies outside the page, or the page was loaded under other filters. */
 export function neighborsFromPage(
     handoff: ObservationPageHandoff,
     index: number,
@@ -298,7 +298,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                     return
                 }
                 try {
-                    // Filters only scope the server-side prev/next, which the handed-off page may already answer.
+                    // Filters only scope the server-side prev/next, which the page may already answer.
                     const response = await visionObservationsRetrieve(
                         String(teamId),
                         props.id,

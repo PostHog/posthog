@@ -429,9 +429,8 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
             self.assertIn("session_id", sql, sql)
 
     def test_detail_read_never_scans_the_observation_table(self) -> None:
-        # The experiment gate's snapshot path has no index, so an observation read that is not bound to
-        # the row or to a keyset scans the team's whole observation history. Assert every observation-table
-        # read on a detail request is bound to the row itself or is a single-row neighbor lookup.
+        # The snapshot path has no index, so any observation read not bound to the row or to a keyset
+        # scans the team's whole observation history.
         self._set_resource_default("replay_scanner", "editor")
         self._set_resource_default("session_recording", "editor")
         scanner = self._create_scanner(name="detail")
