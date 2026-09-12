@@ -175,12 +175,14 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
     SourceDestinationsSerializer,
     set_source_destinations,
 )
-from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+from products.warehouse_sources.backend.presentation.views.external_data_schema.capabilities import (
+    source_supports_column_selection,
+)
+from products.warehouse_sources.backend.presentation.views.external_data_schema.serializers import (
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
     RowFiltersField,
     SimpleExternalDataSchemaSerializer,
-    source_supports_column_selection,
     unsupported_row_filter_reason,
 )
 from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs

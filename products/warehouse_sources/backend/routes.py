@@ -3,9 +3,9 @@ from posthog.api.routing import RouterRegistry
 from products.warehouse_sources.backend.presentation.views import (
     column_statistics,
     external_data_destination,
-    external_data_schema,
     external_data_source,
 )
+from products.warehouse_sources.backend.presentation.views.external_data_schema.viewset import ExternalDataSchemaViewset
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -23,7 +23,7 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"external_data_schemas",
-        external_data_schema.ExternalDataSchemaViewset,
+        ExternalDataSchemaViewset,
         "project_external_data_schemas",
         ["team_id"],
     )
