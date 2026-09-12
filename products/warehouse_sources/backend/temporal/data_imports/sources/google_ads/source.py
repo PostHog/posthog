@@ -169,7 +169,20 @@ class GoogleAdsSource(
         # budget has hit a longer-lived quota window than a few seconds of backoff can clear,
         # but Temporal's activity retry recovers once it does — self-recovering, not a bug, so
         # keep it out of error tracking as noise.
-        return {"Resource has been exhausted (e.g. check quota)"}
+        #
+        # PostHog's own egress proxy refusing the CONNECT reaches here through the OAuth token
+        # refresh `GoogleAdsClient` runs at construction. `_load_client_with_transient_retry`
+        # rides it out first, but its budget is a few seconds of linear backoff, which a
+        # rate-limit window outlasts. Temporal's activity retry recovers once the proxy does, so
+        # keep the blip out of error tracking. Only the transient statuses are listed: 407 (proxy
+        # auth required) is deterministic and must stay reportable.
+        return {
+            "Resource has been exhausted (e.g. check quota)",
+            "Tunnel connection failed: 429",
+            "Tunnel connection failed: 502",
+            "Tunnel connection failed: 503",
+            "Tunnel connection failed: 504",
+        }
 
     # TODO: clean up google ads source to not have two auth config options
     def parse_config(self, job_inputs: dict) -> GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig:

@@ -80,6 +80,7 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
         # class of egress-proxy blip already classified this way for ClickHouse), so don't
         # surface it as tracked exception noise.
         return {
+            "Tunnel connection failed: 429",
             "Tunnel connection failed: 502",
             "Tunnel connection failed: 503",
             "Tunnel connection failed: 504",

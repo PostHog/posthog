@@ -315,6 +315,13 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
             "ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 502 Bad gateway'))",
             TRANSIENT_EGRESS_MESSAGE,
         ),
+        # The same proxy rate-limiting the CONNECT, in the wording that carries no proxy prefix.
+        (
+            "egress_proxy_rate_limited",
+            ExternalDataSourceType.GOOGLEADS,
+            "TransportError: Tunnel connection failed: 429 Too Many Requests",
+            TRANSIENT_EGRESS_MESSAGE,
+        ),
         # A REST source whose vendor stayed unavailable for longer than both retry layers.
         (
             "vendor_service_unavailable",
