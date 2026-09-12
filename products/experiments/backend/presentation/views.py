@@ -46,6 +46,8 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
     PersonalOrProjectSecretApiKeyRateThrottle,
     ProjectSecretApiKeyTeamRateThrottle,
+    ReplayLinkabilityBurstRateThrottle,
+    ReplayLinkabilitySustainedRateThrottle,
     SessionBucketsBurstRateThrottle,
     SessionBucketsSustainedRateThrottle,
     SessionContextsBurstRateThrottle,
@@ -62,7 +64,10 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
-from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
+from products.experiments.backend.facade.replay import (
+    resolve_flag_session_coverage,
+    resolve_in_session_exposure_semantics,
+)
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -85,6 +90,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentFlagCleanupTaskSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMetricsRecalculationSerializer,
+    ExperimentReplayLinkabilitySerializer,
     ExperimentSerializer,
     ExperimentSessionBucketRequestSerializer,
     ExperimentSessionBucketResponseSerializer,
@@ -1529,6 +1535,40 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         semantics = resolve_in_session_exposure_semantics(self.team, experiment)
         return Response(ExperimentInSessionExposureSerializer(semantics).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: OpenApiResponse(response=ExperimentReplayLinkabilitySerializer)},
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path="replay_linkability",
+        required_scopes=["experiment:read"],
+        # Scans live events, and the caller is the session-authenticated experiment page, which the
+        # viewset's inherited personal-API-key throttles don't cover.
+        throttle_classes=[ReplayLinkabilityBurstRateThrottle, ReplayLinkabilitySustainedRateThrottle],
+    )
+    def replay_linkability(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Whether this experiment's flag produces anything a recordings filter can match.
+
+        Scoped to the flag and to a recent window, which the taxonomy `seen_together` fact the
+        recordings surfaces otherwise read cannot be: it answers for an event name across the whole
+        project and for all time, so a project that evaluates other flags on the client reports
+        `$feature_flag_called` as linkable for a server-evaluated flag too. Cached per experiment,
+        so repeat views of the tab don't re-scan.
+        """
+        experiment: Experiment = self.get_object()
+        coverage = resolve_flag_session_coverage(self.team, experiment)
+        return Response(
+            ExperimentReplayLinkabilitySerializer(
+                {
+                    "exposure_event_linkable": coverage.exposure_event,
+                    "flag_property_linkable": coverage.flag_property,
+                    "max_window_days": coverage.max_window_days,
+                }
+            ).data
+        )
 
     @validated_request(
         request_serializer=ExperimentSessionBucketRequestSerializer,

@@ -1769,6 +1769,39 @@ class ExperimentInSessionExposureSerializer(serializers.Serializer):
     )
 
 
+class ExperimentReplayLinkabilitySerializer(serializers.Serializer):
+    """Whether this experiment's own flag produces anything a recordings filter can match."""
+
+    exposure_event_linkable = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether exposure events for this experiment's flag were seen carrying a `$session_id` inside the "
+            "scan window. Scoped to the flag, unlike the taxonomy `seen_together` fact, which answers "
+            "for the event name across the whole project and so reads as linkable for a server-evaluated flag "
+            "in any project that also evaluates flags on the client. False only when the window held exposure "
+            "events and none carried a session id. Null when the scan couldn't answer (action-based exposure "
+            "criteria, an experiment that never launched, a window holding no exposure events at all, or a "
+            "refused scan); treat null as linkable."
+        ),
+    )
+    flag_property_linkable = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether the `$feature/<flag_key>` stand-in the recordings surfaces fall back to was seen carrying "
+            "a `$session_id` inside the same scan window. Only scanned when `exposure_event_linkable` is false "
+            "and the experiment uses a default exposure event, the only case where a surface stands in for the "
+            "exposure at all, so it is null otherwise; treat null as linkable."
+        ),
+    )
+    max_window_days = serializers.IntegerField(
+        help_text=(
+            "The longest window a scan reads. The scan is clipped to the experiment's own run, so an "
+            "experiment that started inside this window is read from its start date, and a stopped "
+            "experiment is read back from its end date rather than from now."
+        )
+    )
+
+
 class ExperimentSessionBucketRequestSerializer(serializers.Serializer):
     """Request body for the session-bucket endpoint."""
 

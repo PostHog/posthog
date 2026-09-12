@@ -731,9 +731,48 @@ describe('applySessionLinkability', () => {
                 usedExposureFallback: false,
             },
         },
-    ])('$case', ({ filters, unlinkable, fallback, expected }) => {
+        {
+            case: 'falls back on the flag-scoped verdict even when the event name looks linkable project-wide',
+            filters: [exposureFilter, purchaseEventFilter],
+            unlinkable: new Set<string>(),
+            fallback: fallbackFilter,
+            exposureLinkable: false,
+            expected: {
+                filters: [fallbackFilter, purchaseEventFilter],
+                droppedMetricEventCount: 0,
+                exposureUnlinkable: false,
+                usedExposureFallback: true,
+            },
+        },
+        {
+            case: 'reports the exposure unlinkable on the flag-scoped verdict when the fallback is withheld',
+            filters: [exposureFilter, purchaseEventFilter],
+            unlinkable: new Set<string>(),
+            fallback: null,
+            exposureLinkable: false,
+            expected: {
+                filters: [],
+                droppedMetricEventCount: 0,
+                exposureUnlinkable: true,
+                usedExposureFallback: false,
+            },
+        },
+        {
+            case: 'keeps the exposure event when the flag-scoped verdict clears an event name the project-wide check condemns',
+            filters: [exposureFilter, purchaseEventFilter],
+            unlinkable: new Set(['$feature_flag_called']),
+            fallback: fallbackFilter,
+            exposureLinkable: true,
+            expected: {
+                filters: [exposureFilter, purchaseEventFilter],
+                droppedMetricEventCount: 0,
+                exposureUnlinkable: false,
+                usedExposureFallback: false,
+            },
+        },
+    ])('$case', ({ filters, unlinkable, fallback, exposureLinkable, expected }) => {
         const input = [...filters]
-        expect(applySessionLinkability(filters, unlinkable, fallback)).toEqual(expected)
+        expect(applySessionLinkability(filters, unlinkable, fallback, exposureLinkable ?? null)).toEqual(expected)
         expect(filters).toEqual(input) // does not mutate its input
     })
 })

@@ -706,6 +706,21 @@ class SessionBucketsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
+# The experiment replay-linkability endpoint scans live events to answer whether one flag's
+# exposure can match a recording. Cheaper per call than the two below, since the exposure scan has
+# an event name to prune on and every scan stops at the first row, but its caller is the
+# session-authenticated experiment page, which the ClickHouse*RateThrottle pair does not cover, and
+# a cold call on a project with many experiments always misses the 10-minute cache.
+class ReplayLinkabilityBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_linkability_burst"
+    rate = "20/minute"
+
+
+class ReplayLinkabilitySustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_linkability_sustained"
+    rate = "200/hour"
+
+
 # The experiment session-event-delta endpoint compares every event name in an experiment's recent
 # window, so unlike the bucket scan beside it there is no event-name predicate for ClickHouse to
 # prune on and one call is the heaviest in this family. Same project-wide bucketing and same

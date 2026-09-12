@@ -526,11 +526,20 @@ export function getSessionLinkabilityEventNames(experiment: Experiment): string[
  * `getExposureFallbackFilter`) takes its place with `usedExposureFallback: true`, so callers can
  * label the result as "flag was active" rather than "exposed"; without a fallback there are no
  * recordings to show at all.
+ *
+ * `exposureLinkable` is the flag-scoped verdict (see `viewRecordingsLinkabilityLogic`) and decides
+ * the exposure filter on its own when given. The project-wide event-name check can't answer for
+ * the exposure: every experiment in a project shares the default exposure event, so one
+ * client-evaluated flag makes it look linkable for a server-evaluated one too. Null keeps the
+ * event-name check, the fail-open posture for a verdict that hasn't landed. Pass no
+ * `exposureFallbackFilter` when the stand-in has no coverage either, and the caller gets
+ * `exposureUnlinkable` instead of a filter that matches nothing.
  */
 export function applySessionLinkability(
     filters: UniversalFiltersGroupValue[],
     unlinkableEventNames: Set<string>,
-    exposureFallbackFilter: UniversalFiltersGroupValue | null = null
+    exposureFallbackFilter: UniversalFiltersGroupValue | null = null,
+    exposureLinkable: boolean | null = null
 ): {
     filters: UniversalFiltersGroupValue[]
     droppedMetricEventCount: number
@@ -545,7 +554,7 @@ export function applySessionLinkability(
     }
 
     const [exposureFilter, ...metricFilters] = filters
-    const exposureIsUnlinkable = isUnlinkable(exposureFilter)
+    const exposureIsUnlinkable = exposureLinkable === null ? isUnlinkable(exposureFilter) : !exposureLinkable
     if (exposureIsUnlinkable && !exposureFallbackFilter) {
         return { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: true, usedExposureFallback: false }
     }
