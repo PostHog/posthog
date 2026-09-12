@@ -147,6 +147,32 @@ def _session_id_coverage(team: Team, where: list[ast.Expr]) -> Optional[bool]:
     return False if _has_matching_row(team, where) is True else None
 
 
+def _stamped_for_this_experiment(experiment: Experiment, flag_key: str) -> ast.Expr:
+    """Events the stand-in filter could match: stamped with one of the experiment's variants.
+
+    The surfaces that fall back to the stand-in narrow it to the experiment's own variant keys, so
+    a scan that accepted any stamped value would report coverage they can't use: a partial rollout
+    stamps `false` on everyone outside it, and those are ordinary client events carrying a session
+    id. A flag with no variants keeps the wider "stamped at all" test, which is what those surfaces
+    fall back to as well.
+    """
+    stamped_value = ast.Call(name="toString", args=[ast.Field(chain=["properties", f"$feature/{flag_key}"])])
+    variant_keys = [variant["key"] for variant in experiment.feature_flag.variants if variant.get("key")]
+    if not variant_keys:
+        # `notEmpty(ifNull(...))` rather than a `!=` comparison: HogQL reads a null as "not equal",
+        # so comparing an absent property to the empty string matches every event that never
+        # carried it.
+        return ast.Call(
+            name="notEmpty",
+            args=[ast.Call(name="ifNull", args=[stamped_value, ast.Constant(value="")])],
+        )
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.In,
+        left=stamped_value,
+        right=ast.Constant(value=variant_keys),
+    )
+
+
 def _window_bounds(window_start: datetime, window_end: datetime) -> list[ast.Expr]:
     return [
         ast.CompareOperation(
@@ -220,24 +246,7 @@ def resolve_flag_session_coverage(team: Team, experiment: Experiment) -> FlagSes
                 *_window_bounds(window_start, window_end),
                 *test_account_conditions,
                 _session_id_present(),
-                # `notEmpty(ifNull(...))` rather than a `!=` comparison: HogQL reads a null as
-                # "not equal", so comparing an absent property to the empty string matches every
-                # event that never carried it.
-                ast.Call(
-                    name="notEmpty",
-                    args=[
-                        ast.Call(
-                            name="ifNull",
-                            args=[
-                                ast.Call(
-                                    name="toString",
-                                    args=[ast.Field(chain=["properties", f"$feature/{flag_key}"])],
-                                ),
-                                ast.Constant(value=""),
-                            ],
-                        )
-                    ],
-                ),
+                _stamped_for_this_experiment(experiment, flag_key),
             ],
         )
     coverage = FlagSessionCoverage(exposure_event=exposure_covered, flag_property=flag_property_covered)

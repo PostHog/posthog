@@ -136,16 +136,29 @@ class TestReplaySessionCoverage(ClickhouseTestMixin, APIBaseTest):
         assert coverage.exposure_event is expected_exposure
         assert coverage.flag_property is expected_property
 
-    def test_a_flag_with_no_stamped_property_either_reports_neither(self) -> None:
+    @parameterized.expand(
+        [
+            ("nothing stamped with the flag at all", None),
+            # A partial rollout stamps `false` on the client events of everyone outside it, and the
+            # filters the surfaces build match the experiment's variant keys, never that.
+            ("stamped for someone outside the rollout", "false"),
+        ]
+    )
+    def test_a_flag_with_nothing_a_variant_filter_matches_reports_absence(
+        self, _name: str, stamped_value: str | None
+    ) -> None:
         _create_person(team_id=self.team.pk, distinct_ids=["someone"])
         experiment = self._experiment("server-side-flag")
         self._flag_call("someone", "server-side-flag", session_id=None)
+        properties = {"$session_id": "0198f2e4-0000-7000-8000-000000000001"}
+        if stamped_value is not None:
+            properties["$feature/server-side-flag"] = stamped_value
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id="someone",
             timestamp=timezone.now() - timedelta(days=1),
-            properties={"$session_id": "0198f2e4-0000-7000-8000-000000000001"},
+            properties=properties,
         )
         flush_persons_and_events()
 
