@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
-import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
@@ -18,6 +20,7 @@ import {
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { marketingAttributionLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAttributionLogic'
 import { BREAKDOWN_LABELS } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingBreakdown'
+import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 import { MarketingAnalyticsCell } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/shared'
 import { webAnalyticsDataTableQueryContext } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
@@ -35,6 +38,8 @@ import {
     WebOverviewQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
+
+import { SuggestionRow } from './Setup/SuggestionRow'
 
 // Channel is the top level because it covers all traffic, not just the platforms with a
 // connected ad source. Source is the second column so a channel breaks down into the
@@ -98,6 +103,23 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
     const { setRevenueGoalId, setBreakdownBy } = useActions(marketingAttributionLogic)
     const { dateFilter, compareFilter, shouldFilterTestAccounts } = useValues(marketingAnalyticsLogic)
     const { setDates, setCompareFilter, setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
+    const { setupPlan, setupPlanLoading, visibleSuggestions } = useValues(setupPlanLogic)
+    const { loadSetupPlan, reviewSuggestion } = useActions(setupPlanLogic)
+    const [sourcesExpanded, setSourcesExpanded] = useLocalStorage('marketing-source-suggestions-expanded', true)
+    const sourceSuggestions = visibleSuggestions.filter((suggestion) => suggestion.kind === 'connect_source')
+    const reviewSources = (): void => {
+        setSetupSection(SetupSection.SOURCES)
+        setActiveTab(MarketingAnalyticsTab.SETUP)
+    }
+
+    const requestedSetupPlan = useRef(false)
+    useEffect(() => {
+        if (!setupPlan && !setupPlanLoading && !requestedSetupPlan.current) {
+            requestedSetupPlan.current = true
+            loadSetupPlan()
+        }
+    }, [setupPlan, setupPlanLoading, loadSetupPlan])
+
     const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
     const query: WebOverviewQuery = {
         kind: NodeKind.WebOverviewQuery,
@@ -121,6 +143,38 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                     Reload summary
                 </LemonButton>
             </div>
+            {sourceSuggestions.length > 0 && (
+                <div className="border rounded">
+                    <div className="flex justify-end p-2">
+                        <LemonButton size="small" onClick={reviewSources}>
+                            Review in Setup
+                        </LemonButton>
+                    </div>
+                    <LemonCollapse
+                        embedded
+                        size="small"
+                        activeKey={sourcesExpanded ? 'sources' : null}
+                        onChange={(key) => setSourcesExpanded(key !== null)}
+                        panels={[
+                            {
+                                key: 'sources',
+                                header: `Suggested ad sources (${sourceSuggestions.length})`,
+                                content: sourceSuggestions.map((suggestion) => (
+                                    <SuggestionRow
+                                        key={suggestion.id}
+                                        suggestion={suggestion}
+                                        currentSection={SetupSection.SOURCES}
+                                        onReview={(item) => {
+                                            reviewSources()
+                                            reviewSuggestion(item)
+                                        }}
+                                    />
+                                )),
+                            },
+                        ]}
+                    />
+                </div>
+            )}
             {responseError ? (
                 <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadData('force_async') }}>
                     Could not load traffic metrics. Try again.
