@@ -16,6 +16,8 @@ export default meta
 
 export const Opening: Story = {
     args: { status: 'opening' },
+    // This state is a loader, so its spinner never disappears.
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 export const Stalled: Story = {
