@@ -12,3 +12,15 @@ export function usesRawSessionIdentifiers(sessionId: string): boolean {
     const startedAt = sessionStartTimestampFromUuidV7(sessionId)
     return startedAt !== null && startedAt >= RAW_SESSION_IDENTIFIERS_START_MS
 }
+
+export function sessionStartMonth(sessionId: string): string {
+    const timestamp = sessionStartTimestampFromUuidV7(sessionId)
+    if (timestamp === null) {
+        throw new Error('ML monthly partitions require a UUIDv7 session ID')
+    }
+    const month = new Date(timestamp).toISOString().slice(0, 7)
+    if (!/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(month)) {
+        throw new Error('ML session month is out of range')
+    }
+    return month
+}

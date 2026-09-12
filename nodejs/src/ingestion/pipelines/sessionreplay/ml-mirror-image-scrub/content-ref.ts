@@ -48,13 +48,18 @@ export function parseImageRef(s: string): {
     source: 'bytes' | 'url'
     version?: 2
     consentGrantedAt?: number
+    sessionMonth?: string
 } | null {
-    const scoped = /^(image|imageurl):v2:([1-9][0-9]{0,15}):([1-9][0-9]{0,15}):([A-Za-z0-9_-]{22})$/.exec(s)
+    const scoped =
+        /^(image|imageurl):v2:([1-9][0-9]{0,15}):([1-9][0-9]{0,15}):([0-9]{4}-(?:0[1-9]|1[0-2])):([A-Za-z0-9_-]{22})$/.exec(
+            s
+        )
     if (scoped && isRawTeamId(scoped[2]) && Number.isSafeInteger(Number(scoped[3]))) {
         return {
             teamId: scoped[2],
             consentGrantedAt: Number(scoped[3]),
-            hash: scoped[4],
+            sessionMonth: scoped[4],
+            hash: scoped[5],
             source: scoped[1] === 'image' ? 'bytes' : 'url',
             version: 2,
         }

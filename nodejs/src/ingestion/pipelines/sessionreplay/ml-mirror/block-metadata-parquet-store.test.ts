@@ -62,6 +62,28 @@ describe('BlockMetadataParquetStore', () => {
         } as unknown as S3Client
     })
 
+    it('splits encrypted metadata by session month rather than upload time', async () => {
+        const envelopes = ['2026-09-30T23:59:59.999Z', '2026-10-01T00:00:00Z'].map((date) => {
+            const hex = Date.parse(date).toString(16).padStart(12, '0')
+            return {
+                ...TrainingEncryptionVector.envelope,
+                context: {
+                    ...TrainingEncryptionVector.envelope.context,
+                    sessionId: `${hex.slice(0, 8)}-${hex.slice(8)}-7000-8000-000000000007`,
+                },
+            }
+        })
+        await new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod').writeEncrypted(envelopes)
+        expect(puts.map((put) => put.Key?.split('/').slice(0, 3).join('/'))).toEqual([
+            'block-metadata/v2/2026-09',
+            'block-metadata/v2/2026-10',
+        ])
+        for (const [index, put] of puts.entries()) {
+            const records = await readRows(put.Body)
+            expect(records.map((record) => record.session_id)).toEqual([envelopes[index].context.sessionId])
+        }
+    })
+
     it.each([false, true])('counts encrypted uploads and failures: %s', async (failed) => {
         if (failed) {
             jest.mocked(s3.send).mockImplementationOnce(() => Promise.reject(new Error('upload failed')))

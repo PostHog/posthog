@@ -125,9 +125,9 @@ Both accounts must authorize the reader role.
 Readers have key-read and decrypt permissions; they cannot create keys or change deletion state.
 
 Use metadata block locations and byte ranges to fetch recordings, then decrypt before decompressing.
-Include all relevant metadata arrival dates when collecting a session with late blocks.
+Read metadata from the session start month, including blocks that arrive in later months.
 Score export writes bounded pages and publishes a manifest only after the last page succeeds.
-Use the newest completed manifest for each date and hash partition; a recursive score scan can include partial or superseded exports.
+Use the newest completed manifest for each session month, event date and hash partition; a recursive score scan can include partial or superseded exports.
 
 Join analytics on both raw team and session IDs, or on team and distinct IDs.
 Remove identifiers from model inputs.
@@ -135,8 +135,8 @@ Resolve image references before training because they contain team IDs.
 
 ## Images and Kafka
 
-V2 references are `image:v2:<team>:<grant>:<hash>` and `imageurl:v2:<team>:<grant>:<hash>`.
-Images do not deduplicate across teams or consent periods.
+V2 references are `image:v2:<team>:<grant>:<month>:<hash>` and `imageurl:v2:<team>:<grant>:<month>:<hash>`.
+Images do not deduplicate across teams, consent periods or session months.
 Source messages use session keys; stored scrubbed images use team image keys.
 Inline images have an encrypted lookup for each reference, published after the shard and its index.
 Readers fetch that lookup directly; a missing image does not require a scan of the team's image history.
@@ -168,3 +168,8 @@ When both aliases are set, the `AI_RESEARCH_REPLAY_*` value takes precedence, in
 The wrapped HMAC secret keeps the single name `SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY` in both the environment and secret store.
 It has no new alias.
 Renaming configuration must not rotate that key.
+
+V2 data uses `YYYY-MM` directories from the session UUIDv7 start timestamp in UTC.
+Recording blocks, metadata, image shards, image lookups and URL images retain that month across late arrivals.
+V2 image references include `<team>:<grant>:<month>:<hash>`, so the image-fetch seen history is independent for each month.
+Robots.txt and TDM reservation caches remain shared by origin across months.

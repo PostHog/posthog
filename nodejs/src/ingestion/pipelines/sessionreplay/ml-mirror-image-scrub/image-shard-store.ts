@@ -8,6 +8,7 @@ import { MlDataKey, encryptEnvelope } from '~/ingestion/pipelines/sessionreplay/
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 export interface ScrubbedImage {
+    sessionMonth?: string
     consentGrantedAt?: number
     teamId?: string
     pseudoTeam?: string
@@ -17,6 +18,7 @@ export interface ScrubbedImage {
 
 export interface ScrubbedUrlImage {
     teamId?: string
+    sessionMonth?: string
     consentGrantedAt?: number
     hash: string
     bytes: Buffer
@@ -171,8 +173,17 @@ export class ImageShardStore {
         ) {
             throw new Error('Image shard encryption ownership mismatch')
         }
+        const sessionMonth = images[0]?.sessionMonth
+        if (
+            encryptionKey &&
+            (!sessionMonth ||
+                !/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(sessionMonth) ||
+                images.some((image) => image.sessionMonth !== sessionMonth))
+        ) {
+            throw new Error('Image shards require one valid session month')
+        }
         const prefix = encryptionKey
-            ? `${this.prefix}/v2/${encryptionKey.identity.teamId}/${encryptionKey.identity.consentGrantedAt}`
+            ? `${this.prefix}/v2/${sessionMonth}/${encryptionKey.identity.teamId}/${encryptionKey.identity.consentGrantedAt}`
             : rawTeamIds
               ? `${this.prefix}/v2`
               : this.prefix
@@ -270,8 +281,11 @@ export class ImageShardStore {
         ) {
             throw new Error('URL image encryption ownership mismatch')
         }
+        if (encryptionKey && (!image.sessionMonth || !/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(image.sessionMonth))) {
+            throw new Error('URL images require a valid session month')
+        }
         const key = encryptionKey
-            ? `${this.prefix}/v2/${encryptionKey.identity.teamId}/${encryptionKey.identity.consentGrantedAt}/url/${image.hash}`
+            ? `${this.prefix}/v2/${image.sessionMonth}/${encryptionKey.identity.teamId}/${encryptionKey.identity.consentGrantedAt}/url/${image.hash}`
             : `${this.prefix}/url/${image.hash}`
         for (let attempt = 0; attempt < URL_WRITE_MAX_ATTEMPTS; attempt++) {
             try {

@@ -65,7 +65,15 @@ describe('ImageShardStore', () => {
             })
             const store = new ImageShardStore({ send } as unknown as S3Client, 'bucket', 'images', 1_000, 'node')
             const write = store.writeShard(
-                [{ teamId: '7', consentGrantedAt: 1, hash: inlineImage.hash, bytes: inlineImage.bytes }],
+                [
+                    {
+                        teamId: '7',
+                        consentGrantedAt: 1,
+                        sessionMonth: '2026-09',
+                        hash: inlineImage.hash,
+                        bytes: inlineImage.bytes,
+                    },
+                ],
                 key
             )
             if (failLookup) {
@@ -84,7 +92,7 @@ describe('ImageShardStore', () => {
                     ).toString()
                 )
                 expect(location).toEqual({ shard: send.mock.calls[0][0].input.Key, offset: 0, length: 3 })
-                expect(lookup.input.Key).toBe(`images/v2/7/1/lookup/${inlineImage.hash}.encrypted`)
+                expect(lookup.input.Key).toBe(`images/v2/2026-09/7/1/lookup/${inlineImage.hash}.encrypted`)
             }
             expect(send.mock.calls.every(([command]) => command instanceof PutObjectCommand)).toBe(true)
         }
@@ -130,6 +138,7 @@ describe('ImageShardStore', () => {
                 Array.from({ length: 9 }, (_, index) => ({
                     teamId: '7',
                     consentGrantedAt: 1,
+                    sessionMonth: '2026-09',
                     hash: String(index).padStart(22, '0'),
                     bytes: inlineImage.bytes,
                 })),
