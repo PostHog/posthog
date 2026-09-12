@@ -178,6 +178,57 @@ describe("classifyPromptFailure", () => {
       true,
     ],
     ["Authentication required", undefined, "authentication", true],
+    [
+      "PostHog's openai credentials were rejected. This is a problem with the PostHog gateway, not a usage limit on your account. Retries fail until PostHog fixes it.",
+      undefined,
+      "provider_credentials",
+      false,
+    ],
+    [
+      `API Error: 400 {"error":{"message":"PostHog's openai credentials were rejected.","type":"provider_credentials_rejected","code":"provider_credentials_rejected"}}`,
+      undefined,
+      "provider_credentials",
+      false,
+    ],
+    // Wording a gateway that predates the classification still sends.
+    [
+      `API Error: 401 {"error":{"message":"You do not have access to the organization tied to the API key.","code":"invalid_organization"}}`,
+      undefined,
+      "provider_credentials",
+      false,
+    ],
+    // A revoked key in the pre-classification wording, wrapped by the ACP layer.
+    // Without the key signals it matches "internal error" and becomes fatal.
+    [
+      `Internal error: API Error: 401 {"error":{"message":"Incorrect API key provided: sk-***.","code":"invalid_api_key"}}`,
+      undefined,
+      "provider_credentials",
+      false,
+    ],
+    [
+      `API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`,
+      undefined,
+      "provider_credentials",
+      false,
+    ],
+    [
+      `API Error: 400 {"Error":{"Code":"UnrecognizedClientException","Message":"The security token included in the request is invalid"}}`,
+      undefined,
+      "provider_credentials",
+      false,
+    ],
+    [
+      `API Error: 400 {"error":{"message":"Model 'provider_credentials_rejected' is not supported","type":"invalid_request_error","code":"model_not_supported"}}`,
+      undefined,
+      "unknown",
+      false,
+    ],
+    [
+      `API Error: 400 {"error":{"message":"Model 'authentication_error' is not supported","type":"invalid_request_error","code":"model_not_supported"}}`,
+      undefined,
+      "authentication",
+      true,
+    ],
     ["process exited", undefined, "fatal_session", true],
     [
       "Internal error: This conversation is too large to continue.",
@@ -253,6 +304,14 @@ describe("isFatalSessionError", () => {
         "API Error: the operation timed out",
       ),
     ).toBe(false);
+  });
+
+  it.each([
+    // Tearing the session down and resending would just hit the same refusal.
+    `Internal error: API Error: 401 {"error":{"code":"invalid_organization"}}`,
+    `Internal error: API Error: 401 {"error":{"code":"invalid_api_key"}}`,
+  ])("does not treat a rejected gateway credential %j as fatal", (message) => {
+    expect(isFatalSessionError(message)).toBe(false);
   });
 
   it("does not treat a no-response diagnostic as fatal", () => {

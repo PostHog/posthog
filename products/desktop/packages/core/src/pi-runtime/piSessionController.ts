@@ -1402,6 +1402,9 @@ export class PiSessionController {
         ? "Model not available"
         : "Usage limit reached";
     }
+    if (failure.kind === "provider_credentials") {
+      return "AI provider credentials rejected";
+    }
     if (failure.kind === "transient") {
       return "Provider temporarily unavailable";
     }
@@ -1800,15 +1803,22 @@ export class PiSessionController {
     this.flushText(taskId);
     const failure = normalizeSessionError(error);
     const classified = classifyPromptFailure(error);
+    const retryable =
+      classified.kind === "provider_credentials"
+        ? classified.retryable
+        : failure.retryable;
     this.updateSession(taskId, {
-      connectionState: failure.retryable ? "disconnected" : "error",
+      connectionState: retryable ? "disconnected" : "error",
       error: {
         id: globalThis.crypto.randomUUID(),
         scope: "connection",
         kind: classified.kind,
-        title: failure.title,
+        title:
+          classified.kind === "provider_credentials"
+            ? this.errorTitleForOperation("prompt", classified)
+            : failure.title,
         message: failure.message,
-        retryable: failure.retryable,
+        retryable,
         limitCause: classified.limitCause,
       },
     });
