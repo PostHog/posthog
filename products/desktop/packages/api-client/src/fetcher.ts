@@ -141,6 +141,7 @@ export const buildApiFetcher: (
 
         if (!response.ok && (await isAuthFailureResponse(response))) {
           try {
+            response = undefined;
             response = await makeRequest(
               input,
               await config.refreshAccessToken(),
