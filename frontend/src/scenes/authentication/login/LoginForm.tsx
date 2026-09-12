@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { combineUrl } from 'kea-router'
 import { useEffect } from 'react'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
@@ -246,6 +247,20 @@ export function LoginForm(): JSX.Element {
                                     Need help?
                                 </Link>
                             </>
+                        )}
+                        {generalError.code === 'invalid_credentials' && (
+                            <p className="mt-1 mb-0">
+                                <span>Forgot your password?</span>{' '}
+                                <Link
+                                    // A complete URL, not a `[path, params]` tuple: `Link` gives a
+                                    // tuple an `href` of `#`, so a new-tab open lands back here.
+                                    to={combineUrl(urls.passwordReset(), { email: login.email }).url}
+                                    data-attr="login-error-reset-password"
+                                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                                >
+                                    Reset it by email
+                                </Link>
+                            </p>
                         )}
                     </div>
                 )}
