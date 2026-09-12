@@ -94,7 +94,7 @@ impl QueryTui {
         inner_area
     }
 
-    fn save_editor_state(&self, lines: Vec<String>) -> Result<(), Error> {
+    fn save_editor_state(&mut self, lines: Vec<String>) -> Result<(), Error> {
         if !self.state_dirty {
             return Ok(());
         }
@@ -107,6 +107,8 @@ impl QueryTui {
 
         let state_str = serde_json::to_string(&state)?;
         std::fs::write(editor_state_path, state_str)?;
+        // Only once the write lands, so a failed write is retried on the next frame
+        self.state_dirty = false;
         Ok(())
     }
 
