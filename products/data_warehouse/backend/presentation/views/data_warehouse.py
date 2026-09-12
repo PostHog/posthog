@@ -165,11 +165,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             and access_level_satisfied_for_resource("warehouse_table", level, "viewer")
         }
 
+    def _team_schemas(self) -> QuerySet:
+        return ExternalDataSchema.objects.filter(team_id=self.team_id, deleted=False).select_related("source", "table")
+
     def _readable_team_schema_ids(self) -> list:
-        schemas = list(
-            ExternalDataSchema.objects.filter(team_id=self.team_id, deleted=False).select_related("source", "table")
-        )
-        return list(self._readable_schema_ids(schemas))
+        return list(self._readable_schema_ids(list(self._team_schemas())))
 
     def _require_organization_admin(self, request: Request, action: str) -> Response | None:
         if not request.user.is_authenticated:
@@ -761,15 +761,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             # Only show syncs that are actively enabled but failing
             readable_sources = self._readable_sources()
             problem_syncs = list(
-                ExternalDataSchema.objects.filter(
-                    team_id=self.team_id,
-                    deleted=False,
-                    should_sync=True,
-                )
+                self._team_schemas()
+                .filter(should_sync=True)
                 .filter(
                     Q(status=ExternalDataSchemaStatus.FAILED) | Q(status=ExternalDataSchemaStatus.BILLING_LIMIT_REACHED)
                 )
-                .select_related("source", "table")
             )
             visible_schema_ids = self._readable_schema_ids(problem_syncs)
 
