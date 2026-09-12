@@ -65,6 +65,7 @@ event_definitions.PropertyDefinition access_control.PropertyAccessControl.proper
 event_definitions.PropertyDefinition ee.EnterprisePropertyDefinition.propertydefinition_ptr reverse-accessor(enterprisepropertydefinition) 1
 event_definitions.PropertyDefinition posthog.MaterializedColumnSlot.property_definition reverse-accessor(materialized_column_slots) 1
 event_definitions.PropertyDefinition posthog.TaggedItem.property_definition reverse-accessor(tagged_items) 1
+experiments.Experiment posthog.TaggedItem.experiment reverse-accessor(tagged_items) 1
 experiments.ExperimentSavedMetric posthog.TaggedItem.experiment_saved_metric reverse-accessor(tagged_items) 1
 experiments:backend/hogql_queries/ ee.clickhouse.views.test.test_experiment_saved_metrics drives(ExperimentTrendsQuery) 2
 experiments:backend/hogql_queries/ posthog.session_recordings.queries.test.listing_recordings.test_session_recordings_list_by_experiment_exposure drives(ExposureQueryBuilder) 1
