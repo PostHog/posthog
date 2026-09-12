@@ -1,17 +1,24 @@
+from typing import TypeVar
+
 from django.conf import settings
 
 import structlog
 
 from posthog.schema import (
+    CacheMissResponse,
     CompareFilter,
     DateRange,
     ProductKey,
+    QueryStatusResponse,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
     WebGoalsQuery,
+    WebGoalsQueryResponse,
     WebOverviewQuery,
+    WebOverviewQueryResponse,
     WebStatsBreakdown,
     WebStatsTableQuery,
+    WebStatsTableQueryResponse,
 )
 
 from posthog.clickhouse.query_tagging import tag_queries
@@ -27,6 +34,17 @@ from products.web_analytics.backend.hogql_queries.web_overview import WebOvervie
 logger = structlog.get_logger(__name__)
 
 DEFAULT_DIGEST_EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+
+
+DigestResponse = TypeVar("DigestResponse", WebOverviewQueryResponse, WebStatsTableQueryResponse, WebGoalsQueryResponse)
+
+
+def _require_digest_response(
+    response: DigestResponse | CacheMissResponse | QueryStatusResponse,
+) -> DigestResponse:
+    if isinstance(response, CacheMissResponse | QueryStatusResponse) or response.error:
+        raise ValueError("Web analytics digest query did not return a successful result")
+    return response
 
 
 def _default_overview() -> dict:
@@ -58,10 +76,10 @@ def get_overview_for_team(
             properties=[],
         )
         runner = WebOverviewQueryRunner(team=team, query=query)
-        response = runner.run(execution_mode=execution_mode, user=user)
+        response = _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
     except Exception:
         logger.exception("failed to query web overview", team_id=team.pk)
-        return result
+        raise
 
     results = getattr(response, "results", None)
     if not results:
@@ -151,7 +169,7 @@ def get_top_pages(
             properties=[],
         )
         runner = WebStatsTableQueryRunner(team=team, query=query)
-        response = runner.run(execution_mode=execution_mode, user=user)
+        response = _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
 
         results = getattr(response, "results", None)
         if not results:
@@ -168,7 +186,7 @@ def get_top_pages(
         ]
     except Exception:
         logger.exception("failed to query top pages", team_id=team.pk)
-        return []
+        raise
 
 
 def get_top_sources(
@@ -193,7 +211,7 @@ def get_top_sources(
             properties=[],
         )
         runner = WebStatsTableQueryRunner(team=team, query=query)
-        response = runner.run(execution_mode=execution_mode, user=user)
+        response = _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
 
         results = getattr(response, "results", None)
         if not results:
@@ -210,7 +228,7 @@ def get_top_sources(
         ]
     except Exception:
         logger.exception("failed to query top sources", team_id=team.pk)
-        return []
+        raise
 
 
 def get_goals_for_team(
@@ -231,15 +249,16 @@ def get_goals_for_team(
             properties=[],
         )
         runner = WebGoalsQueryRunner(team=team, query=query)
-        response = runner.run(execution_mode=execution_mode, user=user)
+        response = _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
     except NoActionsError:
         return []
     except Exception:
         logger.exception("failed to query goals", team_id=team.pk)
-        return []
+        raise
 
+    query_results = response.results or []
     results = []
-    for row in (getattr(response, "results", None) or [])[:limit]:
+    for row in query_results[:limit]:
         name, _converting_users, (total_current, total_prev), _conversion_rate = row
         results.append(
             {
