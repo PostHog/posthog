@@ -80,6 +80,7 @@ const meta: Meta<typeof ScratchpadPanel> = {
     component: ScratchpadPanel,
     title: 'Scenes-App/Signals/ScratchpadPanel',
     tags: ['autodocs'],
+    parameters: { mockDate: '2026-09-11T20:15:00Z' },
 }
 export default meta
 
