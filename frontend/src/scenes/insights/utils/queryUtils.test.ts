@@ -3,6 +3,7 @@ import { Node, NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/sche
 import { InsightType } from '~/types'
 
 import {
+    compareDataNodeQuery,
     compareQuery,
     filterVariablesReferencedInQuery,
     hasInvalidRegexFilter,
@@ -286,5 +287,26 @@ describe('isDraftQueryWorthSaving', () => {
         ['an events table query', getDefaultQuery(InsightType.JSON, false), true],
     ])('treats %s correctly', (_name, query, expected) => {
         expect(isDraftQueryWorthSaving(query, false)).toBe(expected)
+    })
+})
+
+describe('compareDataNodeQuery', () => {
+    // Query log tags never change what the backend returns (it strips them from the cache
+    // payload), so a tag-only difference must not count as a changed query. Web analytics
+    // stamps the applied filter preset's id into tags, and treating that as a change would
+    // refetch every tile the moment someone saves a preset.
+    it.each([
+        [
+            'an insight query node',
+            { kind: NodeKind.TrendsQuery, series: [] } as Node,
+            { kind: NodeKind.TrendsQuery, series: [], tags: { presetId: 'abc123' } } as Node,
+        ],
+        [
+            'a non-insight node',
+            { kind: NodeKind.HogQLQuery, query: 'select 1' } as Node,
+            { kind: NodeKind.HogQLQuery, query: 'select 1', tags: { presetId: 'abc123' } } as Node,
+        ],
+    ])('ignores tags on %s', (_name, untagged, tagged) => {
+        expect(compareDataNodeQuery(untagged, tagged)).toBe(true)
     })
 })

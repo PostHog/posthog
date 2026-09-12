@@ -1,6 +1,7 @@
 import gzip
 import json
 import threading
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from posthog.test.base import BaseTest
@@ -15,11 +16,15 @@ from posthog.clickhouse.query_tagging import Feature, get_query_tags, reset_quer
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
+from posthog.models.instance_setting import override_instance_config
 from posthog.query_cache import EntryFreshness
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
+from products.web_analytics.backend.models.web_analytics_filter_preset import WebAnalyticsFilterPreset
 from products.web_analytics.dags import cache_warming
 from products.web_analytics.dags.cache_warming import (
+    PRESET_LANE_MAX_PRESETS_PER_TEAM,
+    PRESET_LANE_MAX_SHAPES_PER_PRESET,
     WarmQueriesConfig,
     build_replay_runner,
     canonicalize_lazy_replay_json,
@@ -515,6 +520,132 @@ class TestFleetQuerySelection(BaseTest):
         self.assertEqual(result, [])
 
 
+class TestPresetLane(BaseTest):
+    """The preset lane selects shapes a team ran under a saved filter preset, below the
+    demand floor. Everything here guards the two things that keeps honest: only real
+    presets count, and the lane stays bounded."""
+
+    LAST_SEEN = datetime(2026, 8, 19, 12, 0, 0)
+
+    def _preset(self, short_id: str, team: Team | None = None, deleted: bool = False) -> WebAnalyticsFilterPreset:
+        return WebAnalyticsFilterPreset.objects.create(
+            team=team or self.team, short_id=short_id, name=short_id, deleted=deleted
+        )
+
+    def _row(
+        self,
+        preset_ids: list[str],
+        query_count: int = 1,
+        team_id: int | None = None,
+        shape: str = "s",
+        last_seen: datetime | None = None,
+    ) -> tuple:
+        return (
+            team_id or self.team.pk,
+            json.dumps({"kind": "WebOverviewQuery", "properties": [{"key": shape}]}),
+            query_count,
+            query_count,
+            f"hash-{shape}",
+            ["-7d"],
+            preset_ids,
+            last_seen or self.LAST_SEEN,
+        )
+
+    def _select(self, rows: list[tuple], minimum_query_count: int = 5) -> list[dict]:
+        with patch("products.web_analytics.dags.cache_warming.sync_execute", return_value=rows):
+            return queries_to_keep_fresh(
+                dagster.build_op_context(),
+                days=7,
+                minimum_query_count=minimum_query_count,
+                max_shapes=1000,
+                preset_lane=True,
+            )
+
+    def test_preset_shape_survives_below_the_demand_floor(self) -> None:
+        # The reason the lane exists: exploration rarely runs often enough to clear the
+        # floor, so without this a saved preset stays permanently cold.
+        self._preset("abc123")
+
+        result = self._select([self._row(["abc123"], query_count=1, shape="tagged"), self._row([], query_count=1)])
+
+        self.assertEqual([row["query_json"]["properties"][0]["key"] for row in result], ["tagged"])
+        self.assertEqual(result[0]["preset_ids"], ["abc123"])
+
+    @parameterized.expand(
+        [
+            ("deleted", "deleted"),
+            ("other_team", "other_team"),
+            ("never_existed", "never_existed"),
+        ]
+    )
+    def test_unusable_preset_id_falls_back_to_the_demand_floor(self, _name: str, kind: str) -> None:
+        # The preset id reaches us from the client's query tags, so a shape may only skip
+        # the demand floor once Postgres agrees the preset is real, live, and this team's.
+        if kind == "deleted":
+            self._preset("abc123", deleted=True)
+        elif kind == "other_team":
+            self._preset("abc123", team=Team.objects.create(organization=self.organization))
+
+        below_floor = self._select([self._row(["abc123"], query_count=1)])
+        self.assertEqual(below_floor, [])
+
+        # Same shape, now with real demand: it comes back as a plain demand-lane shape,
+        # so the id was ignored rather than the row blacklisted.
+        above_floor = self._select([self._row(["abc123"], query_count=50)])
+        self.assertEqual([row["preset_ids"] for row in above_floor], [[]])
+
+    def test_teams_keep_their_most_recently_used_presets(self) -> None:
+        # A team with more presets than the cap keeps the ones it actually opens. Recency
+        # comes from the scan, not the model's last_modified_at, which only tracks edits.
+        over_cap = PRESET_LANE_MAX_PRESETS_PER_TEAM + 1
+        for index in range(over_cap):
+            self._preset(f"preset{index}")
+        rows = [
+            self._row(
+                [f"preset{index}"],
+                query_count=1,
+                shape=f"s{index}",
+                # preset0 is the stalest, so it is the one that must drop.
+                last_seen=self.LAST_SEEN - timedelta(days=over_cap - index),
+            )
+            for index in range(over_cap)
+        ]
+
+        result = self._select(rows)
+
+        kept = {pid for row in result for pid in row["preset_ids"]}
+        self.assertEqual(len(kept), PRESET_LANE_MAX_PRESETS_PER_TEAM)
+        self.assertNotIn("preset0", kept)
+
+    def test_one_preset_cannot_mint_unbounded_shapes(self) -> None:
+        # Without this a single preset left open across every tab and breakdown would
+        # claim hourly background compute for hundreds of shapes.
+        self._preset("abc123")
+        over_cap = PRESET_LANE_MAX_SHAPES_PER_PRESET + 15
+        rows = [self._row(["abc123"], query_count=1, shape=f"s{index}") for index in range(over_cap)]
+
+        result = self._select(rows)
+
+        self.assertEqual(len(result), PRESET_LANE_MAX_SHAPES_PER_PRESET)
+
+    def test_lane_off_leaves_the_selection_alone(self) -> None:
+        # With the lane off the selection must be exactly what it was before it existed —
+        # no preset columns read, no shape kept below the floor.
+        rows = [
+            (self.team.pk, '{"kind": "WebOverviewQuery"}', 1, 1, "hash-a", ["-7d"]),
+            (self.team.pk, '{"kind": "WebGoalsQuery"}', 50, 50, "hash-b", ["-7d"]),
+        ]
+        with patch("products.web_analytics.dags.cache_warming.sync_execute", return_value=rows) as mock_exec:
+            result = queries_to_keep_fresh(
+                dagster.build_op_context(), days=7, minimum_query_count=5, max_shapes=1000, preset_lane=False
+            )
+
+        # No Python-side floor is applied when the lane is off — the SQL's HAVING does it.
+        self.assertEqual(len(result), 2)
+        self.assertNotIn("preset_ids", result[0])
+        self.assertNotIn("notEmpty(preset_ids)", mock_exec.call_args[0][0])
+
+
 class _FakeObjectStorage:
     def __init__(self) -> None:
         self.store: dict[str, bytes] = {}
@@ -541,6 +672,23 @@ class TestWarmableQueriesCaching(BaseTest):
         self.assertEqual(mock_exec.call_count, 1)
         self.assertEqual(first, second)
         self.assertEqual(first[0]["team_id"], 101)
+
+    @patch("products.web_analytics.dags.cache_warming.object_storage", new_callable=_FakeObjectStorage)
+    @patch("products.web_analytics.dags.cache_warming.sync_execute")
+    def test_toggling_the_preset_lane_misses_the_cache(
+        self, mock_exec: MagicMock, _storage: _FakeObjectStorage
+    ) -> None:
+        # The selection is cached for hours, so unless the preset lane flag is part of the
+        # cache key, turning it off keeps serving preset shapes until the TTL expires and
+        # the kill switch is cosmetic exactly when it is needed.
+        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 50, 123, ["-7d"], [], None)]
+
+        with override_instance_config("WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED", True):
+            get_warmable_queries_op(dagster.build_op_context())
+        with override_instance_config("WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED", False):
+            get_warmable_queries_op(dagster.build_op_context())
+
+        self.assertEqual(mock_exec.call_count, 2)
 
     @patch("products.web_analytics.dags.cache_warming.object_storage")
     @patch("products.web_analytics.dags.cache_warming.sync_execute")
@@ -574,13 +722,22 @@ class TestWarmQueriesOp(BaseTest):
             # A raw-path (not lazy-eligible) shape below the demand bar must not
             # replay: an expensive ineligible shape would otherwise become an
             # hourly background scan outside the tenant's request throttles.
-            ("raw_low_demand_skipped", False, 2, 0),
-            ("raw_high_demand_warms", False, 10, 1),
-            ("lazy_low_demand_warms", True, 2, 1),
+            ("raw_low_demand_skipped", False, 2, [], 0),
+            ("raw_high_demand_warms", False, 10, [], 1),
+            ("lazy_low_demand_warms", True, 2, [], 1),
+            # A preset shape gets a lower raw floor, not a bypass: a preset with a
+            # conversion goal is raw-only, so at the demand floor it would never warm.
+            ("preset_raw_at_lower_floor_warms", False, 2, ["abc123"], 1),
+            ("preset_raw_below_lower_floor_skipped", False, 1, ["abc123"], 0),
         ]
     )
     def test_raw_replays_keep_higher_demand_bar(
-        self, _name: str, lazy_eligible: bool, representative_query_count: int, expected_runs: int
+        self,
+        _name: str,
+        lazy_eligible: bool,
+        representative_query_count: int,
+        preset_ids: list[str],
+        expected_runs: int,
     ) -> None:
         runner = MagicMock()
         runner.get_cache_key.return_value = f"key-{_name}"
@@ -605,6 +762,7 @@ class TestWarmQueriesOp(BaseTest):
                         "query_count": 999,
                         "representative_query_count": representative_query_count,
                         "normalized_query_hash": "h",
+                        "preset_ids": preset_ids,
                     }
                 ],
             )
