@@ -59,7 +59,7 @@ from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerPayloadIndex
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult, persisted_repo_selection
 from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
@@ -926,7 +926,7 @@ def set_scout_report_repository(
 ) -> bool:
     """Replace an existing report's `repo_selection` artefact (latest-wins) — the `edit_report`
     repository path. `repository` is a validated `owner/repo`, or None to land the report without a
-    draft PR. Returns True, since every call writes a selection.
+    draft PR. Returns whether the stored selection actually changed.
 
     This is the correction path for a misrouted report: a report that surfaced against the wrong
     codebase can be repointed in place, instead of the scout filing a duplicate. A scout naming the
@@ -942,15 +942,28 @@ def set_scout_report_repository(
     never in-txn, since it spawns a Task — mirroring the reviewer path above.
     """
     _validate_report_id(report_id)
+    selection = RepoSelectionResult(repository=repository, reason=SCOUT_REPOSITORY_REASON)
     with transaction.atomic():
         # The lock is the team-scoped gate AND serializes this against a concurrent selection write,
         # so an interleaved correction isn't lost.
         if not SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).exists():
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        # Compared under the lock like the chart / metric / prompt setters above. `edit_report` is
+        # non-idempotent, so the same correction can arrive twice, and a re-send would leave a second
+        # "Set repository" note on the work log and re-run autostart for a target that never moved.
+        # The whole selection is compared rather than the repository alone: a selection inferred from
+        # the report's own text names the same repository with `autostart_eligible=False`, and a scout
+        # naming it is the decision that lifts it, so that correction must still land.
+        if persisted_repo_selection(report_id) == selection:
+            logger.info(
+                "signals_scout.edit_report: repository unchanged",
+                extra={"team_id": team_id, "report_id": report_id, "repository": repository},
+            )
+            return False
         SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
-            content=RepoSelectionResult(repository=repository, reason=SCOUT_REPOSITORY_REASON),
+            content=selection,
             attribution=attribution,
             reevaluate_autostart=False,
         )
