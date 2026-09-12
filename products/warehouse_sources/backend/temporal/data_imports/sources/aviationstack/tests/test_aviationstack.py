@@ -1,4 +1,6 @@
 import json
+import string
+import datetime
 from typing import Any
 
 import pytest
@@ -12,10 +14,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aviationst
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.aviationstack import (
     AviationstackResumeConfig,
     aviationstack_source,
+    build_request_plan,
+    parse_iata_codes,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.settings import (
     AVIATIONSTACK_ENDPOINTS,
+    FLIGHTS_FUTURE_FIRST_DAY_AHEAD,
+    FLIGHTS_FUTURE_MAX_DAYS,
+    MAX_AIRPORTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
@@ -80,9 +87,20 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-def _source(endpoint: str = "airlines", manager: mock.MagicMock | None = None) -> Any:
+def _source(
+    endpoint: str = "airlines",
+    manager: mock.MagicMock | None = None,
+    airport_iata_codes: str | None = None,
+    flights_future_days: int | None = None,
+) -> Any:
     return aviationstack_source(
-        "supersecret", endpoint, team_id=1, job_id="j", resumable_source_manager=manager or _make_manager()
+        "supersecret",
+        endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager or _make_manager(),
+        airport_iata_codes=airport_iata_codes,
+        flights_future_days=flights_future_days,
     )
 
 
@@ -231,6 +249,151 @@ class TestHttpErrors:
         assert session.send.call_count == 5
 
 
+class TestAirportFanOut:
+    @parameterized.expand(
+        [
+            ("blank", None, []),
+            ("empty", "   ", []),
+            ("comma_separated", "jfk,DXB", ["JFK", "DXB"]),
+            ("mixed_separators", "JFK DXB\nLHR", ["JFK", "DXB", "LHR"]),
+            ("dedupes", "JFK, jfk", ["JFK"]),
+            # Real IATA airport codes are exactly three letters; junk must not become a request.
+            ("drops_wrong_length", "JFK, HEATHROW, LH", ["JFK"]),
+            ("drops_non_alpha", "JFK, 123", ["JFK"]),
+        ]
+    )
+    def test_parse_iata_codes(self, _name: str, raw: str | None, expected: list[str]) -> None:
+        assert parse_iata_codes(raw) == expected
+
+    def test_parse_iata_codes_caps_fan_out(self) -> None:
+        codes = ",".join(f"A{first}{second}" for first in string.ascii_uppercase for second in "ABCD")
+        assert len(parse_iata_codes(codes)) == MAX_AIRPORTS
+
+    def test_per_airport_endpoint_without_airports_raises(self) -> None:
+        with pytest.raises(ValueError, match="needs at least one airport"):
+            _source("timetable")
+
+    def test_timetable_plans_one_request_per_airport_and_direction(self) -> None:
+        plan = build_request_plan(AVIATIONSTACK_ENDPOINTS["timetable"], ["JFK", "DXB"])
+
+        assert [(r.params["iataCode"], r.params["type"]) for r in plan] == [
+            ("JFK", "departure"),
+            ("JFK", "arrival"),
+            ("DXB", "departure"),
+            ("DXB", "arrival"),
+        ]
+        assert all("date" not in r.params for r in plan)
+
+    def test_flights_future_starts_beyond_the_vendor_cutoff(self) -> None:
+        # aviationstack only serves /flightsFuture for dates more than 7 days out.
+        today = datetime.date(2026, 3, 1)
+        plan = build_request_plan(AVIATIONSTACK_ENDPOINTS["flights_future"], ["JFK"], 3, today=today)
+
+        assert [r.params["date"] for r in plan if r.params["type"] == "departure"] == [
+            "2026-03-09",
+            "2026-03-10",
+            "2026-03-11",
+        ]
+        assert (today + datetime.timedelta(days=FLIGHTS_FUTURE_FIRST_DAY_AHEAD)).isoformat() == "2026-03-09"
+
+    @parameterized.expand([("zero", 0, 1), ("negative", -5, 1), ("oversized", 500, FLIGHTS_FUTURE_MAX_DAYS)])
+    def test_flights_future_window_is_bounded(self, _name: str, days: int, expected: int) -> None:
+        plan = build_request_plan(AVIATIONSTACK_ENDPOINTS["flights_future"], ["JFK"], days)
+        # Two schedule directions per date.
+        assert len(plan) == expected * 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_timetable_walks_every_planned_request_and_tags_rows(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_page([{"flight": {"number": str(i)}}], total=None) for i in range(4)])
+
+        rows = _rows(_source("timetable", airport_iata_codes="JFK,DXB"))
+
+        assert [(p["iataCode"], p["type"]) for p in params] == [
+            ("JFK", "departure"),
+            ("JFK", "arrival"),
+            ("DXB", "departure"),
+            ("DXB", "arrival"),
+        ]
+        assert [(r["queried_iata_code"], r["queried_type"]) for r in rows] == [
+            ("JFK", "departure"),
+            ("JFK", "arrival"),
+            ("DXB", "departure"),
+            ("DXB", "arrival"),
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flights_future_rows_carry_the_requested_date(self, MockSession) -> None:
+        session = MockSession.return_value
+        # The payload has a weekday and a wall-clock time but no date, so without the injected
+        # queried_date a future schedule cannot be placed on a calendar at all.
+        _wire(session, [_page([{"weekday": "7", "departure": {"scheduledTime": "06:15"}}]) for _ in range(2)])
+
+        rows = _rows(_source("flights_future", airport_iata_codes="JFK", flights_future_days=1))
+
+        assert len({r["queried_date"] for r in rows}) == 1
+        assert all("date" not in r for r in rows)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_completed_requests(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_page([{"flight": {"number": "1"}}], total=None)])
+
+        manager = _make_manager(AviationstackResumeConfig(next_offset=0, next_request_index=3))
+        _rows(_source("timetable", manager=manager, airport_iata_codes="JFK,DXB"))
+
+        # Index 3 is the last planned request (DXB arrivals) — the first three must not be re-sent.
+        assert session.send.call_count == 1
+        assert (params[0]["iataCode"], params[0]["type"]) == ("DXB", "arrival")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_exhausted_request_checkpoints_the_next_one(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_page([{"flight": {"number": str(i)}}], total=None) for i in range(2)])
+
+        manager = _make_manager()
+        _rows(_source("timetable", manager=manager, airport_iata_codes="JFK"))
+
+        # After JFK departures completes, a resumed attempt must start at JFK arrivals, not re-run it.
+        assert manager.save_state.call_args_list[0].args[0] == AviationstackResumeConfig(
+            next_offset=0, next_request_index=1, plan_start_date=None
+        )
+        # The final request leaves no checkpoint behind.
+        assert manager.save_state.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_rebuilds_the_same_future_date_window(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_page([{"weekday": "1"}], total=None)])
+
+        # A job resumed after a UTC midnight would otherwise shift its window by a day and skip the
+        # date the crash interrupted.
+        manager = _make_manager(
+            AviationstackResumeConfig(next_offset=0, next_request_index=1, plan_start_date="2020-01-09")
+        )
+        _rows(_source("flights_future", manager=manager, airport_iata_codes="JFK", flights_future_days=1))
+
+        assert params[0]["date"] == "2020-01-09"
+
+
+class TestThrottledEndpoints:
+    @parameterized.expand([("timetable",), ("flights_future",)])
+    @mock.patch("tenacity.nap.time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_throttled_feeds_outlast_the_rate_limit_window(self, endpoint: str, MockSession, sleep) -> None:
+        session = MockSession.return_value
+        session.headers = {}
+        session.prepare_request.return_value = mock.MagicMock()
+        session.send.return_value = _response({}, status=429, reason="Too Many Requests")
+
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source(endpoint, airport_iata_codes="JFK", flights_future_days=1))
+
+        # The per-airport feeds allow one request every 60s on free plans, so the retry budget has to
+        # outlast a whole window rather than the 15s the client's default budget covers.
+        assert sum(call.args[0] for call in sleep.call_args_list) > 60
+
+
 class TestSourceResponse:
     @parameterized.expand(
         [
@@ -248,7 +411,7 @@ class TestSourceResponse:
 
     def test_every_endpoint_builds_a_source_response(self) -> None:
         for endpoint in AVIATIONSTACK_ENDPOINTS:
-            response = _source(endpoint)
+            response = _source(endpoint, airport_iata_codes="JFK")
             assert response.name == endpoint
             assert callable(response.items)
 
