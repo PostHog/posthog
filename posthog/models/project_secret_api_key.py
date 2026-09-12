@@ -7,10 +7,10 @@ from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
-from .utils import generate_random_token, hash_key_value
+from .utils import MaskedKeyMixin, generate_random_token, hash_key_value
 
 
-class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
+class ProjectSecretAPIKey(ModelActivityMixin, MaskedKeyMixin, models.Model):
     """
     API key tied to a project. Behaves in the same way as a PersonalAPIKey,
     but isn't tied to a single user.
