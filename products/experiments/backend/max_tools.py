@@ -45,14 +45,16 @@ CREATE_EXPERIMENT_TOOL_DESCRIPTION = dedent("""
 
 class CreateExperimentToolArgs(BaseModel):
     name: str = Field(
+        max_length=400,
         description=dedent("""
         The experiment name - should clearly describe what is being tested.
+        Must be at most 400 characters.
 
         Examples:
         - "Pricing Page Redesign Test"
         - "New Checkout Flow Experiment"
         - "Homepage CTA Button A/B Test"
-        """).strip()
+        """).strip(),
     )
     feature_flag_key: str = Field(
         description=dedent("""
@@ -71,8 +73,10 @@ class CreateExperimentToolArgs(BaseModel):
     )
     description: str | None = Field(
         default=None,
+        max_length=3000,
         description=dedent("""
         Optional detailed description of the experiment.
+        Must be at most 3000 characters.
 
         Should include:
         - The hypothesis being tested
