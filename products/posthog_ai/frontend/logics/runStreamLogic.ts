@@ -30,7 +30,11 @@ import type {
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { UserType } from '../../../../frontend/src/types'
-import { deliverPermissionResponse, isPermissionTargetEnded } from '../policy/permissionDelivery'
+import {
+    deliverPermissionResponse,
+    isPermissionTargetEnded,
+    reconcilePermissionResponse,
+} from '../policy/permissionDelivery'
 import { isPlanPermissionRequest } from '../policy/permissionUtils'
 import { parseSandboxQuestions } from '../policy/questionUtils'
 import {
@@ -3427,15 +3431,38 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 if (controller.signal.aborted || disposables.isDisposed) {
                     return
                 }
-                posthog.captureException(error)
                 // The run ended before the approval arrived, so every further attempt gets the same
                 // rejection. Drop the card instead of asking for a retry that cannot succeed.
                 if (isPermissionTargetEnded(error)) {
+                    posthog.captureException(error)
                     actions.clearPermissionRequest()
                     lemonToast.error("This run has ended, so the approval wasn't sent. Send a new message to continue.")
                     return
                 }
-                if (automatic) {
+                // Another client can resolve the request before this reply arrives. Its saved
+                // resolution can lag behind the command error because the agent buffers logs.
+                const resumed = values.isBootstrapResumeRun
+                const resolved = await reconcilePermissionResponse(async (signal) => {
+                    const entries = await api.tasks.runs.getLogEntries(activeRun.taskId, activeRun.runId, signal)
+                    return normalizeHistory(entries, activeRun.runId, resumed).some(
+                        (entry) =>
+                            entry.source_run_id === activeRun.runId &&
+                            isPosthogNotification(entry.notification, '_posthog/permission_resolved') &&
+                            entry.notification.params?.requestId === record.requestId
+                    )
+                }, controller.signal)
+                if (controller.signal.aborted || disposables.isDisposed) {
+                    return
+                }
+                if (resolved) {
+                    actions.markPermissionRequestResolved(record.requestId)
+                    return
+                }
+                posthog.captureException(error)
+                if (
+                    automatic &&
+                    (!values.pendingPermissionRequest || values.pendingPermissionRequest.requestId === record.requestId)
+                ) {
                     actions.ingestPermissionRequest(record)
                 }
                 actions.permissionResponseFailed(record.requestId)

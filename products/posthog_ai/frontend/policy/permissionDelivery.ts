@@ -2,6 +2,7 @@ import type { TaskRunCommandResponseApi } from 'products/tasks/frontend/generate
 
 const STARTUP_WAIT_MS = 10_000
 const REQUEST_TIMEOUT_MS = 5_000
+const RESOLUTION_WAIT_MS = 10_000
 
 function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -14,7 +15,7 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
     })
 }
 
-async function waitForReadiness(ms: number, signal: AbortSignal): Promise<void> {
+async function waitForRetry(ms: number, signal: AbortSignal): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
         await abortable(new Promise<void>((resolve) => (timer = setTimeout(resolve, ms))), signal)
@@ -26,6 +27,39 @@ async function waitForReadiness(ms: number, signal: AbortSignal): Promise<void> 
 export function isPermissionTargetEnded(error: unknown): boolean {
     const rejection = error as { status?: number; code?: string }
     return rejection?.status === 409 && rejection.code === 'permission_target_ended'
+}
+
+export async function reconcilePermissionResponse(
+    isResolved: (signal: AbortSignal) => Promise<boolean>,
+    signal: AbortSignal
+): Promise<boolean> {
+    const controller = new AbortController()
+    const abort = (): void => controller.abort(signal.reason)
+    signal.addEventListener('abort', abort, { once: true })
+    if (signal.aborted) {
+        abort()
+    }
+    const timer = setTimeout(() => controller.abort(), RESOLUTION_WAIT_MS)
+    let attempt = 0
+    try {
+        while (!controller.signal.aborted) {
+            try {
+                if (await abortable(isResolved(controller.signal), controller.signal)) {
+                    return true
+                }
+            } catch {
+                // A failed log read leaves the approval outcome unknown.
+            }
+            await waitForRetry(Math.min(500 * 2 ** attempt++, 2_000), controller.signal)
+        }
+    } catch {
+        // Cancellation and the deadline stop reconciliation without confirming an approval.
+    } finally {
+        clearTimeout(timer)
+        signal.removeEventListener('abort', abort)
+        controller.abort()
+    }
+    return false
 }
 
 export async function deliverPermissionResponse(
@@ -69,7 +103,7 @@ export async function deliverPermissionResponse(
             clearTimeout(timer)
             signal.removeEventListener('abort', abort)
         }
-        await waitForReadiness(
+        await waitForRetry(
             Math.min(250 * 2 ** Math.min(attempt++, 2), Math.max(0, deadline - performance.now())),
             signal
         )
