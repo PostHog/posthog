@@ -358,6 +358,30 @@ describe('scratchpadLogic', () => {
         expect(logic.values.windowEntries).toEqual([ALSO_TRUNCATED])
     })
 
+    // The older-page request is the panel's heaviest, so a timeout or a 5xx is its likely end, and
+    // a page that succeeds can append nothing too once the dedupe drops it. Without a flag the
+    // spinner just stops, and the reader reads a failed press as an empty memory.
+    it('records a failed older page and clears the record on the retry', async () => {
+        logic.actions.loadEntriesSuccess(
+            Array.from({ length: SCRATCHPAD_FETCH_LIMIT }, (_, i) => entry(`pattern:${i}`, 'note'))
+        )
+        useMocks({ get: { [SCRATCHPAD_URL]: () => [500, {}] } })
+
+        logic.actions.loadOlderEntries()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.olderEntriesFailed).toBe(true)
+        expect(logic.values.olderEntriesLoading).toBe(false)
+        // The control stays, so the press can be repeated.
+        expect(logic.values.canLoadOlderEntries).toBe(true)
+
+        useMocks({ get: { [SCRATCHPAD_URL]: () => [200, []] } })
+        logic.actions.loadOlderEntries()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.olderEntriesFailed).toBe(false)
+    })
+
     // Nothing older than the first page was reachable before: the endpoint caps at 1,000 rows and
     // the panel only ever asked once. The `date_to` bound is exclusive, but rows can share a
     // timestamp, so a page may still repeat a key already on screen.

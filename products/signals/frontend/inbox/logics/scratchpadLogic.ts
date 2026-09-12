@@ -159,6 +159,7 @@ export interface scratchpadLogicValues {
     loadedSpanLabel: string | null
     loadingContentKeys: string[]
     olderEntries: ScratchpadEntryApi[]
+    olderEntriesFailed: boolean
     olderEntriesLoading: boolean
     recentlyLearnedCount: number
     recentlyLearnedCountCapped: boolean
@@ -470,6 +471,18 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 loadOlderEntries: () => true,
                 appendOlderEntries: () => false,
                 loadOlderEntriesFailure: () => false,
+                loadEntries: () => false,
+            },
+        ],
+        // Did the last older-page request reject? A page that succeeds can also append nothing,
+        // once the dedupe below drops every row it carried, so an unchanged list cannot stand in
+        // for a failure and the footer has to be told.
+        olderEntriesFailed: [
+            false,
+            {
+                loadOlderEntries: () => false,
+                appendOlderEntries: () => false,
+                loadOlderEntriesFailure: () => true,
                 loadEntries: () => false,
             },
         ],

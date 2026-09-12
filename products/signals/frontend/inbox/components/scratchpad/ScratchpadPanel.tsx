@@ -47,6 +47,7 @@ export function ScratchpadPanel(): JSX.Element {
         visibleBookkeepingCount,
         hasActiveFilters,
         canLoadOlderEntries,
+        olderEntriesFailed,
         olderEntriesLoading,
         searchText,
         scoutFilter,
@@ -156,6 +157,9 @@ export function ScratchpadPanel(): JSX.Element {
                             >
                                 Load older entries
                             </LemonButton>
+                        )}
+                        {canLoadOlderEntries && olderEntriesFailed && (
+                            <span className="text-danger">Couldn't load them. Try again.</span>
                         )}
                         <span className="flex-1" />
                         {visibleBookkeepingCount > 0 && !hideBookkeeping && (
