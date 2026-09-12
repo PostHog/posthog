@@ -6,6 +6,9 @@
 
 FROM posthog-sandbox-base
 
+# The base image installs the latest pnpm; pnpm 12 rejects --fetch-timeout and cannot link across the store cache mount.
+RUN npm install -g pnpm@10
+
 COPY local-workspace/.npmrc local-workspace/package.json local-workspace/pnpm-lock.yaml local-workspace/pnpm-workspace.yaml /local-workspace/
 COPY local-workspace/patches /local-workspace/patches
 COPY local-workspace/packages/agent/package.json /local-workspace/packages/agent/package.json
