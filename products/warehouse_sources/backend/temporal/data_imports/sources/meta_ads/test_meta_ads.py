@@ -87,6 +87,39 @@ def _build_manager(*, can_resume: bool = False, state: MetaAdsResumeConfig | Non
     return manager
 
 
+def _capture_request(monkeypatch, resource_name: str, **source_kwargs: Any) -> dict[str, Any]:
+    integration = mock.MagicMock()
+    integration.access_token = "token"
+    monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
+
+    captured: dict[str, Any] = {}
+
+    def fake_request(url, params, access_token, time_range, resumable_source_manager):
+        captured["params"] = params
+        captured["time_range"] = time_range
+        yield from ()
+
+    monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
+
+    config = mock.MagicMock()
+    config.account_id = "act_123"
+    config.meta_ads_integration_id = 1
+    config.sync_lookback_days = source_kwargs.pop("sync_lookback_days", None)
+    config.action_attribution_windows = None
+    config.use_unified_attribution_setting = None
+
+    response = meta_ads_source(
+        resource_name=resource_name,
+        config=config,
+        team_id=1,
+        resumable_source_manager=_build_manager(),
+        api_version=META_ADS_API_VERSION_V26,
+        **source_kwargs,
+    )
+    list(cast(Any, response.items()))
+    return captured
+
+
 class TestStripAccessToken:
     @pytest.mark.parametrize(
         "url,expected",
@@ -1492,35 +1525,7 @@ class TestTimeRangeClamping:
             yield
 
     def _capture_time_range(self, monkeypatch, **source_kwargs: Any) -> dict | None:
-        integration = mock.MagicMock()
-        integration.access_token = "token"
-        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
-
-        captured: dict[str, Any] = {}
-
-        def fake_request(url, params, access_token, time_range, resumable_source_manager):
-            captured["time_range"] = time_range
-            yield from ()
-
-        monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
-
-        config = mock.MagicMock()
-        config.account_id = "act_123"
-        config.meta_ads_integration_id = 1
-        config.sync_lookback_days = source_kwargs.pop("sync_lookback_days", None)
-        config.action_attribution_windows = None
-        config.use_unified_attribution_setting = None
-
-        response = meta_ads_source(
-            resource_name="campaign_stats",
-            config=config,
-            team_id=1,
-            resumable_source_manager=_build_manager(),
-            api_version=META_ADS_API_VERSION_V26,
-            **source_kwargs,
-        )
-        list(cast(Any, response.items()))
-        return captured["time_range"]
+        return _capture_request(monkeypatch, "campaign_stats", **source_kwargs)["time_range"]
 
     @pytest.mark.parametrize(
         "days_ago,should_clamp",
@@ -1559,6 +1564,91 @@ class TestTimeRangeClamping:
 
         assert time_range is not None
         assert time_range["since"] == _earliest_supported_since(today).strftime("%Y-%m-%d")
+
+
+class TestEntityIncrementalFiltering:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-06-16", tick=False):
+            yield
+
+    @pytest.mark.parametrize(
+        "resource_name,expected_prefix",
+        [
+            (MetaAdsResource.Campaigns, "campaign"),
+            (MetaAdsResource.Adsets, "adset"),
+            (MetaAdsResource.Ads, "ad"),
+        ],
+    )
+    def test_cursor_narrows_the_list_to_changed_objects(self, monkeypatch, resource_name, expected_prefix) -> None:
+        cursor = dt.datetime(2026, 6, 16, 12, 0, 0, tzinfo=dt.UTC)
+
+        captured = _capture_request(
+            monkeypatch,
+            resource_name,
+            should_use_incremental_field=True,
+            incremental_field="updated_time",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value=cursor,
+        )
+
+        assert captured["time_range"] is None
+        assert json.loads(captured["params"]["filtering"]) == [
+            {
+                "field": f"{expected_prefix}.updated_time",
+                "operator": "GREATER_THAN",
+                "value": int(cursor.timestamp()) - 1,
+            }
+        ]
+
+    def test_naive_cursor_is_read_as_utc(self, monkeypatch) -> None:
+        captured = _capture_request(
+            monkeypatch,
+            MetaAdsResource.Ads,
+            should_use_incremental_field=True,
+            incremental_field="updated_time",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value=dt.datetime(2026, 6, 16, 12, 0, 0),
+        )
+
+        expected = int(dt.datetime(2026, 6, 16, 12, 0, 0, tzinfo=dt.UTC).timestamp()) - 1
+        assert json.loads(captured["params"]["filtering"])[0]["value"] == expected
+
+    def test_first_run_without_cursor_reads_the_whole_list(self, monkeypatch) -> None:
+        captured = _capture_request(
+            monkeypatch,
+            MetaAdsResource.Campaigns,
+            should_use_incremental_field=True,
+            incremental_field="updated_time",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value=None,
+        )
+
+        assert "filtering" not in captured["params"]
+        assert captured["time_range"] is None
+
+    def test_stats_tables_keep_using_the_time_range(self, monkeypatch) -> None:
+        captured = _capture_request(
+            monkeypatch,
+            MetaAdsResource.CampaignStats,
+            should_use_incremental_field=True,
+            incremental_field="date_start",
+            incremental_field_type=IncrementalFieldType.Date,
+            db_incremental_field_last_value=dt.date(2026, 6, 16),
+        )
+
+        assert "filtering" not in captured["params"]
+        assert captured["time_range"] == {"since": "2026-06-16", "until": "2026-06-16"}
+
+
+class TestEntitySchemaIncrementalSupport:
+    @pytest.mark.parametrize("endpoint", [MetaAdsResource.Campaigns, MetaAdsResource.Adsets, MetaAdsResource.Ads])
+    def test_entity_endpoints_offer_updated_time(self, endpoint) -> None:
+        schemas = {schema.name: schema for schema in MetaAdsSource().get_schemas(mock.MagicMock(), team_id=1)}
+
+        assert schemas[endpoint].supports_incremental
+        assert [f["field"] for f in schemas[endpoint].incremental_fields] == ["updated_time"]
+        assert not schemas[endpoint].supports_append
 
 
 class TestGetIntegration:

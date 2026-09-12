@@ -17,9 +17,11 @@ from requests.exceptions import (
     ReadTimeout,
 )
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
@@ -186,7 +188,7 @@ def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
     return get_integration_by_id(config.meta_ads_integration_id, team_id)
 
 
-@dataclass
+@frozen
 class MetaAdsSchema:
     name: str
     primary_keys: list[str]
@@ -201,6 +203,9 @@ class MetaAdsSchema:
     is_stats: bool = False
     # The Graph API returns the node itself rather than a paged `data` list (`GET /act_<id>`).
     single_object: bool = False
+    # Entity list endpoints (campaigns, adsets, ads) reject the insights `time_range`. They accept
+    # a `filtering` clause on `<prefix>.updated_time` instead, which is how they sync incrementally.
+    entity_updated_time_filter: str | None = None
 
 
 # Note: can make this static but keeping schemas.py to match other schema files for now
@@ -220,6 +225,7 @@ def get_schemas() -> dict[str, MetaAdsSchema]:
             partition_format=schema_def.get("partition_format"),
             is_stats=schema_def.get("is_stats", False),
             single_object=schema_def.get("single_object", False),
+            entity_updated_time_filter=schema_def.get("entity_updated_time_filter"),
         )
 
         schemas[resource_name] = schema
@@ -932,6 +938,21 @@ def _attribution_params(config: MetaAdsSourceConfig) -> dict[str, str]:
     return params
 
 
+def _entity_updated_time_filtering(prefix: str, last_value: typing.Any) -> str | None:
+    """Meta `filtering` clause that limits an entity list to objects changed since the cursor.
+
+    Returns None when there is no usable cursor, so the run still reads the whole object list.
+    """
+    cursor = parse_datetime_value(last_value)
+    if cursor is None:
+        return None
+
+    # `GREATER_THAN` is strict, so step back a second: an object written in the same second as the
+    # cursor would otherwise never be read again. Re-reading one is free, the primary keys merge it.
+    value = int(cursor.timestamp()) - 1
+    return json.dumps([{"field": f"{prefix}.updated_time", "operator": "GREATER_THAN", "value": value}])
+
+
 def meta_ads_source(
     resource_name: str,
     config: MetaAdsSourceConfig,
@@ -966,29 +987,27 @@ def meta_ads_source(
         # window. Data beyond this point is unavailable from Meta regardless.
         earliest_since = _earliest_supported_since(today)
         time_range = None
+        entity_filtering = None
 
-        if should_use_incremental_field:
-            if incremental_field is None or incremental_field_type is None:
-                raise ValueError("incremental_field and incremental_field_type can't be None")
+        if should_use_incremental_field and (incremental_field is None or incremental_field_type is None):
+            raise ValueError("incremental_field and incremental_field_type can't be None")
 
-            if db_incremental_field_last_value is None:
-                last_value: dt.date = today - dt.timedelta(days=sync_lookback_days)
+        if schema.is_stats:
+            last_value = db_incremental_field_last_value if should_use_incremental_field else None
+            if last_value is None:
+                since: dt.date = today - dt.timedelta(days=sync_lookback_days)
             else:
-                last_value = db_incremental_field_last_value
+                since = last_value.date() if isinstance(last_value, dt.datetime) else last_value
 
-            since = last_value.date() if isinstance(last_value, dt.datetime) else last_value
-            since = max(since, earliest_since)
             time_range = {
-                "since": since.strftime("%Y-%m-%d"),
+                "since": max(since, earliest_since).strftime("%Y-%m-%d"),
                 # Meta Ads API is day based so only import if the day is complete
                 "until": today.strftime("%Y-%m-%d"),
             }
-        elif schema.is_stats:
-            since = max(today - dt.timedelta(days=sync_lookback_days), earliest_since)
-            time_range = {
-                "since": since.strftime("%Y-%m-%d"),
-                "until": today.strftime("%Y-%m-%d"),
-            }
+        elif should_use_incremental_field and schema.entity_updated_time_filter:
+            entity_filtering = _entity_updated_time_filtering(
+                schema.entity_updated_time_filter, db_incremental_field_last_value
+            )
 
         formatted_url = schema.url.format(API_VERSION=api_version, account_id=_clean_account_id(config.account_id))
 
@@ -1005,6 +1024,8 @@ def meta_ads_source(
         # ads, ...) don't take them and Meta would reject the extra params.
         if schema.is_stats:
             params.update(_attribution_params(config))
+        if entity_filtering:
+            params["filtering"] = entity_filtering
 
         yield from _make_paginated_api_request(
             formatted_url, params, access_token, time_range, resumable_source_manager
