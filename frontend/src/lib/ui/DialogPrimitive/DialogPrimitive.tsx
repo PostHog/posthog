@@ -3,6 +3,7 @@ import { Suspense } from 'react'
 
 import { IconX } from '@posthog/icons'
 
+import { useKeyboardInsets } from 'lib/hooks/useKeyboardInsets'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
@@ -25,6 +26,8 @@ function DialogPrimitive({
     className?: string
     disablePointerDismissal?: boolean
 }): JSX.Element {
+    useKeyboardInsets(open)
+
     return (
         <Dialog.Root
             open={open}
@@ -36,7 +39,16 @@ function DialogPrimitive({
                     <Dialog.Backdrop className="fixed inset-0 min-h-dvh min-w-dvw bg-black opacity-20 transition-all duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 dark:opacity-70 z-[var(--z-modal)]" />
                     <Dialog.Popup
                         className={cn(
-                            '@container fixed top-4 left-1/2 w-[400px] max-w-[calc(100vw-3rem)] max-h-[60vh] -translate-x-1/2 rounded-lg bg-surface-secondary shadow-xl border border-primary transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 flex flex-col overflow-hidden z-[var(--z-force-modal-above-popovers)]',
+                            '@container fixed left-1/2 w-[400px] max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg bg-surface-secondary shadow-xl border border-primary transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 flex flex-col min-h-0 overflow-hidden overscroll-contain z-[var(--z-force-modal-above-popovers)]',
+                            // Cap by whatever the on-screen keyboard leaves visible, which no CSS unit
+                            // sees, so the scroll pane can't end up below the fold. The insets measure
+                            // the layout viewport, so they bound the full height as a second cap rather
+                            // than shrinking the 60% one, which would remove the keyboard twice over.
+                            // Both are 0 without a keyboard, leaving the same 60dvh cap as before.
+                            // Keep `max-h` unprefixed and singular: tailwind-merge keys on the modifier,
+                            // so a `sm:max-h-*` here would survive alongside a consumer's plain `max-h-*`
+                            // and then win the cascade, silently capping every dialog that sets its own.
+                            'top-[calc(1rem+var(--keyboard-inset-top))] max-h-[min(60dvh,calc(100dvh-2rem-var(--keyboard-inset-top)-var(--keyboard-inset-bottom)))]',
                             className
                         )}
                     >

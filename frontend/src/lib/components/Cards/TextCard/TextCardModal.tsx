@@ -47,7 +47,10 @@ export function TextCardModal({
             onOpenChange={(open) => !open && handleClose()}
             disablePointerDismissal={hasUnsavedInput}
             className={cn(
-                'w-[min(100vw-3rem,72rem)] min-w-full lg:min-w-6xl max-h-[calc(100vh-4rem)] top-8',
+                // This `max-h` replaces the primitive's, so it has to subtract both keyboard insets
+                // itself. `top` pushes the dialog down by the top one, which would otherwise leave the
+                // footer below the visible fold.
+                'w-[min(100vw-3rem,72rem)] min-w-full lg:min-w-6xl max-h-[calc(100dvh-4rem-var(--keyboard-inset-top)-var(--keyboard-inset-bottom))] top-[calc(2rem+var(--keyboard-inset-top))]',
                 'bg-surface-primary',
                 // DialogPrimitive defaults to z above --z-popover; rich editor toolbars portal to body at
                 // --z-popover and would sit under the panel. Sit the dialog just below that layer instead.
