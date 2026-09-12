@@ -23,9 +23,9 @@ from products.canvas.backend.facade.api import (
     RESERVED_TEMPLATE_IDS,
     ConnectorCallStatus,
     ConnectorKind,
+    canvas_app_path,
 )
 from products.canvas.backend.models import Canvas, CanvasState
-from products.canvas.backend.sharing import canvas_app_path
 
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
 # from the contract's total-source cap rather than restating the number.

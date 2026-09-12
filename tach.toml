@@ -993,6 +993,17 @@ from = [
     "products.canvas",
 ]
 
+# Desktop search delegates per-object canvas visibility to the same narrow,
+# product-owned boundary the activity log and generic comments already use, so a
+# canvas denied on the API does not surface its name through search.
+[[interfaces]]
+expose = [
+    "backend\\.access_control.*",
+]
+from = [
+    "products.canvas",
+]
+
 [[modules]]
 path = "products.tracing"
 depends_on = [

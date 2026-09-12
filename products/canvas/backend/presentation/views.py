@@ -33,7 +33,6 @@ from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.canvas.backend import build_service, error_reports
-from products.canvas.backend.access_control import filter_canvases_by_access_level_for_user_id
 from products.canvas.backend.actions import CANVAS_ACTIONS, CanvasActionDenied, canvas_actions_disabled
 from products.canvas.backend.capabilities import declared_actions, declared_connectors, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
@@ -44,6 +43,7 @@ from products.canvas.backend.facade.api import (
     canvas_is_shareable,
     connector_listings,
     default_layout,
+    filter_canvases_by_access_level_for_user_id,
     native_connector_listings,
     seed_home_canvas,
     subtract_preexisting_diagnostics,
