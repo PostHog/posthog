@@ -52,6 +52,7 @@ import type {
   SignalReport,
   SignalReportArtefact,
   SignalReportArtefactsResponse,
+  SignalReportMetric,
   SignalReportRefundReason,
   SignalReportSignalsResponse,
   SignalReportStatus,
@@ -1883,6 +1884,9 @@ function parseAvailableSuggestedReviewersPayload(
     count: results.length,
   };
 }
+
+/** Ids the report metric-refresh endpoint accepts in one call; the backend refuses more. */
+export const MAX_REPORT_METRIC_REFRESH_REPORTS = 20;
 
 export class PostHogAPIClient {
   private api: ReturnType<typeof createApiClient>;
@@ -5330,6 +5334,38 @@ export class PostHogAPIClient {
       results: data.results ?? [],
       count: data.count ?? data.results?.length ?? 0,
     };
+  }
+
+  /**
+   * Re-measure the saved metric snapshots of the reports on screen and return
+   * the current ones, keyed by report id. The backend caps a call at
+   * `MAX_REPORT_METRIC_REFRESH_REPORTS` ids and leaves out any report whose
+   * status is not ready or pending_input, so those keep their saved snapshot.
+   */
+  async refreshSignalReportMetrics(
+    reportIds: readonly string[],
+  ): Promise<Record<string, SignalReportMetric[]>> {
+    const ids = [...new Set(reportIds)].slice(
+      0,
+      MAX_REPORT_METRIC_REFRESH_REPORTS,
+    );
+    if (ids.length === 0) return {};
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/refresh_metrics/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: { body: JSON.stringify({ report_ids: ids }) },
+    });
+    const data = (await response.json()) as {
+      reports?: { id?: string; metrics?: SignalReportMetric[] }[];
+    };
+    const byReport: Record<string, SignalReportMetric[]> = {};
+    for (const entry of data.reports ?? []) {
+      if (entry.id) byReport[entry.id] = entry.metrics ?? [];
+    }
+    return byReport;
   }
 
   async getSignalProcessingState(): Promise<SignalProcessingStateResponse> {

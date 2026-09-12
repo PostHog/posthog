@@ -54,6 +54,7 @@ import {
 import { RefundReportSheet } from "@/features/inbox/components/RefundReportSheet";
 import { ReportActivity } from "@/features/inbox/components/ReportActivity";
 import { ReportFeedbackFooter } from "@/features/inbox/components/ReportFeedbackFooter";
+import { ReportMetrics } from "@/features/inbox/components/ReportMetrics";
 import { ReportVerdictBanner } from "@/features/inbox/components/ReportVerdictBanner";
 import { SignalCard } from "@/features/inbox/components/SignalCard";
 import {
@@ -534,6 +535,9 @@ export default function ReportDetailScreen() {
           onStart={handleBannerStart}
           onOpenPr={handleOpenPr}
         />
+
+        {/* What the report measured */}
+        <ReportMetrics metrics={report.metrics} />
 
         {/* Summary */}
         {report.summary && (

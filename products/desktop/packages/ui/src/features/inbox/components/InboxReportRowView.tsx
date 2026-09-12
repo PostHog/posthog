@@ -10,15 +10,18 @@ import {
   parsePrUrl,
 } from "@posthog/core/inbox/reportPresentation";
 import { dismissalReasonLabel } from "@posthog/shared/dismissalReasons";
-import type { SignalReport } from "@posthog/shared/types";
+import type { SignalReport, SignalReportMetric } from "@posthog/shared/types";
 import { ConventionalCommitScopeTag } from "@posthog/ui/features/inbox/components/ConventionalCommitScopeTag";
 import { InboxMetaSourceStack } from "@posthog/ui/features/inbox/components/InboxMetaSourceStack";
+import { ReportMetricStat } from "@posthog/ui/features/inbox/components/utils/ReportMetricStat";
 import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import type { HTMLAttributes, ReactNode } from "react";
 
 export interface InboxReportRowViewProps {
   report: SignalReport;
+  /** The report's row metric, already merged with any fresher snapshot. */
+  metric?: SignalReportMetric | null;
   reviewers?: ReactNode;
   restoreAction?: ReactNode;
   prefetchHandlers?: Pick<
@@ -31,6 +34,7 @@ export interface InboxReportRowViewProps {
 
 export function InboxReportRowView({
   report,
+  metric = null,
   reviewers,
   restoreAction,
   prefetchHandlers,
@@ -152,6 +156,7 @@ export function InboxReportRowView({
               Resolved
             </span>
           ))}
+        <ReportMetricStat metric={metric} />
         {reviewers}
         <SignalReportPriorityBadge priority={report.priority} />
         {/* biome-ignore lint/a11y/noStaticElementInteractions: This span only stops nested controls from opening the row. */}

@@ -26,6 +26,45 @@ function fakeReport(overrides: Partial<SignalReport> = {}): SignalReport {
 describe("InboxReportRowView", () => {
   afterEach(cleanup);
 
+  it("shows the row metric's measured value and how it moved", () => {
+    render(
+      <InboxReportRowView
+        report={fakeReport()}
+        metric={{
+          metric_id: "reach",
+          title: "Affected users",
+          kind: "affected_users",
+          value: 87342,
+          value_format: "count",
+          series: [100, 112],
+        }}
+        onOpen={vi.fn()}
+        onOpenPr={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("87.3K")).toBeTruthy();
+    expect(screen.getByText("▲12%")).toBeTruthy();
+  });
+
+  it("shows no metric when the report has no measurement for this viewer", () => {
+    render(
+      <InboxReportRowView
+        report={fakeReport()}
+        metric={{
+          metric_id: "reach",
+          title: "Affected users",
+          kind: "affected_users",
+          value: null,
+        }}
+        onOpen={vi.fn()}
+        onOpenPr={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("report-metric-stat")).toBeNull();
+  });
+
   it("labels a resolved report Shipped only when its PR merged", () => {
     render(
       <InboxReportRowView
