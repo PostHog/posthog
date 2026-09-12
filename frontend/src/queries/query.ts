@@ -72,6 +72,7 @@ const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavail
  * Parse error message that may be in ErrorDetail string format.
  * Backend sometimes serializes ValidationError.detail as a string like:
  * "[ErrorDetail(string='Message', code='code')]"
+ * A message that holds an apostrophe comes back double quoted instead.
  *
  * This function safely extracts the message and code, falling back to the
  * original string if parsing fails.
@@ -81,16 +82,11 @@ export function parseErrorMessage(errorMessage: string | undefined): { message: 
         return { message: errorMessage || '', code: null }
     }
 
-    // Try to match list format: [ErrorDetail(string='...', code='...')]
-    const listMatch = errorMessage.match(/\[ErrorDetail\(string='([^']*)',\s*code='([^']*)'\)\]/)
-    if (listMatch) {
-        return { message: listMatch[1], code: listMatch[2] }
-    }
-
-    // Try to match single format: ErrorDetail(string='...', code='...')
-    const singleMatch = errorMessage.match(/ErrorDetail\(string='([^']*)',\s*code='([^']*)'\)/)
-    if (singleMatch) {
-        return { message: singleMatch[1], code: singleMatch[2] }
+    // Matches the list format too, because the brackets sit outside the part we read.
+    // Python repr switches to double quotes when the message holds an apostrophe, so take either.
+    const match = errorMessage.match(/ErrorDetail\(string=(['"])([\s\S]*?)\1,\s*code=(['"])([^'"]*)\3\)/)
+    if (match) {
+        return { message: match[2], code: match[4] }
     }
 
     // Fallback: return original string unchanged

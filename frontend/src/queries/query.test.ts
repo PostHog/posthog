@@ -408,6 +408,23 @@ describe('query', () => {
             })
         })
 
+        it('parses an ErrorDetail whose message holds an apostrophe', async () => {
+            // Python repr quotes such a message with double quotes, which the card used to render raw.
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
+                data: {
+                    query_status: {
+                        error_message:
+                            "[ErrorDetail(string=\"This metric's query stopped with an error\", code='invalid')]",
+                    },
+                },
+            })
+
+            await expect(pollForResults('test-query-id')).rejects.toMatchObject({
+                detail: "This metric's query stopped with an error",
+                code: 'invalid',
+            })
+        })
+
         it('parses ErrorDetail single format and extracts message and code', async () => {
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
                 data: {
