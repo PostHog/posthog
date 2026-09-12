@@ -54,10 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
-    incremental_type_to_initial_value,
-    incremental_type_to_operator,
-)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_operator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     open_ssh_tunnel,
     pinned_host_kwargs,
@@ -68,6 +65,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     TableProjection,
     ValidatedRowFilter,
     compute_projected_columns,
+    normalize_incremental_field_last_value,
     resolve_table_projection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
@@ -2106,11 +2104,12 @@ def build_incremental_condition(
     if incremental_field_type == IncrementalFieldType.XID:
         raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
 
-    # A stored watermark of "" (a stale or corrupted sync_type_config value) must not become a
-    # literal `''`: Postgres rejects casting it against a numeric/date column with "invalid input
-    # syntax", so treat it the same as no watermark at all.
-    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
-        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
+    # A stored watermark that Postgres can't cast against the column must never reach
+    # `sql.Literal`: Postgres rejects the whole statement with "invalid input syntax",
+    # identically on every retry.
+    db_incremental_field_last_value = normalize_incremental_field_last_value(
+        db_incremental_field_last_value, incremental_field_type
+    )
 
     operator = (
         sql.SQL(incremental_type_to_operator(incremental_field_type)) if upper_bound_inclusive is None else sql.SQL(">")

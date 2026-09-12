@@ -47,6 +47,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     _resolve_hostaddr_with_timeout,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import batching
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
+    UnusableIncrementalCursorError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -1107,6 +1110,44 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Non-integer incremental cursor error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "field_type,last_value",
+        [
+            # The COPY/CSV text NULL marker a text-format export leaves behind, and the value
+            # Postgres reports once it reads the backslash as an escape.
+            (IncrementalFieldType.Timestamp, "\\N"),
+            (IncrementalFieldType.Timestamp, "N"),
+            (IncrementalFieldType.Date, "\\N"),
+            (IncrementalFieldType.Integer, "2026-04-26T20:58:57.557000"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "builder",
+        [
+            lambda field_type, last_value: _build_query(
+                "public", "my_table", True, None, "cursor", field_type, last_value
+            ),
+            lambda field_type, last_value: build_partition_query(
+                "public",
+                "my_table_2026_01",
+                should_use_incremental_field=True,
+                incremental_field="cursor",
+                incremental_field_type=field_type,
+                db_incremental_field_last_value=last_value,
+            ),
+        ],
+    )
+    def test_unusable_incremental_cursor_is_non_retryable(self, source, builder, field_type, last_value):
+        # Drive the real raise sites so a message change that breaks the classifier key is caught.
+        with pytest.raises(UnusableIncrementalCursorError) as exc_info:
+            builder(field_type, last_value)
+        error_msg = str(exc_info.value)
+
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, f"Unusable incremental cursor should surface an actionable message: {error_msg}"
+        assert "incremental field" in friendly[0]
 
     @pytest.mark.parametrize(
         "builder",

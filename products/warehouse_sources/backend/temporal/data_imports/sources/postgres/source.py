@@ -37,7 +37,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+    UNUSABLE_INCREMENTAL_CURSOR_ERROR_PREFIX,
+    resolve_detected_primary_keys,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import resolve_source_location
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
@@ -911,6 +914,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # so stop and ask the user to reset.
             "invalid input syntax for type integer": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against an integer incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
             "invalid input syntax for type bigint": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against a bigint incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
+            # The two libpq entries above only catch the integer-column shape of a broken stored
+            # cursor. `normalize_incremental_field_last_value` rejects a stored cursor of any
+            # type before the query is built, so one message covers every column type instead of
+            # one libpq fragment per type. Match the prefix and exclude the volatile value.
+            UNUSABLE_INCREMENTAL_CURSOR_ERROR_PREFIX: "PostHog stored a cursor value for this table's last sync that isn't valid for the incremental field's type, so it can't resume the sync. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
             # Raised (ObjectNotInPrerequisiteState, SQLSTATE 55000) when a selected materialized view
             # was created `WITH NO DATA` and never refreshed — every SELECT against it fails until the
             # customer runs `REFRESH MATERIALIZED VIEW`. Deterministic and outside our control, so
