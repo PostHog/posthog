@@ -4,11 +4,13 @@ from posthog.schema import (
     ActionsNode,
     EventsNode,
     ExperimentDataWarehouseNode,
+    ExperimentExposureMetricSource,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
+    FunnelConversionWindowTimeUnit,
 )
 
 from posthog.hogql import ast
@@ -44,6 +46,17 @@ def get_conversion_window_seconds(metric: ExperimentMetric) -> int:
             metric.conversion_window_unit,
         )
     return 0
+
+
+def get_retention_window_extension_seconds(metric: ExperimentRetentionMetric) -> int:
+    retention_seconds = conversion_window_to_seconds(metric.retention_window_end, metric.retention_window_unit)
+    if not isinstance(metric.start_event, ExperimentExposureMetricSource):
+        return get_conversion_window_seconds(metric) + retention_seconds
+    if metric.retention_window_unit == FunnelConversionWindowTimeUnit.DAY:
+        return retention_seconds + conversion_window_to_seconds(2, metric.retention_window_unit)
+    if metric.retention_window_unit == FunnelConversionWindowTimeUnit.HOUR:
+        return retention_seconds + conversion_window_to_seconds(1, metric.retention_window_unit)
+    return retention_seconds + 1
 
 
 def build_conversion_window_predicate(conversion_window_seconds: int) -> ast.Expr:

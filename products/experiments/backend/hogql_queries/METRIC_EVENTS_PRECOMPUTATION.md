@@ -202,7 +202,27 @@ The exposure precomputation does NOT need this extension — exposures only occu
 
 Implemented for **ordered funnels**, **count/sum/avg/min/max mean metrics** (per-event value stored in `numeric_value`, deduplicated on read by event identity since replayed build rows would double sums and skew averages; the aggregation itself runs at read time, so all five math types store identical rows), **dau/unique_session mean metrics** (the read counts distinct IDs from `entity_id`/`session_id`, which every mean build stores; `numeric_value` holds the same constant a count metric stores, so a count metric and an ID-math metric on the same source share build jobs), and **retention metrics**. Unordered funnels, unique-group and HogQL math, and ratio metrics are not precomputed; breakdowns, CUPED, and data warehouse sources always fall back to a direct scan.
 
-Retention usually stores one row per event that matches the start or completion predicate. The two `steps` flags identify the matching side. When exposure starts retention, the exposure CTE supplies the start time and UUID. The metric event table stores only completion events in this case. The read path keeps start anchoring, window checks, maturity checks, and same-event exclusion at query time. The scan extension is `conversion_window + retention_window_end` for literal starts. It is only `retention_window_end` for exposure starts. The default-off `experiments-retention-metric-events-preaggregation` flag controls this precomputation.
+Retention usually stores one row per event that matches the start or completion predicate.
+The two `steps` flags identify the matching side.
+When exposure starts retention, the exposure CTE supplies the start time and UUID.
+The metric event table stores only completion events in this case.
+The read path keeps start anchoring, window checks, maturity checks, and same-event exclusion at query time.
+The scan extension is `conversion_window + retention_window_end` for literal starts.
+Exposure starts ignore the conversion window.
+Day scans include two additional days: one for the final calendar period, and one to cover timezone offset changes.
+Hour scans include one additional hour for the final period.
+Other units include one additional second so that the exclusive scan limit includes the exact retention boundary.
+The live scan, precomputed scan, completion join, and precomputation eligibility check use the same extension for exposure starts.
+The retention predicate still excludes completions outside the selected period.
+
+Ingestion copies `$feature_flag_called` into `$experiment_exposure` with a different UUID.
+It derives the copy UUID with UUIDv5 and namespace `1b7c9119-5953-4668-97b7-ab0ef8a6bb48`.
+Exposure retention excludes both records of the selected occurrence, in either direction.
+The identity comparison applies the UUIDv5 version and variant bits to the SHA1 digest.
+An independent event with the same timestamp can still count as a completion.
+If ingestion changes the UUID derivation, update this comparison and its regression tests together.
+
+The default-off `experiments-retention-metric-events-preaggregation` flag controls this precomputation.
 
 ## Key files
 

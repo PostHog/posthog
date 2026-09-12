@@ -76,7 +76,7 @@ const loadEventCount = async (
         const query = getEventCountQuery(metric, filterTestAccounts)
 
         if (!query) {
-            setEventCount(0)
+            setEventCount(null)
             return
         }
 
@@ -193,7 +193,7 @@ export function ExperimentMetricForm({
             if (metric.start_event.kind !== NodeKind.ExperimentExposureMetricSource) {
                 sources = [metric.start_event]
             }
-            if (metric.completion_event && sources.length > 0) {
+            if (metric.completion_event) {
                 sources.push(metric.completion_event)
             }
         }
@@ -493,7 +493,7 @@ export function ExperimentMetricForm({
                         <div>
                             <LemonLabel className="mb-1">
                                 Start event
-                                <Tooltip title="The event that starts the retention window. The exposure option uses each experiment's resolved exposure event.">
+                                <Tooltip title="The event that starts the retention window. You can use each experiment's exposure event.">
                                     <IconInfo className="ml-1 text-muted" />
                                 </Tooltip>
                             </LemonLabel>
@@ -517,8 +517,7 @@ export function ExperimentMetricForm({
                                     {
                                         value: 'exposure',
                                         label: 'Exposure event',
-                                        description:
-                                            'Uses the exposure event that each experiment resolves at query time.',
+                                        description: 'Starts when the user is first exposed in each experiment.',
                                     },
                                     {
                                         value: 'event',
@@ -703,8 +702,12 @@ export function ExperimentMetricForm({
                 </div>
             </SceneSection>
             <SceneDivider />
-            <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
-            <SceneDivider />
+            {!retentionStartsAtExposure && (
+                <>
+                    <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                </>
+            )}
             {isExperimentFunnelMetric(metric) && (
                 <>
                     <ExperimentMetricFunnelOrderSelector metric={metric} handleSetMetric={handleSetMetric} />
@@ -727,26 +730,33 @@ export function ExperimentMetricForm({
                 title="Recent activity"
                 className="max-w-prose"
                 titleHelper={
-                    <div className="flex flex-col gap-2">
-                        <div>This shows recent activity for your selected metric over the past 2 weeks.</div>
-                        <div>
-                            It's a quick health check to ensure your tracking is working properly, so that you'll
-                            receive accurate results when your experiment starts.
+                    retentionStartsAtExposure ? undefined : (
+                        <div className="flex flex-col gap-2">
+                            <div>This shows recent activity for your selected metric over the past 2 weeks.</div>
+                            <div>
+                                It's a quick health check to ensure your tracking is working properly, so that you'll
+                                receive accurate results when your experiment starts.
+                            </div>
+                            <div>
+                                If you see zero activity, double-check that this metric is being tracked properly in
+                                your application. Head to{' '}
+                                <Link target="_blank" className="font-semibold" to={urls.insightNew()}>
+                                    Product analytics
+                                    <IconOpenInNew fontSize="18" />
+                                </Link>{' '}
+                                to do a detailed analysis of the events received so far.
+                            </div>
                         </div>
-                        <div>
-                            If you see zero activity, double-check that this metric is being tracked properly in your
-                            application. Head to{' '}
-                            <Link target="_blank" className="font-semibold" to={urls.insightNew()}>
-                                Product analytics
-                                <IconOpenInNew fontSize="18" />
-                            </Link>{' '}
-                            to do a detailed analysis of the events received so far.
-                        </div>
-                    </div>
+                    )
                 }
             >
                 <div className="border rounded p-4 bg-bg-light">
-                    {isLoading ? (
+                    {retentionStartsAtExposure ? (
+                        <div className="text-muted">
+                            Preview unavailable. Each experiment determines its own exposure event. Open the experiment
+                            to check its exposures.
+                        </div>
+                    ) : isLoading ? (
                         <div className="flex items-center gap-2">
                             <Spinner />
                             <span className="text-muted">Loading recent activity...</span>

@@ -22,6 +22,7 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     data_warehouse_node_to_filter,
     event_or_action_to_filter,
 )
+from products.experiments.backend.hogql_queries.experiment_metric_values import get_retention_window_extension_seconds
 
 if TYPE_CHECKING:
     from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
@@ -68,11 +69,7 @@ class RetentionQueryBuilder:
         bounds it.
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
-        conversion_window_seconds = 0 if self.uses_exposure_as_start() else self._b._get_conversion_window_seconds()
-        return conversion_window_seconds + conversion_window_to_seconds(
-            self._b.metric.retention_window_end,
-            self._b.metric.retention_window_unit,
-        )
+        return get_retention_window_extension_seconds(self._b.metric)
 
     def get_retention_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
@@ -323,6 +320,7 @@ class RetentionQueryBuilder:
                     -- (100% retention); event uuids are unique, so this is a no-op when
                     -- the two events differ.
                     AND completion_events.completion_uuid != start_events.start_uuid
+                    AND {distinct_exposure_occurrence_predicate}
                 GROUP BY exposures.entity_id, exposures.variant
             )
         """
@@ -341,6 +339,7 @@ class RetentionQueryBuilder:
             "retention_window_end_interval": self.build_retention_window_interval(self._b.metric.retention_window_end),
             "start_after_exposure_predicate": self.build_start_after_exposure_predicate(),
             "completion_retention_window_predicate": self.build_completion_retention_window_predicate(),
+            "distinct_exposure_occurrence_predicate": self.build_distinct_exposure_occurrence_predicate(),
             "truncated_start_timestamp": self.get_retention_window_truncation_expr(
                 parse_expr("start_events.start_timestamp")
             ),
@@ -518,12 +517,6 @@ class RetentionQueryBuilder:
 
         # Completion events can occur within the retention window after the start event
         # The retention window end could extend beyond the experiment end date
-        conversion_window_seconds = self._b._get_conversion_window_seconds()
-        retention_window_end_seconds = conversion_window_to_seconds(
-            self._b.metric.retention_window_end,
-            self._b.metric.retention_window_unit,
-        )
-
         return parse_expr(
             """
             timestamp >= {date_from}
@@ -533,8 +526,44 @@ class RetentionQueryBuilder:
             placeholders={
                 "date_from": self._b.date_range_query.date_from_as_hogql(),
                 "date_to": self._b.date_range_query.date_to_as_hogql(),
-                "total_window_seconds": ast.Constant(value=conversion_window_seconds + retention_window_end_seconds),
+                "total_window_seconds": ast.Constant(value=self.get_metric_events_window_extension_seconds()),
                 "event_filter": event_filter,
+            },
+        )
+
+    def build_distinct_exposure_occurrence_predicate(self) -> ast.Expr:
+        if not self.uses_exposure_as_start():
+            return ast.Constant(value=True)
+
+        def exposure_copy_identity(source_uuid: ast.Expr) -> ast.Expr:
+            return parse_expr(
+                """
+                bitOr(
+                    bitAnd(
+                        reinterpretAsUInt128(SHA1(concat(
+                            unhex('1b7c91195953466897b7ab0ef8a6bb48'), toString({source_uuid})
+                        ))),
+                        reinterpretAsUInt128(unhex('ffffffffffff0fff3fffffffffffffff'))
+                    ),
+                    reinterpretAsUInt128(unhex('00000000000050008000000000000000'))
+                )
+                """,
+                placeholders={"source_uuid": source_uuid},
+            )
+
+        return parse_expr(
+            """
+            completion_events.completion_timestamp != start_events.start_timestamp
+            OR (
+                reinterpretAsUInt128(unhex(replaceAll(toString(start_events.start_uuid), '-', '')))
+                    != {completion_copy_identity}
+                AND reinterpretAsUInt128(unhex(replaceAll(toString(completion_events.completion_uuid), '-', '')))
+                    != {start_copy_identity}
+            )
+            """,
+            placeholders={
+                "completion_copy_identity": exposure_copy_identity(parse_expr("completion_events.completion_uuid")),
+                "start_copy_identity": exposure_copy_identity(parse_expr("start_events.start_uuid")),
             },
         )
 
@@ -592,6 +621,8 @@ class RetentionQueryBuilder:
 
         # Add buffer to retention window end
         buffered_window_end_seconds = retention_window_end_seconds + truncation_buffer
+        if self.uses_exposure_as_start():
+            buffered_window_end_seconds = self.get_metric_events_window_extension_seconds()
 
         return parse_expr(
             """

@@ -1,8 +1,18 @@
-import { render, screen } from '@testing-library/react'
+import '@testing-library/jest-dom'
+
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 
-import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import { useMocks } from '~/mocks/jest'
+import {
+    ExperimentMetric,
+    ExperimentMetricType,
+    ExperimentRetentionMetric,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+import { FunnelConversionWindowTimeUnit } from '~/types'
 
 import { ExperimentMetricForm } from './ExperimentMetricForm'
 
@@ -41,6 +51,30 @@ jest.mock('scenes/insights/filters/ActionFilter/ActionFilter', () => ({
 }))
 
 describe('ExperimentMetricForm', () => {
+    const metric: ExperimentRetentionMetric = {
+        kind: NodeKind.ExperimentMetric,
+        metric_type: ExperimentMetricType.RETENTION,
+        start_event: { kind: NodeKind.ExperimentExposureMetricSource },
+        completion_event: { kind: NodeKind.EventsNode, event: 'returned' },
+        retention_window_start: 1,
+        retention_window_end: 7,
+        retention_window_unit: FunnelConversionWindowTimeUnit.Day,
+        start_handling: 'first_seen',
+    }
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team/actions/': { results: [] },
+                '/api/projects/:team/event_definitions/': { results: [] },
+                '/api/projects/:team/property_definitions/': { results: [] },
+            },
+        })
+        initKeaTests()
+    })
+
+    afterEach(cleanup)
+
     it('updates a funnel metric from the data warehouse popover fields', async () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
@@ -75,5 +109,24 @@ describe('ExperimentMetricForm', () => {
                 }),
             ],
         })
+    })
+
+    it('shows an unavailable exposure preview without tracking warnings or unused conversion controls', () => {
+        render(<ExperimentMetricForm metric={metric} handleSetMetric={jest.fn()} filterTestAccounts={false} />)
+
+        expect(screen.getByText(/Preview unavailable/)).toBeInTheDocument()
+        expect(screen.queryByText('No recent activity')).not.toBeInTheDocument()
+        expect(screen.queryByText('Conversion window limit')).not.toBeInTheDocument()
+    })
+
+    it('keeps the completion source when changing an exposure metric to a mean metric', () => {
+        const handleSetMetric = jest.fn()
+        render(<ExperimentMetricForm metric={metric} handleSetMetric={handleSetMetric} filterTestAccounts={false} />)
+
+        fireEvent.click(screen.getByText('Mean'))
+
+        expect(handleSetMetric).toHaveBeenCalledWith(
+            expect.objectContaining({ metric_type: ExperimentMetricType.MEAN, source: metric.completion_event })
+        )
     })
 })

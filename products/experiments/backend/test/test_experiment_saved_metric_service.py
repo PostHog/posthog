@@ -37,39 +37,23 @@ class TestExperimentSavedMetricService(APIBaseTest):
         assert saved_metric.query["uuid"]
         assert {key: value for key, value in saved_metric.query.items() if key != "uuid"} == original_query
 
-    def test_create_and_attach_exposure_retention_metric(self) -> None:
-        saved_metric = self._service().create_saved_metric(
-            name="Exposure retention",
-            query={
-                "kind": "ExperimentMetric",
-                "metric_type": "retention",
-                "start_event": {"kind": "ExperimentExposureMetricSource"},
-                "completion_event": {"kind": "EventsNode", "event": "returned"},
-                "retention_window_start": 1,
-                "retention_window_end": 7,
-                "retention_window_unit": "day",
-                "start_handling": "first_seen",
-            },
-        )
-        experiment_service = ExperimentService(team=self.team, user=self.user)
-
-        experiments = [
-            experiment_service.create_experiment(
-                name=f"Experiment {index}",
-                feature_flag_key=f"exposure-retention-{index}",
-                saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
-            )
-            for index in range(2)
-        ]
-
-        assert all(
-            experiment.experimenttosavedmetric_set.filter(saved_metric=saved_metric).exists()
-            for experiment in experiments
-        )
-
     @parameterized.expand(
         [
             ("missing_query", None, "Query is required to create a saved metric"),
+            (
+                "last_exposure",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "retention",
+                    "start_event": {"kind": "ExperimentExposureMetricSource"},
+                    "completion_event": {"kind": "EventsNode", "event": "returned"},
+                    "retention_window_start": 1,
+                    "retention_window_end": 7,
+                    "retention_window_unit": "day",
+                    "start_handling": "last_seen",
+                },
+                "An exposure start requires first_seen start handling",
+            ),
             (
                 "invalid_kind",
                 {"kind": "not-ExperimentMetric"},

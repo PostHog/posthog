@@ -54,14 +54,13 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import (
-    conversion_window_to_seconds,
     experiment_window,
     experiment_window_end,
     is_session_property_metric,
 )
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
-from products.experiments.backend.hogql_queries.experiment_metric_values import get_conversion_window_seconds
+from products.experiments.backend.hogql_queries.experiment_metric_values import get_retention_window_extension_seconds
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
@@ -528,14 +527,7 @@ class ExperimentQueryRunner(QueryRunner):
                 self.metric.start_event, (EventsNode, ActionsNode, ExperimentExposureMetricSource)
             ) or not isinstance(self.metric.completion_event, (EventsNode, ActionsNode)):
                 return False
-            conversion_window_seconds = (
-                0
-                if isinstance(self.metric.start_event, ExperimentExposureMetricSource)
-                else get_conversion_window_seconds(self.metric)
-            )
-            extension_seconds = conversion_window_seconds + conversion_window_to_seconds(
-                self.metric.retention_window_end, self.metric.retention_window_unit
-            )
+            extension_seconds = get_retention_window_extension_seconds(self.metric)
             if extension_seconds > METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS:
                 return False
             return self._retention_metric_events_precomputation_enabled()
