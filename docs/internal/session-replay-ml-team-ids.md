@@ -117,24 +117,20 @@ Deleting a month does not affect another month's image keys.
 All v2 S3 datasets use a `YYYY-MM` directory derived from the session UUIDv7 start timestamp in UTC.
 A session that crosses a month boundary stays in its start month, including late blocks and image fetches.
 
-| Dataset                   | Default path                                                        | Encryption key                          |
-| ------------------------- | ------------------------------------------------------------------- | --------------------------------------- |
-| Replay blocks             | `rrweb_2/<month>/`                                                  | Session                                 |
-| Metadata catalog          | `block-metadata/v2/<month>/`                                        | Each row's payload uses its session key |
-| Inline image shards       | `scrubbed-images/v2/<month>/<team>/<grant>/shards/`                 | Team and consent period                 |
-| Inline image lookups      | `scrubbed-images/v2/<month>/<team>/<grant>/lookup/<hash>.encrypted` | Team and consent period                 |
-| Inline image indexes      | `scrubbed-images/v2/<month>/<team>/<grant>/index/`                  | Team and consent period                 |
-| URL images                | `scrubbed-images/v2/<month>/<team>/<grant>/url/<hash>`              | Team and consent period                 |
-| Score pages               | `score/v2/<month>/dt=<event-date>/`                                 | Each row's payload uses its session key |
-| Completed score manifests | `score/v2-manifests/<month>/dt=<event-date>/`                       | No payload data or keys                 |
+| Dataset              | Default path                                                        | Encryption key                          |
+| -------------------- | ------------------------------------------------------------------- | --------------------------------------- |
+| Replay blocks        | `rrweb_2/<month>/`                                                  | Session                                 |
+| Metadata catalog     | `block-metadata/v2/<month>/`                                        | Each row's payload uses its session key |
+| Inline image shards  | `scrubbed-images/v2/<month>/<team>/<grant>/shards/`                 | Team and consent period                 |
+| Inline image lookups | `scrubbed-images/v2/<month>/<team>/<grant>/lookup/<hash>.encrypted` | Team and consent period                 |
+| Inline image indexes | `scrubbed-images/v2/<month>/<team>/<grant>/index/`                  | Team and consent period                 |
+| URL images           | `scrubbed-images/v2/<month>/<team>/<grant>/url/<hash>`              | Team and consent period                 |
 
 Metadata catalogs expose raw `team_id`, `session_id`, `consent_granted_at`, `format_version`, and an encrypted `payload`.
 Distinct IDs, URLs, block locations, and replay indexes are inside that payload.
 V2 does not write a separate plaintext replay index.
-Score catalogs expose team and session IDs, the consent timestamp, and an encrypted score payload.
-Only sessions with live, eligible ML keys receive encrypted score rows.
 
-Athena can select catalog rows but cannot decrypt replay fields or scores.
+Athena can select catalog rows but cannot decrypt replay fields.
 Training readers must bulk-read live keys and consent before decrypting.
 If a download exceeds the key read lifetime, readers must check live eligibility again before decryption.
 Cross-account readers use the full DynamoDB table ARN and the prod-us KMS key ARN.
@@ -143,12 +139,6 @@ Readers have key-read and decrypt permissions; they cannot create keys or change
 
 Use metadata block locations and byte ranges to fetch recordings, then decrypt before decompressing.
 Read metadata from the session start month, including blocks that arrive in later months.
-Score export plans team/session ID ranges with one bulk ClickHouse query, then fetches and encrypts bounded pages within those ranges.
-Both score and deletion scans use the range bounds.
-Each partition runs in a child workflow that continues with a new history after 100 pages, retaining its progress and export ID.
-Activities have bounded timeouts and retries; a long sweep prevents the daily schedule from starting an overlapping sweep.
-The partition publishes a manifest only after its last page succeeds.
-Use the newest completed manifest for each session month, event date and hash partition; a recursive score scan can include partial or superseded exports.
 
 Join analytics on both raw team and session IDs, or on team and distinct IDs.
 Remove identifiers from model inputs.
@@ -185,9 +175,8 @@ New privacy settings use `AI_RESEARCH_REPLAY_*`:
 - `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound ingestion key caching and KMS traffic.
 - `IMAGE_FETCH_V2_DYNAMODB_TABLE` selects the fresh v2 frontier.
 - `S3_PREFIX` selects v2 replay storage and defaults to `rrweb_2`.
-- `SCORE_EXPORT_*` settings select the score export destination.
 
-Established HMAC and score settings retain their transition aliases.
+Established HMAC settings retain their transition aliases.
 When both aliases are set, the `AI_RESEARCH_REPLAY_*` value takes precedence, including an explicit empty value.
 The wrapped HMAC secret keeps the single name `SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY` in both the environment and secret store.
 It has no new alias.

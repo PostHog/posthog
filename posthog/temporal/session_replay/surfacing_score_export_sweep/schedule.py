@@ -24,6 +24,7 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.constants impo
     SCHEDULE_INTERVAL,
     SCHEDULE_OFFSET,
     SCHEDULE_TYPE,
+    WORKFLOW_EXECUTION_TIMEOUT,
     WORKFLOW_NAME,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.types import ExportScoresSweepInputs
@@ -38,6 +39,7 @@ def _build_schedule() -> Schedule:
             ExportScoresSweepInputs(),
             id=WORKFLOW_NAME,
             task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+            execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=SCHEDULE_INTERVAL, offset=SCHEDULE_OFFSET)]),

@@ -10,7 +10,7 @@ def fetch_scored_sessions_page_sql(replay_events_table: str = SESSION_REPLAY_EVE
     %(cursor_team_id)s, %(page_size)s.
 
     There is deliberately no opted-in-team filter: exported rows are
-    joined downstream by team and session IDs against session data that
+    pseudonymized and only ever joined downstream against session data that
     exists solely for opted-in teams, so rows from other teams join to
     nothing. Inlining the opted-in id list here (twice) also blew past
     ClickHouse's 1 MiB max_query_size once enough teams opted in.
@@ -52,61 +52,5 @@ HAVING score IS NOT NULL
   AND started_at >= toDateTime(%(day_start)s, 'UTC')
   AND started_at < toDateTime(%(day_start)s, 'UTC') + toIntervalDay(1)
 ORDER BY session_id, team_id
-LIMIT %(page_size)s
-""".strip()
-
-
-_RAW_SESSION_FILTER = """
-  AND match(session_id, '(?i)^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
-  AND lower(replaceAll(substring(session_id, 1, 13), '-', '')) >= %(session_start_hex)s
-"""
-_SCORE_RANGE = """
-  AND team_id >= %(cursor_team_id)s AND team_id <= %(upper_team_id)s
-  AND (%(cursor_team_id)s != %(upper_team_id)s OR (session_id > %(cursor_session_id)s AND session_id <= %(upper_session_id)s))
-  AND (team_id, session_id) > (%(cursor_team_id)s, %(cursor_session_id)s)
-  AND (team_id, session_id) <= (%(upper_team_id)s, %(upper_session_id)s)
-"""
-
-
-def plan_encrypted_score_ranges_sql(replay_events_table: str = SESSION_REPLAY_EVENTS_TABLE) -> str:
-    return f"""
-SELECT team_id, session_id
-FROM {replay_events_table}
-WHERE cityHash64(session_id) %% %(of_chunks)s = %(chunk_id)s
-  AND (team_id, session_id) > (%(cursor_team_id)s, %(cursor_session_id)s)
-  AND min_first_timestamp >= toDateTime(%(day_start)s, 'UTC')
-  AND min_first_timestamp < toDateTime(%(day_start)s, 'UTC') + toIntervalDay(2)
-  {_RAW_SESSION_FILTER}
-GROUP BY team_id, session_id
-HAVING max(surfacing_score) IS NOT NULL
-  AND min(min_first_timestamp) >= toDateTime(%(day_start)s, 'UTC')
-  AND min(min_first_timestamp) < toDateTime(%(day_start)s, 'UTC') + toIntervalDay(1)
-ORDER BY team_id, session_id
-LIMIT %(page_size)s
-""".strip()
-
-
-def fetch_encrypted_score_range_sql(replay_events_table: str = SESSION_REPLAY_EVENTS_TABLE) -> str:
-    # Bound both scans by the table's team/session ordering key; deletion timestamps can be much later than the session.
-    return f"""
-SELECT team_id, session_id, min(min_first_timestamp) AS started_at, max(surfacing_score) AS score
-FROM {replay_events_table}
-WHERE cityHash64(session_id) %% %(of_chunks)s = %(chunk_id)s
-  AND min_first_timestamp >= toDateTime(%(day_start)s, 'UTC')
-  AND min_first_timestamp < toDateTime(%(day_start)s, 'UTC') + toIntervalDay(2)
-  {_SCORE_RANGE}
-  {_RAW_SESSION_FILTER}
-  AND (team_id, session_id) GLOBAL NOT IN (
-    SELECT team_id, session_id FROM {replay_events_table}
-    WHERE cityHash64(session_id) %% %(of_chunks)s = %(chunk_id)s
-      AND min_first_timestamp >= toDateTime(%(day_start)s, 'UTC')
-      AND is_deleted = 1
-      {_SCORE_RANGE}
-  )
-GROUP BY team_id, session_id
-HAVING score IS NOT NULL
-  AND started_at >= toDateTime(%(day_start)s, 'UTC')
-  AND started_at < toDateTime(%(day_start)s, 'UTC') + toIntervalDay(1)
-ORDER BY team_id, session_id
 LIMIT %(page_size)s
 """.strip()
