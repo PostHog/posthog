@@ -277,17 +277,17 @@
     "codeCanvasFork": {
         "template": "/desktop/canvas-fork/{shareToken}",
         "params": ["shareToken"],
-        "scope": "project"
+        "scope": "global"
     },
     "codeCanvasLink": {
         "template": "/desktop/canvas/{channelId}/{dashboardId}",
         "params": ["channelId", "dashboardId"],
-        "scope": "project"
+        "scope": "global"
     },
     "codeChannelLink": {
         "template": "/desktop/channel/{channelId}",
         "params": ["channelId"],
-        "scope": "project"
+        "scope": "global"
     },
     "codeReview": {
         "template": "/code-review",
@@ -297,7 +297,7 @@
     "codeTaskLink": {
         "template": "/desktop/task/{taskId}",
         "params": ["taskId"],
-        "scope": "project"
+        "scope": "global"
     },
     "cohort": {
         "template": "/cohorts/{id}",

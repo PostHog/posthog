@@ -7,10 +7,11 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_sharing import mock_exporter_template
-from posthog.models import Organization, SharingConfiguration
+from posthog.models import Organization, SharingConfiguration, Team
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
+from products.canvas.backend.artifacts import create_canvas_artifact_url
 from products.canvas.backend.models import Canvas, CanvasBuild
 from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
 from products.tasks.backend.models import Channel
@@ -214,6 +215,61 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert not SharingConfiguration.objects.filter(team=self.team, canvas=canvas).exists()
+
+    def test_the_shared_page_frames_only_the_artifact_origin(self):
+        canvas_id = self._create_canvas()
+        self._publish_ready(canvas_id)
+        access_token = self._enable_sharing(canvas_id)
+        self.client.logout()
+
+        @mock_exporter_template
+        def fetch(test: "TestCanvasSharingApi"):
+            return test.client.get(f"/shared/{access_token}")
+
+        with self.settings(CANVAS_ARTIFACT_ORIGIN="https://canvas.example.com"):
+            response = fetch(self)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response["Content-Security-Policy"] == "frame-src https://canvas.example.com"
+
+    def test_revoking_a_share_stops_serving_its_artifact(self):
+        canvas_id = self._create_canvas()
+        self._publish_ready(canvas_id)
+        access_token = self._enable_sharing(canvas_id)
+        self.client.logout()
+        artifact_url = self._shared_payload(access_token)["canvas"]["artifact_url"]
+        path = "/canvas-artifacts/" + artifact_url.split("/canvas-artifacts/", 1)[1]
+        etag = f'"{"a" * 64}"'
+
+        live = self.client.get(path, HTTP_IF_NONE_MATCH=etag)
+        assert live.status_code == status.HTTP_304_NOT_MODIFIED
+
+        SharingConfiguration.objects.filter(team_id=self.team.id, canvas_id=canvas_id).update(enabled=False)
+
+        assert self.client.get(path, HTTP_IF_NONE_MATCH=etag).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_revoking_a_share_leaves_the_in_app_artifact_readable(self):
+        canvas_id = self._create_canvas()
+        build = self._publish_ready(canvas_id)
+        self._enable_sharing(canvas_id)
+        artifact_url = create_canvas_artifact_url(build, "index.html") or ""
+        path = "/canvas-artifacts/" + artifact_url.split("/canvas-artifacts/", 1)[1]
+
+        SharingConfiguration.objects.filter(team_id=self.team.id, canvas_id=canvas_id).update(enabled=False)
+
+        response = self.client.get(path, HTTP_IF_NONE_MATCH=f'"{"a" * 64}"')
+
+        assert response.status_code == status.HTTP_304_NOT_MODIFIED
+
+    def test_a_sibling_environment_cannot_share_the_projects_canvas(self):
+        canvas_id = self._create_canvas()
+        self._publish_ready(canvas_id)
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project, name="Staging")
+
+        response = self.client.patch(f"/api/projects/{sibling.id}/canvases/{canvas_id}/sharing", {"enabled": True})
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        assert not SharingConfiguration.objects.filter(canvas_id=canvas_id).exists()
 
     def test_refresh_rotates_the_token_and_keeps_the_canvas(self):
         canvas_id = self._create_canvas()

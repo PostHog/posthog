@@ -37,18 +37,43 @@ describe("fileLinkHasUnpublishedChanges", () => {
     ["no sharing state yet", undefined, false],
     [
       "not shared publicly",
-      { enabled: false, sharedArtifactId: "u1", latestArtifactId: "u2" },
+      {
+        enabled: false,
+        sharedArtifactId: "u1",
+        latestArtifactId: "u2",
+        canChangeSharing: true,
+      },
       false,
     ],
     [
       "shared and current",
-      { enabled: true, sharedArtifactId: "u1", latestArtifactId: "u1" },
+      {
+        enabled: true,
+        sharedArtifactId: "u1",
+        latestArtifactId: "u1",
+        canChangeSharing: true,
+      },
       false,
     ],
     [
       "shared and uploaded again since",
-      { enabled: true, sharedArtifactId: "u1", latestArtifactId: "u2" },
+      {
+        enabled: true,
+        sharedArtifactId: "u1",
+        latestArtifactId: "u2",
+        canChangeSharing: true,
+      },
       true,
+    ],
+    [
+      "uploaded again but this reader cannot publish it",
+      {
+        enabled: true,
+        sharedArtifactId: "u1",
+        latestArtifactId: "u2",
+        canChangeSharing: false,
+      },
+      false,
     ],
   ])("is %s", (_name, sharing, expected) => {
     expect(fileLinkHasUnpublishedChanges(sharing)).toBe(expected);

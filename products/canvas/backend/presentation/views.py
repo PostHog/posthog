@@ -33,6 +33,7 @@ from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.canvas.backend import build_service, error_reports
+from products.canvas.backend.access_control import filter_canvases_by_access_level_for_user_id
 from products.canvas.backend.actions import CANVAS_ACTIONS, CanvasActionDenied, canvas_actions_disabled
 from products.canvas.backend.capabilities import declared_actions, declared_connectors, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
@@ -216,12 +217,18 @@ def _renderable_build(build: CanvasBuild | None) -> CanvasBuild | None:
     return None
 
 
-def _component_lifecycles(team_id: int, canvases: QuerySet[Canvas], layout: dict[str, Any]) -> list[dict[str, Any]]:
+def _component_lifecycles(
+    team_id: int, user_id: int | None, canvases: QuerySet[Canvas], layout: dict[str, Any]
+) -> list[dict[str, Any]]:
     """The renderable build for each distinct (component, pinned version) the
     layout's live placements reference.
 
-    The authorized queryset also enforces sandbox access. A component the
-    caller may not read is omitted, identically to one that is missing."""
+    The authorized queryset also enforces sandbox access, and per-object access
+    control is applied here because DRF runs it for list actions only. A component
+    the caller may not read is omitted, identically to one that is missing. This is
+    the read half of the rule `validate_layout_references` applies to a write: an
+    entry carries the component's manifest and a signed artifact URL, so a denied
+    component would otherwise keep rendering in a grid it is already placed on."""
     placements = layout.get("placements")
     if not isinstance(placements, list):
         return []
@@ -250,12 +257,12 @@ def _component_lifecycles(team_id: int, canvases: QuerySet[Canvas], layout: dict
     component_ids = {component_id for component_id, _ in wanted}
     pinned_version_ids = {version_id for _, version_id in wanted if version_id}
     with team_scope(team_id):
-        components = {
-            str(canvas.id): canvas
-            for canvas in canvases.filter(id__in=component_ids, kind=Canvas.KIND_COMPONENT).select_related(
-                "published_build"
-            )
-        }
+        readable_components = filter_canvases_by_access_level_for_user_id(
+            canvases.filter(id__in=component_ids, kind=Canvas.KIND_COMPONENT),
+            team_id,
+            user_id,
+        )
+        components = {str(canvas.id): canvas for canvas in readable_components.select_related("published_build")}
         pinned_builds: dict[str, CanvasBuild] = {}
         if pinned_version_ids:
             # One row per version (its newest ready build) instead of loading a
@@ -815,7 +822,10 @@ class CanvasViewSet(CanvasAccessMixin, AccessControlViewSetMixin, viewsets.Model
             "layout": layout,
         }
         if layout is not None:
-            instance["component_lifecycles"] = _component_lifecycles(self.team_id, self.get_queryset(), layout)
+            acting_user = self._request_user()
+            instance["component_lifecycles"] = _component_lifecycles(
+                self.team_id, acting_user.id if acting_user else None, self.get_queryset(), layout
+            )
         payload = CanvasViewResponseSerializer(instance=instance).data
         if degraded:
             # A payload missing its source/layout must not revalidate as
@@ -1398,7 +1408,10 @@ class CanvasViewSet(CanvasAccessMixin, AccessControlViewSetMixin, viewsets.Model
             "current_version_id": (str(canvas.current_source_version_id) if canvas.current_source_version_id else None),
         }
         if request.query_params.get("include_components") in ("1", "true"):
-            instance["component_lifecycles"] = _component_lifecycles(self.team_id, self.get_queryset(), layout)
+            acting_user = self._request_user()
+            instance["component_lifecycles"] = _component_lifecycles(
+                self.team_id, acting_user.id if acting_user else None, self.get_queryset(), layout
+            )
         return _conditional_response(request, CanvasLayoutWithComponentsResponseSerializer(instance=instance).data)
 
     @extend_schema(
@@ -1637,7 +1650,9 @@ class CanvasViewSet(CanvasAccessMixin, AccessControlViewSetMixin, viewsets.Model
             "canvas forked",
             fork.canvas,
             source_canvas_id=str(source.id),
-            source_version_id=str(fork.version.id),
+            # The copy's lineage, not its own first version: `fork.version` belongs to the new
+            # canvas and would be 1:1 with it, which answers nothing about what gets copied.
+            source_version_id=(str(fork.canvas.forked_from_version_id) if fork.canvas.forked_from_version_id else None),
             cross_team=source.team_id != self.team_id,
             via_share_token="share_token" in payload.validated_data,
         )

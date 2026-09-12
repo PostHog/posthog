@@ -330,8 +330,10 @@ class TestTaskActivityVisibility(APIBaseTest):
         theirs = self._personal_task(other, "Theirs")
         mine = self._personal_task(self.user, "Mine")
 
-        hidden = activity_visibility.hidden_task_ids(self.team.id, self.user)
-        hidden_for_org = activity_visibility.hidden_task_ids_for_org(self.organization.id, self.user)
+        hidden = {row["item_id_text"] for row in activity_visibility.hidden_task_ids(self.team.id, self.user)}
+        hidden_for_org = {
+            row["item_id_text"] for row in activity_visibility.hidden_task_ids_for_org(self.organization.id, self.user)
+        }
 
         assert str(theirs.id) in hidden
         assert str(mine.id) not in hidden

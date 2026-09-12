@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Optional, cast, get_args
 from urllib.parse import urlencode
 
-from django.db.models import Q, QuerySet
+from django.db.models import Q, QuerySet, Subquery
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
@@ -121,10 +121,7 @@ def restrict_task_activity(queryset: QuerySet[ActivityLog], team_id: int, user) 
     """
     from products.tasks.backend import activity_visibility as task_activity  # noqa: PLC0415
 
-    hidden_ids = task_activity.hidden_task_ids(team_id, user)
-    if not hidden_ids:
-        return queryset
-    return queryset.exclude(Q(scope="Task") & Q(item_id__in=hidden_ids))
+    return queryset.exclude(Q(scope="Task") & Q(item_id__in=Subquery(task_activity.hidden_task_ids(team_id, user))))
 
 
 def restrict_task_activity_for_org(queryset: QuerySet[ActivityLog], organization_id, user) -> QuerySet[ActivityLog]:
@@ -132,10 +129,9 @@ def restrict_task_activity_for_org(queryset: QuerySet[ActivityLog], organization
     `team_id`, so deny tasks hidden by channel visibility across the org."""
     from products.tasks.backend import activity_visibility as task_activity  # noqa: PLC0415
 
-    hidden_ids = task_activity.hidden_task_ids_for_org(organization_id, user)
-    if not hidden_ids:
-        return queryset
-    return queryset.exclude(Q(scope="Task") & Q(item_id__in=hidden_ids))
+    return queryset.exclude(
+        Q(scope="Task") & Q(item_id__in=Subquery(task_activity.hidden_task_ids_for_org(organization_id, user)))
+    )
 
 
 def restrict_canvas_activity_for_org(queryset: QuerySet[ActivityLog], organization_id, user) -> QuerySet[ActivityLog]:

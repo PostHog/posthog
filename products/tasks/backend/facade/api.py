@@ -139,6 +139,7 @@ from products.tasks.backend.repository_config_analytics import (
 from products.tasks.backend.visibility import (
     TEAM_READABLE_ORIGIN_PRODUCTS,
     task_control_q,
+    task_read_visibility_q,
     task_run_visibility_q,
     task_visibility_q,
 )
@@ -2413,28 +2414,6 @@ def task_run_matches_current_ownership(run_id: str | UUID, task_id: str | UUID, 
     return run is not None and run.matches_task_ownership()
 
 
-def _shared_slack_thread_q() -> Q:
-    """Slack tasks whose thread is not a direct message.
-
-    Phrased as "not private" rather than "is a channel" so a mapping we never classified — a
-    row predating the column, or a lookup Slack refused — keeps the team-wide read access it
-    has today instead of silently narrowing to the thread starter.
-
-    The ``origin_product`` test leads so the subquery is only reached for Slack tasks; every
-    other task short-circuits on an indexed column before touching the mapping table.
-    """
-    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
-        PRIVATE_CONVERSATION_TYPES,
-        SlackThreadTaskMapping,
-    )
-
-    private_thread = SlackThreadTaskMapping.objects.filter(
-        task_id=OuterRef("pk"),
-        conversation_type__in=sorted(PRIVATE_CONVERSATION_TYPES),
-    )
-    return Q(origin_product=Task.OriginProduct.SLACK) & Q(~Exists(private_thread))
-
-
 def task_accessible_for_run_view(
     task_id: str | UUID,
     team_id: int,
@@ -2466,7 +2445,7 @@ def task_accessible_for_run_view(
     """
     task_filter = Task.objects.filter(id=task_id, team_id=team_id, deleted=False)
     if not bypass_visibility:
-        scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
+        scope_q = task_control_q(user_id) if for_control else task_read_visibility_q(user_id)
         task_filter = task_filter.filter(scope_q)
     return task_filter.exists()
 
@@ -5289,15 +5268,13 @@ def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bo
     """Team-scoped live tasks, gated by read visibility — or by the narrower
     control predicate when ``for_control`` (mutations, runs, agent commands).
 
-    The read branch ORs in ``_shared_slack_thread_q()`` so a task shared in a Slack channel
+    The read branch uses ``task_read_visibility_q`` so a task shared in a Slack channel
     is readable team-wide, matching ``task_accessible_for_run_view``. Without it the run
     endpoint admits a channel collaborator while task detail returns 404 for the same task.
     """
     qs = Task.objects.filter(team_id=team_id, deleted=False)
     if not bypass_visibility:
-        qs = qs.filter(
-            task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
-        )
+        qs = qs.filter(task_control_q(user_id) if for_control else task_read_visibility_q(user_id))
     return qs
 
 
@@ -5712,6 +5689,42 @@ def _search_result_payload(document: TaskSearchDocument, latest_runs: dict[Any, 
     }
 
 
+def _readable_search_documents(
+    documents: list[TaskSearchDocument], team_id: int, user_id: int | None
+) -> list[TaskSearchDocument]:
+    """Drop the canvas rows the caller's per-object canvas rules deny.
+
+    A canvas document takes the channel-only visibility branch, which is the whole rule for every
+    other kind. A canvas also carries per-object access control, and a denied canvas must not
+    disclose its name, its channel, or its kind through search while the API refuses to open it.
+    """
+    from products.canvas.backend.access_control import (  # noqa: PLC0415 — keeps the access-control deps off this module's import path
+        filter_canvases_by_access_level_for_user_id,
+    )
+
+    canvas_ids = []
+    for document in documents:
+        if document.kind != TaskSearchDocument.Kind.CANVAS:
+            continue
+        try:
+            canvas_ids.append(str(UUID(document.source_key)))
+        except (TypeError, ValueError):
+            continue
+    if not canvas_ids:
+        return documents
+    readable = {
+        str(canvas_id)
+        for canvas_id in filter_canvases_by_access_level_for_user_id(
+            Canvas.objects.for_team(team_id).filter(id__in=canvas_ids), team_id, user_id
+        ).values_list("id", flat=True)
+    }
+    return [
+        document
+        for document in documents
+        if document.kind != TaskSearchDocument.Kind.CANVAS or document.source_key in readable
+    ]
+
+
 def search_tasks(
     team_id: int,
     user_id: int | None,
@@ -5765,7 +5778,7 @@ def search_tasks(
             : min(page_size * _SEARCH_CANDIDATE_FACTOR, _SEARCH_MAX_CANDIDATES)
         ]
     )
-    documents = _mixed_search_page(candidates, page_size)
+    documents = _mixed_search_page(_readable_search_documents(list(candidates), team_id, user_id), page_size)
     latest_runs = _latest_runs_by_task_id((document.task_id for document in documents if document.task_id), team_id)
     return [_search_result_payload(document, latest_runs) for document in documents]
 

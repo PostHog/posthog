@@ -16,16 +16,22 @@ export function publicLinkHasUnpublishedChanges(
   return dashboard.sharedBuildId !== dashboard.publishedBuildId;
 }
 
-/** Whether a file was uploaded again after its public link was pinned. */
+/**
+ * Whether a file was uploaded again after its public link was pinned, and this reader can
+ * move the link to it. Publishing changes is the same write as enabling, so a teammate who
+ * may read the sharing state but not change it has nothing to publish: offering it to them
+ * only produces a failed request.
+ */
 export function fileLinkHasUnpublishedChanges(
   sharing:
     | Pick<
         TaskArtifactSharing,
-        "enabled" | "sharedArtifactId" | "latestArtifactId"
+        "enabled" | "sharedArtifactId" | "latestArtifactId" | "canChangeSharing"
       >
     | null
     | undefined,
 ): boolean {
   if (!sharing?.enabled || !sharing.latestArtifactId) return false;
+  if (!sharing.canChangeSharing) return false;
   return sharing.sharedArtifactId !== sharing.latestArtifactId;
 }
