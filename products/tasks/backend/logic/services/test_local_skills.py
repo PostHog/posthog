@@ -21,7 +21,7 @@ from products.tasks.backend.logic.services.local_skills import (
 )
 from products.tasks.backend.models import SandboxEnvironment
 
-PATCH_TARGET = "products.posthog_ai.scripts.build_skills.SkillBuilder"
+PATCH_TARGET = "products.posthog_ai.scripts.build_skills.skill_builder.SkillBuilder"
 
 
 def _mock_builder(cache: LocalSkillsCache, *, produce_files: bool = True):

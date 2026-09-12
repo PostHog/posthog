@@ -5,7 +5,7 @@ Same pattern as ``bin/build-mcp-oauth-scopes.py``: a codegen script that reads a
 Python module and writes a checked-in ``*.generated.ts``, so the Python module stays the
 single authority and the TypeScript sides are projections of it. It lives beside the
 catalog it projects rather than in ``bin/``, since only this product reads or writes it —
-the same placement as ``products/posthog_ai/scripts/build_skills.py``.
+the same placement as ``products/posthog_ai/scripts/build_skills/``.
 
 Two files come out of one template because the two workspaces run different formatters —
 the web app runs oxfmt (four spaces, single quotes, no semicolons, 120 columns) and the

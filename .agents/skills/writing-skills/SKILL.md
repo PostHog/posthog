@@ -87,7 +87,7 @@ Only `references/` and `scripts/` subdirectories are collected. Others are ignor
 ## Template functions
 
 Files ending in `.j2` are rendered with Jinja2 at build time
-by [`products/posthog_ai/scripts/build_skills.py`](../../../products/posthog_ai/scripts/build_skills.py).
+by [`products/posthog_ai/scripts/build_skills/`](../../../products/posthog_ai/scripts/build_skills/).
 Extend the build pipeline so the monorepo stays the source of truth —
 when domain knowledge lives in code (Pydantic models, query runners, function registries),
 add a template function rather than duplicating it as static markdown that drifts.

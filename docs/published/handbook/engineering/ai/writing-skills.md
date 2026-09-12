@@ -347,7 +347,7 @@ To add a new template function:
 ## Build pipeline
 
 The pipeline discovers, renders, and packages skills.
-Source of truth: [`products/posthog_ai/scripts/build_skills.py`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/scripts/build_skills.py).
+Source of truth: [`products/posthog_ai/scripts/build_skills/`](https://github.com/PostHog/posthog/tree/master/products/posthog_ai/scripts/build_skills/).
 
 ### Pipeline steps
 

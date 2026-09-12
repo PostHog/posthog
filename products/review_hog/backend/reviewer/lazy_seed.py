@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 # Canonical review-hog-perspective-* skills live on disk under `products/review_hog/skills/`.
 _SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
 
-# Mirrors the frontmatter regex used by the scout sync + `build_skills.py` so parsing stays
+# Mirrors the frontmatter regex used by the scout sync + `build_skills/frontmatter.py` so parsing stays
 # consistent across consumers.
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 # Bundled subdirs walked recursively, in lockstep with the scout sync's `_ALLOWED_BUNDLE_SUBDIRS`.

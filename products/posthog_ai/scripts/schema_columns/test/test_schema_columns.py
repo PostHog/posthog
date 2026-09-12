@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from products.posthog_ai.scripts.build_skills import SkillRenderer
+from products.posthog_ai.scripts.build_skills.rendering import SkillRenderer
 from products.posthog_ai.scripts.schema_columns import schema_columns
 
 REFERENCES = Path(__file__).resolve().parents[3] / "skills" / "querying-posthog-data" / "references"

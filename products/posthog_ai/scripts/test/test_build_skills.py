@@ -11,15 +11,12 @@ from typing import Any, cast
 
 import pytest
 
-from products.posthog_ai.scripts.build_skills import (
-    DiscoveredSkill,
-    SkillBuilder,
-    SkillDiscoverer,
-    SkillRenderer,
-    _check_tool_references,
-    parse_frontmatter,
-    validate_frontmatter,
-)
+from products.posthog_ai.scripts.build_skills.discovery import SkillDiscoverer
+from products.posthog_ai.scripts.build_skills.frontmatter import parse_frontmatter, validate_frontmatter
+from products.posthog_ai.scripts.build_skills.rendering import SkillRenderer
+from products.posthog_ai.scripts.build_skills.skill_builder import SkillBuilder
+from products.posthog_ai.scripts.build_skills.skill_manifest import DiscoveredSkill
+from products.posthog_ai.scripts.build_skills.tool_references import _check_tool_references
 
 
 @pytest.mark.parametrize(
