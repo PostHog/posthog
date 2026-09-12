@@ -68,10 +68,14 @@ export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 /** Matches MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE in posthog/api/query.py. */
 const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavailable'
 
+/** The escapes Python repr writes, which a rendered message should show unescaped. */
+const PYTHON_REPR_ESCAPES: Record<string, string> = { '\\': '\\', "'": "'", '"': '"', n: '\n', r: '\r', t: '\t' }
+
 /**
  * Parse error message that may be in ErrorDetail string format.
  * Backend sometimes serializes ValidationError.detail as a string like:
  * "[ErrorDetail(string='Message', code='code')]"
+ * A message that holds an apostrophe comes back double quoted instead.
  *
  * This function safely extracts the message and code, falling back to the
  * original string if parsing fails.
@@ -81,16 +85,15 @@ export function parseErrorMessage(errorMessage: string | undefined): { message: 
         return { message: errorMessage || '', code: null }
     }
 
-    // Try to match list format: [ErrorDetail(string='...', code='...')]
-    const listMatch = errorMessage.match(/\[ErrorDetail\(string='([^']*)',\s*code='([^']*)'\)\]/)
-    if (listMatch) {
-        return { message: listMatch[1], code: listMatch[2] }
-    }
-
-    // Try to match single format: ErrorDetail(string='...', code='...')
-    const singleMatch = errorMessage.match(/ErrorDetail\(string='([^']*)',\s*code='([^']*)'\)/)
-    if (singleMatch) {
-        return { message: singleMatch[1], code: singleMatch[2] }
+    // Matches the list format too, because the brackets sit outside the part we read.
+    // Python repr picks the quote style from the message, and escapes a quote of that style inside it.
+    // Read either style, and take an escape pair as body text. Negated classes keep long input linear.
+    const match = errorMessage.match(
+        /ErrorDetail\(string=(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"),\s*code=(['"])([^'"]*)\3\)/
+    )
+    if (match) {
+        const body = match[1] ?? match[2]
+        return { message: body.replace(/\\([\\'"nrt])/g, (_, escaped) => PYTHON_REPR_ESCAPES[escaped]), code: match[4] }
     }
 
     // Fallback: return original string unchanged

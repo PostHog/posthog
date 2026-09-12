@@ -15,6 +15,7 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.errors import (
+    CHQueryErrorFunctionThrowIfValueIsNonZero,
     CHQueryErrorNotAnAggregate,
     ExposedCHQueryError,
     QueryErrorCategory,
@@ -119,9 +120,10 @@ def classify_experiment_query_error(error: Exception) -> str:
         return "rate_limited"
     if isinstance(error, ServerException):
         meta = look_up_clickhouse_error_code_meta(error)
-        if meta.name == "NOT_AN_AGGREGATE":
-            # Only known producer in experiment queries is user-authored HogQL referencing a
-            # row-level column outside an aggregate — a metric-config error, not a platform one.
+        if meta.name in ("NOT_AN_AGGREGATE", "FUNCTION_THROW_IF_VALUE_IS_NON_ZERO"):
+            # Both come from the metric's own query: HogQL that references a row-level column
+            # outside an aggregate, or a throwIf guard that fired. Metric-config errors, not
+            # platform ones, so a retry can only fail again.
             return "validation_error"
         if meta.name in ("TIMEOUT_EXCEEDED", "SOCKET_TIMEOUT"):
             return "timeout"
@@ -219,6 +221,24 @@ def _emit_runner_terminal_error_event(runner: Any, error: Exception) -> None:
     )
 
 
+def _metric_config_error(runner: Any, error: Exception, log_event: str, message: str) -> ValidationError:
+    """Turn a ClickHouse error that the metric's own query caused into an actionable
+    ValidationError. The blanket handler below never sees the error, so this decorator runs no
+    capture_exception on it, and classify_experiment_query_error maps the result to
+    validation_error, so the recalculation worker fails it permanently instead of retrying a query
+    that can only fail again. QueryRunner.run still captures the ValidationError at its own
+    boundary, because classify_query_error has no branch for a DRF ValidationError.
+    """
+    logger.warning(
+        log_event,
+        experiment_id=getattr(runner, "experiment_id", None),
+        error_message=str(error),
+    )
+    user_error = ValidationError(message)
+    _emit_runner_terminal_error_event(runner, user_error)
+    return user_error
+
+
 def experiment_error_handler(method: F) -> F:
     """
     Decorator that catches technical errors, logs them for engineers,
@@ -234,24 +254,34 @@ def experiment_error_handler(method: F) -> F:
             # Still terminal user pain (the metric fails to load every time), so still counted.
             _emit_runner_terminal_error_event(args[0] if args else None, e)
             raise
+        except CHQueryErrorFunctionThrowIfValueIsNonZero as e:
+            # A throwIf guard in the metric's query fired, and its label already names the cause,
+            # so surface the label instead of the blanket ExposedCHQueryError message.
+            self = args[0] if args else None
+            user_error = _metric_config_error(
+                self,
+                e,
+                "Experiment metric query hit a throwIf guard",
+                f"This metric's query stopped with an error: {str(e).rstrip('. ')}. "
+                "Check the metric configuration and try again.",
+            )
+            if self is not None and not getattr(self, "user_facing", True):
+                # Internal callers (recalculation, timeseries) expect raw types and classify themselves.
+                raise
+            raise user_error from e
         except CHQueryErrorNotAnAggregate as e:
             # Only known producer in experiment queries is user-authored HogQL (math_hogql /
             # warehouse math_property) referencing a row-level column outside an aggregate —
             # builder-generated SQL is snapshot-tested, and every tracked occurrence carried
-            # contains_user_hogql. A metric-config error: give an actionable message, keep it
-            # out of error tracking, and let classify_experiment_query_error's validation_error
-            # mapping make the recalculation worker fail it permanently instead of retrying.
+            # contains_user_hogql.
             self = args[0] if args else None
-            logger.warning(
+            user_error = _metric_config_error(
+                self,
+                e,
                 "Experiment metric HogQL references column outside aggregate",
-                experiment_id=getattr(self, "experiment_id", None),
-                error_message=str(e),
-            )
-            user_error = ValidationError(
                 "This metric's HogQL expression references an event column outside an aggregate "
-                "function. Wrap the value in an aggregation, e.g. sum(properties.value)."
+                "function. Wrap the value in an aggregation, e.g. sum(properties.value).",
             )
-            _emit_runner_terminal_error_event(self, user_error)
             if self is not None and not getattr(self, "user_facing", True):
                 # Internal callers (recalculation, timeseries) expect raw types and classify themselves.
                 raise

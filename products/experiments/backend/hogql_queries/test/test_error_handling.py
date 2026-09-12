@@ -13,7 +13,7 @@ from rest_framework.exceptions import ErrorDetail, ValidationError
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.errors import CHQueryErrorNotAnAggregate
+from posthog.errors import CHQueryErrorFunctionThrowIfValueIsNonZero, CHQueryErrorNotAnAggregate
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.experiments.backend.hogql_queries.error_handling import (
@@ -173,6 +173,53 @@ class TestExperimentErrorHandling(BaseTest):
         mock_capture.assert_not_called()
 
     @patch("products.experiments.backend.hogql_queries.error_handling.capture_exception")
+    def test_decorator_surfaces_throw_if_label_without_capture(self, mock_capture):
+        # A throwIf guard in the metric's query names its own cause, so the label must reach the
+        # user instead of the blanket "try refreshing the page" message, and must not be captured
+        # as a platform bug.
+
+        @experiment_error_handler
+        def failing_method(self):
+            raise CHQueryErrorFunctionThrowIfValueIsNonZero(
+                "Code: 395. DB::Exception: Encountered a null value in stripe.customer_id",
+                code=395,
+                code_name="function_throw_if_value_is_non_zero",
+            )
+
+        mock_self = Mock()
+        mock_self.experiment = Mock(id=123)
+        mock_self.metric = None
+        mock_self.user_facing = True
+
+        with self.assertRaises(ValidationError) as context:
+            failing_method(mock_self)
+
+        detail_list = cast(list[ErrorDetail], context.exception.detail)
+        self.assertIn("Encountered a null value in stripe.customer_id", str(detail_list[0]))
+        mock_capture.assert_not_called()
+
+    @patch("products.experiments.backend.hogql_queries.error_handling.capture_exception")
+    def test_decorator_reraises_throw_if_raw_for_non_user_facing(self, mock_capture):
+        # Internal callers (recalculation, timeseries) classify raw types themselves, and
+        # classify_experiment_query_error maps this to validation_error (permanent, no retry).
+
+        @experiment_error_handler
+        def failing_method(self):
+            raise CHQueryErrorFunctionThrowIfValueIsNonZero(
+                "guard fired", code=395, code_name="function_throw_if_value_is_non_zero"
+            )
+
+        mock_self = Mock()
+        mock_self.experiment = Mock(id=123)
+        mock_self.metric = None
+        mock_self.user_facing = False
+
+        with self.assertRaises(CHQueryErrorFunctionThrowIfValueIsNonZero):
+            failing_method(mock_self)
+
+        mock_capture.assert_not_called()
+
+    @patch("products.experiments.backend.hogql_queries.error_handling.capture_exception")
     def test_decorator_reraises_not_an_aggregate_raw_for_non_user_facing(self, mock_capture):
         # Internal callers (recalculation, timeseries) classify raw types themselves —
         # classify_experiment_query_error maps this to validation_error (permanent, no retry).
@@ -216,6 +263,14 @@ class TestExperimentErrorHandling(BaseTest):
             (
                 "wrapped_not_an_aggregate",
                 CHQueryErrorNotAnAggregate("not under aggregate", code=215, code_name="not_an_aggregate"),
+                "validation_error",
+            ),
+            ("ch_throw_if_code", ServerException("guard fired", code=395), "validation_error"),
+            (
+                "wrapped_throw_if",
+                CHQueryErrorFunctionThrowIfValueIsNonZero(
+                    "guard fired", code=395, code_name="function_throw_if_value_is_non_zero"
+                ),
                 "validation_error",
             ),
             ("anything_else", RuntimeError("kaboom"), "server_error"),
