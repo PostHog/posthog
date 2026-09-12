@@ -1032,6 +1032,13 @@ class TestTasksControlsRepublishTheList:
     """
 
     def _seed(self, integration) -> None:
+        # The card is scoped to the projects the clicker can reach, so U001 needs an identity.
+        viewer = User.objects.create_and_join(integration.team.organization, "viewer@posthog.com", None)
+        SlackUserProfileCache.objects.create(
+            integration=integration,
+            slack_user_id="U001",
+            email=viewer.email,
+        )
         # More than one page, so a Next click has somewhere to go.
         for index in range(12):
             task = Task.objects.create(
@@ -1183,6 +1190,35 @@ class TestHandleAppHomeOpened:
         assert "opener-gh" in text
         assert "colleague-gh" not in text
 
+    @pytest.mark.parametrize(
+        "viewer_email, is_member, reaches_project",
+        [
+            (None, False, False),
+            ("outsider@example.com", False, False),
+            ("member@posthog.com", True, True),
+        ],
+        ids=["viewer_we_cannot_identify", "viewer_outside_every_connected_org", "organization_member"],
+    )
+    def test_only_an_organization_member_reaches_the_connected_project(
+        self, slack_integration, mock_slack_client, flag_on, admin_user, viewer_email, is_member, reaches_project
+    ):
+        slack_integration.team.name = "Zephyr Analytics"
+        slack_integration.team.save(update_fields=["name"])
+        if is_member:
+            User.objects.create_and_join(slack_integration.team.organization, viewer_email, None)
+        if viewer_email:
+            SlackUserProfileCache.objects.create(
+                integration=slack_integration,
+                slack_user_id="U001",
+                email=viewer_email,
+            )
+
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        text = _all_text(mock_slack_client.views_publish.call_args.kwargs["view"])
+        assert ("Zephyr Analytics" in text) is reaches_project
+        assert ("No project to show yet" in text) is not reaches_project
+
     def test_deactivated_user_is_not_resolved_from_their_slack_identity(
         self, slack_integration, mock_slack_client, flag_on, admin_user
     ):
@@ -1201,7 +1237,7 @@ class TestHandleAppHomeOpened:
 
         text = _all_text(mock_slack_client.views_publish.call_args.kwargs["view"])
         assert "offboarded-gh" not in text
-        assert "Link your PostHog account first" in text
+        assert "No project to show yet" in text
 
 
 # ---------------------------------------------------------------------------
