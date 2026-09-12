@@ -28,6 +28,9 @@ class AutomoxEndpointConfig:
     # Automox caps `limit` at 500 for Console API list endpoints (policy_runs allows more, but
     # 500 keeps response sizes bounded).
     page_size: int = 500
+    # `False` for endpoints that answer with the whole collection and take no page/limit params.
+    # Sending them anyway risks looping on the same rows if the API ignores them.
+    paginated: bool = True
     # Pass the resolved numeric organization ID as the `o` query param. Most Console API list
     # endpoints take it; without it the API falls back to the key's default organization.
     needs_org_id_param: bool = False
@@ -55,15 +58,57 @@ class AutomoxEndpointConfig:
     # membership metadata (a user's `orgs[]`, their org-tagged `rbac_roles[]`) still carries other
     # organizations the source owner never selected.
     org_scoped_list_fields: dict[str, str] = field(default_factory=dict)
+    # Set when the endpoint is only reachable per parent resource, so the sync walks the parent
+    # list first and calls this endpoint once per parent row.
+    fan_out: "AutomoxFanOutConfig | None" = None
+
+
+@dataclass
+class AutomoxFanOutConfig:
+    # List endpoint walked to enumerate the parents. It does not have to be a synced table.
+    parent: AutomoxEndpointConfig
+    # Field on each parent row substituted into the child path.
+    parent_field: str
+    # Placeholder in the child path replaced with `parent_field`'s value.
+    placeholder: str
+    # Parent field -> column added to every child row. Child rows aggregate across all parents, so
+    # the parent identifier both joins the table back to its parent and completes the primary key.
+    include_from_parent: dict[str, str]
+
+
+# Parent of a fan-out endpoint that is not itself a synced table: an action set is one ingestion of
+# a vulnerability report, only useful here to reach its issues.
+_ACTION_SETS_PARENT = AutomoxEndpointConfig(
+    path="/orgs/{org_id}/remediations/action-sets",
+    data_selector="data",
+)
+
+# The devices endpoint doubles as the fan-out parent for per-device detail endpoints, so both walk
+# exactly the same device list.
+_DEVICES_ENDPOINT = AutomoxEndpointConfig(
+    path="/servers",
+    partition_key="create_time",
+    needs_org_id_param=True,
+)
 
 
 AUTOMOX_ENDPOINTS: dict[str, AutomoxEndpointConfig] = {
-    # Core device inventory. No server-side updated-since filter exists, so full refresh only.
-    "devices": AutomoxEndpointConfig(
-        path="/servers",
-        partition_key="create_time",
-        needs_org_id_param=True,
+    # Per-device hardware, health, network, security and system inventory, one row per collected
+    # attribute. Automox answers with a nested category tree per device and the categories present
+    # vary by OS and by the customer's Automox tier, so the tree is flattened into attribute rows.
+    "device_inventory": AutomoxEndpointConfig(
+        path="/device-details/orgs/{org_uuid}/devices/{device_uuid}/inventory",
+        primary_keys=["device_uuid", "category", "sub_category", "name"],
+        paginated=False,
+        fan_out=AutomoxFanOutConfig(
+            parent=_DEVICES_ENDPOINT,
+            parent_field="uuid",
+            placeholder="{device_uuid}",
+            include_from_parent={"uuid": "device_uuid", "id": "device_id"},
+        ),
     ),
+    # Core device inventory. No server-side updated-since filter exists, so full refresh only.
+    "devices": _DEVICES_ENDPOINT,
     # Console activity log. `startDate` is a server-side date filter, so incremental sync on
     # `create_time` genuinely reduces the pages fetched. The API does not document the sort
     # order of results, so `sort_mode="desc"` makes the pipeline persist the watermark only
@@ -116,6 +161,27 @@ AUTOMOX_ENDPOINTS: dict[str, AutomoxEndpointConfig] = {
         incremental_lookback=timedelta(hours=24),
         extra_params={"sort": "run_time:asc"},
         sort_mode="asc",
+    ),
+    # Per-policy device compliance counts, the headline number on the Automox dashboard. The
+    # endpoint answers with every policy's stats in one array and takes no pagination params.
+    "policy_stats": AutomoxEndpointConfig(
+        path="/policystats",
+        primary_keys=["organization_id", "policy_id"],
+        needs_org_id_param=True,
+        paginated=False,
+    ),
+    # Hosts named in an uploaded vulnerability report that Automox could not match to a managed
+    # device, per remediation action set.
+    "remediation_issues": AutomoxEndpointConfig(
+        path="/orgs/{org_id}/remediations/action-sets/{action_set_id}/issues",
+        primary_keys=["action_set_id", "id"],
+        data_selector="data",
+        fan_out=AutomoxFanOutConfig(
+            parent=_ACTION_SETS_PARENT,
+            parent_field="id",
+            placeholder="{action_set_id}",
+            include_from_parent={"id": "action_set_id"},
+        ),
     ),
     "server_groups": AutomoxEndpointConfig(
         path="/servergroups",

@@ -20,7 +20,7 @@ import AlphaRelease from '../_snippets/alpha-release.mdx'
 
 <AlphaRelease />
 
-[Automox](https://www.automox.com) is a cloud-native patch management and endpoint management platform. Linking it as a source syncs your device inventory, policies, patch history, and software packages into the PostHog Data warehouse, so you can trend remediation coverage and device compliance across your fleet alongside your product data.
+[Automox](https://www.automox.com) is a cloud-native patch management and endpoint management platform. Linking it as a source syncs your device inventory, policies, patch history, software packages, and per-policy compliance counts into the PostHog Data warehouse, so you can trend remediation coverage and device compliance across your fleet alongside your product data.
 
 ## Prerequisites
 
@@ -43,7 +43,12 @@ To connect Automox, you need:
 
 <SyncModes />
 
-The `policy_runs` table (policy execution history) and the `events` table (console activity log) support **incremental** sync using Automox's server-side time filters, so they only fetch new rows on each run. The core inventory tables (devices, policies, packages, server groups, users, organizations) have no server-side "updated since" filter and sync as a **full refresh** — each sync re-reads the resource and merges on the primary key.
+The `policy_runs` table (policy execution history) and the `events` table (console activity log) support **incremental** sync using Automox's server-side time filters, so they only fetch new rows on each run. The remaining tables have no server-side "updated since" filter and sync as a **full refresh**. Each sync re-reads the resource and merges on the primary key.
+
+Two tables are gathered per device or per report rather than from a single list endpoint, so they make one request per parent record and take longer to sync than the rest:
+
+- `device_inventory` reads hardware, health, network, security and system detail for every device in the organization. Expect one request per device.
+- `remediation_issues` reads the problems found while ingesting each uploaded vulnerability report, such as a hostname in the report that matches no managed device.
 
 ## Configuration
 

@@ -581,14 +581,14 @@ Note: This is a webhook-ingestion source (the directory contains webhook_templat
 
 ## Automox — gaps
 
-Today (8): `devices`, `events`, `organizations`, `packages`, `policies`, `policy_runs`, `server_groups`, `users`
+Today (11): `device_inventory`, `devices`, `events`, `organizations`, `packages`, `policies`, `policy_runs`, `policy_stats`, `remediation_issues`, `server_groups`, `users`
 
 Diffed against: <https://console.automox.com/api/docs/specs/console-api.json>
 
 - [ ] `GET /servers/{deviceID}/packages` — per-device installed/available/missing patch inventory - the core patch-compliance fact table; the synced packages table is org-level only (high)
-- [ ] `GET /policystats` — per-policy compliance counts, the headline dashboard metric (high)
-- [ ] `GET /orgs/{orgID}/remediations/action-sets/{actionSetID}/issues` — vulnerability findings per remediation action set; joins to devices for risk reporting (high)
-- [ ] `GET /device-details/orgs/{orgUUID}/devices/{deviceUUID}/inventory` — hardware/software inventory detail per device beyond the base device record (medium)
+- [x] `GET /policystats` — per-policy compliance counts, the headline dashboard metric (high)
+- [x] `GET /orgs/{orgID}/remediations/action-sets/{actionSetID}/issues` — vulnerability findings per remediation action set; joins to devices for risk reporting (high)
+- [x] `GET /device-details/orgs/{orgUUID}/devices/{deviceUUID}/inventory` — hardware/software inventory detail per device beyond the base device record (medium)
 - [ ] `GET /reports/needs-attention` — devices flagged as needing action, a ready-made operational breakdown (medium)
 - [ ] `GET /reports/prepatch` — pre-patch report of pending patches per device before a run (medium)
 - [ ] `GET /audit-service/v1/orgs/{orgUuid}/events` — console audit trail of who changed what, distinct from the device event stream already synced (medium)
@@ -597,6 +597,8 @@ Diffed against: <https://console.automox.com/api/docs/specs/console-api.json>
 - [ ] `GET /orgs/{orgID}/remediations/action-sets` — lookup resolving the action-set IDs on remediation issues (low)
 - [ ] `GET /accounts/{accountUUID}/rbac-roles` — role lookup resolving the rbac_role field on synced users (low)
 - [ ] `GET /policy-windows/org/{orgUUID}/group/{groupUUID}/scheduled-windows` — maintenance windows per group, needed to interpret when policy runs could execute (low)
+
+Note: `GET /servers/{deviceID}/packages` was checked and not built. It returns the same `Packages` schema as `GET /orgs/{orgID}/packages`, which the spec describes as covering every device in the organization and whose rows already carry `server_id`, so the synced `packages` table is already the per-device patch inventory. Fanning out per device would rebuild that table at one paginated walk per device.
 
 Note: Automox publishes six separate Scalar specs at /api/docs/specs/\*.json (console-api, server-groups, policy-report, audit-trail, webhooks, cloud-worklets-public); the gaps above span console-api, audit-trail and cloud-worklets-public. policy-report's /policy-history/\* endpoints are already covered by the synced policy_runs table.
 
