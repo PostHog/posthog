@@ -178,7 +178,9 @@ class TicketPatternViewSet(
         ticket_id = filters.validated_data.get("ticket_id")
         if ticket_id:
             queryset = queryset.filter(evidence_tickets__ticket_id=ticket_id)
-        return queryset.order_by("-last_seen_at")
+        # Second key breaks the tie: one detector run stamps every pattern it touches with the same
+        # last_seen_at, and tied rows have no stable order across the queries that serve two pages.
+        return queryset.order_by("-last_seen_at", "-id")
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
