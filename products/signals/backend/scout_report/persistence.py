@@ -55,6 +55,7 @@ from products.signals.backend.artefact_schemas import (
     TitleChange,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
+from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerPayloadIndex
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
@@ -913,9 +914,6 @@ def set_scout_report_reviewers(
         extra={"team_id": team_id, "report_id": report_id, "reviewer_count": len(reviewer_labels)},
     )
     return True
-
-
-SCOUT_REPOSITORY_REASON = "Repository set by a scout through edit_report."
 
 
 def set_scout_report_repository(
