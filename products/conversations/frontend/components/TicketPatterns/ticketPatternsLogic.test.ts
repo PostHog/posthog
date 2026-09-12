@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -33,10 +34,15 @@ function makePattern(id: string): TicketPatternApi {
     }
 }
 
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: { info: jest.fn(), error: jest.fn() },
+}))
+
 describe('ticketPatternsLogic', () => {
     let logic: ReturnType<typeof ticketPatternsLogic.build>
 
     beforeEach(async () => {
+        jest.clearAllMocks()
         silenceKeaLoadersErrors()
         useMocks({
             get: {
@@ -100,6 +106,20 @@ describe('ticketPatternsLogic', () => {
             .toMatchValues({ inFlightIds: [] })
 
         expect(logic.values.openPatterns.map((p) => p.id)).toEqual(['a'])
+        expect(lemonToast.info).toHaveBeenCalled()
+    })
+
+    it('says the decision is missing when the conflict lookup fails', async () => {
+        useMocks({
+            get: { '/api/projects/:team_id/conversations/patterns/:id/': () => [500, { detail: 'boom' }] },
+        })
+
+        await expectLogic(logic, () => logic.actions.dismissPattern('b'))
+            .toDispatchActions(['decisionFailed'])
+            .toMatchValues({ inFlightIds: [] })
+
+        expect(lemonToast.info).not.toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalled()
     })
 
     it('keeps the row gone once the server confirms', async () => {

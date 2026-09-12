@@ -1,7 +1,8 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, shouldReportApiFailure } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -151,10 +152,17 @@ export const ticketPatternsLogic = kea<ticketPatternsLogicType>([
             if (error instanceof ApiError && error.status === 400 && error.attr === 'status') {
                 try {
                     actions.decisionSucceeded(await api.conversationsPatternsRetrieve(String(getCurrentTeamId()), id))
-                } catch {
+                    lemonToast.info('This pattern was already reviewed. The list now shows the decision.')
+                } catch (retrieveError) {
+                    // Recovering here skips the gate `initKea` applies to loader failures, so reapply it.
+                    if (shouldReportApiFailure(retrieveError)) {
+                        posthog.captureException(retrieveError)
+                    }
                     actions.decisionFailed(id)
+                    lemonToast.error(
+                        'This pattern was already reviewed, but loading the decision failed. Refresh the page to see it.'
+                    )
                 }
-                lemonToast.info('This pattern was already reviewed. The list now shows the decision.')
                 return
             }
             const previous = (cache.lastLoaded as TicketPatternApi[] | undefined)?.find((p) => p.id === id)
