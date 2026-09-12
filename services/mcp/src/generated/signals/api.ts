@@ -215,7 +215,9 @@ export const SignalsReportsClaimBody = () => zod.object({
 })
 
 /**
- * Transition a report to a new state. The model validates allowed transitions.
+ * Transition a report to a new state. The model validates allowed transitions, except that a
+ * verdict the report already holds (dismissing a suppressed report, resolving a resolved one)
+ * is a 200 that records the dismissal feedback without touching the status.
  *
  * The request body is validated by SignalReportStateRequestSerializer — only the
  * fields it declares (state, dismissal_reason, dismissal_note, corrected_repository,
@@ -541,7 +543,7 @@ export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersIt
 )
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax = 5
 
-export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = false
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const signalsScoutCreateBodyConfigOneModelMax = 200
@@ -647,7 +649,7 @@ export const SignalsScoutCreateBody = () => zod
                                             signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault
                                         )
                                         .describe(
-                                            "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                            "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post."
                                         ),
                                 }),
                                 zod.null(),
@@ -783,7 +785,7 @@ export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemR
 )
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax = 5
 
-export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigCreateBodyModelMax = 200
@@ -846,7 +848,7 @@ export const SignalsScoutConfigCreateBody = () => zod
                                 .boolean()
                                 .default(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
                                 .describe(
-                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post."
                                 ),
                         }),
                         zod.null(),
@@ -951,6 +953,8 @@ export const SignalsScoutConfigUpdateParams = () => zod.object({
         ),
 })
 
+export const signalsScoutConfigUpdateBodyDisplayNameMax = 200
+
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
 
@@ -965,7 +969,6 @@ export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemR
 )
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersMax = 5
 
-export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutConfigUpdateBodyModelMax = 200
 
 export const signalsScoutConfigUpdateBodyTagsMax = 10
@@ -976,6 +979,11 @@ export const signalsScoutConfigUpdateBodyWriteScopesMax = 7
 
 export const SignalsScoutConfigUpdateBody = () => zod
     .object({
+        display_name: zod
+            .string()
+            .max(signalsScoutConfigUpdateBodyDisplayNameMax)
+            .optional()
+            .describe('Name shown in the UI. Does not change the skill name. Leave blank to use the default name.'),
         enabled: zod
             .boolean()
             .optional()
@@ -1034,9 +1042,9 @@ export const SignalsScoutConfigUpdateBody = () => zod
                                 ),
                             thread_reports: zod
                                 .boolean()
-                                .default(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
+                                .optional()
                                 .describe(
-                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post."
                                 ),
                         }),
                         zod.null(),
@@ -1113,7 +1121,7 @@ export const SignalsScoutConfigUpdateBody = () => zod
                 "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
             ),
     })
-    .describe('Editable schedule, enablement, and emit posture for one scout config.')
+    .describe('Editable display name, schedule, enablement, and emit posture for one scout config.')
 
 /**
  * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: auto-registration only scans live `signals-scout-*` skills, so a config deleted for one of those is back on the coordinator's next tick. A scout under any other name does not come back on its own: its config stays deleted until you re-register it, and its skill still reads as a scout meanwhile. To retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config.
@@ -1129,7 +1137,7 @@ export const SignalsScoutConfigDestroyParams = () => zod.object({
 })
 
 /**
- * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if self-driving is paused at the project's pull request limit, or the project is over its daily report limit or daily run budget (429), or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Returns immediately with the workflow id — poll the scout's runs for the result.
+ * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if self-driving is paused at the project's pull request limit, or the project is over its daily report limit or daily run budget (429), or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Pass an optional `note` to steer this one run without leaving a scout note that would steer every later run too. Returns immediately with the workflow id: poll the scout's runs for the result.
  * @summary Run a scout now
  */
 export const SignalsScoutConfigRunParams = () => zod.object({
@@ -1140,6 +1148,22 @@ export const SignalsScoutConfigRunParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const signalsScoutConfigRunBodyNoteMax = 1000
+
+export const SignalsScoutConfigRunBody = () => zod
+    .object({
+        note: zod
+            .string()
+            .max(signalsScoutConfigRunBodyNoteMax)
+            .optional()
+            .describe(
+                "Optional steering for this run only, such as 'focus on the checkout regression' or 'skip the staging traffic today'. The agent reads it alongside the scout's durable notes and weighs it the same way: it directs attention, it never forces a finding. Use it instead of leaving a scout note that would also steer every later scheduled run. The note is kept on the run for history and is never read by another run. Because the agent reads it verbatim while holding privileged tools, a run that carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor access to skills, the same bar as leaving a note."
+            ),
+    })
+    .describe(
+        'Request body for an on-demand (`run now`) scout dispatch.\n\nEvery field is optional: a plain trigger sends no body at all.'
+    )
 
 /**
  * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
@@ -1439,6 +1463,22 @@ export const signalsScoutEditReportBodyChartsItemCaptionMax = 500
 
 export const signalsScoutEditReportBodyChartsMax = 20
 
+export const signalsScoutEditReportBodyMetricsItemMetricIdMax = 100
+
+export const signalsScoutEditReportBodyMetricsItemTitleMax = 200
+
+export const signalsScoutEditReportBodyMetricsItemRoleDefault = `supporting`
+export const signalsScoutEditReportBodyMetricsItemSeriesMax = 14
+
+export const signalsScoutEditReportBodyMetricsItemValueFormatDefault = `number`
+export const signalsScoutEditReportBodyMetricsItemUnitMax = 40
+
+export const signalsScoutEditReportBodyMetricsItemCaptionMax = 500
+
+export const signalsScoutEditReportBodyMetricsItemComparisonOneLabelMax = 40
+
+export const signalsScoutEditReportBodyMetricsMax = 6
+
 export const signalsScoutEditReportBodySuggestedPromptsItemMax = 200
 
 export const signalsScoutEditReportBodySuggestedPromptsMax = 3
@@ -1503,7 +1543,7 @@ export const SignalsScoutEditReportBody = () => zod
                             .string()
                             .optional()
                             .describe(
-                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here."
                             ),
                         reason: zod
                             .string()
@@ -1514,7 +1554,7 @@ export const SignalsScoutEditReportBody = () => zod
                             ),
                     })
                     .describe(
-                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nThe server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the\norg member's linked GitHub login (and wins over a supplied `github_login` when both are given). A\n`user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a\nreviewer is never silently dropped."
+                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nA reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a\nmember with no linked GitHub account routes the report like anyone else. A `user_uuid` that\nisn't an org member of this team is rejected — so a reviewer is never silently dropped."
                     )
             )
             .max(signalsScoutEditReportBodySuggestedReviewersMax)
@@ -1567,6 +1607,110 @@ export const SignalsScoutEditReportBody = () => zod
             .describe(
                 "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down."
             ),
+        metrics: zod
+            .array(
+                zod
+                    .object({
+                        metric_id: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyMetricsItemMetricIdMax)
+                            .describe(
+                                'Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.'
+                            ),
+                        title: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyMetricsItemTitleMax)
+                            .describe('Short human-readable label for the measurement.'),
+                        kind: zod
+                            .enum([
+                                'affected_users',
+                                'affected_sessions',
+                                'occurrences',
+                                'conversion_rate',
+                                'error_rate',
+                                'duration',
+                                'revenue',
+                                'custom',
+                            ])
+                            .describe(
+                                '\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
+                            )
+                            .describe(
+                                'What the value measures, independent of how it is formatted or drawn.\n\n\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
+                            ),
+                        role: zod
+                            .enum(['primary', 'supporting'])
+                            .describe('\* `primary` - primary\n\* `supporting` - supporting')
+                            .default(signalsScoutEditReportBodyMetricsItemRoleDefault)
+                            .describe(
+                                "`primary` for the report's key observation, otherwise `supporting`.\n\n\* `primary` - primary\n\* `supporting` - supporting"
+                            ),
+                        value: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.'
+                            ),
+                        value_at: zod.iso
+                            .datetime({ offset: true })
+                            .nullish()
+                            .describe('When the visible snapshot value was measured; null when value is null.'),
+                        series: zod
+                            .array(zod.number())
+                            .max(signalsScoutEditReportBodyMetricsItemSeriesMax)
+                            .nullish()
+                            .describe(
+                                'Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.'
+                            ),
+                        value_format: zod
+                            .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
+                            .describe(
+                                '\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
+                            )
+                            .default(signalsScoutEditReportBodyMetricsItemValueFormatDefault)
+                            .describe(
+                                'How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms\/s unit; revenue uses currency with an ISO currency unit.\n\n\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
+                            ),
+                        unit: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyMetricsItemUnitMax)
+                            .nullish()
+                            .describe('Optional short suffix or currency code, such as `users`, `ms`, or `USD`.'),
+                        query: zod
+                            .unknown()
+                            .describe(
+                                'Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition.'
+                            ),
+                        caption: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyMetricsItemCaptionMax)
+                            .nullish()
+                            .describe(
+                                'Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.'
+                            ),
+                        comparison: zod
+                            .union([
+                                zod.object({
+                                    value: zod
+                                        .number()
+                                        .describe('Baseline or previous value, formatted like the current value.'),
+                                    label: zod
+                                        .string()
+                                        .max(signalsScoutEditReportBodyMetricsItemComparisonOneLabelMax)
+                                        .describe('Short context for the comparison, such as `Previous period`.'),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Legacy optional comparison. New report metrics must omit it.'),
+                    })
+                    .describe('Authoring shape: unlike a read response, the live query cannot be absent or redacted.')
+            )
+            .max(signalsScoutEditReportBodyMetricsMax)
+            .nullish()
+            .describe(
+                "The report's full impact-metric set. Omit or send null to preserve it; send an empty list to clear it. Every metric requires a bounded live InsightVizNode\/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes; a snapshot is only an optional cached fallback. Snapshot-only\/queryless payloads are invalid, and legacy rows of that shape are always redacted."
+            ),
         suggested_prompts: zod
             .array(zod.string().max(signalsScoutEditReportBodySuggestedPromptsItemMax))
             .max(signalsScoutEditReportBodySuggestedPromptsMax)
@@ -1606,7 +1750,7 @@ export const SignalsScoutRunsEmissionReportsParams = () => zod.object({
 })
 
 /**
- * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `reports` to find a prior report and `edit-report` to update it instead.
+ * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content. Use `reports` to find a report from an earlier run and `edit-report` to update it instead of authoring a near-duplicate.
  * @summary Author a full report for a run
  */
 export const SignalsScoutEmitReportParams = () => zod.object({
@@ -1637,9 +1781,27 @@ export const signalsScoutEmitReportBodyChartsItemCaptionMax = 500
 
 export const signalsScoutEmitReportBodyChartsMax = 20
 
+export const signalsScoutEmitReportBodyMetricsItemMetricIdMax = 100
+
+export const signalsScoutEmitReportBodyMetricsItemTitleMax = 200
+
+export const signalsScoutEmitReportBodyMetricsItemRoleDefault = `supporting`
+export const signalsScoutEmitReportBodyMetricsItemSeriesMax = 14
+
+export const signalsScoutEmitReportBodyMetricsItemValueFormatDefault = `number`
+export const signalsScoutEmitReportBodyMetricsItemUnitMax = 40
+
+export const signalsScoutEmitReportBodyMetricsItemCaptionMax = 500
+
+export const signalsScoutEmitReportBodyMetricsItemComparisonOneLabelMax = 40
+
+export const signalsScoutEmitReportBodyMetricsMax = 6
+
 export const signalsScoutEmitReportBodySuggestedPromptsItemMax = 200
 
 export const signalsScoutEmitReportBodySuggestedPromptsMax = 3
+
+export const signalsScoutEmitReportBodyIdempotencyKeyMax = 200
 
 export const SignalsScoutEmitReportBody = () => zod
     .object({
@@ -1727,7 +1889,7 @@ export const SignalsScoutEmitReportBody = () => zod
                             .string()
                             .optional()
                             .describe(
-                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here."
                             ),
                         reason: zod
                             .string()
@@ -1738,7 +1900,7 @@ export const SignalsScoutEmitReportBody = () => zod
                             ),
                     })
                     .describe(
-                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nThe server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the\norg member's linked GitHub login (and wins over a supplied `github_login` when both are given). A\n`user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a\nreviewer is never silently dropped."
+                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nA reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a\nmember with no linked GitHub account routes the report like anyone else. A `user_uuid` that\nisn't an org member of this team is rejected — so a reviewer is never silently dropped."
                     )
             )
             .max(signalsScoutEmitReportBodySuggestedReviewersMax)
@@ -1791,12 +1953,123 @@ export const SignalsScoutEmitReportBody = () => zod
             .describe(
                 'Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.'
             ),
+        metrics: zod
+            .array(
+                zod
+                    .object({
+                        metric_id: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyMetricsItemMetricIdMax)
+                            .describe(
+                                'Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.'
+                            ),
+                        title: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyMetricsItemTitleMax)
+                            .describe('Short human-readable label for the measurement.'),
+                        kind: zod
+                            .enum([
+                                'affected_users',
+                                'affected_sessions',
+                                'occurrences',
+                                'conversion_rate',
+                                'error_rate',
+                                'duration',
+                                'revenue',
+                                'custom',
+                            ])
+                            .describe(
+                                '\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
+                            )
+                            .describe(
+                                'What the value measures, independent of how it is formatted or drawn.\n\n\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
+                            ),
+                        role: zod
+                            .enum(['primary', 'supporting'])
+                            .describe('\* `primary` - primary\n\* `supporting` - supporting')
+                            .default(signalsScoutEmitReportBodyMetricsItemRoleDefault)
+                            .describe(
+                                "`primary` for the report's key observation, otherwise `supporting`.\n\n\* `primary` - primary\n\* `supporting` - supporting"
+                            ),
+                        value: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.'
+                            ),
+                        value_at: zod.iso
+                            .datetime({ offset: true })
+                            .nullish()
+                            .describe('When the visible snapshot value was measured; null when value is null.'),
+                        series: zod
+                            .array(zod.number())
+                            .max(signalsScoutEmitReportBodyMetricsItemSeriesMax)
+                            .nullish()
+                            .describe(
+                                'Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.'
+                            ),
+                        value_format: zod
+                            .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
+                            .describe(
+                                '\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
+                            )
+                            .default(signalsScoutEmitReportBodyMetricsItemValueFormatDefault)
+                            .describe(
+                                'How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms\/s unit; revenue uses currency with an ISO currency unit.\n\n\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
+                            ),
+                        unit: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyMetricsItemUnitMax)
+                            .nullish()
+                            .describe('Optional short suffix or currency code, such as `users`, `ms`, or `USD`.'),
+                        query: zod
+                            .unknown()
+                            .describe(
+                                'Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition.'
+                            ),
+                        caption: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyMetricsItemCaptionMax)
+                            .nullish()
+                            .describe(
+                                'Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.'
+                            ),
+                        comparison: zod
+                            .union([
+                                zod.object({
+                                    value: zod
+                                        .number()
+                                        .describe('Baseline or previous value, formatted like the current value.'),
+                                    label: zod
+                                        .string()
+                                        .max(signalsScoutEmitReportBodyMetricsItemComparisonOneLabelMax)
+                                        .describe('Short context for the comparison, such as `Previous period`.'),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Legacy optional comparison. New report metrics must omit it.'),
+                    })
+                    .describe('Authoring shape: unlike a read response, the live query cannot be absent or redacted.')
+            )
+            .max(signalsScoutEmitReportBodyMetricsMax)
+            .optional()
+            .describe(
+                'Optional typed impact measurements. Use one primary metric for the key observation and supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every metric requires a bounded live InsightVizNode\/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes. A value\/value_at snapshot is an optional cached fallback. Affected users must use one series with `math: dau`. Snapshot-only\/queryless payloads are invalid; legacy rows of that shape are always redacted.'
+            ),
         suggested_prompts: zod
             .array(zod.string().max(signalsScoutEmitReportBodySuggestedPromptsItemMax))
             .max(signalsScoutEmitReportBodySuggestedPromptsMax)
             .optional()
             .describe(
                 "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them."
+            ),
+        idempotency_key: zod
+            .string()
+            .max(signalsScoutEmitReportBodyIdempotencyKeyMax)
+            .nullish()
+            .describe(
+                "Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report."
             ),
     })
     .describe('Request body for `emit-report`. Run attribution is taken from the URL path.')

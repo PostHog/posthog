@@ -5,8 +5,8 @@
     },
     "dependencies": {
         "@posthog/quill-primitives": "workspace:*",
+        "@posthog/react": "catalog:",
         "@tanstack/react-virtual": "*",
-        "@toon-format/toon": "^2.1.0",
         "eventsource-parser": "*",
         "kea-subscriptions": "catalog:",
         "marked": "*",
@@ -27,6 +27,7 @@
         "@types/react-dom": "*",
         "clsx": "*",
         "kea": "catalog:",
+        "kea-disposables": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",

@@ -4,7 +4,6 @@
         "incremental": false
     },
     "files": [
-        "frontend/src/kea-disposables.test.ts",
         "frontend/src/lib/lemon-ui/LemonField/LemonField.stories.tsx",
         "frontend/src/lib/lemon-ui/LemonField/LemonField.test.tsx",
         "frontend/src/lib/logic/bindModalToUrl.test.ts",

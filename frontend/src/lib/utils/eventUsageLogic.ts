@@ -47,7 +47,6 @@ import {
     isTrendsQuery,
     queryUsesDataWarehouse,
 } from '~/queries/utils'
-import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
     ChartDisplayType,
     CohortType,
@@ -69,7 +68,6 @@ import {
     InsightShortId,
     MultipleSurveyQuestion,
     OnboardingStepKey,
-    PersonType,
     ProductTour,
     PropertyFilterType,
     QueryBasedInsightModel,
@@ -87,7 +85,6 @@ export enum DashboardEventSource {
     DashboardHeaderSaveDashboard = 'dashboard_header_save_dashboard',
     DashboardHeaderDiscardChanges = 'dashboard_header_discard_changes',
     DashboardHeaderExitFullscreen = 'dashboard_header_exit_fullscreen',
-    DashboardHeaderOverridesBanner = 'dashboard_header_overrides_banner',
     Hotkey = 'hotkey',
     InputEnter = 'input_enter',
     Toast = 'toast',
@@ -1930,9 +1927,6 @@ export interface eventUsageLogicActions {
     reportOnboardingUseCaseSkipped: () => {
         value: true
     }
-    reportPersonDetailViewed: (person: PersonType) => {
-        person: PersonType
-    }
     reportPersonOpenedFromNewlySeenPersonsList: () => {
         value: true
     }
@@ -2350,7 +2344,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
     })),
     actions({
         // persons related
-        reportPersonDetailViewed: (person: PersonType) => ({ person }),
         reportPersonsModalViewed: (params: any) => ({
             params,
         }),
@@ -3341,35 +3334,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportInsightRefreshTime: async ({ loadingMilliseconds, insightShortId }) => {
             posthog.capture('insight refresh time', { loadingMilliseconds, insightShortId })
-        },
-        reportPersonDetailViewed: async (
-            {
-                person,
-            }: {
-                person: PersonType
-            },
-            breakpoint
-        ) => {
-            await breakpoint(500)
-
-            let custom_properties_count = 0
-            let posthog_properties_count = 0
-            for (const prop of Object.keys(person.properties ?? {})) {
-                if (PROPERTY_KEYS.includes(prop)) {
-                    posthog_properties_count += 1
-                } else {
-                    custom_properties_count += 1
-                }
-            }
-
-            const properties = {
-                properties_count: Object.keys(person.properties ?? {}).length,
-                has_email: !!person.properties?.email,
-                has_name: !!person.properties?.name,
-                custom_properties_count,
-                posthog_properties_count,
-            }
-            posthog.capture('person viewed', properties)
         },
         reportTimeToSeeData: async ({ payload }) => {
             posthog.capture('time to see data', payload)

@@ -3,7 +3,13 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-from ..facade.enums import CheckRunStatus, CheckSeverity, SubjectType, SuiteRunStatus, SuiteRunTrigger
+from ..facade.enums import (
+    CheckRunStatus,
+    CheckSeverity,
+    SuiteRunStatus,
+    subject_type_choices,
+    suite_run_trigger_choices,
+)
 
 
 class DataQualitySuiteRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -14,15 +20,15 @@ class DataQualitySuiteRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
     columns are a convenience for the common single-subject case, not the run's identity.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     trigger = models.CharField(
         max_length=32,
-        choices=[(t.value, t.value) for t in SuiteRunTrigger],
-        help_text="What started this run: manual, materialization, or source_sync.",
+        choices=suite_run_trigger_choices,
+        help_text="What started this run: manual, materialization, source_sync, or scheduled.",
     )
     status = models.CharField(
         max_length=16,
@@ -33,7 +39,7 @@ class DataQualitySuiteRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
 
     subject_type = models.CharField(
         max_length=32,
-        choices=[(t.value, t.value) for t in SubjectType],
+        choices=subject_type_choices,
         blank=True,
         help_text="Set when the run targets exactly one subject.",
     )
@@ -76,7 +82,7 @@ class DataQualityCheckRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
     series is what future anomaly-detection check types train on.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
@@ -97,7 +103,7 @@ class DataQualityCheckRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
     )
 
     # Denormalized from the check so history stays readable after the definition changes or goes away.
-    subject_type = models.CharField(max_length=32, choices=[(t.value, t.value) for t in SubjectType])
+    subject_type = models.CharField(max_length=32, choices=subject_type_choices)
     subject_uuid = models.UUIDField()
     subject_name = models.CharField(max_length=400)
     # No choices, for the same reason as on the check itself: the registry owns the set of types.

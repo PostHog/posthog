@@ -2,10 +2,9 @@ name: Container Images CI
 
 on:
     pull_request:
-        # Mirror ci-hobby.yml's trigger types so the `hobby-preview` label can
-        # retroactively kick off a build. ci-hobby.yml omits `reopened`, so we
-        # do too — otherwise reopens would build an image with no consumer.
-        types: [opened, synchronize, labeled, unlabeled]
+        # Label-triggered builds live in container-images-label-ci.yml so a skipped
+        # label event cannot replace this workflow's required check.
+        types: [opened, synchronize]
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -88,6 +87,7 @@ jobs:
                       # edit leaves the lockfile untouched.
                       build_inputs:
                         - .github/workflows/container-images-ci.yml
+                        - .github/workflows/container-images-label-ci.yml
                         - .github/actions/build-n-cache-image/**
                         - .dockerignore
                         - pnpm-lock.yaml
