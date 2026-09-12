@@ -2,6 +2,7 @@ import { renderableReportChartIds } from "@posthog/core/inbox/reportCharts";
 import { splitReportSummary } from "@posthog/core/inbox/reportPresentation";
 import type { SignalReport } from "@posthog/shared/types";
 import { ReportChartsSection } from "@posthog/ui/features/inbox/components/detail/ReportChartCard";
+import { ReportMetricsSection } from "@posthog/ui/features/inbox/components/detail/ReportMetricsSection";
 import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/components/utils/SignalReportSummaryMarkdown";
 
 export function ReportSummaryDocument({
@@ -15,6 +16,7 @@ export function ReportSummaryDocument({
   if (split.sections.length === 0) {
     return (
       <div className="flex flex-col gap-5">
+        <ReportMetricsSection reportId={report.id} metrics={report.metrics} />
         <SignalReportSummaryMarkdown
           content={report.summary}
           fallback="No summary yet. The agent is still investigating."
@@ -31,6 +33,7 @@ export function ReportSummaryDocument({
 
   return (
     <div className="flex flex-col gap-6">
+      <ReportMetricsSection reportId={report.id} metrics={report.metrics} />
       {split.lede && (
         <div className="text-[16px] text-gray-12">
           <SignalReportSummaryMarkdown
