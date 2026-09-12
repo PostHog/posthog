@@ -238,6 +238,11 @@ The Notes tab is server-paginated, searchable, and sortable (all via `accountNot
 
 `accountsLogic` mirrors the full view (search, tags, assignment status, assigned-to, native-field and custom-property filters, sort, columns, tile filter) into the URL hash `#view=...` via `actionToUrl`/`urlToAction`, so a copied URL reproduces the exact list. Column widths stay in browser-local preferences instead of the URL because they are display preferences. Only non-default values are serialized. The "assigned to" filter persists as concrete `assignedTo` ids (not a `mine` flag), so a link shared with a colleague resolves to the **same** accounts for them as for the sharer; the legacy `mine: true` hash is still read and resolved to the current user's id for backward compatibility. A shared link's `columns` win over the per-user saved column config (`accountsColumnConfigLogic` enforces this when its async saved-config load resolves by checking the live URL).
 
+A list URL without a `#view=` hash must not erase the shared "mine only" toggle.
+The list is reachable on a hash-less URL from the tab link, the account-detail breadcrumb, and any history entry written before the user picked a filter, so `restoreView` treats `mineOnly` as the fallback assignment intent and resolves the status to `assigned` for it.
+Resolve the whole assignment intent (`assignedTo`, legacy `mine`, the `mineOnly` fallback) **before** dispatching `setAssignmentStatus`: that setter cross-clears the assigned-to filter, which cascades into `setMineOnly(false)` and would destroy the preference the fallback is about to read.
+For the same reason, anything that rewrites the Customer analytics URL (the scene's date and test-account writers in `customerAnalyticsSceneLogic`) must carry the current hash through.
+
 ### Deep-link to one account (path route)
 
 `/customer_analytics/accounts/:accountId/:tab` opens the account detail scene when `CUSTOMER_ANALYTICS_ACCOUNT_SCENE` is enabled.
