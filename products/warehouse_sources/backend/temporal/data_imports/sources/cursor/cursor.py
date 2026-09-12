@@ -15,6 +15,7 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.settings import (
     CURSOR_ENDPOINTS,
@@ -122,12 +123,37 @@ def _fetch(
     return response.json()
 
 
-def validate_credentials(api_key: str) -> bool:
-    try:
-        response = _make_session(api_key).get(f"{CURSOR_BASE_URL}/teams/members", timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+# Shared with `CursorSource.get_non_retryable_errors` so the same rejection reads the same way
+# whether it surfaces while connecting the source or mid-sync.
+KEY_REJECTED_MESSAGE = (
+    "Your Cursor Admin API key is invalid or has been revoked. Create a new key in your Cursor "
+    "dashboard settings, then reconnect."
+)
+KEY_FORBIDDEN_MESSAGE = (
+    "Your Cursor Admin API key does not have access to this data. Admin API keys must be created "
+    "by a team admin, and some endpoints require an Enterprise plan."
+)
+# `validate_via_probe` reports a transport failure as a `None` status, so anything Cursor did not
+# answer itself leaves the key unjudged. Calling it invalid sends someone off to mint a replacement
+# that fails the same way.
+PROBE_FAILED_MESSAGE = "PostHog couldn't check your Admin API key with Cursor. Wait a few minutes and try again."
+
+
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+    # Redirects stay off for the same reason `_make_session` pins them off: `requests` keeps custom
+    # headers on a cross-host redirect.
+    ok, status = validate_via_probe(
+        lambda: _make_session(api_key),
+        f"{CURSOR_BASE_URL}/teams/members",
+        allow_redirects=False,
+    )
+    if ok:
+        return True, None
+    if status == 401:
+        return False, KEY_REJECTED_MESSAGE
+    if status == 403:
+        return False, KEY_FORBIDDEN_MESSAGE
+    return False, PROBE_FAILED_MESSAGE
 
 
 def _usage_event_id(item: dict[str, Any]) -> str:
