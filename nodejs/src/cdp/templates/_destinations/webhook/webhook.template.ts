@@ -29,7 +29,8 @@ if (inputs.debug) {
 
 let res := fetch(inputs.url, payload);
 
-if (res.status >= 400) {
+// A 3xx redirect is not followed, so the request never reached its target. Treat it as a failure.
+if (res.status >= 300) {
   throw Error(f'Webhook failed with status {res.status}: {res.body}');
 }
 
@@ -92,7 +93,7 @@ if (inputs.debug) {
             label: 'Headers',
             secret: false,
             required: false,
-            default: { 'Content-Type': 'application/json' },
+            default: { 'Content-Type': 'application/json', Accept: 'application/json' },
             description: 'HTTP headers to send in the request.',
         },
         {

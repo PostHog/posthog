@@ -33,6 +33,7 @@ describe('webhook template', () => {
             {
               "body": "{"event":{"uuid":"event-id","event":"event-name","distinct_id":"distinct-id","properties":{"$lib_version":"1.0.0"},"timestamp":"2024-01-01T00:00:00Z","elements_chain":"","url":"https://us.posthog.com/projects/1/events/1234"},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}}",
               "headers": {
+                "Accept": "application/json",
                 "Content-Type": "application/json",
               },
               "method": "POST",
@@ -77,7 +78,7 @@ describe('webhook template', () => {
         expect(response.error).toBeUndefined()
         expect(response.logs.filter((l) => l.level === 'info').map((l) => l.message)).toMatchInlineSnapshot(`
             [
-              "Request, https://example.com?v=, {"headers":{"Content-Type":"application/json"},"body":{"event":{"uuid":"event-id","event":"event-name","distinct_id":"distinct-id","properties":{"$current_url":"https://example.com"},"timestamp":"2024-01-01T00:00:00Z","elements_chain":"","url":"https://us.posthog.com/projects/1/events/1234"},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}},"method":"POST"}",
+              "Request, https://example.com?v=, {"headers":{"Content-Type":"application/json","Accept":"application/json"},"body":{"event":{"uuid":"event-id","event":"event-name","distinct_id":"distinct-id","properties":{"$current_url":"https://example.com"},"timestamp":"2024-01-01T00:00:00Z","elements_chain":"","url":"https://us.posthog.com/projects/1/events/1234"},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}},"method":"POST"}",
             ]
         `)
 
@@ -94,22 +95,22 @@ describe('webhook template', () => {
         `)
     })
 
-    it('should throw an error if the webhook fails', async () => {
+    // A 3xx redirect is not followed, so it must fail like a 4xx/5xx instead of passing silently.
+    it.each([
+        [302, 'Found'],
+        [400, 'Bad Request'],
+        [500, 'Internal Server Error'],
+    ])('should throw an error for a %s response', async (status, message) => {
         let response = await tester.invoke({
-            url: 'https://example.com?v={event.properties.$lib_version}',
-            debug: true,
+            url: 'https://example.com',
+            debug: false,
         })
 
         response = await tester.invokeFetchResponse(response.invocation, {
-            status: 400,
-            body: { message: 'Bad Request' },
+            status,
+            body: { message },
         })
 
-        expect(response.error).toMatchInlineSnapshot(`"Webhook failed with status 400: {'message': 'Bad Request'}"`)
-        expect(response.logs.filter((l) => l.level === 'error').map((l) => l.message)).toMatchInlineSnapshot(`
-            [
-              "Error executing function on event event-id: Error('Webhook failed with status 400: {\\'message\\': \\'Bad Request\\'}')",
-            ]
-        `)
+        expect(response.error).toEqual(`Webhook failed with status ${status}: {'message': '${message}'}`)
     })
 })
