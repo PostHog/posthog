@@ -53,7 +53,10 @@ class EvalContext:
     when no selected suite requires demo data."""
 
     posthog_client: Posthog | None
-    """Analytics client for eval trace + evaluation event capture."""
+    """Analytics client for eval traces, with the default capture guards."""
+
+    posthog_evaluation_client: Posthog | None
+    """Shared result client for suites that enable experiment uploads."""
 
     sandbox_slots: asyncio.Semaphore | None
     """The one global limiter on concurrently live sandboxes, shared by every
