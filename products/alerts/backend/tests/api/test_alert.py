@@ -1125,6 +1125,35 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "anomaly detection isn't supported for non time series trends" in response.json()["detail"].lower()
 
+    def test_create_and_patch_coerce_a_numeric_string_detector_parameter(self) -> None:
+        # Pydantic coerces "30" to 30, so the range checks have to read the coerced config.
+        # Reading the request body instead compares a string with a numeric bound and 500s.
+        line_graph_data = deepcopy(self.default_insight_data)
+        line_graph_data["query"]["trendsFilter"]["display"] = "ActionsLineGraph"
+        line_graph_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=line_graph_data).json()
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": line_graph_insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "name": "alert name",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "detector_config": {"type": "zscore", "window": "30"},
+            },
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        assert created.json()["detector_config"]["window"] == 30
+
+        patched = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{created.json()['id']}",
+            {"detector_config": {"type": "zscore", "threshold": "0.5"}},
+        )
+        assert patched.status_code == status.HTTP_200_OK, patched.content
+        assert patched.json()["detector_config"]["threshold"] == 0.5
+
     @parameterized.expand(
         [
             (
@@ -1872,6 +1901,33 @@ class TestAlertSimulate(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["total_points"] > 0
+
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
+    def test_simulate_coerces_a_numeric_string_detector_parameter(self, mock_simulate) -> None:
+        # Pydantic accepts "30" and hands the detector 30, so the range checks have to read the
+        # coerced config. Reading the request body compares a string with a bound and 500s.
+        mock_simulate.return_value = {
+            "data": [],
+            "dates": [],
+            "scores": [],
+            "triggered_indices": [],
+            "triggered_dates": [],
+            "interval": "day",
+            "total_points": 0,
+            "anomaly_count": 0,
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": self.insight["id"],
+                "detector_config": {"type": "zscore", "window": "30"},
+                "series_index": 0,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert mock_simulate.call_args.kwargs["detector_config"]["window"] == 30
 
     @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_simulate_does_not_create_alert_check_records(self, mock_calculate) -> None:

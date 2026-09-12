@@ -749,6 +749,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
         # Ensemble requires at least 2 sub-detectors
         root = validated.root if hasattr(validated, "root") else validated
+        # Range-check the dump rather than the request body: pydantic coerces a numeric string
+        # such as "30", and comparing that raw string against a numeric bound raises.
+        normalized = validated.model_dump() if hasattr(validated, "model_dump") else value
         if getattr(root, "type", None) == "ensemble" and hasattr(root, "detectors"):
             if len(root.detectors) < 2:
                 raise ValidationError("Ensemble detector requires at least 2 sub-detectors.")
@@ -756,9 +759,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 sub_dict: dict = sub.model_dump() if hasattr(sub, "model_dump") else sub  # type: ignore[assignment]
                 self._validate_detector_params(sub_dict)
         else:
-            self._validate_detector_params(value)
+            self._validate_detector_params(normalized)
 
-        return validated.model_dump() if hasattr(validated, "model_dump") else value
+        return normalized
 
     @staticmethod
     def _validate_detector_params(config: dict) -> None:
@@ -1010,6 +1013,7 @@ class AlertSimulateSerializer(serializers.Serializer):
             raise ValidationError(_describe_detector_config_error(e))
 
         root = validated.root if hasattr(validated, "root") else validated
+        normalized = validated.model_dump() if hasattr(validated, "model_dump") else value
         if getattr(root, "type", None) == "ensemble" and hasattr(root, "detectors"):
             if len(root.detectors) < 2:
                 raise ValidationError("Ensemble detector requires at least 2 sub-detectors.")
@@ -1017,9 +1021,9 @@ class AlertSimulateSerializer(serializers.Serializer):
                 sub_dict: dict = sub.model_dump() if hasattr(sub, "model_dump") else sub  # type: ignore[assignment]
                 AlertSerializer._validate_detector_params(sub_dict)
         else:
-            AlertSerializer._validate_detector_params(value)
+            AlertSerializer._validate_detector_params(normalized)
 
-        return validated.model_dump() if hasattr(validated, "model_dump") else value
+        return normalized
 
 
 class BreakdownSimulationResultSerializer(serializers.Serializer):
