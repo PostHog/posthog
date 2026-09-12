@@ -175,6 +175,14 @@ python manage.py backfill_task_run_artefacts
 
 Idempotent — skips any report that already has a `task_run` artefact referencing the same task, so it is safe to re-run. Each artefact carries a `(product, type)` pair: these are signals-pipeline runs, so `product` is `signals` and `type` is the legacy relationship label (`research` / `implementation` / `repo_selection`). Backfilled artefacts are attributed to their task and backdated to their `SignalReportTask.created_at` so the log stays chronologically correct (the artefact row is created now, but the run happened earlier). Live creation paths append the same artefacts at run time going forward — custom agents instead use their own `identifier()` `(product, type)` pair.
 
+## Backfilling report work and pull requests
+
+`uv run manage.py backfill_report_pull_requests --team-id <id>` imports assignment
+ownership and legacy PR links into work artefacts and shared `SignalReportPullRequest`
+records. `--batch-size` bounds each page; the printed `--after` cursor resumes it.
+The command is idempotent and does not call GitHub, change report state, or enqueue
+reviewers. See `docs/internal/signals-pr-lifecycle.md` for rollout and cleanup.
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`
