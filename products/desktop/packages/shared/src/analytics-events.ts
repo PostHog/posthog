@@ -333,10 +333,7 @@ export interface ProjectMenuActionProperties {
   action: ProjectMenuAction;
   /** The rail draws the trigger as an icon, the code sidebar as a footer row. */
   appearance: "row" | "icon";
-  /**
-   * For switch_project / switch_organization: whether the pick was the one
-   * already current, which closes the menu without moving anywhere.
-   */
+  /** For switch_project / switch_organization: whether the pick moved anywhere. */
   changed?: boolean;
 }
 
@@ -1205,20 +1202,14 @@ export interface ChannelActionProperties {
   target_channel_id?: string;
   /**
    * For nav_click: which destination ("home"|"activity"|"inbox"|"canvas"|"agents"|"files"|"settings").
-   * A space's own sidebar rows send their page key, which is what the
-   * breadcrumb and the route use: "new_session"|"home"|"context"|"loops".
-   * `home` is the space's feed, and the row reads "Feed".
+   * A space's sidebar rows send their page key, where "home" is the row labelled "Feed".
    */
   nav_target?: string;
   /** For mention_member: the tagged teammate's user uuid. */
   mentioned_user_id?: string;
   /** For new_task_suggestion: the starter-prompt card label. */
   suggestion_label?: string;
-  /**
-   * The tab landed on: for activity_tab_change its own name, for
-   * space_tab_change the kind the tab lists ("task" reads "Sessions",
-   * "canvas" reads "Canvases").
-   */
+  /** The tab landed on; space_tab_change sends the kind it lists ("task" reads "Sessions"). */
   tab?: string;
   /** For activity_unreads_toggle: the state being entered. */
   enabled?: boolean;
