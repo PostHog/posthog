@@ -93,6 +93,7 @@ import type { CommentSlackThreadRefApi } from 'products/platform_features/fronte
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { IncrementalSyncBlockedReasonEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -6656,6 +6657,9 @@ export interface ExternalDataSourceSyncSchema {
     row_filters?: RowFilter[] | null
 }
 
+/** Why the last sync run could not merge rows on a table's primary key. */
+export type IncrementalSyncBlockedReason = IncrementalSyncBlockedReasonEnumApi
+
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
     incremental: boolean
@@ -6673,6 +6677,11 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     should_sync_default?: boolean
     primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
+    /**
+     * Set when a sync run proved this table's incremental sync can never succeed, `null` otherwise.
+     * Cleared when the sync type or primary key changes, or when a sync succeeds.
+     */
+    incremental_sync_blocked?: IncrementalSyncBlockedReason | null
     /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.

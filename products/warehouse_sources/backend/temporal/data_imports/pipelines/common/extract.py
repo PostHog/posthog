@@ -18,6 +18,7 @@ from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    DUPLICATE_PRIMARY_KEYS_ERROR,
     BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
     MissingPrimaryKeysException,
@@ -369,7 +370,7 @@ def validate_incremental_sync(
 ) -> None:
     if is_incremental and resource.has_duplicate_primary_keys:
         raise DuplicatePrimaryKeysException(
-            f"The primary keys for this table are not unique. We can't sync incrementally until the table "
+            f"{DUPLICATE_PRIMARY_KEYS_ERROR}. We can't sync incrementally until the table "
             f"has a unique primary key. Primary keys being used are: {resource.primary_keys}"
         )
 

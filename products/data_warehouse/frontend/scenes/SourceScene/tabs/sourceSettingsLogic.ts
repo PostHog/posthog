@@ -96,6 +96,7 @@ const NON_WRITABLE_SCHEMA_FIELDS = new Set<keyof ExternalDataSourceSchema>([
     'description',
     'available_columns',
     'incremental',
+    'incremental_sync_blocked',
     'should_sync_default',
 ])
 

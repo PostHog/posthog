@@ -44,6 +44,8 @@ from products.warehouse_sources.backend.billing import billed_usage_for_job
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
+    DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
+    MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
     ExternalDataSchema,
     update_should_sync,
 )
@@ -57,6 +59,10 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_fast_returned_run_metric,
     get_v3_lock_skipped_metric,
     get_version_check_skipped_metric,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    DUPLICATE_PRIMARY_KEYS_ERROR,
+    MISSING_PRIMARY_KEYS_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
     PostImportWorkflow,
@@ -150,15 +156,8 @@ Any_Source_Errors: dict[str, str | None] = {
         "(private key, passphrase, or username and password) on the source's SSH tunnel "
         "configuration, then re-enable the sync."
     ),
-    "Primary key required for incremental syncs": (
-        "This table needs a primary key to sync incrementally, but none is set. Choose a primary key "
-        "for the table in its sync settings, or switch it to full table replication, then re-enable the sync."
-    ),
-    "The primary keys for this table are not unique": (
-        "The primary key set for this table isn't unique, so incremental syncing can't reliably match "
-        "rows to update. Choose a unique primary key in the table's sync settings, or switch it to full "
-        "table replication, then re-enable the sync."
-    ),
+    MISSING_PRIMARY_KEYS_ERROR: MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
+    DUPLICATE_PRIMARY_KEYS_ERROR: DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
     "Integration matching query does not exist": MISSING_INTEGRATION_MESSAGE,
     # `OAuthMixin.get_oauth_integration` catches `Integration.DoesNotExist` and re-raises these
     # two, so the ORM wording above never reaches here for the sources that go through it. Left

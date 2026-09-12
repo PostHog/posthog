@@ -64,7 +64,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     source_type_supports_cdc,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataSourceType,
+    IncrementalFieldType,
+    IncrementalSyncBlockedReason,
+)
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
     SchemaDestinationsSerializer,
@@ -374,6 +378,24 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         allow_null=True,
         help_text="For CDC syncs: consolidated, cdc_only, or both.",
     )
+    incremental_sync_blocked = serializers.ChoiceField(
+        choices=IncrementalSyncBlockedReason.choices,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why the last sync run could not merge rows for this table, or `null` if it merged. The "
+            "table is disabled either way, and the resolution differs by reason. "
+            "`missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique "
+            "key, which is accepted because none was set before. `duplicate_primary_key`: the key "
+            "in use does not identify one row, and that key cannot be swapped once data has synced, "
+            "so either remove the duplicates at the source and set `should_sync` to true, or delete "
+            "the synced data before setting a different key. Either reason also accepts a different "
+            "`sync_type`: `append` is only safe for insert-only tables, because updated rows arrive "
+            "again as duplicates, and `full_refresh` re-reads the whole table on every sync and "
+            "bills every row. This reports the last run's failure, so it clears once a run succeeds "
+            "or fails for another reason, not when an update lands."
+        ),
+    )
     enabled_columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -453,6 +475,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "description",
             "primary_key_columns",
             "cdc_table_mode",
+            "incremental_sync_blocked",
             "enabled_columns",
             "row_filters",
             "available_columns",
@@ -471,6 +494,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "last_synced_at",
             "latest_error",
             "status",
+            "incremental_sync_blocked",
             "description",
             "available_columns",
             "source_column_metadata_available",

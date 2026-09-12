@@ -190,6 +190,18 @@ export const CdcTableModeEnumApi = {
     Both: 'both',
 } as const
 
+/**
+ * * `missing_primary_key` - Missing primary key
+ * * `duplicate_primary_key` - Duplicate primary key
+ */
+export type IncrementalSyncBlockedReasonEnumApi =
+    (typeof IncrementalSyncBlockedReasonEnumApi)[keyof typeof IncrementalSyncBlockedReasonEnumApi]
+
+export const IncrementalSyncBlockedReasonEnumApi = {
+    MissingPrimaryKey: 'missing_primary_key',
+    DuplicatePrimaryKey: 'duplicate_primary_key',
+} as const
+
 export interface ExternalDataSourceApiVersionDeprecationApi {
     /** The deprecated vendor API version this source is pinned to. */
     version: string
@@ -322,6 +334,11 @@ export interface ExternalDataSchemaApi {
      * * `cdc_only` - cdc_only
      * * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /** Why the last sync run could not merge rows for this table, or `null` if it merged. The table is disabled either way, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
+     *
+     * * `missing_primary_key` - Missing primary key
+     * * `duplicate_primary_key` - Duplicate primary key */
+    readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnumApi | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
@@ -485,6 +502,11 @@ export interface PatchedExternalDataSchemaApi {
      * * `cdc_only` - cdc_only
      * * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /** Why the last sync run could not merge rows for this table, or `null` if it merged. The table is disabled either way, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
+     *
+     * * `missing_primary_key` - Missing primary key
+     * * `duplicate_primary_key` - Duplicate primary key */
+    readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnumApi | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable

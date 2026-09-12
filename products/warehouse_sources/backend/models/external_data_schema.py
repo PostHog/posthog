@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.types import (
     ExternalDataSchemaSyncFrequency,
     ExternalDataSchemaSyncType,
     IncrementalFieldType,
+    IncrementalSyncBlockedReason,
 )
 
 if TYPE_CHECKING:
@@ -44,6 +45,43 @@ type IncrementalFieldValue = str | int | float | None
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
 SCHEMA_DELETED_JOB_ERROR = "Sync stopped because the table was deleted"
 AUTO_DISABLED_JOB_ERROR = "Sync stopped because of an error that retrying would not fix"
+
+# `Any_Source_Errors` rewrites the raised exception into this copy, so a blocked schema carries it
+# as `latest_error`. Matched below, not only displayed.
+MISSING_PRIMARY_KEY_DISABLED_MESSAGE = (
+    "This table needs a primary key to sync incrementally, but none is set. Choose a primary key "
+    "for the table in its sync settings, or switch it to full table replication, then re-enable the sync."
+)
+DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE = (
+    "The primary key set for this table isn't unique, so incremental syncing can't reliably match "
+    "rows to update. Choose a unique primary key in the table's sync settings, or switch it to full "
+    "table replication, then re-enable the sync."
+)
+
+# Runs that fail outside the workflow record the raw text instead. Copied from
+# `pipelines/core/arrow_utils.py`, which would pull pyarrow onto the Django model path; a test
+# holds the two in step.
+MISSING_PRIMARY_KEYS_RAW_ERROR = "Primary key required for incremental syncs"
+DUPLICATE_PRIMARY_KEYS_RAW_ERROR = "The primary keys for this table are not unique"
+
+_INCREMENTAL_SYNC_BLOCKED_MARKERS: tuple[tuple[str, IncrementalSyncBlockedReason], ...] = (
+    (MISSING_PRIMARY_KEY_DISABLED_MESSAGE, IncrementalSyncBlockedReason.MISSING_PRIMARY_KEY),
+    (MISSING_PRIMARY_KEYS_RAW_ERROR, IncrementalSyncBlockedReason.MISSING_PRIMARY_KEY),
+    (DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE, IncrementalSyncBlockedReason.DUPLICATE_PRIMARY_KEY),
+    (DUPLICATE_PRIMARY_KEYS_RAW_ERROR, IncrementalSyncBlockedReason.DUPLICATE_PRIMARY_KEY),
+)
+
+
+def incremental_sync_blocked_reason(latest_error: str | None) -> str | None:
+    """Classify a sync error as one of the two states a customer resolves by changing the key.
+
+    Reading the error keeps this in step with the failure by construction: a successful run clears
+    `latest_error`, and a different failure replaces it, so there is no second state to expire.
+    """
+    if not latest_error:
+        return None
+    return next((reason.value for marker, reason in _INCREMENTAL_SYNC_BLOCKED_MARKERS if marker in latest_error), None)
+
 
 # How stale a rewrite checkpoint may get before its import hold lapses. Generous on purpose: a
 # multi-budget rewrite renews the stamp on every advancing attempt, and attempts arrive at the
@@ -586,6 +624,11 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             return self.sync_type_config.get("primary_key_columns", None)
 
         return None
+
+    @property
+    def incremental_sync_blocked(self) -> str | None:
+        """Why the last run proved this schema's incremental sync can never succeed, if it did."""
+        return incremental_sync_blocked_reason(self.latest_error)
 
     @property
     def chunk_size_override(self) -> int | None:
