@@ -63,7 +63,7 @@ it('reuses source suggestions, remembers collapse and opens their review in Setu
             screen.getByText('Suggested ad sources (1)').closest('[aria-expanded]')?.getAttribute('aria-expanded')
         ).toBe('false')
         fireEvent.click(screen.getByText('Suggested ad sources (1)'))
-        fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+        fireEvent.click(screen.getByText('Connect', { exact: true }))
         await waitFor(() => expect(marketingAnalyticsLogic.values.activeTab).toBe(MarketingAnalyticsTab.SETUP))
         expect(marketingAnalyticsLogic.values.setupSection).toBe(SetupSection.SOURCES)
         expect(setupPlanLogic.values.reviewingSuggestion?.id).toBe('connect_source:GoogleAds')
