@@ -109,15 +109,17 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         assert version.saved_query is not None
         assert version.saved_query.is_materialized is True
 
-    def test_keeps_newly_materialized_endpoint(self):
+    @parameterized.expand([1, 10])
+    def test_keeps_newly_materialized_endpoint(self, age_days):
         now = timezone.now()
         # Materialization enabled today, never executed
         endpoint, version = self._create_materialized_endpoint(
             "new_materialization",
             last_run_at=now - timedelta(hours=1),
             last_executed_at=None,
-            materialization_created_at=now - timedelta(days=1),
+            materialization_created_at=now - timedelta(days=age_days),
         )
+        EndpointVersion.objects.filter(pk=version.pk).update(created_at=now - timedelta(days=45))
 
         deactivate_stale_materializations()
 
@@ -141,7 +143,7 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         version.refresh_from_db()
         assert version.saved_query is not None
 
-    def test_keeps_old_materialization_that_was_never_executed(self):
+    def test_hibernates_old_materialization_that_was_never_executed(self):
         now = timezone.now()
         # Materialization enabled 45 days ago but never executed via API key
         endpoint, version = self._create_materialized_endpoint(
@@ -150,12 +152,13 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
             last_executed_at=None,
             materialization_created_at=now - timedelta(days=45),
         )
+        EndpointVersion.objects.filter(pk=version.pk).update(created_at=now - timedelta(days=45))
 
         deactivate_stale_materializations()
 
-        # Should not be deactivated - last_executed_at is null (never used via API)
         version.refresh_from_db()
-        assert version.saved_query is not None
+        assert version.saved_query is None
+        assert version.materialization_hibernated_at is not None
 
     def test_skips_endpoints_not_materialized_recently(self):
         now = timezone.now()
@@ -204,7 +207,7 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         # No materialized endpoints exist
         with mock.patch("products.endpoints.backend.tasks.tasks.logger") as mock_logger:
             deactivate_stale_materializations()
-            mock_logger.info.assert_called_with("deactivate_stale_materializations_no_candidates")
+            mock_logger.info.assert_called_with("hibernate_stale_materializations_no_candidates")
 
     def test_handles_endpoint_exactly_at_threshold(self):
         now = timezone.now()

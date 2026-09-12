@@ -210,7 +210,7 @@ class EndpointCrudService:
                 # A deactivated endpoint serves no version, so none should keep a
                 # materialization schedule running — tear down every materialized
                 # version, not just the current one.
-                for materialized_version in endpoint.versions.filter(saved_query__isnull=False):
+                for materialized_version in endpoint.versions.all():
                     self.materialization.disable_materialization(endpoint, materialized_version)
             if data.is_active is not None and not version_targeted:
                 # Activation affects throttle classification — force a lazy re-check.
@@ -357,8 +357,7 @@ class EndpointCrudService:
         if version_targeted and not target_version.is_active:
             # Deactivating a version: tear down its own materialization, never enable.
             # Checked before the endpoint-active guard so this holds even on an inactive endpoint.
-            if target_version.saved_query_id is not None:
-                self.materialization.disable_materialization(endpoint, target_version)
+            self.materialization.disable_materialization(endpoint, target_version)
             return None
 
         if not endpoint.is_active:

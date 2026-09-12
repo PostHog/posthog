@@ -29,6 +29,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, { Icon: ComponentType<{ className?
     approval_resolved: { Icon: IconCheckCircle, color: 'text-success' },
     pipeline_failure: { Icon: IconPlug, color: 'text-danger' },
     materialization_failure: { Icon: IconDatabase, color: 'text-danger' },
+    materialization_hibernated: { Icon: IconDatabase, color: 'text-secondary' },
     issue_assigned: { Icon: IconBug, color: 'text-primary' },
     experiment_concluded: { Icon: IconFlask, color: 'text-primary' },
     project_created: { Icon: IconFolder, color: 'text-primary' },
