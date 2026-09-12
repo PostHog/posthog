@@ -55,6 +55,7 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewers,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
+from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_charts import ChartSize, ReportChart, chart_batch_error
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerIdentitySet,
@@ -449,12 +450,17 @@ def _normalize_repository(repository: str | None) -> str | None:
     """Validate + normalize the scout's `repository` input. `None` / the `NO_REPO` sentinel pass through;
     an explicit value is lowercased and format-checked as `owner/repo`. Raises `InvalidScoutReportError`
     on a malformed value. Pure and cheap — called before the safety judge so a bad explicit repo fails
-    fast (rather than after paying for the judge), and reused by the resolver so the parsing lives once."""
+    fast (rather than after paying for the judge), and reused by the resolver so the parsing lives once.
+
+    The shape gate is `repo_corrections.sanitized_repository`, shared with every other path that renders
+    a stored repository, because the safety judge does not read this field and the stored selection is
+    rendered verbatim into the autonomous implementation task's description. That gate rejects
+    whitespace and caps the length, so the value cannot carry free prose past the `owner/repo` it
+    names."""
     if repository is None or repository == NO_REPO:
         return repository
-    normalized = repository.strip().lower()
-    parts = normalized.split("/")
-    if len(parts) != 2 or not parts[0] or not parts[1]:
+    normalized = sanitized_repository(repository)
+    if normalized is None:
         raise InvalidScoutReportError("repository must be in 'owner/repo' format (or the NO_REPO sentinel)")
     return normalized
 
