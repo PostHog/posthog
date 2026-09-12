@@ -17,6 +17,7 @@ from posthog.schema import (
     ExperimentActorsQuery,
     ExperimentBreakdownResult,
     ExperimentDataWarehouseNode,
+    ExperimentExposureMetricSource,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
@@ -53,14 +54,13 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import (
-    conversion_window_to_seconds,
     experiment_window,
     experiment_window_end,
     is_session_property_metric,
 )
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
-from products.experiments.backend.hogql_queries.experiment_metric_values import get_conversion_window_seconds
+from products.experiments.backend.hogql_queries.experiment_metric_values import get_retention_window_extension_seconds
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
@@ -81,7 +81,7 @@ from products.experiments.backend.hogql_queries.utils import (
     get_variant_results,
     split_baseline_and_test_variants,
 )
-from products.experiments.backend.metric_utils import get_default_metric_title
+from products.experiments.backend.metric_utils import get_default_metric_title, validate_exposure_retention_metric
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -249,6 +249,12 @@ class ExperimentQueryRunner(QueryRunner):
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
+
+        if isinstance(self.query.metric, ExperimentRetentionMetric):
+            try:
+                validate_exposure_retention_metric(self.query.metric)
+            except ValueError as error:
+                raise ValidationError(str(error)) from error
 
         try:
             self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
@@ -523,13 +529,11 @@ class ExperimentQueryRunner(QueryRunner):
                 return self.group_type_index is None
             return False
         if isinstance(self.metric, ExperimentRetentionMetric):
-            if not isinstance(self.metric.start_event, (EventsNode, ActionsNode)) or not isinstance(
-                self.metric.completion_event, (EventsNode, ActionsNode)
-            ):
+            if not isinstance(
+                self.metric.start_event, (EventsNode, ActionsNode, ExperimentExposureMetricSource)
+            ) or not isinstance(self.metric.completion_event, (EventsNode, ActionsNode)):
                 return False
-            extension_seconds = get_conversion_window_seconds(self.metric) + conversion_window_to_seconds(
-                self.metric.retention_window_end, self.metric.retention_window_unit
-            )
+            extension_seconds = get_retention_window_extension_seconds(self.metric)
             if extension_seconds > METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS:
                 return False
             return self._retention_metric_events_precomputation_enabled()

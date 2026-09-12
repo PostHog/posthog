@@ -251,6 +251,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.EXPERIMENT_METRIC
             | NodeKind.EXPERIMENT_EVENT_EXPOSURE_CONFIG
             | NodeKind.EXPERIMENT_DATA_WAREHOUSE_NODE
+            | NodeKind.EXPERIMENT_EXPOSURE_METRIC_SOURCE
         ):
             return {"product": Product.EXPERIMENTS}
         case (

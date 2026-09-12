@@ -29,6 +29,7 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetric,
+    ExperimentRetentionMetric,
 )
 
 from posthog.hogql import ast
@@ -69,7 +70,10 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
 )
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
-from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
+from products.experiments.backend.metric_utils import (
+    filter_metric_group_ids_by_event,
+    validate_exposure_retention_metric,
+)
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
@@ -856,6 +860,11 @@ class ExperimentService:
                                 f"Invalid metric at index {i}: a threshold cannot be combined with "
                                 "outlier handling (winsorization)."
                             )
+                    elif isinstance(actual_metric, ExperimentRetentionMetric):
+                        try:
+                            validate_exposure_retention_metric(actual_metric)
+                        except ValueError as error:
+                            raise ValidationError(f"Invalid metric at index {i}: {error}") from error
 
                 except pydantic.ValidationError as e:
                     # Surface only the field locations and error types from pydantic — not the

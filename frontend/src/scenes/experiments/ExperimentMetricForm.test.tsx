@@ -1,8 +1,19 @@
-import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import type { ReactNode } from 'react'
+import '@testing-library/jest-dom'
 
-import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { useState, type ReactNode } from 'react'
+
+import { useMocks } from '~/mocks/jest'
+import { performQuery } from '~/queries/query'
+import {
+    ExperimentMetric,
+    ExperimentMetricType,
+    ExperimentRetentionMetric,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+import { FunnelConversionWindowTimeUnit, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { ExperimentMetricForm } from './ExperimentMetricForm'
 
@@ -41,6 +52,31 @@ jest.mock('scenes/insights/filters/ActionFilter/ActionFilter', () => ({
 }))
 
 describe('ExperimentMetricForm', () => {
+    const metric: ExperimentRetentionMetric = {
+        kind: NodeKind.ExperimentMetric,
+        metric_type: ExperimentMetricType.RETENTION,
+        start_event: { kind: NodeKind.ExperimentExposureMetricSource },
+        completion_event: { kind: NodeKind.EventsNode, event: 'returned' },
+        retention_window_start: 1,
+        retention_window_end: 7,
+        retention_window_unit: FunnelConversionWindowTimeUnit.Day,
+        start_handling: 'first_seen',
+    }
+
+    beforeEach(() => {
+        jest.mocked(performQuery).mockReset().mockResolvedValue({ results: [] })
+        useMocks({
+            get: {
+                '/api/projects/:team/actions/': { results: [] },
+                '/api/projects/:team/event_definitions/': { results: [] },
+                '/api/projects/:team/property_definitions/': { results: [] },
+            },
+        })
+        initKeaTests()
+    })
+
+    afterEach(cleanup)
+
     it('updates a funnel metric from the data warehouse popover fields', async () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
@@ -75,5 +111,112 @@ describe('ExperimentMetricForm', () => {
                 }),
             ],
         })
+    })
+
+    it('shows an unavailable exposure preview without tracking warnings or unused conversion controls', () => {
+        render(<ExperimentMetricForm metric={metric} handleSetMetric={jest.fn()} filterTestAccounts={false} />)
+
+        expect(screen.getByText(/Preview unavailable/)).toBeInTheDocument()
+        expect(screen.queryByText('No recent activity')).not.toBeInTheDocument()
+        expect(screen.queryByText('Conversion window limit')).not.toBeInTheDocument()
+    })
+
+    it.each(['missing query', 'failed query'])('does not show zero activity for a %s', async (reason) => {
+        const funnelMetric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: reason === 'missing query' ? [] : [{ kind: NodeKind.EventsNode, event: 'returned' }],
+        }
+        if (reason === 'failed query') {
+            jest.mocked(performQuery).mockRejectedValueOnce(new Error('Preview query failed'))
+        }
+
+        render(<ExperimentMetricForm metric={funnelMetric} handleSetMetric={jest.fn()} filterTestAccounts={false} />)
+
+        expect(
+            await screen.findByText('Preview unavailable. Check the metric settings and try again.')
+        ).toBeInTheDocument()
+        expect(screen.queryByText('No recent activity')).not.toBeInTheDocument()
+        expect(screen.queryByText('0')).not.toBeInTheDocument()
+    })
+
+    it.each([0, 12])('shows a resolved activity count of %i', async (count) => {
+        jest.mocked(performQuery).mockResolvedValueOnce({ results: [{ aggregated_value: count }] })
+        const eventMetric: ExperimentRetentionMetric = {
+            ...metric,
+            start_event: { kind: NodeKind.EventsNode, event: 'signup' },
+        }
+
+        render(<ExperimentMetricForm metric={eventMetric} handleSetMetric={jest.fn()} filterTestAccounts={false} />)
+
+        expect(await screen.findByText(count.toLocaleString())).toBeInTheDocument()
+        expect(screen.queryByText(/Preview unavailable/)).not.toBeInTheDocument()
+        expect(screen.queryAllByText('No recent activity')).toHaveLength(count === 0 ? 1 : 0)
+    })
+
+    it('shows loading before the first specific-event preview resolves', () => {
+        jest.mocked(performQuery).mockReturnValueOnce(new Promise(() => {}))
+        const specificMetric: ExperimentRetentionMetric = {
+            ...metric,
+            start_event: { kind: NodeKind.EventsNode, event: '$pageview' },
+        }
+
+        render(<ExperimentMetricForm metric={specificMetric} handleSetMetric={jest.fn()} filterTestAccounts={false} />)
+
+        expect(screen.getByText('Loading recent activity...')).toBeInTheDocument()
+        expect(screen.queryByText(/Preview unavailable/)).not.toBeInTheDocument()
+    })
+
+    it('keeps the completion source when changing an exposure metric to a mean metric', () => {
+        const handleSetMetric = jest.fn()
+        render(<ExperimentMetricForm metric={metric} handleSetMetric={handleSetMetric} filterTestAccounts={false} />)
+
+        fireEvent.click(screen.getByText('Mean'))
+
+        expect(handleSetMetric).toHaveBeenCalledWith(
+            expect.objectContaining({ metric_type: ExperimentMetricType.MEAN, source: metric.completion_event })
+        )
+    })
+
+    it('restores specific start settings after an exposure toggle', async () => {
+        const original: ExperimentRetentionMetric = {
+            ...metric,
+            start_event: {
+                kind: NodeKind.EventsNode,
+                event: 'signed_up',
+                properties: [
+                    {
+                        key: 'plan',
+                        type: PropertyFilterType.Event,
+                        value: 'paid',
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+            start_handling: 'last_seen',
+        }
+        const updates = jest.fn()
+
+        function Harness(): JSX.Element {
+            const [value, setValue] = useState<ExperimentRetentionMetric>(original)
+            return (
+                <ExperimentMetricForm
+                    metric={value}
+                    handleSetMetric={(newMetric) => {
+                        updates(newMetric)
+                        setValue(newMetric as ExperimentRetentionMetric)
+                    }}
+                    filterTestAccounts={false}
+                />
+            )
+        }
+
+        render(<Harness />)
+        await userEvent.click(screen.getByText('Exposure event'))
+        await userEvent.click(screen.getByText('Specific event'))
+
+        expect(updates).toHaveBeenLastCalledWith(
+            expect.objectContaining({ start_event: original.start_event, start_handling: 'last_seen' })
+        )
     })
 })

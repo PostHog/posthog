@@ -13,6 +13,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import {
     ExperimentDataWarehouseNode,
+    ExperimentExposureMetricSource,
     ExperimentMetricType,
     ExperimentStatsValidationFailure,
     NodeKind,
@@ -34,7 +35,7 @@ export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | 
     return 'Trend'
 }
 
-type MetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+type MetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentExposureMetricSource
 
 const getDefaultName = (source: MetricSource): string | null | undefined => {
     switch (source.kind) {
@@ -44,6 +45,8 @@ const getDefaultName = (source: MetricSource): string | null | undefined => {
             return source.name || `Action ${source.id}`
         case NodeKind.ExperimentDataWarehouseNode:
             return source.table_name
+        case NodeKind.ExperimentExposureMetricSource:
+            return 'Exposure event'
     }
 }
 

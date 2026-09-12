@@ -7,19 +7,24 @@ ViewSet remains in experiments.py.
 """
 
 from copy import deepcopy
-from typing import Any, TypeGuard
+from typing import Any, Literal, TypeGuard
 
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
-from pydantic import RootModel as PydanticRootModel
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    RootModel as PydanticRootModel,
+)
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    ExperimentApiEventSource,
     ExperimentApiExposureCriteria,
-    ExperimentApiMetric,
+    ExperimentApiMetric as GeneratedExperimentApiMetric,
     ExperimentParameters,
     ExperimentRunningTimeCalculation,
     MultipleVariantHandling,
@@ -64,6 +69,20 @@ from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 tracer = trace.get_tracer(__name__)
+
+
+class ExperimentApiExposureMetricSource(BaseModel):
+    """Write-side exposure source with a required discriminator."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["ExperimentExposureMetricSource"]
+
+
+class ExperimentApiMetric(GeneratedExperimentApiMetric):
+    """Write-side metric schema used by OpenAPI and MCP clients."""
+
+    start_event: ExperimentApiEventSource | ExperimentApiExposureMetricSource | None = None  # type: ignore[assignment]
 
 
 class _ExperimentApiMetricsList(PydanticRootModel):

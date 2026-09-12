@@ -6,6 +6,7 @@ from posthog.schema import (
     ActionsNode,
     EventsNode,
     ExperimentDataWarehouseNode,
+    ExperimentExposureMetricSource,
     ExperimentRetentionMetric,
     FunnelConversionWindowTimeUnit,
     StartHandling,
@@ -21,6 +22,8 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     data_warehouse_node_to_filter,
     event_or_action_to_filter,
 )
+from products.experiments.backend.hogql_queries.experiment_metric_values import get_retention_window_extension_seconds
+from products.experiments.backend.metric_utils import validate_exposure_retention_metric
 
 if TYPE_CHECKING:
     from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
@@ -42,6 +45,10 @@ class RetentionQueryBuilder:
     def __init__(self, builder: "ExperimentQueryBuilder"):
         self._b = builder
 
+    def uses_exposure_as_start(self) -> bool:
+        assert isinstance(self._b.metric, ExperimentRetentionMetric)
+        return isinstance(self._b.metric.start_event, ExperimentExposureMetricSource)
+
     def get_retention_maturity_seconds(self) -> int:
         """
         Returns the maturity window in seconds for retention metrics.
@@ -56,17 +63,12 @@ class RetentionQueryBuilder:
 
     def get_metric_events_window_extension_seconds(self) -> int:
         """
-        How far past the experiment end date the metric-events scan must extend.
-        A completion event can land up to retention_window_end after a start event
-        that itself lands up to conversion_window after the last exposure, so the
-        extension is the sum — unlike funnel/mean, where the conversion window alone
-        bounds it.
+        Literal starts need the conversion window plus the retention window.
+        Exposure starts need only the retention window, with a buffer for the final calendar period and timezone changes.
+        The exact retention predicate excludes completions outside the selected period.
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
-        return self._b._get_conversion_window_seconds() + conversion_window_to_seconds(
-            self._b.metric.retention_window_end,
-            self._b.metric.retention_window_unit,
-        )
+        return get_retention_window_extension_seconds(self._b.metric)
 
     def get_retention_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
@@ -94,8 +96,14 @@ class RetentionQueryBuilder:
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
         start_event = self._b.metric.start_event
         completion_event = self._b.metric.completion_event
-        assert isinstance(start_event, (EventsNode, ActionsNode))
         assert isinstance(completion_event, (EventsNode, ActionsNode))
+
+        start_event_filter: ast.Expr
+        if isinstance(start_event, ExperimentExposureMetricSource):
+            start_event_filter = ast.Constant(value=False)
+        else:
+            assert isinstance(start_event, (EventsNode, ActionsNode))
+            start_event_filter = event_or_action_to_filter(self._b.team, start_event)
 
         query_string = """
             SELECT
@@ -117,7 +125,7 @@ class RetentionQueryBuilder:
 
         placeholders: dict[str, ast.Expr] = {
             "entity_key": parse_expr(self._b.entity_key),
-            "start_event_filter": event_or_action_to_filter(self._b.team, start_event),
+            "start_event_filter": start_event_filter,
             "completion_event_filter": event_or_action_to_filter(self._b.team, completion_event),
             "experiment_date_from": self._b.date_range_query.date_from_as_hogql(),
             "experiment_date_to": self._b.date_range_query.date_to_as_hogql(),
@@ -195,7 +203,30 @@ class RetentionQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
-        if self._b.metric_events_preaggregation_job_ids:
+        validate_exposure_retention_metric(self._b.metric)
+
+        if self.uses_exposure_as_start():
+            start_events_body = "FROM exposures"
+            if self._b.metric_events_preaggregation_job_ids:
+                entity_id_cast = "toUUID(t.entity_id)" if self._b.entity_key == "person_id" else "t.entity_id"
+                completion_events_body = f"""SELECT
+                    {entity_id_cast} AS entity_id,
+                    t.event_uuid AS completion_uuid,
+                    t.timestamp AS completion_timestamp
+                FROM experiment_metric_events_preaggregated AS t
+                WHERE t.job_id IN {{metric_events_job_ids}}
+                    AND t.team_id = {{metric_events_team_id}}
+                    AND arrayElement(t.steps, 2) = 1
+                    AND t.timestamp >= {{metric_events_date_from}}
+                    AND t.timestamp < {{metric_events_date_to}} + toIntervalSecond({{metric_events_completion_window_seconds}})"""
+            else:
+                completion_events_body = """SELECT
+                    {entity_key} AS entity_id,
+                    uuid AS completion_uuid,
+                    timestamp AS completion_timestamp
+                FROM events
+                WHERE {completion_event_predicate}"""
+        elif self._b.metric_events_preaggregation_job_ids:
             # Read start/completion events from the precomputed table instead of scanning
             # events; the event predicates were applied at build time and survive as the
             # steps flags (steps[1] = matched start_event, steps[2] = matched completion_event).
@@ -287,6 +318,7 @@ class RetentionQueryBuilder:
                     -- (100% retention); event uuids are unique, so this is a no-op when
                     -- the two events differ.
                     AND completion_events.completion_uuid != start_events.start_uuid
+                    AND {distinct_exposure_occurrence_predicate}
                 GROUP BY exposures.entity_id, exposures.variant
             )
         """
@@ -305,6 +337,7 @@ class RetentionQueryBuilder:
             "retention_window_end_interval": self.build_retention_window_interval(self._b.metric.retention_window_end),
             "start_after_exposure_predicate": self.build_start_after_exposure_predicate(),
             "completion_retention_window_predicate": self.build_completion_retention_window_predicate(),
+            "distinct_exposure_occurrence_predicate": self.build_distinct_exposure_occurrence_predicate(),
             "truncated_start_timestamp": self.get_retention_window_truncation_expr(
                 parse_expr("start_events.start_timestamp")
             ),
@@ -373,6 +406,8 @@ class RetentionQueryBuilder:
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
         if self._b.metric.start_handling == StartHandling.FIRST_SEEN:
+            if self.uses_exposure_as_start():
+                return parse_expr("min(exposures.first_exposure_time)")
             return parse_expr("min(timestamp)")
         else:  # LAST_SEEN
             return parse_expr("max(timestamp)")
@@ -386,6 +421,8 @@ class RetentionQueryBuilder:
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
         if self._b.metric.start_handling == StartHandling.FIRST_SEEN:
+            if self.uses_exposure_as_start():
+                return parse_expr("argMin(exposures.exposure_event_uuid, exposures.first_exposure_time)")
             return parse_expr("argMin(uuid, timestamp)")
         else:  # LAST_SEEN
             return parse_expr("argMax(uuid, timestamp)")
@@ -441,9 +478,13 @@ class RetentionQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
+        if self.uses_exposure_as_start():
+            return ast.Constant(value=True)
+
         if isinstance(self._b.metric.start_event, ExperimentDataWarehouseNode):
             event_filter = data_warehouse_node_to_filter(self._b.team, self._b.metric.start_event)
         else:
+            assert isinstance(self._b.metric.start_event, (EventsNode, ActionsNode))
             event_filter = event_or_action_to_filter(self._b.team, self._b.metric.start_event)
         conversion_window_seconds = self._b._get_conversion_window_seconds()
 
@@ -474,12 +515,6 @@ class RetentionQueryBuilder:
 
         # Completion events can occur within the retention window after the start event
         # The retention window end could extend beyond the experiment end date
-        conversion_window_seconds = self._b._get_conversion_window_seconds()
-        retention_window_end_seconds = conversion_window_to_seconds(
-            self._b.metric.retention_window_end,
-            self._b.metric.retention_window_unit,
-        )
-
         return parse_expr(
             """
             timestamp >= {date_from}
@@ -489,8 +524,49 @@ class RetentionQueryBuilder:
             placeholders={
                 "date_from": self._b.date_range_query.date_from_as_hogql(),
                 "date_to": self._b.date_range_query.date_to_as_hogql(),
-                "total_window_seconds": ast.Constant(value=conversion_window_seconds + retention_window_end_seconds),
+                "total_window_seconds": ast.Constant(value=self.get_metric_events_window_extension_seconds()),
                 "event_filter": event_filter,
+            },
+        )
+
+    def build_distinct_exposure_occurrence_predicate(self) -> ast.Expr:
+        """Exclude an exposure copy without excluding independent events at the same timestamp.
+
+        A timestamp-only exclusion would remove valid completions, even for a different completion event type.
+        The timestamp comparison avoids hash work when ClickHouse short-circuit evaluation is enabled.
+        """
+        if not self.uses_exposure_as_start():
+            return ast.Constant(value=True)
+
+        def exposure_copy_identity(source_uuid: ast.Expr) -> ast.Expr:
+            return parse_expr(
+                """
+                bitOr(
+                    bitAnd(
+                        reinterpretAsUInt128(SHA1(concat(
+                            unhex('1b7c91195953466897b7ab0ef8a6bb48'), toString({source_uuid})
+                        ))),
+                        reinterpretAsUInt128(unhex('ffffffffffff0fff3fffffffffffffff'))
+                    ),
+                    reinterpretAsUInt128(unhex('00000000000050008000000000000000'))
+                )
+                """,
+                placeholders={"source_uuid": source_uuid},
+            )
+
+        return parse_expr(
+            """
+            completion_events.completion_timestamp != start_events.start_timestamp
+            OR (
+                reinterpretAsUInt128(unhex(replaceAll(toString(start_events.start_uuid), '-', '')))
+                    != {completion_copy_identity}
+                AND reinterpretAsUInt128(unhex(replaceAll(toString(completion_events.completion_uuid), '-', '')))
+                    != {start_copy_identity}
+            )
+            """,
+            placeholders={
+                "completion_copy_identity": exposure_copy_identity(parse_expr("completion_events.completion_uuid")),
+                "start_copy_identity": exposure_copy_identity(parse_expr("start_events.start_uuid")),
             },
         )
 
@@ -500,6 +576,9 @@ class RetentionQueryBuilder:
         Applied inside the start_events CTE (pre-aggregation) so that min/max only
         considers events after the user's first exposure.
         """
+        if self.uses_exposure_as_start():
+            return ast.Constant(value=True)
+
         conversion_window_seconds = self._b._get_conversion_window_seconds()
         if conversion_window_seconds > 0:
             return parse_expr(
@@ -521,6 +600,8 @@ class RetentionQueryBuilder:
 
         This is a performance optimization - we'll do the exact retention window
         calculation in the entity_metrics CTE.
+
+        Exposure starts reuse the full scan extension as a deliberately broad bound.
 
         For DAY/HOUR units that use timestamp truncation, we add a buffer to account
         for the truncation window. This ensures that same-period retention (e.g., [0,0])
@@ -545,6 +626,8 @@ class RetentionQueryBuilder:
 
         # Add buffer to retention window end
         buffered_window_end_seconds = retention_window_end_seconds + truncation_buffer
+        if self.uses_exposure_as_start():
+            buffered_window_end_seconds = self.get_metric_events_window_extension_seconds()
 
         return parse_expr(
             """
