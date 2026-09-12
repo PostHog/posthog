@@ -26,6 +26,7 @@ dependencies = [
     "clickhouse-pool==0.5.3",
     "circular-dict==1.9",
     "cryptography==46.0.7",
+    "PyNaCl==1.5.0",
     "dagster==1.10.18",
     "dagster-cloud==1.10.18",
     "dagster-aws==0.26.18",

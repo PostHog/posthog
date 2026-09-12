@@ -27,6 +27,7 @@ from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
+from posthog.models.ai_training import queue_training_deletion
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
@@ -1215,6 +1216,9 @@ def background_delete_model_task(
 
 
 def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
+    for team_id in team_ids:
+        queue_training_deletion(team_id, "team")
+
     import asyncio
     from datetime import timedelta
     from uuid import uuid4
