@@ -22,6 +22,7 @@ import {
     ExperimentMetricSource,
     ExperimentRetentionMetric,
     ExperimentTrendsQuery,
+    InsightQueryNode,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
@@ -507,9 +508,122 @@ function countBehavioralFilters(value: unknown): number {
     )
 }
 
+type SanitizedQuery = Record<string, string | number | boolean | undefined>
+
+function insightQuerySource(query: Node | null): InsightQueryNode | undefined {
+    if (isInsightVizNode(query)) {
+        return query.source
+    }
+    return isInsightQueryNode(query) ? query : undefined
+}
+
+function dateRangeAndSamplingProperties(querySource: InsightQueryNode): SanitizedQuery {
+    return {
+        date_from: querySource.dateRange?.date_from || undefined,
+        date_to: querySource.dateRange?.date_to || undefined,
+        interval: getInterval(querySource),
+        samplingFactor: ('samplingFactor' in querySource ? querySource.samplingFactor : undefined) || undefined,
+    }
+}
+
+function seriesProperties(querySource: InsightQueryNode): SanitizedQuery {
+    const series = getSeries(querySource)
+    return {
+        series_length: series?.length,
+        event_entity_count: series?.filter((e) => isEventsNode(e)).length,
+        action_entity_count: series?.filter((e) => isActionsNode(e)).length,
+        data_warehouse_entity_count: series?.filter((e) => isAnyDataWarehouseNode(e)).length,
+        has_properties: !!querySource.properties,
+        behavioral_filter_count: countBehavioralFilters(querySource),
+        filter_test_accounts: querySource.filterTestAccounts,
+    }
+}
+
+function breakdownProperties(querySource: InsightQueryNode): SanitizedQuery {
+    const breakdown = getBreakdown(querySource)
+    return {
+        breakdown_type: breakdown?.breakdown_type || undefined,
+        breakdown_limit: breakdown?.breakdown_limit || undefined,
+        breakdown_hide_other_aggregation: breakdown?.breakdown_hide_other_aggregation || undefined,
+    }
+}
+
+function trendsLikeProperties(querySource: InsightQueryNode): SanitizedQuery {
+    const defaultDisplay =
+        isTrendsQuery(querySource) || isStickinessQuery(querySource) ? ChartDisplayType.ActionsLineGraph : undefined
+    return {
+        has_formula: !!getFormula(querySource),
+        display: getDisplay(querySource) ?? defaultDisplay,
+        compare: getCompareFilter(querySource)?.compare,
+        compare_to: getCompareFilter(querySource)?.compare_to,
+    }
+}
+
+function funnelProperties(querySource: InsightQueryNode): SanitizedQuery {
+    if (!isFunnelsQuery(querySource)) {
+        return {}
+    }
+    return {
+        funnel_viz_type: querySource.funnelsFilter?.funnelVizType,
+        funnel_order_type: querySource.funnelsFilter?.funnelOrderType,
+    }
+}
+
+function increment(counts: Record<string, any>, key: string): void {
+    counts[key] = (counts[key] || 0) + 1
+}
+
+function insightTileCountKey(tile: DashboardTile<QueryBasedInsightModel>): string {
+    const query = isNodeWithSource(tile.insight?.query) ? tile.insight.query.source : tile.insight?.query
+    return `${query?.kind || !!tile.text ? 'text' : 'empty'}_count`
+}
+
+function countDashboardTiles(tiles: DashboardTile<QueryBasedInsightModel>[], properties: Record<string, any>): void {
+    for (const tile of tiles) {
+        if (tile.insight) {
+            increment(properties, insightTileCountKey(tile))
+            properties.sample_items_count += tile.insight.is_sample ? 1 : 0
+            if (queryUsesDataWarehouse(tile.insight.query)) {
+                properties.uses_data_warehouse_source = true
+                properties.data_warehouse_tiles_count += 1
+            }
+        } else if (tile.widget) {
+            increment(properties, 'widget_tiles_count')
+        } else {
+            increment(properties, 'text_tiles_count')
+        }
+    }
+}
+
+export function dashboardViewedProperties(
+    dashboard: DashboardType<QueryBasedInsightModel>,
+    lastRefreshed: Dayjs | null,
+    viewerUuid: string | undefined
+): Record<string, any> {
+    const { created_at, is_shared, pinned, creation_mode, id } = dashboard
+    const properties: Record<string, any> = {
+        created_at,
+        is_shared,
+        pinned,
+        creation_mode,
+        viewer_is_creator:
+            dashboard.created_by?.uuid && viewerUuid ? dashboard.created_by.uuid === viewerUuid : undefined,
+        sample_items_count: 0,
+        item_count: dashboard.tiles?.length || 0,
+        created_by_system: !dashboard.created_by,
+        dashboard_id: id,
+        lastRefreshed: lastRefreshed?.toISOString(),
+        refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
+        uses_data_warehouse_source: false,
+        data_warehouse_tiles_count: 0,
+    }
+    countDashboardTiles(dashboard.tiles || [], properties)
+    return properties
+}
+
 /** Takes a query and returns an object with "useful" properties that don't contain sensitive data. */
-export function sanitizeQuery(query: Node | null): Record<string, string | number | boolean | undefined> {
-    const payload: Record<string, string | number | boolean | undefined> = {
+export function sanitizeQuery(query: Node | null): SanitizedQuery {
+    const payload: SanitizedQuery = {
         query_kind: query?.kind,
         query_source_kind: isNodeWithSource(query) ? query.source.kind : undefined,
         // Whether this insight/query reads from a connector-synced data warehouse source (series-level
@@ -517,47 +631,16 @@ export function sanitizeQuery(query: Node | null): Record<string, string | numbe
         uses_data_warehouse_source: queryUsesDataWarehouse(query),
     }
 
-    if (isInsightVizNode(query) || isInsightQueryNode(query)) {
-        const querySource = isInsightVizNode(query) ? query.source : query
-        const { dateRange, filterTestAccounts, properties } = querySource
-        const samplingFactor = 'samplingFactor' in querySource ? querySource.samplingFactor : undefined
-
-        // date range and sampling
-        payload.date_from = dateRange?.date_from || undefined
-        payload.date_to = dateRange?.date_to || undefined
-        payload.interval = getInterval(querySource)
-        payload.samplingFactor = samplingFactor || undefined
-
-        // series
-        payload.series_length = getSeries(querySource)?.length
-        payload.event_entity_count = getSeries(querySource)?.filter((e) => isEventsNode(e)).length
-        payload.action_entity_count = getSeries(querySource)?.filter((e) => isActionsNode(e)).length
-        payload.data_warehouse_entity_count = getSeries(querySource)?.filter((e) => isAnyDataWarehouseNode(e)).length
-
-        // properties
-        payload.has_properties = !!properties
-        payload.behavioral_filter_count = countBehavioralFilters(querySource)
-        payload.filter_test_accounts = filterTestAccounts
-
-        // breakdown
-        payload.breakdown_type = getBreakdown(querySource)?.breakdown_type || undefined
-        payload.breakdown_limit = getBreakdown(querySource)?.breakdown_limit || undefined
-        payload.breakdown_hide_other_aggregation =
-            getBreakdown(querySource)?.breakdown_hide_other_aggregation || undefined
-
-        // trends like
-        payload.has_formula = !!getFormula(querySource)
-        payload.display =
-            getDisplay(querySource) ??
-            (isTrendsQuery(querySource) || isStickinessQuery(querySource)
-                ? ChartDisplayType.ActionsLineGraph
-                : undefined)
-        payload.compare = getCompareFilter(querySource)?.compare
-        payload.compare_to = getCompareFilter(querySource)?.compare_to
-
-        // funnels
-        payload.funnel_viz_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelVizType : undefined
-        payload.funnel_order_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelOrderType : undefined
+    const querySource = insightQuerySource(query)
+    if (querySource) {
+        Object.assign(
+            payload,
+            dateRangeAndSamplingProperties(querySource),
+            seriesProperties(querySource),
+            breakdownProperties(querySource),
+            trendsLikeProperties(querySource),
+            funnelProperties(querySource)
+        )
     }
 
     return objectClean(payload)
@@ -3409,55 +3492,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             if (!delay) {
                 await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
             }
-            const { created_at, is_shared, pinned, creation_mode, id } = dashboard
-            const properties: Record<string, any> = {
-                created_at,
-                is_shared,
-                pinned,
-                creation_mode,
-                viewer_is_creator:
-                    dashboard.created_by?.uuid && values.user?.uuid
-                        ? dashboard.created_by?.uuid === values.user?.uuid
-                        : undefined,
-                sample_items_count: 0,
-                item_count: dashboard.tiles?.length || 0,
-                created_by_system: !dashboard.created_by,
-                dashboard_id: id,
-                lastRefreshed: lastRefreshed?.toISOString(),
-                refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
-                uses_data_warehouse_source: false,
-                data_warehouse_tiles_count: 0,
-            }
-
-            for (const item of dashboard.tiles || []) {
-                if (item.insight) {
-                    const query = isNodeWithSource(item.insight.query) ? item.insight.query.source : item.insight.query
-                    const key = `${query?.kind || !!item.text ? 'text' : 'empty'}_count`
-                    if (!properties[key]) {
-                        properties[key] = 1
-                    } else {
-                        properties[key] += 1
-                    }
-                    properties.sample_items_count += item.insight.is_sample ? 1 : 0
-                    if (queryUsesDataWarehouse(item.insight.query)) {
-                        properties.uses_data_warehouse_source = true
-                        properties.data_warehouse_tiles_count += 1
-                    }
-                } else if (item.widget) {
-                    if (!properties['widget_tiles_count']) {
-                        properties['widget_tiles_count'] = 1
-                    } else {
-                        properties['widget_tiles_count'] += 1
-                    }
-                } else {
-                    if (!properties['text_tiles_count']) {
-                        properties['text_tiles_count'] = 1
-                    } else {
-                        properties['text_tiles_count'] += 1
-                    }
-                }
-            }
-
+            const properties = dashboardViewedProperties(dashboard, lastRefreshed, values.user?.uuid)
             const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility
             posthog.capture(eventName, { ...properties, source: 'web' })
         },
