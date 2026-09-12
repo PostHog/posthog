@@ -26,16 +26,6 @@ import { RowFilterEditor } from '../../../scenes/SourceScene/tabs/RowFilterEdito
 import { splitQualifiedTableName } from './schemaGroupingUtils'
 import { SyncMethodForm } from './SyncMethodForm'
 
-export function getDirectQuerySelectionDescription(selectedSchema?: string | null): string {
-    const normalizedSchema = selectedSchema?.trim()
-
-    if (normalizedSchema) {
-        return `Query selected Postgres tables from within PostHog. Tables stay in the source database and are not synced into the data warehouse. You can't join data from these tables with other data in the PostHog warehouse. Choose which tables from the "${normalizedSchema}" schema should be queryable.`
-    }
-
-    return "Query selected Postgres tables from within PostHog. Tables stay in the source database and are not synced into the data warehouse. You can't join data from these tables with other data in the PostHog warehouse. Enable each schema to choose which tables should be queryable."
-}
-
 function getSchemaSelectionState(tables: ExternalDataSourceSyncSchema[]): boolean | 'indeterminate' {
     const enabledCount = tables.filter((table) => table.should_sync).length
 
