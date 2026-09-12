@@ -2273,14 +2273,30 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal("90.49"),)])
 
-    def test_currency_conversion_with_string_date(self):
-        query = "SELECT convertCurrency('USD', 'EUR', 100, '2024-01-01')"
-        with self.assertRaises(InternalCHQueryError) as e:
-            execute_hogql_query(query, team=self.team)
-        assert (
-            "Illegal type String of fourth argument of function dictGetOrDefault must be convertible to Int64"
-            in str(e.exception)
-        )
+    # The exchange rate dictionary's range key only takes a non-nullable Date, so the printer
+    # coerces whatever the caller passed. Every one of these is a hard query failure without it.
+    @parameterized.expand(
+        [
+            ("string", "'2024-01-01'", Decimal("90.49")),
+            # A zoned string reads at the date it names, in UTC. ClickHouse's cast alone returns
+            # NULL for these, which would silently convert at today's rate instead.
+            ("zoned_string", "'2024-01-01T10:30:00Z'", Decimal("90.49")),
+            ("offset_string", "'2024-01-01T10:30:00+02:00'", Decimal("90.49")),
+            ("nullable_date", "toDate('2024-01-01')", Decimal("90.49")),
+            ("nullable_datetime", "toDateTime('2024-01-01 10:30:00')", Decimal("90.49")),
+            ("parsed_best_effort", "parseDateTimeBestEffort('2024-01-01')", Decimal("90.49")),
+            # A null date falls back to today(), which is what omitting the date does.
+            ("unparseable", "toDate('not a date')", Decimal("96.21")),
+            ("null", "NULL", Decimal("96.21")),
+            # An impossible calendar date is rejected rather than rolled over to the next month,
+            # so it takes the same fallback instead of reading a neighbouring day's rate.
+            ("impossible_calendar_date", "'2024-02-30'", Decimal("96.21")),
+        ]
+    )
+    def test_currency_conversion_with_coercible_date(self, _name: str, date_expr: str, expected: Decimal):
+        query = f"SELECT convertCurrency('USD', 'EUR', 100, {date_expr})"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(expected,)])
 
     def test_currency_conversion_with_bogus_currency_from(self):
         query = "SELECT convertCurrency('BOGUS', 'EUR', 100, _toDate('2024-01-01'))"
