@@ -24,13 +24,17 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         assert "`metric-describe`" in prompt
         assert "`data-catalog-metric-run`" in prompt
         assert "complete governed catalog" in prompt
-        assert "counts of active entities" in prompt
-        assert "failure and error rates" in prompt
-        assert "latency percentiles" in prompt
-        assert "ticket, submission, and hit volumes" in prompt
-        assert "cost per run" in prompt
-        assert "conversion rates" in prompt
+        assert "its shape, not whether its noun sounds like a KPI" in prompt
+        assert "a count or volume of X per day, hour, or week" in prompt
+        assert "a rate or percentage of X" in prompt
+        assert "an average, percentile, or latency of X" in prompt
+        assert "a cost per X" in prompt
+        assert "a conversion between two events" in prompt
+        assert "are not substitutes for `metric-list`" in prompt
         assert "product skill's query recipe does not exempt" in prompt
+        assert "Never present a `proposed` or drifted metric's result as the answer" in prompt
+        assert "Derive from an approved metric when one covers the same measure" in prompt
+        assert "otherwise derive the number yourself" in prompt
 
     def test_includes_core_sections(self):
         prompt = self._build()["append"]
