@@ -31,6 +31,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.permissions import is_service_auth
 from posthog.utils import convert_property_value, flatten
 
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.batch_exports.backend.facade.models import BatchExportRun
 from products.cdp.backend.facade.models import HogFunction, HogFunctionState, HogFunctionType
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
@@ -148,6 +149,21 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _readable_sources(self) -> QuerySet:
         return self._readable(ExternalDataSource.objects.filter(team_id=self.team_id))
+
+    def _readable_schema_ids(self, schemas: list[ExternalDataSchema]) -> set:
+        # A schema carries no rules of its own. Its access resolves through the table it syncs, whose
+        # own access falls back to the source, or through the source directly before the first sync.
+        # Same resolution as WarehouseTableAccessPermission and ExternalDataSchemaViewset.
+        if is_service_auth(self.request):
+            return {schema.id for schema in schemas}
+        uac = self.user_access_control
+        uac.preload_object_access_controls([schema.table or schema.source for schema in schemas])
+        return {
+            schema.id
+            for schema in schemas
+            if (level := uac.get_user_access_level(schema.table or schema.source)) is not None
+            and access_level_satisfied_for_resource("warehouse_table", level, "viewer")
+        }
 
     def _require_organization_admin(self, request: Request, action: str) -> Response | None:
         if not request.user.is_authenticated:
@@ -732,21 +748,22 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             # Get failed syncs from ExternalDataSchema
             # Only show syncs that are actively enabled but failing
             readable_sources = self._readable_sources()
-            # A schema has no access rules of its own; it is visible when its source is.
-            problem_syncs = (
+            problem_syncs = list(
                 ExternalDataSchema.objects.filter(
                     team_id=self.team_id,
                     deleted=False,
                     should_sync=True,
-                    source__in=readable_sources,
                 )
                 .filter(
                     Q(status=ExternalDataSchemaStatus.FAILED) | Q(status=ExternalDataSchemaStatus.BILLING_LIMIT_REACHED)
                 )
-                .select_related("source")
+                .select_related("source", "table")
             )
+            visible_schema_ids = self._readable_schema_ids(problem_syncs)
 
             for schema in problem_syncs:
+                if schema.id not in visible_schema_ids:
+                    continue
                 sync_status = "failed"
                 if schema.status == ExternalDataSchemaStatus.BILLING_LIMIT_REACHED:
                     sync_status = "billing_limit"

@@ -27,7 +27,12 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 MANAGED_VIEWSET_KIND = "revenue_analytics"
@@ -190,6 +195,48 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
             self.assertIn(token, body)
         for token in blocked_tokens:
             self.assertNotIn(token, body)
+
+    def test_data_health_issues_hides_a_sync_denied_on_its_table(self):
+        # A schema inherits access from the table it syncs, so a deny on the table has to hide it
+        # even when the source above it stays readable.
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(self.viewer_user, resource="external_data_source", access_level="viewer")
+        self._create_access_control(self.viewer_user, resource="warehouse_table", access_level="viewer")
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="readable",
+            connection_id="readable-connection",
+            source_type="Stripe",
+        )
+        schemas = {}
+        for label in ("allowed", "blocked"):
+            table = DataWarehouseTable.objects.create(
+                team=self.team, name=f"{label}_table", columns={"id": "String"}, external_data_source=source
+            )
+            schemas[label] = ExternalDataSchema.objects.create(
+                team=self.team,
+                source=source,
+                table=table,
+                name=f"{label}_schema",
+                should_sync=True,
+                status="Failed",
+                latest_error=f"{label}_schema_error",
+            )
+        self._create_access_control(
+            self.viewer_user,
+            resource="warehouse_table",
+            resource_id=str(schemas["blocked"].table_id),
+            access_level="none",
+        )
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(self._path("data_health_issues/"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.content.decode()
+        self.assertIn("allowed_schema", body)
+        self.assertNotIn("blocked_schema", body)
+        self.assertNotIn("blocked_schema_error", body)
 
     def test_managed_warehouse_status_excludes_blocked_and_direct_sources(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
