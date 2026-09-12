@@ -192,7 +192,7 @@ def test_unmatched_events_create_no_review_run(team, repo_config, mutate_payload
         ({"user_type": "Bot"}, False),
         ({"author_login": "renovate[bot]"}, False),
         ({"author_association": "NONE"}, False),
-        ({"author_association": "CONTRIBUTOR"}, True),
+        ({"author_association": "CONTRIBUTOR"}, False),
         ({"author_association": "FIRST_TIME_CONTRIBUTOR"}, False),
         ({"author_association": "MEMBER"}, True),
     ],
@@ -201,7 +201,7 @@ def test_unmatched_events_create_no_review_run(team, repo_config, mutate_payload
         "bot_type",
         "bot_login",
         "none",
-        "contributor_falls_through",
+        "contributor",
         "first_time_contributor",
         "member_proceeds",
     ],
@@ -210,9 +210,7 @@ def test_unmatched_events_create_no_review_run(team, repo_config, mutate_payload
 def test_review_path_skips_untrusted_bot_or_draft_prs(team, repo_config, pr_kwargs, expect_run):
     # Drafts, bot authors, and fork/external authors must be dropped before a sandbox is spent. The
     # fork/external drop is also a security boundary: an auto-approval must never satisfy required
-    # reviews for a PR no trusted member opened. CONTRIBUTOR is NOT dropped at the payload gate — App
-    # webhooks downgrade org members on private repos to CONTRIBUTOR, so it defers to the
-    # write-permission gate (write here, via the harness default).
+    # reviews for a PR no trusted member opened.
     mock_execute = _run_task(
         _pr_payload(**pr_kwargs), f"delivery-skip-{'-'.join(map(str, pr_kwargs.values()))}", team.id
     )
@@ -234,10 +232,8 @@ def test_review_path_skips_untrusted_bot_or_draft_prs(team, repo_config, pr_kwar
         ("write", "MEMBER", True),
         ("read", "MEMBER", False),
         ("none", "MEMBER", False),
-        ("write", "CONTRIBUTOR", True),
-        ("read", "CONTRIBUTOR", False),
     ],
-    ids=["admin", "write", "read_only", "no_access", "contributor_with_write", "contributor_read_only"],
+    ids=["admin", "write", "read_only", "no_access"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_review_path_requires_author_write_permission(
@@ -245,8 +241,6 @@ def test_review_path_requires_author_write_permission(
 ):
     # author_association alone can't prove push access (org MEMBERs and triage/read COLLABORATORs pass
     # it), so a trusted-association author below write must still be dropped before a run is queued.
-    # The CONTRIBUTOR rows pin the payload-gate fall-through to this gate: a downgraded org member with
-    # write gets reviewed, a genuine read-only contributor still never mints a run.
     mock_execute = _run_task(
         _pr_payload(author_association=author_association),
         f"delivery-perm-{author_permission}-{author_association}",
@@ -318,15 +312,19 @@ def test_disabled_repo_skip_retracts_stale_approvals_on_head_change(team, repo_c
     mock_execute.assert_not_called()
 
 
+@pytest.mark.parametrize("author_association", ["NONE", "CONTRIBUTOR"], ids=["none", "contributor"])
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_untrusted_author_skip_retracts_stale_approvals_on_head_change(team, repo_config):
-    # An author who loses their trusted association (left the org, collaborator removed) can still
-    # push to an approved PR; the payload-only skip must retract the standing approval, not just
-    # drop the event — otherwise the old approval keeps satisfying required reviews.
-    _run_task(_pr_payload(), "delivery-assoc-approved", team.id)
+def test_untrusted_author_skip_retracts_stale_approvals_on_head_change(team, repo_config, author_association):
+    # An untrusted author can push to an approved PR. The payload-only skip must retract the standing
+    # approval, or it keeps satisfying required reviews.
+    _run_task(_pr_payload(), f"delivery-assoc-approved-{author_association}", team.id)
 
     with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss:
-        _run_task(_pr_payload(action="synchronize", author_association="NONE"), "delivery-assoc-revoked", team.id)
+        _run_task(
+            _pr_payload(action="synchronize", author_association=author_association),
+            f"delivery-assoc-{author_association}",
+            team.id,
+        )
 
     dismiss.assert_called_once()
     with team_scope(team.id):

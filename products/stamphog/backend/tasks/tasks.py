@@ -103,21 +103,11 @@ STAMPHOG_LABEL_REREVIEW_KEY_PREFIX = "stamphog:label_rereview:"
 # PR body is trimmed to this at capture time so rows (and the digest LLM prompt) stay bounded.
 PR_BODY_EXCERPT_MAX_CHARS = 2000
 
-# Only these author associations may be auto-reviewed. A fork/external-contributor PR must never be:
-# an auto-approval could satisfy required reviews with zero human in the loop, and anyone could open
-# PRs to burn sandbox + LLM credits. (GitHub's association vocabulary; the trusted subset.)
+# Only internal human author associations may be auto-reviewed. External contributions can still be
+# merged, but an automated approval must not make them authoritative. (GitHub's trusted subset.)
 TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 
-# CONTRIBUTOR additionally passes the payload gate — not because it is trusted, but because the field
-# is unreliable in App-delivered payloads: GitHub computes author_association with less context than a
-# user-token API call, and org members on private repos arrive downgraded to CONTRIBUTOR (observed on
-# real deliveries with members:read granted and public org membership). Hard-dropping it silently
-# disables reviews for legitimate authors, so CONTRIBUTOR falls through to
-# _author_lacks_write_permission — the authoritative installation-token gate every run must pass
-# anyway. The associations still dropped here (NONE, FIRST_TIME_CONTRIBUTOR, ...) are fork drive-bys
-# with no repo relationship at all; a fall-through would cost only a cached permission lookup, but
-# there is no legitimate case to admit.
-PAYLOAD_GATE_AUTHOR_ASSOCIATIONS = TRUSTED_AUTHOR_ASSOCIATIONS | {"CONTRIBUTOR"}
+PAYLOAD_GATE_AUTHOR_ASSOCIATIONS = TRUSTED_AUTHOR_ASSOCIATIONS
 
 # The association gate above is necessary but not sufficient: MEMBER says nothing about repo-level
 # access, and COLLABORATOR covers read/triage-only invites. Auto-approval must also require that the
