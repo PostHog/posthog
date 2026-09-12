@@ -153,6 +153,12 @@ export default meta
 type Story = StoryObj<{}>
 export const FeaturesList: Story = {}
 
+export const ExistingFeature: Story = {
+    parameters: {
+        pageUrl: urls.earlyAccessFeature('0187c22c-06d9-0000-34fe-daa2e2afb503'),
+    },
+}
+
 export const NewFeatureFlag: Story = {
     parameters: {
         pageUrl: urls.earlyAccessFeature('new'),
