@@ -915,6 +915,63 @@ def set_scout_report_reviewers(
     return True
 
 
+SCOUT_REPOSITORY_REASON = "Repository set by a scout through edit_report."
+
+
+def set_scout_report_repository(
+    *,
+    team_id: int,
+    report_id: str,
+    repository: str | None,
+    attribution: ArtefactAttribution,
+    author: str | None = None,
+) -> bool:
+    """Replace an existing report's `repo_selection` artefact (latest-wins) — the `edit_report`
+    repository path. `repository` is a validated `owner/repo`, or None to land the report without a
+    draft PR. Returns True, since every call writes a selection.
+
+    This is the correction path for a misrouted report: a report that surfaced against the wrong
+    codebase can be repointed in place, instead of the scout filing a duplicate. A scout naming the
+    repository is a decision like the one `create_scout_report` records at emit, so the selection is
+    `autostart_eligible` the same way, and a later content rewrite does not overturn it.
+
+    Team-scoped fail-closed: a `report_id` the team doesn't own raises. `edit_report` can target ANY
+    inbox report, so the change is attributed (to the scout's task) and an audit note is logged,
+    keeping it auditable and distinguishable from pipeline output.
+
+    The append opts out of the model's autostart re-eval hook (`reevaluate_autostart=False`); the
+    caller (`_do_edit_report`) fires `maybe_autostart_from_report_artefacts` after this returns —
+    never in-txn, since it spawns a Task — mirroring the reviewer path above.
+    """
+    _validate_report_id(report_id)
+    with transaction.atomic():
+        # The lock is the team-scoped gate AND serializes this against a concurrent selection write,
+        # so an interleaved correction isn't lost.
+        if not SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).exists():
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        SignalReportArtefact.append_status(
+            team_id=team_id,
+            report_id=report_id,
+            content=RepoSelectionResult(repository=repository, reason=SCOUT_REPOSITORY_REASON),
+            attribution=attribution,
+            reevaluate_autostart=False,
+        )
+        SignalReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=NoteArtefact(
+                note=f"Set repository: {repository}" if repository else "Cleared the repository",
+                author=author,
+            ),
+            attribution=attribution,
+        )
+    logger.info(
+        "signals_scout.edit_report: repository set",
+        extra={"team_id": team_id, "report_id": report_id, "repository": repository},
+    )
+    return True
+
+
 def set_scout_report_inferred_repository(
     *,
     team_id: int,
