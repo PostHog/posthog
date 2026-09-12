@@ -788,13 +788,14 @@ def wait_for_health_check(
     max_attempts: int = 60,
     poll_interval: float = 0.5,
     pid_file: str | None = None,
+    fatal_log_file: str | None = None,
 ) -> bool:
     """Poll health endpoint until server is ready (single remote call).
 
     Runs a bash polling loop inside the sandbox so only one round-trip is
     needed regardless of how many attempts are required.
     """
-    health_script = build_health_check_command(port, max_attempts, poll_interval, pid_file)
+    health_script = build_health_check_command(port, max_attempts, poll_interval, pid_file, fatal_log_file)
     result = execute(health_script, timeout_seconds=health_check_timeout_seconds(max_attempts, poll_interval))
     if "claude_credential_unavailable" in result.stdout:
         from products.tasks.backend.exceptions import ProcessTaskFatalError
@@ -813,13 +814,59 @@ def wait_for_health_check(
 
 HEALTH_CURL_MAX_TIME_SECONDS = 2
 
+AGENT_SERVER_FATAL_LOG_MARKER = "Fatal agent-server error"
+"""What the agent-server writes to its log immediately before it gives up and exits."""
+
+# The agent-server logs the marker, then the error as JSON on the following lines. The capture
+# stops at the first newline and after 240 characters, so one runaway stack trace cannot reach
+# the Temporal failure payload and the message stays printable on a single log line.
+_AGENT_SERVER_FATAL_MESSAGE_PATTERN = re.compile(
+    re.escape(AGENT_SERVER_FATAL_LOG_MARKER) + r'[^{]*\{\s*"message":\s*"((?:[^"\\\n]|\\.){0,240})'
+)
+
+
+def agent_server_fatal_message(log: str) -> str | None:
+    """The error the agent-server named when it exited during startup, or None if it named none.
+
+    A startup that ends this way is over: the process is gone, so every remaining health poll
+    is dead time and the reader needs this message rather than a guess about the sandbox.
+    """
+    match = _AGENT_SERVER_FATAL_MESSAGE_PATTERN.search(log)
+    if not match:
+        return AGENT_SERVER_FATAL_LOG_MARKER if AGENT_SERVER_FATAL_LOG_MARKER in log else None
+    # The capture is the body of a JSON string, so it still carries JSON escapes, and the length
+    # bound can cut it after a lone backslash. Drop that backslash so the fragment parses, and
+    # keep the raw text when it still does not.
+    raw = match.group(1)
+    if (len(raw) - len(raw.rstrip("\\"))) % 2:
+        raw = raw[:-1]
+    try:
+        return json.loads(f'"{raw}"')
+    except ValueError:
+        return raw
+
 
 def build_health_check_command(
-    port: int, max_attempts: int = 60, poll_interval: float = 0.5, pid_file: str | None = None
+    port: int,
+    max_attempts: int = 60,
+    poll_interval: float = 0.5,
+    pid_file: str | None = None,
+    fatal_log_file: str | None = None,
 ) -> str:
     process_check = (
         f'if [ -f {shlex.quote(pid_file)} ]; then kill -0 "$(cat {shlex.quote(pid_file)})" 2>/dev/null || exit 1; fi; '
         if pid_file is not None
+        else ""
+    )
+    # The pid file holds the pid of whatever the launch shell backgrounded, which on the agentsh
+    # path is the `agentsh exec` client rather than the agent-server itself. That client outlives
+    # the server, so `kill -0` keeps succeeding after the server has exited and the loop polls a
+    # dead port for its whole budget. Watch the log the server writes instead, because the server
+    # names its own death there whatever supervises it.
+    fatal_check = (
+        f"  if grep -qF {shlex.quote(AGENT_SERVER_FATAL_LOG_MARKER)} {shlex.quote(fatal_log_file)} 2>/dev/null; "
+        "then exit 1; fi; "
+        if fatal_log_file is not None
         else ""
     )
     # The attempt count assumes an instant poll. A poll that waits on curl or python startup
@@ -839,6 +886,7 @@ def build_health_check_command(
         'sys.exit(0 if payload.get("status") == "ok" and payload.get("hasSession") is True else 1)'
         f'\' "$body" && echo "ok:$i" && exit 0; '
         "  fi; "
+        f"{fatal_check}"
         f'  if [ "$i" -ge {max_attempts} ] || [ "$SECONDS" -ge {budget_seconds} ]; then exit 1; fi; '
         f"  sleep {poll_interval}; "
         "done"
@@ -1036,4 +1084,6 @@ __all__ = [
     "get_sandbox_class",
     "get_sandbox_class_for_backend",
     "wait_for_health_check",
+    "agent_server_fatal_message",
+    "AGENT_SERVER_FATAL_LOG_MARKER",
 ]
