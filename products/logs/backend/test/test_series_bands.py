@@ -1,4 +1,5 @@
 import datetime as dt
+from dataclasses import replace
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -36,6 +37,16 @@ NEARBY_STRAY = WINDOW_START - dt.timedelta(weeks=1, days=5)
 ALIVE_HOURS = 48
 
 
+def _detection(*, pooling: bool, level: bool) -> series_bands.DetectionConfig:
+    # Pooling and level adjustment each need their own fixture shape; with both
+    # off a slot's band is a function of that slot's weekly samples alone.
+    return replace(
+        series_bands.DETECTION,
+        developing_pool_buckets=series_bands.DETECTION.developing_pool_buckets if pooling else 0,
+        level_adjustment_enabled=level,
+    )
+
+
 class TestSeriesBands(ClickhouseTestMixin, BaseTest):
     def _insert(self, rows: list[tuple]) -> None:
         sync_execute(
@@ -63,11 +74,13 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # (name, interval_minutes, window_days, banded_upper, quiet_upper, drop_upper)
-            # Hourly: floor of 2 per hour lifts the upper edge; 15 minutes gets a quarter of it.
-            # The finer grain charts 5 days, because 7 days of 15 minute buckets is over the cap.
-            ("hourly", 60, 7, 57.0, 2.0, 112.0),
-            ("quarter_hour", 15, 5, 55.5, 0.5, 110.5),
+            # (name, interval_minutes, window_days, banded_lower, banded_upper, quiet_upper, drop_lower, drop_upper)
+            # The band is the detector's negative binomial at its per-day false-flag
+            # budget, so the finer grain spends a smaller alpha per bucket and its
+            # rate floor is a quarter of the hourly one. The finer grain charts 5
+            # days, because 7 days of 15 minute buckets is over the cap.
+            ("hourly", 60, 7, 33.0, 951.0, 23.0, 911.0, 1092.0),
+            ("quarter_hour", 15, 5, 21.0, 1094.0, 10.0, 898.0, 1105.0),
         ]
     )
     def test_observed_line_and_band_from_prior_weeks(
@@ -75,8 +88,10 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         _name: str,
         interval_minutes: int,
         window_days: int,
+        banded_lower: float,
         banded_upper: float,
         quiet_upper: float,
+        drop_lower: float,
         drop_upper: float,
     ):
         service = f"svc-banded-{interval_minutes}"
@@ -88,18 +103,20 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         rows = self._slots(
             service, window_start - dt.timedelta(weeks=5), ALIVE_HOURS, 1, interval_minutes=interval_minutes
         )
-        for week, value in enumerate([10, 20, 30, 40, 50], start=1):
+        for week, value in enumerate([100, 200, 300, 400, 500], start=1):
             rows.append((self.team.pk, slot - dt.timedelta(weeks=week), service, "ns", "prod", "error", value))
         # Partial rows within one display bucket, including a repeated 5-minute key.
-        rows.append((self.team.pk, slot, service, "ns", "prod", "error", 5))
-        rows.append((self.team.pk, slot, service, "ns", "prod", "error", 5))
-        rows.append((self.team.pk, slot + dt.timedelta(minutes=5), service, "ns", "prod", "error", 15))
-        # A slot with no weekly samples bands at [0, floor]; anything above the floor is a spike.
-        rows.append((self.team.pk, slot + dt.timedelta(hours=2), service, "ns", "prod", "error", 5))
-        # A slot whose every weekly sample is 100 bands well above zero, so a near-empty bucket is a drop.
+        rows.append((self.team.pk, slot, service, "ns", "prod", "error", 50))
+        rows.append((self.team.pk, slot, service, "ns", "prod", "error", 50))
+        rows.append((self.team.pk, slot + dt.timedelta(minutes=5), service, "ns", "prod", "error", 150))
+        # A slot with no weekly samples bands at [0, the rate floor's quantile]; a
+        # burst well above that is a spike, and the zero lower edge means a quiet
+        # bucket there is never a drop.
+        rows.append((self.team.pk, slot + dt.timedelta(hours=2), service, "ns", "prod", "error", 500))
+        # A slot whose every weekly sample is 1000 bands well above zero, so a near-empty bucket is a drop.
         for week in range(1, 6):
-            rows.append((self.team.pk, slot + dt.timedelta(hours=3, weeks=-week), service, "ns", "prod", "error", 100))
-        rows.append((self.team.pk, slot + dt.timedelta(hours=3), service, "ns", "prod", "error", 1))
+            rows.append((self.team.pk, slot + dt.timedelta(hours=3, weeks=-week), service, "ns", "prod", "error", 1000))
+        rows.append((self.team.pk, slot + dt.timedelta(hours=3), service, "ns", "prod", "error", 10))
         # Steady traffic in every other bucket keeps the series dense at the grain.
         bucket_count = window_days * 24 * 60 // interval_minutes
         charted = (slot, slot + step, slot + dt.timedelta(hours=2), slot + dt.timedelta(hours=3))
@@ -114,7 +131,12 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         self._insert(rows)
 
         result = run_series_bands(
-            self.team, service, window_start=window_start, window_end=WINDOW_END, interval_minutes=interval_minutes
+            self.team,
+            service,
+            window_start=window_start,
+            window_end=WINDOW_END,
+            interval_minutes=interval_minutes,
+            detection=_detection(pooling=False, level=False),
         )
 
         assert result.window_start == window_start
@@ -128,31 +150,30 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert series.band_ready_at is None
         assert series.interval_minutes == interval_minutes
         assert series.coarsened_reason is None
-        assert series.total_count == 31 + 10 * (bucket_count - 4)
+        assert series.total_count == 760 + 10 * (bucket_count - 4)
         assert [bucket.time for bucket in series.buckets] == [window_start + i * step for i in range(bucket_count)]
 
         by_time = {bucket.time: bucket for bucket in series.buckets}
-        # Band folds the five weekly samples 10..50 into a 10% widened envelope,
-        # then lifts the upper edge by the per-hour floor scaled to the grain.
+        # The band is the negative binomial fitted to the five weekly samples 100..500.
         banded = by_time[slot]
-        assert banded.observed == 25
-        assert banded.lower == pytest.approx(9.0)
+        assert banded.observed == 250
+        assert banded.lower == pytest.approx(banded_lower)
         assert banded.upper == pytest.approx(banded_upper)
         assert banded.verdict is None
 
         quiet = by_time[slot + step]
         assert quiet.observed == 0
         assert quiet.lower == 0
-        assert quiet.upper == quiet_upper
+        assert quiet.upper == pytest.approx(quiet_upper)
         assert quiet.verdict is None
 
         spike = by_time[slot + dt.timedelta(hours=2)]
-        assert (spike.observed, spike.lower, spike.upper) == (5, 0, quiet_upper)
+        assert (spike.observed, spike.lower, spike.upper) == (500, 0, pytest.approx(quiet_upper))
         assert spike.verdict == "above"
 
         drop = by_time[slot + dt.timedelta(hours=3)]
-        assert drop.observed == 1
-        assert drop.lower == pytest.approx(90.0)
+        assert drop.observed == 10
+        assert drop.lower == pytest.approx(drop_lower)
         assert drop.upper == pytest.approx(drop_upper)
         assert drop.verdict == "below"
 
@@ -297,7 +318,7 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         service = "svc-stray"
         sustained_from = WINDOW_START - dt.timedelta(weeks=3)
         rows = [(self.team.pk, sustained_from - dt.timedelta(weeks=2), service, "ns", "prod", "error", 1)]
-        rows += self._slots(service, sustained_from, 4 * 7 * 24, 9)
+        rows += self._slots(service, sustained_from, 4 * 7 * 24, 900)
         self._insert(rows)
 
         result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
@@ -306,14 +327,15 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert series.history_start == sustained_from
         assert series.baseline_weeks == 3
         assert series.band_ready_at is None
-        # The stray row folds onto the window's first slot; the band there still
-        # comes from the three sustained weeks of 9, not the stray 1.
+        # The stray row folds onto the window's first slot; the band there is
+        # still the Poisson band of the three sustained weeks of 900, and the
+        # stray 1 is neither a sample nor a hole.
         first = series.buckets[0]
         assert first.time == WINDOW_START
-        assert first.lower == pytest.approx(8.1)
-        assert first.upper == pytest.approx(11.9)
+        assert first.lower == pytest.approx(815.0)
+        assert first.upper == pytest.approx(987.0)
         assert all(
-            bucket.observed == 9
+            bucket.observed == 900
             and bucket.lower is not None
             and bucket.upper is not None
             and bucket.lower <= bucket.observed <= bucket.upper
@@ -322,14 +344,64 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
 
     def test_silent_window_marks_below_the_band(self):
         service = "svc-silent"
-        self._insert(self._slots(service, BASELINE_START, 5 * 7 * 24, 9))
+        self._insert(self._slots(service, BASELINE_START, 5 * 7 * 24, 900))
 
         result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
 
         series = result.series[0]
         assert series.baseline_weeks == 5
         assert series.total_count == 0
-        assert all(bucket.observed == 0 and bucket.lower == pytest.approx(8.1) for bucket in series.buckets)
+        # The level component reads the silent days as a lower level, but the
+        # clamp keeps the band well above zero, so every bucket stays a drop.
+        assert all(bucket.observed == 0 and bucket.verdict == "below" for bucket in series.buckets)
+
+    def test_pooled_neighbours_share_a_slots_band(self):
+        service = "svc-pooled"
+        rows = self._slots(service, BASELINE_START, ALIVE_HOURS, 1)
+        for week in range(1, 6):
+            rows.append((self.team.pk, SLOT - dt.timedelta(weeks=week), service, "ns", "prod", "error", 100))
+            for neighbour in (SLOT - dt.timedelta(hours=1), SLOT + dt.timedelta(hours=1)):
+                rows.append((self.team.pk, neighbour - dt.timedelta(weeks=week), service, "ns", "prod", "error", 400))
+        rows.append((self.team.pk, SLOT, service, "ns", "prod", "error", 400))
+        self._insert(rows)
+
+        result = run_series_bands(
+            self.team,
+            service,
+            window_start=WINDOW_START,
+            window_end=WINDOW_END,
+            detection=_detection(pooling=True, level=False),
+        )
+
+        bucket = {b.time: b for b in result.series[0].buckets}[SLOT]
+        # The slot's own five samples of 100 would band at [73, 130] and read
+        # 400 as a spike; the neighbours' ten samples of 400 an hour either side
+        # pool in and the band fits the level the series runs at around that hour.
+        assert bucket.observed == 400
+        assert bucket.lower == pytest.approx(47.0)
+        assert bucket.upper == pytest.approx(881.0)
+        assert bucket.verdict is None
+
+    def test_level_shift_recentres_the_band_within_the_window(self):
+        service = "svc-level"
+        rows = self._slots(service, BASELINE_START, 5 * 7 * 24, 1000)
+        rows += self._slots(service, WINDOW_START, 7 * 24, 600)
+        self._insert(rows)
+
+        result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
+
+        by_time = {b.time: b for b in result.series[0].buckets}
+        # A day in, the level still reads from the baseline weeks: 600 against a
+        # band around 1000 is a drop. Three days in, the trailing day behind the
+        # baseline guard already runs at 600, so the band re-centres on it.
+        early = by_time[WINDOW_START + dt.timedelta(days=1)]
+        assert early.observed == 600
+        assert early.verdict == "below"
+        settled = by_time[WINDOW_START + dt.timedelta(days=3)]
+        assert settled.observed == 600
+        assert settled.verdict is None
+        assert settled.lower is not None and settled.upper is not None
+        assert settled.lower < 600 < settled.upper < 1000
 
     def test_band_ready_at_is_when_the_gate_opens(self):
         earliest = WINDOW_START - dt.timedelta(weeks=1)
@@ -340,18 +412,26 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         window = WINDOW_END - WINDOW_START
         assert _band_gate(ready_at - window, ready_at, earliest)[1] is None
 
-    def test_missing_baseline_week_drags_floor_to_zero(self):
+    def test_missing_baseline_week_counts_as_a_zero_sample(self):
         service = "svc-gappy"
         rows = self._slots(service, BASELINE_START, ALIVE_HOURS, 1, ("ns", "prod", "warn"))
         for week, value in enumerate([100, 110, 120], start=1):
             rows.append((self.team.pk, SLOT - dt.timedelta(weeks=week), service, "ns", "prod", "warn", value))
         self._insert(rows)
 
-        result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
+        result = run_series_bands(
+            self.team,
+            service,
+            window_start=WINDOW_START,
+            window_end=WINDOW_END,
+            detection=_detection(pooling=False, level=False),
+        )
 
         bucket = {b.time: b for b in result.series[0].buckets}[SLOT]
+        # Two lifetime weeks with no row at this slot are two samples of zero, so
+        # the band spreads to cover both the zeros and the hundreds.
         assert bucket.lower == 0
-        assert bucket.upper == pytest.approx(134.0)
+        assert bucket.upper == pytest.approx(368.0)
 
     def test_series_ordered_by_observed_volume(self):
         service = "svc-ordered"
