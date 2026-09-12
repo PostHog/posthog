@@ -38,7 +38,7 @@ export function TicketPatternPanel({ ticketId }: TicketPatternPanelProps): JSX.E
                             {pattern.requester_count === 1 ? 'customer' : 'customers'}
                         </span>
                         {pattern.status === 'open' ? ' that nobody has reviewed yet.' : '.'}{' '}
-                        <Link to={urls.supportPatterns()}>See the pattern</Link>
+                        <Link to={urls.supportPatterns(pattern.status)}>See the pattern</Link>
                     </div>
                 </li>
             ))}

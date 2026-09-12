@@ -1,7 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -110,6 +112,17 @@ describe('supportPatternsSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.patterns.map((p) => p.id)).toEqual(['fresh'])
+    })
+
+    it('opens on the filter the ticket panel linked to', async () => {
+        logic.unmount()
+        router.actions.push(urls.supportPatterns('confirmed'))
+        logic = supportPatternsSceneLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+
+        expect(logic.values.statusFilter).toEqual('confirmed')
     })
 
     it('loads nothing when the feature flag is off', async () => {
