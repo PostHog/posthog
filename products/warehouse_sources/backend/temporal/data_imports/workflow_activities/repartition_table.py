@@ -408,6 +408,18 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         _give_up(inputs, schema, pending, trigger_reason, logger)
         return
 
+    # Never while a swap is staged: that recovery runs no rewrite, so the checkpoint says nothing
+    # about it, and temp is the only intact copy until it completes.
+    if swap is None and _retrying_a_killed_attempt(schema, pending, inputs.job_id):
+        logger.warning(
+            f"repartition: the attempt this run retries was killed without writing anything, standing "
+            f"down until the next sync schema_id={schema.id}",
+            schema_id=str(schema.id),
+        )
+        DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="killed").inc()
+        _capture_stood_down(schema, inputs, trigger_reason, "attempt_killed_without_progress", logger)
+        return
+
     started_props = base_event_props(schema, schema.source, inputs.job_id)
     started_props["trigger_reason"] = trigger_reason
     capture_repartition_event("warehouse_repartition_started", started_props)
@@ -717,6 +729,31 @@ def _exhausted_attempts(pending: dict[str, Any] | None, job_id: str) -> bool:
     return attempts >= MAX_REPARTITION_ATTEMPTS
 
 
+def _rewrite_rows_written(schema: ExternalDataSchema) -> int:
+    """Rows the rewrite checkpoint says temp already holds, or 0 when there is no checkpoint."""
+    return int((schema.repartition_rewrite or {}).get("rows_written") or 0)
+
+
+def _retrying_a_killed_attempt(schema: ExternalDataSchema, pending: dict[str, Any] | None, job_id: str) -> bool:
+    """Whether this run retries an attempt that was killed without moving the rewrite on.
+
+    Temporal re-runs the activity only when the previous attempt neither finished nor recorded an
+    outcome, because every handled failure returns normally. A retry whose charge is still
+    outstanding is therefore retrying an attempt that was killed outright — a SIGKILLed worker runs
+    no `except` and no `finally` — rather than one that deliberately re-raised, since those refund
+    the charge on their way out (`_refund_attempt`). Running the same rewrite again costs the sync
+    another activity budget for the same death, so it is only worth doing while the dead attempt
+    left the checkpoint further along than it found it; the checkpoint keeps whatever it did write
+    for the next sync either way.
+    """
+    if current_activity_attempt() <= 1 or pending is None:
+        return False
+    if pending.get("charged_job_id") != job_id:
+        return False
+    started_from = pending.get("attempt_rows")
+    return started_from is not None and _rewrite_rows_written(schema) <= int(started_from)
+
+
 def _give_up(
     inputs: RepartitionActivityInputs,
     schema: ExternalDataSchema,
@@ -729,10 +766,15 @@ def _give_up(
     Stamps the cooldown as well, or detection re-flags the table on the next sync and the attempts
     start over — same reason `_handle_failure` does.
     """
+    # Read before the markers are cleared below. An attempt killed outright leaves the checkpoint as
+    # its only trace, so this count is all the terminal record can say about how far the rewrite got.
+    # The count alone: the checkpoint's temp URI carries the team's bucket and table names.
+    rewrite_rows = _rewrite_rows_written(schema)
     logger.warning(
         f"repartition: giving up after {MAX_REPARTITION_ATTEMPTS} attempts that did not survive to "
-        f"record an outcome schema_id={inputs.schema_id}",
+        f"record an outcome, rewrite stuck at {rewrite_rows} rows schema_id={inputs.schema_id}",
         schema_id=inputs.schema_id,
+        rewrite_rows=rewrite_rows,
     )
     # Stake a fresh claim before clearing anything. This runs before the activity mints its own, so a
     # timed-out predecessor may still be running and still hold the old token; leaving it valid would
@@ -746,13 +788,14 @@ def _give_up(
     schema.stamp_last_repartition_at()
     error = RepartitionAttemptsExhausted(
         f"repartition gave up after {MAX_REPARTITION_ATTEMPTS} attempts that did not survive to record "
-        f"an outcome (trigger_reason={trigger_reason})"
+        f"an outcome, with the rewrite stuck at {rewrite_rows} rows (trigger_reason={trigger_reason})"
     )
     props = base_event_props(schema, schema.source, inputs.job_id)
     props.update(
         {
             "trigger_reason": trigger_reason,
             "attempts": int((pending or {}).get("attempts", 0)),
+            "rewrite_rows": rewrite_rows,
             "final": True,
             "error_type": type(error).__name__,
             "error_message": str(error),
@@ -780,19 +823,25 @@ def _charge_attempt(
 
     `_refund_attempt` restores the prior count and releases the run's charge. None means nothing was
     charged (no pending marker, or a DB failure) — bookkeeping must never block the rewrite.
+
+    Every attempt also stamps `attempt_rows`, the rewrite checkpoint it is about to run from, charged
+    or not: an attempt killed outright records nothing itself, so that stamp is the only thing a
+    retry can judge the attempt it retries against (see `_retrying_a_killed_attempt`).
     """
     if pending is None:
         return None
     prior = int(pending.get("attempts", 0))
-    if pending.get("charged_job_id") == job_id:
-        # A retry of a run that already paid: the persisted count already includes its charge.
-        return max(prior - 1, 0)
+    already_charged = pending.get("charged_job_id") == job_id
+    marker = {**pending, "attempt_rows": _rewrite_rows_written(schema)}
+    if not already_charged:
+        marker |= {"attempts": prior + 1, "charged_job_id": job_id}
     try:
-        schema.set_repartition_pending({**pending, "attempts": prior + 1, "charged_job_id": job_id})
+        schema.set_repartition_pending(marker)
     except Exception:
         logger.warning("repartition: could not charge attempt, proceeding uncharged", exc_info=True)
         return None
-    return prior
+    # A retry of a run that already paid: the persisted count already includes its charge.
+    return max(prior - 1, 0) if already_charged else prior
 
 
 def _refund_attempt(schema: ExternalDataSchema, prior: int | None, logger: FilteringBoundLogger) -> None:
