@@ -17,6 +17,30 @@ from posthog.schema_enums import PersonsOnEventsMode
 
 _SPECIAL_CALLS = frozenset(
     {
+        "accuratecastornull",
+        "domain",
+        "intdiv",
+        "multiplydecimal",
+        "convertcurrency",
+        "formatreadabletimedelta",
+        "roundbankers",
+        "extracturlparameter",
+        "arrayzip",
+        "arrayfold",
+        "arrayreversesort",
+        "extractallgroups",
+        "replaceregexpone",
+        "median",
+        "medianif",
+        "topk",
+        "arraymax",
+        "arrayenumerate",
+        "arrayall",
+        "arrayexists",
+        "arraycount",
+        "countequal",
+        "multisearchanycaseinsensitive",
+        "tostartofinterval",
         "percentile_cont",
         "percentile_disc",
         "argmax",
@@ -31,11 +55,13 @@ _SPECIAL_CALLS = frozenset(
         "arrayflatten",
         "arraymap",
         "arraymin",
+        "arrayslice",
         "arraysort",
         "arraysum",
         "empty",
         "extract",
         "extractall",
+        "first_value",
         "grouparrayif",
         "groupuniqarrayif",
         "groupuniqarray",
@@ -44,6 +70,7 @@ _SPECIAL_CALLS = frozenset(
         "hasany",
         "in",
         "countdistinct",
+        "countdistinctif",
         "date_part",
         "dateadd",
         "datesub",
@@ -65,8 +92,18 @@ _SPECIAL_CALLS = frozenset(
         "notempty",
         "notin",
         "parsedatetime",
+        "parsedatetimebesteffort",
         "quantile",
         "quantileif",
+        "quantileexact",
+        "quantileexactif",
+        "aggregate_funnel_trends",
+        "cityhash64",
+        "cuttofirstsignificantsubdomain",
+        "ngramdistance",
+        "hex",
+        "touuidordefault",
+        "reinterpretasuuid",
         "range",
         "repeat",
         "splitbychar",
@@ -90,6 +127,10 @@ _SPECIAL_CALLS = frozenset(
         "tostartofyear",
         "tolastdayofweek",
         "totimezone",
+        "like",
+        "ilike",
+        "notlike",
+        "notilike",
     }
 )
 _SEMANTIC_CALLS = frozenset({"cohort", "matchesaction", "savedquery"})
@@ -194,8 +235,8 @@ class TrinoReadyValidator(TraversingVisitor):
     def visit_cte(self, node: ast.CTE) -> None:
         if node.cte_type != "subquery":
             self._fail("TRINO_SCALAR_CTE_UNSUPPORTED", "scalar CTE", node)
-        if node.materialized is not None or node.using_key is not None:
-            self._fail("TRINO_CTE_MODIFIER_UNSUPPORTED", "CTE modifier", node)
+        if node.using_key is not None:
+            self._fail("TRINO_CTE_MODIFIER_UNSUPPORTED", "CTE USING KEY", node)
         super().visit_cte(node)
 
     def visit_pivot_expr(self, node: ast.PivotExpr) -> None:

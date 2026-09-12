@@ -51,6 +51,7 @@ def build_trino_table_locators(
 
     locators: dict[str, TrinoTableLocator] = {
         "events": (catalog_name, "posthog", table_names.events_table),
+        "exchange_rate": (catalog_name, "posthog", "exchange_rate"),
         "persons": (catalog_name, "posthog", table_names.persons_table),
     }
 

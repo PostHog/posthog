@@ -1,12 +1,13 @@
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import DatabaseField, ExpressionField
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_unnest_table import TRINO_UNNEST_TABLE_NAME
 from posthog.hogql.transforms.trino.any_join import lower_trino_any_joins
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.expressions import expression_key, positional_index
 from posthog.hogql.transforms.trino.query_wrappers import lower_trino_query_wrappers
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 _MAX_NUMBERS_ROWS = 10_000_000
 _EVENT_PROPERTY_BACKED_FIELDS = frozenset(
@@ -39,8 +40,9 @@ def _wrap_unnest_elements(array_expr: ast.Expr, lambda_name: str) -> ast.Call:
 
 
 class TrinoPhysicalFieldLowerer(CloningVisitor):
-    def __init__(self) -> None:
+    def __init__(self, context: HogQLContext) -> None:
         super().__init__(clear_types=False)
+        self.context = context
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
         field_type = node.type
@@ -81,6 +83,12 @@ class TrinoPhysicalFieldLowerer(CloningVisitor):
                     name="arrayDistinct",
                     args=[ast.Call(name="extractAll", args=[source, ast.Constant(value=pattern)])],
                 )
+        if isinstance(field_type, ast.FieldType) and isinstance(table_type, ast.TableType):
+            database_field = field_type.resolve_database_field(self.context)
+            if isinstance(database_field, DatabaseField) and database_field.name != field_type.name:
+                lowered = super().visit_field(node)
+                lowered.chain[-1] = database_field.name
+                return lowered
         return super().visit_field(node)
 
 
@@ -100,6 +108,33 @@ class TrinoSemanticCallLowerer(CloningVisitor):
             expr=lowered.args[0],
             type=lowered.type,
         )
+
+
+class TrinoScalarCTELowerer(CloningVisitor):
+    def __init__(self) -> None:
+        super().__init__(clear_types=False)
+        self.scalar_ctes: dict[str, ast.Expr] = {}
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        outer_scalar_ctes = self.scalar_ctes
+        self.scalar_ctes = dict(outer_scalar_ctes)
+        try:
+            for name, cte in (node.ctes or {}).items():
+                if cte.cte_type == "column":
+                    self.scalar_ctes[name] = self.visit(cte.expr)
+            lowered = super().visit_select_query(node)
+            if lowered.ctes:
+                lowered.ctes = {name: cte for name, cte in lowered.ctes.items() if cte.cte_type == "subquery"}
+                if not lowered.ctes:
+                    lowered.ctes = None
+            return lowered
+        finally:
+            self.scalar_ctes = outer_scalar_ctes
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        if len(node.chain) == 1 and isinstance(node.chain[0], str) and node.chain[0] in self.scalar_ctes:
+            return clone_expr(self.scalar_ctes[node.chain[0]], clear_types=False)
+        return super().visit_field(node)
 
 
 class TrinoSelectAliasLowerer(CloningVisitor):
@@ -140,6 +175,25 @@ class TrinoSelectAliasLowerer(CloningVisitor):
         self.aliases = outer_aliases
         return lowered
 
+    def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
+        outer_aliases = self.aliases
+        next_join = node.next_join
+        node.next_join = None
+        self.aliases = {}
+        try:
+            lowered = super().visit_join_expr(node)
+        finally:
+            self.aliases = outer_aliases
+            node.next_join = next_join
+        if node.table_args is not None:
+            lowered.table_args = []
+            for argument in node.table_args:
+                while isinstance(argument, ast.Alias) and argument.hidden:
+                    argument = argument.expr
+                lowered.table_args.append(self.visit(argument))
+        lowered.next_join = self.visit(next_join) if next_join is not None else None
+        return lowered
+
     def visit_field(self, node: ast.Field) -> ast.Expr:
         if (
             len(node.chain) == 1
@@ -155,6 +209,42 @@ class TrinoSelectAliasLowerer(CloningVisitor):
             finally:
                 self.expanding.remove(alias)
         return super().visit_field(node)
+
+
+class TrinoPhysicalProjectionAliasLowerer(CloningVisitor):
+    def __init__(self, context: HogQLContext) -> None:
+        super().__init__(clear_types=False)
+        self.context = context
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        lowered = super().visit_select_query(node)
+        for projection in lowered.select:
+            if not isinstance(projection, ast.Alias) or not projection.hidden:
+                continue
+            expression = projection.expr
+            while isinstance(expression, ast.Alias) and expression.hidden:
+                expression = expression.expr
+            field_type = expression.type
+            while isinstance(field_type, ast.FieldAliasType):
+                field_type = field_type.type
+            if not isinstance(field_type, ast.FieldType):
+                if self._selects_expression_field(lowered.select_from, projection.alias):
+                    projection.hidden = False
+                continue
+            database_field = field_type.resolve_database_field(self.context)
+            if isinstance(database_field, DatabaseField) and database_field.name != projection.alias:
+                projection.hidden = False
+        return lowered
+
+    def _selects_expression_field(self, join: ast.JoinExpr | None, name: str) -> bool:
+        while join is not None:
+            table_type = join.type
+            while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+                table_type = table_type.table_type
+            if isinstance(table_type, ast.TableType) and isinstance(table_type.table.fields.get(name), ExpressionField):
+                return True
+            join = join.next_join
+        return False
 
 
 class TrinoArrayJoinFunctionLowerer(CloningVisitor):
@@ -219,13 +309,13 @@ class TrinoNormalizer(TraversingVisitor):
             raise TrinoLoweringError(
                 "TRINO_ARRAY_JOIN_MODE_UNSUPPORTED", node.array_join_op or "ARRAY JOIN without an operation", node
             )
-        if node.array_join_list is None or len(node.array_join_list) != 1:
-            raise TrinoLoweringError("TRINO_ARRAY_JOIN_MULTIPLE_ARRAYS_UNSUPPORTED", "multiple-array ARRAY JOIN", node)
-        array_expr = node.array_join_list[0]
-        if not isinstance(array_expr, ast.Alias):
+        if not node.array_join_list or not all(
+            isinstance(array_expr, ast.Alias) for array_expr in node.array_join_list
+        ):
             raise TrinoLoweringError("TRINO_ARRAY_JOIN_ALIAS_REQUIRED", "ARRAY JOIN without an output alias", node)
         if node.select_from is None:
             raise TrinoLoweringError("TRINO_ARRAY_JOIN_RELATION_REQUIRED", "ARRAY JOIN without a FROM relation", node)
+        array_exprs = [array_expr for array_expr in node.array_join_list if isinstance(array_expr, ast.Alias)]
         table_name = f"__trino_unnest_{self.unnest_index}"
         self.unnest_index += 1
         final_join = node.select_from
@@ -234,9 +324,13 @@ class TrinoNormalizer(TraversingVisitor):
         final_join.next_join = ast.JoinExpr(
             join_type="CROSS JOIN",
             table=ast.Field(chain=[TRINO_UNNEST_TABLE_NAME]),
-            table_args=[_wrap_unnest_elements(array_expr.expr, f"{table_name}_value")],
+            table_args=[
+                _wrap_unnest_elements(array_exprs[0].expr, f"{table_name}_value")
+                if len(array_exprs) == 1
+                else ast.Call(name="arrayZip", args=[array_expr.expr for array_expr in array_exprs])
+            ],
             alias=table_name,
-            column_aliases=[array_expr.alias],
+            column_aliases=[array_expr.alias for array_expr in array_exprs],
         )
         node.array_join_op = None
         node.array_join_list = None
@@ -262,29 +356,49 @@ class TrinoNormalizer(TraversingVisitor):
     def _lower_numbers_args(self, args: list[ast.Expr] | None) -> ast.Call:
         if args is None or len(args) not in {1, 2}:
             raise TrinoLoweringError("TRINO_NUMBERS_ARGUMENT_COUNT", "numbers with other than one or two arguments")
-        values: list[int] = []
-        for arg in args:
-            if not isinstance(arg, ast.Constant) or isinstance(arg.value, bool) or not isinstance(arg.value, int):
+        if all(
+            isinstance(arg, ast.Constant) and not isinstance(arg.value, bool) and isinstance(arg.value, int)
+            for arg in args
+        ):
+            values = [arg.value for arg in args if isinstance(arg, ast.Constant) and isinstance(arg.value, int)]
+            constant_start, constant_count = (0, values[0]) if len(values) == 1 else values
+            if constant_count < 0:
+                raise TrinoLoweringError("TRINO_NUMBERS_NEGATIVE_ROW_COUNT", "numbers with a negative row count")
+            if constant_count > _MAX_NUMBERS_ROWS:
                 raise TrinoLoweringError(
-                    "TRINO_NUMBERS_NON_CONSTANT_ARGUMENT", "numbers requires constant integer arguments", arg
+                    "TRINO_NUMBERS_ROW_LIMIT_EXCEEDED", f"numbers above the {_MAX_NUMBERS_ROWS:,}-row limit"
                 )
-            values.append(arg.value)
-        start, count = (0, values[0]) if len(values) == 1 else values
-        if count < 0:
-            raise TrinoLoweringError("TRINO_NUMBERS_NEGATIVE_ROW_COUNT", "numbers with a negative row count")
-        if count > _MAX_NUMBERS_ROWS:
-            raise TrinoLoweringError(
-                "TRINO_NUMBERS_ROW_LIMIT_EXCEEDED", f"numbers above the {_MAX_NUMBERS_ROWS:,}-row limit"
+            return ast.Call(
+                name="range",
+                args=[ast.Constant(value=constant_start), ast.Constant(value=constant_start + constant_count)],
             )
-        return ast.Call(name="range", args=[ast.Constant(value=start), ast.Constant(value=start + count)])
+
+        start_expr = ast.Constant(value=0) if len(args) == 1 else args[0]
+        count_expr = args[-1]
+        bounded_count = ast.Call(
+            name="least",
+            args=[
+                ast.Call(name="greatest", args=[ast.Call(name="toInt", args=[count_expr]), ast.Constant(value=0)]),
+                ast.Constant(value=_MAX_NUMBERS_ROWS),
+            ],
+        )
+        return ast.Call(
+            name="range",
+            args=[
+                start_expr,
+                ast.ArithmeticOperation(op=ast.ArithmeticOperationOp.Add, left=start_expr, right=bounded_count),
+            ],
+        )
 
 
 def normalize_trino_ast(node: ast.AST, context: HogQLContext) -> ast.AST:
-    lowered = TrinoArrayJoinFunctionLowerer(context).visit(node)
-    lowered = TrinoPhysicalFieldLowerer().visit(lowered)
+    lowered = TrinoScalarCTELowerer().visit(node)
+    lowered = TrinoArrayJoinFunctionLowerer(context).visit(lowered)
+    lowered = TrinoPhysicalFieldLowerer(context).visit(lowered)
     lowered = TrinoSemanticCallLowerer().visit(lowered)
     lowered = lower_trino_any_joins(lowered)
     lowered = lower_trino_query_wrappers(lowered)
     lowered = TrinoSelectAliasLowerer().visit(lowered)
+    lowered = TrinoPhysicalProjectionAliasLowerer(context).visit(lowered)
     TrinoNormalizer(context).visit(lowered)
     return lowered

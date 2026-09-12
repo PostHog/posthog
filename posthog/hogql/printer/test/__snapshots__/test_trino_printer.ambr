@@ -92,7 +92,7 @@
 # ---
 # name: test_lowered_property_timestamp_is_not_constant
   tuple(
-    'SELECT CAST(json_extract_scalar("users"."properties", %(hogql_val_0)s) AS TIMESTAMP) FROM "ducklake"."analytics"."users" AS "users"',
+    'SELECT coalesce(TRY_CAST(json_extract_scalar("users"."properties", %(hogql_val_0)s) AS TIMESTAMP), CAST(TRY(from_iso8601_timestamp(json_extract_scalar("users"."properties", %(hogql_val_0)s))) AS TIMESTAMP), CAST(from_unixtime(TRY_CAST(json_extract_scalar("users"."properties", %(hogql_val_0)s) AS DOUBLE)) AS TIMESTAMP)) FROM "ducklake"."analytics"."users" AS "users"',
     dict({
       'hogql_val_0': '$["cutoff"]',
     }),

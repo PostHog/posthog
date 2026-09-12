@@ -8,7 +8,7 @@ Call `prepare_and_print_ast(node, context, "trino")` explicitly for standalone c
 
 The returned SQL uses named placeholders, with values stored in `context.values`. The direct Trino adapter converts them into positional placeholders and submits the ordered values to the Trino client.
 
-The final Trino transpiler accepts a prepared AST plus frozen snapshots of bindings, table locators, modifiers, limits, timezone, and week start. It clones the AST and creates a fresh print context without a team, user, or schema database before final lowering, validation, and printing.
+The final Trino transpiler accepts a prepared AST plus frozen snapshots of bindings, table locators, modifiers, limits, timezone, and week start. The prepared AST retains resolved table metadata for expanded saved queries. The transpiler clones the AST and creates a fresh print context without a team, user, or schema database before final lowering, validation, and printing.
 
 `transpile_hogql_to_trino(...)` is the restricted, manifest-backed front end. Its immutable manifest allowlists logical tables, physical Trino locators, and warehouse column types. `events` and `persons` use fixed built-in schemas. The function resolves and prints with no team, user, Django model, saved query, or lazy database callback, and its tests assert that it executes zero Django queries.
 
@@ -23,6 +23,34 @@ second = catalog.transpile("SELECT count() FROM events")
 `transpile_hogql_to_trino(...)` remains the one-shot wrapper and prepares a catalog for that call. The manifest contract has no version field, so the compiler does not keep a process-global prepared-catalog cache. Callers must create a new prepared catalog when their immutable manifest snapshot changes.
 
 Pure transpilation accepts caller-supplied constant values. It rejects unresolved placeholders, action and cohort references, tables absent from the manifest, non-leaf warehouse column types, and invalid or incomplete manifest entries. Callers needing Django-backed semantics must select the explicit expansion mode described below.
+
+## Curated warehouse fields in manifests
+
+Physical imports can expose different names and types from the HogQL schema. Supply
+`TrinoManifestTable.field_overrides` to retain logical aliases and computed fields in
+addition to the physical `columns`. The catalog copies these definitions when it is
+prepared; subsequent changes to the caller's definitions do not mutate that catalog.
+Core `events` and `persons` manifests still use their fixed schemas and reject overrides.
+
+For example, a logical `customer_id` can be a `StringDatabaseField(name="customer")`,
+while `created_at` can be an `ExpressionField` over a raw epoch column. Set
+`isolate_scope=True` on computed fields that reference columns of their own table.
+Warehouse callers can obtain curated definitions from `resolve_external_table_fields`
+using the source resource name and the columns actually present in the import.
+Supplying raw column metadata alone omits these semantic mappings.
+
+Trino lowering supports keyed `JSONExtractArrayRaw` as an array of serialized JSON
+values, numeric epoch arguments to `toDateTime`, array literal membership, and shared
+CTEs across UNION branches. Day-time intervals use native interval arithmetic.
+`JSONExtractRaw` also accepts dynamic string keys with JSON-escaped path construction.
+Numeric JSON path components use Trino `element_at` so one-based and negative indexes
+retain ClickHouse array semantics.
+
+An executable SELECT is not sufficient to establish materialization compatibility:
+connectors may reject anonymous nested row fields or untyped NULL output columns.
+Callers must validate the intended CREATE TABLE AS operation and its output contract.
+A successful build does not establish cross-engine result parity, particularly when
+inputs are bounded or the caller applies explicit experimental rewrites.
 
 ## Query Editor connection integration
 
@@ -119,6 +147,66 @@ The result admin can retry selected failed or stale rows. A retry creates a new 
 The data modeling shadow path uses these results as an eligibility gate. It requires a ready Trino target and a non-empty compiled result whose source hash matches the saved query's current definition.
 
 ## Validation
+
+The Trino printer supports `countDistinctIf`, `replaceOne`, `toFloat64OrNull`,
+`arrayCount` with a predicate lambda, `countEqual`, `arraySlice`, `arraySort` with
+a single-array key lambda, and `multiSearchAnyCaseInsensitive`. Simple `CASE`
+expressions and numeric conditions in `if`/`multiIf` use native Trino conditionals.
+Aliases inside expressions are omitted from SQL; projection aliases are retained.
+String inputs to `toInt` use `TRY_CAST`, returning NULL for strings that do not
+represent an integer. Numeric aggregate-filter conditions are cast to BOOLEAN.
+
+`JSONExtractKeysAndValues` converts values individually and excludes entries that
+cannot be converted, so a mixed JSON object does not fail a numeric extraction.
+Typed `JSONExtract` maps convert individual scalar values too, but retain keys
+and use the requested type's default for values that cannot be converted.
+`splitByChar`/`splitByString` support an optional maximum substring count with the
+ClickHouse default behavior of excluding the remaining suffix.
+
+`parseDateTimeBestEffort` supports ISO timestamps with explicit offsets, ordinary
+date/timestamp strings, day-abbreviated-month-two-digit-year strings, and 9–10 digit Unix-second strings. An optional timezone
+controls interpretation of unzoned strings and the returned wall-clock timestamp.
+Other ClickHouse best-effort formats remain unsupported at execution; invalid
+strings raise an error rather than becoming NULL. `toStartOfInterval` supports
+positive constant second/minute intervals anchored at the Unix epoch. Other units,
+custom origins, and timezone arguments remain rejected.
+
+Two-argument `floor`/`ceil` scale by a power of ten before rounding, using Trino
+floating-point arithmetic. `roundBankers` supports constant precision from -18 to
+18, using decimal rounding increments and ties-to-even correction. Its input is
+evaluated once, outside the correction lambda, so aggregate arguments remain valid.
+`intDiv` supports integer operands through BIGINT division without floating-point
+conversion. Non-integer operands remain rejected. `median` uses `approx_percentile`
+at 0.5, following the existing approximate `quantile` translation; the algorithms
+do not guarantee identical estimates between engines.
+
+`extractURLParameter` preserves encoded values and returns the first matching
+parameter, or an empty string when absent. `arrayZip` supports two to five explicit arrays of
+equal length; dynamic arrays remain rejected rather than receiving Trino's NULL
+padding. `extractAllGroups` supports constant patterns with 1–5 capture groups,
+returning one array of captures per match. `replaceRegexpOne` supports constant
+patterns and replacements, including numbered replacement captures. Lookarounds,
+inline flags, and pattern backreferences remain rejected for first-only replacement.
+These regex translations use Trino's regex engine, so engine-specific regex syntax
+is not universally portable.
+
+Extended decimal arithmetic (`multiplyDecimal`/`divideDecimal`), additional hash
+algorithms, full public-suffix domain rules, and frame-sensitive window functions
+still require their own compatible implementations; these mappings do not remove the
+existing rejection guards.
+
+Additional build-oriented mappings cover UTF-8 string aliases, URL encoding,
+array enumeration and predicates, supported hashes and domain extraction, UUID
+conversion, dynamic JSON paths, and scalar tuple membership. Numeric
+and UUID values are aligned with string branches in subqueries and set operations.
+Date/time inputs to `toFloat` and `_toUInt64` use Unix epoch conversion rather than
+casts that Trino rejects.
+
+Select aliases used by generated `UNNEST` table arguments are expanded before the
+query is re-resolved. Dynamic `mapFromArrays` inputs retain their original keys and
+fail when Trino cannot represent duplicate or null keys. `quantileExact`,
+`cityHash64`, `ngramDistance`, and `aggregate_funnel_trends` remain unsupported
+because the available Trino functions do not preserve their semantics.
 
 Run the Trino printer, semantic expansion, and parameter-helper tests. Run the existing printer/resolver and direct-adapter tests to check shared behavior, and the startup-import guards to check initialization. Do not regenerate existing dialect snapshots simply to make a regression pass.
 
