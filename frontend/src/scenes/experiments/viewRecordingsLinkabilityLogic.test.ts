@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -100,13 +101,18 @@ describe('viewRecordingsLinkabilityLogic', () => {
         expect(logic.values.unlinkableEventNames).toEqual(new Set())
     })
 
-    it('leaves both verdicts unknown when the flag-scoped check fails, so callers fail open', async () => {
+    // Both leave the verdicts unknown, but only the first is a defect worth reporting: swallowing
+    // it would hide a broken scan behind the project-wide answer this check exists to replace.
+    it.each([
+        ['a refused scan', new ApiError('refused', 500), 'loadFlagCoverageFailure'],
+        ['an endpoint the backend does not serve yet', new ApiError('not found', 404), 'loadFlagCoverageSuccess'],
+    ])('leaves both verdicts unknown on %s, so callers fail open', async (_, error, expectedAction) => {
         seenTogetherSpy.mockResolvedValue({})
-        ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockRejectedValue(new Error('refused'))
+        ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockRejectedValue(error)
         logic = viewRecordingsLinkabilityLogic({ experiment: experimentBase })
         logic.mount()
 
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({
+        await expectLogic(logic).toDispatchActions([expectedAction]).toFinishAllListeners().toMatchValues({
             exposureSessionLinkable: null,
             exposureFallbackLinkable: null,
         })

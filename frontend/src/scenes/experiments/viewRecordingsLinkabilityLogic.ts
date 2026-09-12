@@ -2,6 +2,7 @@ import { MakeLogicType, afterMount, connect, kea, key, path, props, propsChanged
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { isUnavailableEndpointError } from 'lib/api-error'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -159,10 +160,17 @@ export const viewRecordingsLinkabilityLogic = kea<viewRecordingsLinkabilityLogic
                             String(values.currentProjectId),
                             props.experiment.id
                         )
-                    } catch {
-                        // A failed scan is the same as an unanswered one, which every reader below
-                        // treats as linkable.
-                        return null
+                    } catch (error) {
+                        // The surfaces ship ahead of this endpoint, so a bundle can reach a backend
+                        // that doesn't serve it yet. Every reader below treats an absent verdict as
+                        // linkable, so that degrades quietly.
+                        if (isUnavailableEndpointError(error)) {
+                            return null
+                        }
+                        // Every other failure stays a failure. Read as success, a broken scan would
+                        // silently restore the project-wide answer this check exists to replace,
+                        // with nothing in error tracking to show it.
+                        throw error
                     }
                 },
             },
