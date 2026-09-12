@@ -456,6 +456,69 @@ class TestCleanup(BuildServiceBaseTest):
         assert str(published.id) not in kept  # aged past retention, unprotected
         assert pruned == 1
 
+    def test_cleanup_paginates_across_page_boundaries(self):
+        # Force several keyset pages over one canvas's aged builds. A boundary
+        # bug (a skipped or re-fetched row) would leave stale artifacts or
+        # miscount, which is the failure the keyset rewrite exists to prevent.
+        old = timezone.now() - build_service.SUCCESSFUL_BUILD_RETENTION - timedelta(days=1)
+        builds = []
+        for _ in range(5):
+            build = self._publish()
+            with patch.object(
+                build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html></html>"})
+            ):
+                build_service.run_canvas_build(self.team.id, str(build.id))
+            builds.append(build)
+        CanvasBuild.objects.unscoped().filter(id__in=[b.id for b in builds]).update(finished_at=old)
+        self.canvas.refresh_from_db()
+        assert self.canvas.published_build_id == builds[-1].id
+
+        with patch.object(build_service, "CLEANUP_PAGE_SIZE", 2):
+            pruned = build_service.cleanup_canvas_builds()
+
+        kept = {
+            str(b.id)
+            for b in CanvasBuild.objects.unscoped().filter(
+                canvas_id=self.canvas.id, artifact_object_prefix__isnull=False
+            )
+        }
+        # Kept: the live pointer and the newest other ready build (rollback).
+        assert kept == {str(builds[-1].id), str(builds[-2].id)}
+        assert pruned == 3
+
+    def test_cleanup_keeps_prefix_when_storage_delete_partially_fails(self):
+        # A build whose objects could not all be deleted must keep its prefix so
+        # a later sweep retries it; nulling it anyway orphans the surviving
+        # objects (no row points at them) and overcounts the prune.
+        old = timezone.now() - build_service.SUCCESSFUL_BUILD_RETENTION - timedelta(days=1)
+        builds = []
+        for _ in range(4):
+            build = self._publish()
+            with patch.object(
+                build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html></html>"})
+            ):
+                build_service.run_canvas_build(self.team.id, str(build.id))
+            builds.append(build)
+        CanvasBuild.objects.unscoped().filter(id__in=[b.id for b in builds]).update(finished_at=old)
+        for build in builds:
+            build.refresh_from_db()
+        self.canvas.refresh_from_db()
+        # builds[-1] is the live pointer, builds[-2] the rollback; builds[0] and
+        # builds[1] are prunable. Report only builds[0]'s object as failed.
+        failing_key = f"{builds[0].artifact_object_prefix}/index.html"
+
+        def delete_objects(keys):
+            return [key for key in keys if key == failing_key]
+
+        with patch.object(build_service.object_storage, "delete_objects", side_effect=delete_objects):
+            pruned = build_service.cleanup_canvas_builds()
+
+        builds[0].refresh_from_db()
+        builds[1].refresh_from_db()
+        assert builds[0].artifact_object_prefix is not None  # delete failed — kept for a retry
+        assert builds[1].artifact_object_prefix is None  # deleted cleanly
+        assert pruned == 1
+
 
 class TestLegacySourcePreservation(BuildServiceBaseTest):
     def test_first_publish_materializes_legacy_code_as_parent_version(self):
