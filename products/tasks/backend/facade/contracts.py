@@ -226,6 +226,21 @@ class ProvisionedChannelsDTO:
 
 
 @dataclass(frozen=True)
+class SpaceFileListDTO:
+    id: UUID
+    channel_id: UUID
+    name: str
+    version: int
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class SpaceFileDTO(SpaceFileListDTO):
+    content: str
+
+
+@dataclass(frozen=True)
 class ChannelInstructionsDTO:
     """The HTTP representation of a channel's CONTEXT.md instructions version.
 
