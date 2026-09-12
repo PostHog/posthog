@@ -368,7 +368,13 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # A GithubRetryableError (any transient upstream 5xx) that survives the same tenacity retry
         # gets the same treatment — a GitHub-side outage, not something reconnecting or reconfiguring
         # the source can fix.
-        return {"GitHub API rate limit exceeded", "Github API error (retryable)"}
+        #
+        # A `requests.ProxyError` (a `ConnectionError` subclass `_fetch_page`'s tenacity retry already
+        # covers) that still survives is PostHog's own egress proxy throttling the CONNECT tunnel, not
+        # GitHub or the customer — the same reasoning ClickHouse and Salesforce apply to a 502/503/504
+        # tunnel gateway status. Matches the narrower 429 status only, so a deterministic tunnel
+        # failure (e.g. 407 proxy-auth) still stays reportable.
+        return {"GitHub API rate limit exceeded", "Github API error (retryable)", "Tunnel connection failed: 429"}
 
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
