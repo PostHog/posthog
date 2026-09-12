@@ -16,6 +16,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsColumnsSchemaNames,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -107,13 +108,20 @@ describe('marketingAnalyticsLogic', () => {
                         id: 'stats-table',
                         name: 'campaign_overview_stats',
                         type: 'data_warehouse',
-                        schema: { id: 'stats' },
-                        fields: { metrics_conversions: { type: 'float' } },
-                    } as DatabaseSchemaDataWarehouseTable,
+                        schema: { id: 'stats', name: 'campaign_overview_stats', should_sync: true, incremental: false },
+                        fields: {
+                            metrics_conversions: {
+                                name: 'metrics_conversions',
+                                hogql_value: 'metrics_conversions',
+                                type: 'float',
+                                schema_valid: true,
+                            },
+                        },
+                    } satisfies DatabaseSchemaDataWarehouseTable,
                 },
                 joins: [],
             })
-            logic.actions.setTileColumnSelection('reported_conversion')
+            logic.actions.setTileColumnSelection(MarketingAnalyticsColumnsSchemaNames.ReportedConversion)
             for (const precomputed of [false, true]) {
                 featureFlagLogic.actions.setFeatureFlags([], {
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,

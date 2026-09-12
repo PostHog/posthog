@@ -10,6 +10,7 @@ from products.growth.backend.enrichment.icp_lists import clear_lists_cache
 from products.growth.backend.models import IcpScoringConfig, OrganizationEnrichment, OrganizationEnrichmentFetch
 
 _COMMAND_MODULE = "products.growth.backend.management.commands.backfill_icp_fit_scores"
+_GATES_MODULE = "products.growth.backend.enrichment.gates"
 
 _PAYLOAD = {
     "id": "company-1",
@@ -70,7 +71,7 @@ class TestBackfillIcpFitScores(BaseTest):
         )
 
         with (
-            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
             patch(f"{_COMMAND_MODULE}.get_regional_ph_client", return_value=pha_client),
             patch(f"{_COMMAND_MODULE}.read_organization_bridge_inputs", **bridge_patch_kwargs),
             patch(f"{_COMMAND_MODULE}.capture_exception") as capture_mock,
@@ -91,7 +92,7 @@ class TestBackfillIcpFitScores(BaseTest):
         pha_client = MagicMock()
 
         with (
-            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
             patch(f"{_COMMAND_MODULE}.get_regional_ph_client", return_value=pha_client),
             patch(
                 f"{_COMMAND_MODULE}.read_organization_bridge_inputs",
