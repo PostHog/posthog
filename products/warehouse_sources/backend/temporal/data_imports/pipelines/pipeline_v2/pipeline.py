@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
     persist_primary_keys,
+    persist_verified_primary_keys,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
     setup_row_tracking_with_billing_check,
@@ -182,6 +183,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             )
 
             await persist_primary_keys(self._schema, self._resource, self._is_incremental, self._logger)
+            await persist_verified_primary_keys(self._schema, self._resource, self._logger)
 
             await setup_row_tracking_with_billing_check(
                 self._job.team_id,
