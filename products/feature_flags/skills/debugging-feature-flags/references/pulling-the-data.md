@@ -121,13 +121,15 @@ PostHog's flag hash, verified against `rust/feature-flags/src/flags/flag_matchin
   `h <= rollout_percentage / 100`. Empty salt.
 - **Variant walk** (which multivariate key): same hash but with the salt `"variant"`
   (`sha1(f"{flag_key}.{identifier}variant")`), then walk `filters.multivariate.variants` in stored
-  order accumulating `rollout_percentage / 100`; the first bound exceeding `h` wins.
+  order accumulating `rollout_percentage / 100`; the first bound **strictly** exceeding `h` wins.
+  Two things to get right: the salt (the rollout gate above uses an _empty_ one, and mixing the two
+  is the classic reimplementation bug), and the stored order, since a wrong order silently inverts
+  the answer. Read both from the _live_ flag.
 - **Holdout**: prefix `holdout-` with an empty salt.
 
 `identifier` is the `distinct_id`, or the group key for a group-aggregated flag. SHA1 isn't in
 HogQL's whitelist, so this runs outside the database. `ensure_experience_continuity = true` makes it
-unreliable (assignment hashes a stored override key). The `debugging-experiments` skill ships a
-ready `srm_check.py` that implements the variant walk with a `--selftest` if you need to batch it.
+unreliable (assignment hashes a stored override key).
 
 ## Handing off
 
