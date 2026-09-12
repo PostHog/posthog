@@ -222,6 +222,12 @@ class TicketPatternViewSet(
 
     def _record_feedback(self, pattern: TicketPattern, field: str) -> None:
         # The detector raises the bar for a dismissed topic and lowers it for a confirmed one.
+        # A topic seen on one day carries no baseline row yet, so create it first: an UPDATE on its
+        # own matches nothing there and the decision is lost. A row of zeros moves no bar by itself,
+        # and the next refresh relearns the rate while it keeps these counts.
+        TicketTopicBaseline.objects.for_team(self.team_id).get_or_create(
+            team_id=self.team_id, topic=pattern.topic, defaults={"refreshed_at": timezone.now()}
+        )
         TicketTopicBaseline.objects.for_team(self.team_id).filter(topic=pattern.topic).update(**{field: F(field) + 1})
 
     def _track(self, event: str, pattern: TicketPattern) -> None:

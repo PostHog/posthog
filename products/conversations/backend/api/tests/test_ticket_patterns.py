@@ -60,6 +60,16 @@ class TestTicketPatternAPI(APIBaseTest):
         baseline = TicketTopicBaseline.objects.for_team(self.team.id).get(topic="login")
         assert getattr(baseline, counter) == 1
 
+    @parameterized.expand([("confirm", "confirm_count"), ("dismiss", "dismiss_count")])
+    def test_transition_records_feedback_when_the_topic_has_no_baseline(self, action, counter):
+        TicketTopicBaseline.objects.for_team(self.team.id).filter(topic="login").delete()
+
+        response = self.client.post(self._url(f"{action}/"), {}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        baseline = TicketTopicBaseline.objects.for_team(self.team.id).get(topic="login")
+        assert getattr(baseline, counter) == 1
+
     def test_confirm_records_severity_and_owner(self):
         response = self.client.post(self._url("confirm/"), {"severity": "critical"}, format="json")
 
