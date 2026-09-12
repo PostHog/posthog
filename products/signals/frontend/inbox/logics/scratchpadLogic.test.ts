@@ -251,6 +251,38 @@ describe('scratchpadLogic', () => {
         expect(logic.values.filteredEntries).toHaveLength(4)
     })
 
+    // A wider span is the slower read, so narrowing the span right after widening it is the order
+    // that lets the older response answer last. If it lands, the ledger and the header describe a
+    // span the select does not name, and re-picking that span fires nothing.
+    it('drops a window response that a newer span superseded', async () => {
+        const stale = entry('pattern:stale-span', 'note')
+        let narrowServed = (): void => {}
+        const narrowRequestServed = new Promise<void>((resolve) => {
+            narrowServed = resolve
+        })
+        let listRequests = 0
+        useMocks({
+            get: {
+                [SCRATCHPAD_URL]: async () => {
+                    listRequests += 1
+                    // The wide request answers only once the narrow one that superseded it has.
+                    if (listRequests === 1) {
+                        await narrowRequestServed
+                        return [200, [stale]]
+                    }
+                    narrowServed()
+                    return [200, [WHOLE]]
+                },
+            },
+        })
+
+        logic.actions.setTimeFilter('30d')
+        logic.actions.setTimeFilter('1h')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.entries).toEqual([WHOLE])
+    })
+
     // Older pages walk the unfiltered window with a cursor, and a search is a separate one-shot
     // read they never reach. A control offered during a search spends a page of up to a thousand
     // rows the table cannot show, and moves the header counts while the listed rows stay put.
