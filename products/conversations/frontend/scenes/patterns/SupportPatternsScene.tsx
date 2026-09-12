@@ -5,12 +5,14 @@ import { LemonButton, LemonSegmentedButton, LemonTable, LemonTableColumns, Lemon
 import { NotFound } from 'lib/components/NotFound'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { TicketPatternSeverityTag } from '../../components/TicketPatterns/TicketPatternSeverityTag'
@@ -49,6 +51,11 @@ export function SupportPatternsScene(): JSX.Element {
         return <NotFound object="page" />
     }
 
+    // The list endpoint admits a ticket viewer, but both transitions need editor, so a viewer would
+    // otherwise get live buttons and a 403 they cannot act on.
+    const decisionDisabledReason =
+        getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
+
     const columns: LemonTableColumns<TicketPatternApi> = [
         {
             title: 'Pattern',
@@ -83,7 +90,7 @@ export function SupportPatternsScene(): JSX.Element {
                                     size="xsmall"
                                     type="primary"
                                     loading={busy}
-                                    disabledReason={busy ? 'Saving' : undefined}
+                                    disabledReason={busy ? 'Saving' : decisionDisabledReason}
                                     onClick={() => confirmPattern(pattern.id)}
                                     data-attr="ticket-pattern-confirm"
                                 >
@@ -93,7 +100,7 @@ export function SupportPatternsScene(): JSX.Element {
                                     size="xsmall"
                                     type="secondary"
                                     loading={busy}
-                                    disabledReason={busy ? 'Saving' : undefined}
+                                    disabledReason={busy ? 'Saving' : decisionDisabledReason}
                                     onClick={() => dismissPattern(pattern.id)}
                                     data-attr="ticket-pattern-dismiss"
                                 >

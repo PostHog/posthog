@@ -3,7 +3,10 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { TicketPatternApi } from '../../generated/api.schemas'
 import { ticketPatternsLogic } from './ticketPatternsLogic'
@@ -21,6 +24,10 @@ export function TicketPatternBanner(): JSX.Element | null {
     if (!patternsEnabled || bannerPatterns.length === 0) {
         return null
     }
+
+    // Both transitions need editor access on tickets, while reading a pattern only needs viewer.
+    const decisionDisabledReason =
+        getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 
     return (
         <div className="flex flex-col gap-2">
@@ -53,7 +60,7 @@ export function TicketPatternBanner(): JSX.Element | null {
                                     size="xsmall"
                                     type="primary"
                                     loading={busy}
-                                    disabledReason={busy ? 'Saving' : undefined}
+                                    disabledReason={busy ? 'Saving' : decisionDisabledReason}
                                     onClick={() => confirmPattern(pattern.id)}
                                     data-attr="ticket-pattern-banner-confirm"
                                 >
@@ -63,7 +70,7 @@ export function TicketPatternBanner(): JSX.Element | null {
                                     size="xsmall"
                                     type="secondary"
                                     loading={busy}
-                                    disabledReason={busy ? 'Saving' : undefined}
+                                    disabledReason={busy ? 'Saving' : decisionDisabledReason}
                                     onClick={() => dismissPattern(pattern.id)}
                                     data-attr="ticket-pattern-banner-dismiss"
                                 >
