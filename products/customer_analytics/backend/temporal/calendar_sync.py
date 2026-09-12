@@ -35,6 +35,9 @@ COORDINATOR_INTERVAL_MINUTES = 60
 MAX_SYNCS_PER_RUN = 200
 BACKFILL_PAGES_PER_RUN = 100
 GOOGLE_WORKSPACE_RETRY_DELAY = timedelta(hours=1)
+# Registered in EXPECTED_CONTROL_FLOW_ERROR_TYPES so the activity interceptor retries it
+# quietly instead of opening an error tracking issue.
+GOOGLE_WORKSPACE_TRANSIENT_ERROR_TYPE = "GoogleWorkspaceTransientError"
 
 
 @dataclass
@@ -130,8 +133,19 @@ def _create_google_workspace_budget_error(integration_id: int, team_id: int, err
     return ApplicationError(str(error), next_retry_delay=GOOGLE_WORKSPACE_RETRY_DELAY)
 
 
+def _transient_google_workspace_error(error: Exception, retry_after: timedelta | None) -> ApplicationError:
+    # Retryable by default; next_retry_delay honors Google's Retry-After when present, and falls
+    # back to the activity's retry policy when None.
+    return ApplicationError(
+        str(error),
+        type=GOOGLE_WORKSPACE_TRANSIENT_ERROR_TYPE,
+        next_retry_delay=retry_after,
+    )
+
+
 def _run_calendar_sync(input: CalendarSyncInput) -> CalendarSyncOutput:
     # Deferred: the sync logic pulls requests/HogQL layers that don't belong in the sandbox.
+    from posthog.egress.google_workspace import GoogleWorkspaceTransientError  # noqa: PLC0415
     from posthog.egress.google_workspace.transport import GoogleWorkspaceEgressBudgetExhausted  # noqa: PLC0415
 
     from products.conversations.backend.facade import api as conversations  # noqa: PLC0415
@@ -143,6 +157,8 @@ def _run_calendar_sync(input: CalendarSyncInput) -> CalendarSyncOutput:
     try:
         counts = sync_calendar_integration(input.integration_id, input.team_id)
         conversations.sync_google_account_email(input.integration_id, input.team_id)
+    except GoogleWorkspaceTransientError as error:
+        raise _transient_google_workspace_error(error, error.retry_after) from error
     except (CalendarSyncError, conversations.GoogleAccountEmailSyncError) as e:
         # A dead refresh token can't heal by retrying; the user must reconnect.
         raise ApplicationError(str(e), non_retryable="refresh failed" in str(e).lower()) from e
@@ -166,6 +182,7 @@ async def calendar_sync_integration_activity(input: CalendarSyncInput) -> Calend
 
 
 def _run_calendar_backfill(input: GoogleAccountBackfillInput) -> CalendarBackfillPageOutput:
+    from posthog.egress.google_workspace import GoogleWorkspaceTransientError  # noqa: PLC0415
     from posthog.egress.google_workspace.transport import GoogleWorkspaceEgressBudgetExhausted  # noqa: PLC0415
 
     from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415
@@ -181,6 +198,8 @@ def _run_calendar_backfill(input: GoogleAccountBackfillInput) -> CalendarBackfil
             end_at=datetime.fromisoformat(input.end_at),
             page_token=input.calendar_page_token,
         )
+    except GoogleWorkspaceTransientError as error:
+        raise _transient_google_workspace_error(error, error.retry_after) from error
     except CalendarSyncError as error:
         raise ApplicationError(str(error), non_retryable="refresh failed" in str(error).lower()) from error
     except GoogleWorkspaceEgressBudgetExhausted as error:
@@ -199,6 +218,7 @@ async def calendar_backfill_integration_activity(input: GoogleAccountBackfillInp
 
 
 def _run_google_account_email_backfill(input: GoogleAccountBackfillInput) -> GoogleAccountEmailBackfillOutput:
+    from posthog.egress.google_workspace import GoogleWorkspaceTransientError  # noqa: PLC0415
     from posthog.egress.google_workspace.transport import GoogleWorkspaceEgressBudgetExhausted  # noqa: PLC0415
 
     from products.conversations.backend.facade import api as conversations  # noqa: PLC0415
@@ -215,6 +235,8 @@ def _run_google_account_email_backfill(input: GoogleAccountBackfillInput) -> Goo
             end_at=datetime.fromisoformat(input.end_at),
             page_token=input.gmail_page_token,
         )
+    except GoogleWorkspaceTransientError as error:
+        raise _transient_google_workspace_error(error, error.retry_after) from error
     except conversations.GoogleAccountEmailSyncError as error:
         raise ApplicationError(str(error), non_retryable="refresh failed" in str(error).lower()) from error
     except GoogleWorkspaceEgressBudgetExhausted as error:

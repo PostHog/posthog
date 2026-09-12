@@ -10,7 +10,7 @@ import structlog
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
-from posthog.egress.google_workspace import google_workspace_request
+from posthog.egress.google_workspace import google_workspace_request, raise_if_transient_google_workspace_status
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 from posthog.models.team import Team
 
@@ -195,7 +195,8 @@ def _get_events_page(access_token: str, google_account_id: str, params: dict[str
     if response.status_code == 410:
         raise SyncTokenExpired
     if response.status_code != 200:
-        raise CalendarSyncError(f"Google Calendar API returned {response.status_code}: {response.text[:200]}")
+        raise_if_transient_google_workspace_status(response, "Google Calendar API")
+        raise CalendarSyncError(f"Google Calendar API returned {response.status_code}")
     return response.json()
 
 

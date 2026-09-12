@@ -1,12 +1,19 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
+
+from posthog.egress.google_workspace import GoogleWorkspaceTransientError
+from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES
 
 from products.customer_analytics.backend.logic import calendar_sync
 from products.customer_analytics.backend.models import Account, Meeting, MeetingParticipant, MeetingStatus
+from products.customer_analytics.backend.temporal import calendar_sync as calendar_sync_temporal
 
 
 def _event(**overrides) -> dict:
@@ -140,6 +147,19 @@ class TestCalendarSync(BaseTest):
         self.integration.refresh_from_db()
         assert self.integration.config["calendar_sync_token"] == "fresh"
 
+    def test_transient_upstream_status_raises_a_retryable_transient_error(self) -> None:
+        transient = MagicMock(status_code=503, headers={"Retry-After": "30"})
+        with self.assertRaises(GoogleWorkspaceTransientError) as ctx:
+            self._sync([transient])
+        assert ctx.exception.retry_after == timedelta(seconds=30)
+
+    def test_permanent_upstream_status_raises_without_the_response_body(self) -> None:
+        forbidden = MagicMock(status_code=403, headers={})
+        forbidden.json.return_value = {"error": {"code": 403, "errors": [{"reason": "insufficientPermissions"}]}}
+        with self.assertRaises(calendar_sync.CalendarSyncError) as ctx:
+            self._sync([forbidden])
+        assert str(ctx.exception) == "Google Calendar API returned 403"
+
     def test_backfill_uses_the_date_range_without_changing_the_incremental_cursor(self) -> None:
         self.integration.config["calendar_sync_token"] = "existing"
         self.integration.save(update_fields=["config"])
@@ -269,3 +289,28 @@ class TestCalendarSync(BaseTest):
         meeting.refresh_from_db()
         assert updated == 1
         assert meeting.account_id == account.id
+
+
+class TestCalendarSyncTransientErrorMapping(SimpleTestCase):
+    def test_transient_error_becomes_a_non_reporting_retryable_application_error(self) -> None:
+        # The interceptor skips error tracking for this type, so the retry stays quiet, and
+        # next_retry_delay carries Google's Retry-After to the next attempt.
+        assert calendar_sync_temporal.GOOGLE_WORKSPACE_TRANSIENT_ERROR_TYPE in EXPECTED_CONTROL_FLOW_ERROR_TYPES
+
+        transient = GoogleWorkspaceTransientError("Google Calendar API returned 503", retry_after=timedelta(seconds=30))
+        with (
+            patch.object(calendar_sync, "sync_calendar_integration_backfill_page", side_effect=transient),
+            self.assertRaises(ApplicationError) as ctx,
+        ):
+            calendar_sync_temporal._run_calendar_backfill(
+                calendar_sync_temporal.GoogleAccountBackfillInput(
+                    integration_id=1,
+                    team_id=1,
+                    start_at="2026-07-01T00:00:00+00:00",
+                    end_at="2026-08-01T00:00:00+00:00",
+                )
+            )
+
+        assert ctx.exception.type == calendar_sync_temporal.GOOGLE_WORKSPACE_TRANSIENT_ERROR_TYPE
+        assert ctx.exception.non_retryable is False
+        assert ctx.exception.next_retry_delay == timedelta(seconds=30)
