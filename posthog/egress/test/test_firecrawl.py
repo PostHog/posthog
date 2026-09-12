@@ -11,7 +11,14 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from requests.structures import CaseInsensitiveDict
 
-from posthog.egress.firecrawl.client import FirecrawlNotConfigured, FirecrawlScrapeFailed, scrape
+from posthog.egress.firecrawl.client import (
+    MAX_SEARCH_LIMIT,
+    FirecrawlNotConfigured,
+    FirecrawlScrapeFailed,
+    FirecrawlSearchFailed,
+    scrape,
+    search,
+)
 from posthog.egress.firecrawl.limiter import consume_firecrawl_sync, firecrawl_account_key
 from posthog.egress.firecrawl.observability import record_firecrawl_api_response
 from posthog.egress.limiter.policies import Priority, resolve_policy
@@ -30,6 +37,16 @@ _SUCCESSFUL_SCRAPE = {
             "creditsUsed": 1,
         },
     },
+}
+
+_SUCCESSFUL_SEARCH = {
+    "success": True,
+    "data": {
+        "web": [
+            {"url": "https://example.com/widgets", "title": "Widgets", "description": "All the widgets."},
+        ],
+    },
+    "creditsUsed": 1,
 }
 
 
@@ -104,7 +121,6 @@ class TestFirecrawlEgress(SimpleTestCase):
 
     @override_settings(FIRECRAWL_API_KEY="")
     def test_scrape_without_a_configured_key_never_calls_out(self) -> None:
-        # Instances run without a key; sending `Bearer ` would spend a request to be told 401.
         with patch("requests.request") as request:
             with self.assertRaises(FirecrawlNotConfigured):
                 scrape("https://example.com", source="test")
@@ -153,3 +169,74 @@ class TestFirecrawlEgress(SimpleTestCase):
             )
             == 60
         )
+
+
+@override_settings(FIRECRAWL_API_KEY=_FAKE_API_KEY)
+class TestFirecrawlSearchEgress(SimpleTestCase):
+    def test_search_sends_the_request_shape_firecrawl_documents(self) -> None:
+        with _firecrawl_answers(_response(200, json.dumps(_SUCCESSFUL_SEARCH))) as (request, _consume):
+            search("widget makers", source="test", limit=3)
+
+        assert request.call_args.args == ("POST", "https://api.firecrawl.dev/v2/search")
+        kwargs = request.call_args.kwargs
+        assert kwargs["headers"]["Authorization"] == f"Bearer {_FAKE_API_KEY}"
+        assert kwargs["json"] == {"query": "widget makers", "limit": 3, "sources": [{"type": "web"}]}
+
+    def test_search_maps_the_documented_response_onto_the_result(self) -> None:
+        body = {
+            "success": True,
+            "data": {
+                "web": [
+                    {"url": "https://example.com/widgets", "title": "Widgets", "description": "All the widgets."},
+                    {"title": "No url here"},
+                ],
+            },
+            "creditsUsed": 2,
+        }
+        with _firecrawl_answers(_response(200, json.dumps(body))):
+            result = search("widget makers", source="test")
+
+        assert result.query == "widget makers"
+        assert len(result.results) == 1
+        assert result.results[0].url == "https://example.com/widgets"
+        assert result.results[0].title == "Widgets"
+        assert result.results[0].description == "All the widgets."
+        assert result.credits_used == 2
+
+    def test_search_with_no_web_results_is_an_empty_result_not_a_failure(self) -> None:
+        body = {"success": True, "data": {}}
+        with _firecrawl_answers(_response(200, json.dumps(body))):
+            result = search("a query with no matches", source="test")
+
+        assert result.results == ()
+
+    @parameterized.expand(
+        [
+            ("http_error", 402, json.dumps({"error": "Insufficient credits"})),
+            ("unsuccessful_body", 200, json.dumps({"success": False, "error": "unreachable"})),
+            ("data_not_a_mapping", 200, json.dumps({"success": True, "data": "oops"})),
+            ("non_json_body", 200, "<html>gateway timeout</html>"),
+        ]
+    )
+    def test_search_raises_rather_than_returning_an_empty_result(self, _name: str, status: int, body: str) -> None:
+        with _firecrawl_answers(_response(status, body)), self.assertRaises(FirecrawlSearchFailed):
+            search("widget makers", source="test")
+
+    @override_settings(FIRECRAWL_API_KEY="")
+    def test_search_without_a_configured_key_never_calls_out(self) -> None:
+        with patch("requests.request") as request:
+            with self.assertRaises(FirecrawlNotConfigured):
+                search("widget makers", source="test")
+        request.assert_not_called()
+
+    def test_search_above_the_limit_ceiling_never_calls_out(self) -> None:
+        with patch("requests.request") as request:
+            with self.assertRaises(ValueError):
+                search("widget makers", source="test", limit=MAX_SEARCH_LIMIT + 1)
+        request.assert_not_called()
+
+    def test_search_priority_passes_through_to_the_limiter_gate(self) -> None:
+        with _firecrawl_answers(_response(200, json.dumps(_SUCCESSFUL_SEARCH))) as (_request, consume):
+            search("widget makers", source="test", priority=Priority.BATCH)
+
+        assert consume.call_args.kwargs["priority"] is Priority.BATCH

@@ -22,9 +22,12 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import get_llm_client
+from posthog.ph_client import ph_scoped_capture
+from posthog.utils import get_instance_region
 
 from products.growth.backend.enrichment.labels import (
     PromptConfigError,
+    TransientToolError,
     ai_processing_approved,
     classify_payload,
     get_active_config,
@@ -39,6 +42,29 @@ from products.growth.backend.models import EnrichmentLabelResult, EnrichmentProm
 logger = structlog.get_logger(__name__)
 
 _ID_BATCH_SIZE = 500
+
+# So an absence-of-event alert can catch the label pipeline going silent.
+LABEL_BATCH_RUN_EVENT = "ai_enrichment_label_batch_completed"
+
+
+def _report_batch_run(*, label: str, version: str, counts: dict[str, int]) -> None:
+    region = get_instance_region()
+    if region not in ("US", "EU"):
+        return
+    with ph_scoped_capture(region=region) as capture:
+        capture(
+            distinct_id="ai-enrichment-label-batch",
+            event=LABEL_BATCH_RUN_EVENT,
+            properties={
+                "label": label,
+                "version": version,
+                "attempted": counts["attempted"],
+                "succeeded": counts["succeeded"],
+                "failed": counts["failed"],
+                "tool_calls": counts["tool_calls"],
+                "tools_deferred": counts["tools_deferred"],
+            },
+        )
 
 
 def _advisory_lock_key(label: str) -> int:
@@ -141,9 +167,11 @@ class Command(BaseCommand):
             "skipped_existing": 0,
             "skipped_no_ai_consent": 0,
             "unknown": 0,
-            "failures": 0,
+            "failed": 0,
             "prompt_tokens": 0,
             "completion_tokens": 0,
+            "tool_calls": 0,
+            "tools_deferred": 0,
             # Enumerated (counted into "attempted") but never processed because the circuit
             # breaker had already tripped — excluded from success_rate's denominator below so an
             # aborted run's ratio reflects what was actually tried, not what was merely queued.
@@ -227,6 +255,10 @@ class Command(BaseCommand):
                             "inputs": inputs,
                         },
                     )
+            except TransientToolError:
+                with counts_lock:
+                    counts["tools_deferred"] += 1
+                return
             except Exception as e:
                 capture_exception(
                     e,
@@ -237,7 +269,7 @@ class Command(BaseCommand):
                     },
                 )
                 with counts_lock:
-                    counts["failures"] += 1
+                    counts["failed"] += 1
                     failure_streak += 1
                     if failure_streak >= max_failures:
                         circuit_open.set()
@@ -250,6 +282,7 @@ class Command(BaseCommand):
                 counts["succeeded"] += 1
                 counts["prompt_tokens"] += meta.get("prompt_tokens", 0)
                 counts["completion_tokens"] += meta.get("completion_tokens", 0)
+                counts["tool_calls"] += len(meta.get("tool_calls", []))
                 failure_streak = 0
                 if is_unknown_output(output):
                     counts["unknown"] += 1
@@ -333,20 +366,23 @@ class Command(BaseCommand):
         # succeeded/tried rather than a raw count: an alert can fire on the ratio, and on a run
         # that attempted nothing at all, which is what a silently broken input source looks like.
         # "tried" excludes aborted items so a circuit-broken run doesn't dilute the ratio with
-        # work that was queued but never actually attempted. Consent skips are excluded for the
-        # same reason (an archive of orgs that all declined is a correct empty run, not a failed
-        # one), but only "consent_revoked_after_attempt" needs subtracting here - a declined org
-        # caught at enumeration time never incremented "attempted" to begin with (see
+        # work that was queued but never actually attempted. Consent skips and tool deferrals are
+        # excluded for the same reason (an archive of orgs that all declined, or that all hit a
+        # transient Firecrawl outage, is a correct empty run, not a failed one), but only
+        # "consent_revoked_after_attempt" and "tools_deferred" need subtracting here - a declined
+        # org caught at enumeration time never incremented "attempted" to begin with (see
         # _attempt_targets), so subtracting the full skipped_no_ai_consent count here would
         # double-subtract and could push "tried" negative.
-        tried = counts["attempted"] - counts["aborted"] - counts["consent_revoked_after_attempt"]
+        not_tried = counts["aborted"] + counts["consent_revoked_after_attempt"] + counts["tools_deferred"]
+        tried = counts["attempted"] - not_tried
         success_rate = counts["succeeded"] / tried if tried else None
         elapsed_seconds = time.monotonic() - started_at
         summary = (
             f"attempted {counts['attempted']}, succeeded {counts['succeeded']}, "
             f"skipped_existing {counts['skipped_existing']}, "
             f"skipped_no_ai_consent {counts['skipped_no_ai_consent']}, unknown {counts['unknown']}, "
-            f"failures {counts['failures']}, aborted {counts['aborted']}, "
+            f"failed {counts['failed']}, aborted {counts['aborted']}, "
+            f"tool_calls {counts['tool_calls']}, tools_deferred {counts['tools_deferred']}, "
             f"prompt_tokens {counts['prompt_tokens']}, completion_tokens {counts['completion_tokens']}, "
             f"elapsed_seconds {elapsed_seconds:.1f}"
         )
@@ -358,6 +394,9 @@ class Command(BaseCommand):
             elapsed_seconds=elapsed_seconds,
             **counts,
         )
+        # Emitted unconditionally too, before any failure decision below, so an absence-of-event
+        # alert also sees a run that aborted or failed its ratio check.
+        _report_batch_run(label=label, version=config.version, counts=counts)
         # Written unconditionally, before any failure decision below: a wrapper parsing stdout
         # for these counts needs them most on the run that fails, not just on a clean one.
         self.stdout.write(summary)

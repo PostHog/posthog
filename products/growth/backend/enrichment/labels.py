@@ -9,7 +9,8 @@ import re
 import json
 import math
 from collections.abc import Callable
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypeIs, cast
+from urllib.parse import urlsplit, urlunsplit
 
 from django.db.models import QuerySet
 
@@ -20,6 +21,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.organization import Organization, OrganizationMembership
 
+from products.growth.backend.enrichment.tools import TOOLS, TRANSIENT_TOOL_ERRORS, ToolOutcome, run_tool
 from products.growth.backend.models import EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 UNKNOWN: Literal["unknown"] = "unknown"
@@ -59,6 +61,9 @@ MAX_PROMPT_TEXT_CHARS = 20_000
 MAX_OUTPUT_FIELDS = 20
 MAX_OUTPUT_FIELD_DESCRIPTION_CHARS = 400
 
+MAX_TOOL_ROUNDS = 4  # model turns allowed to contain tool calls
+MAX_TOOL_CALLS = 4  # tool executions per classification
+
 _TRUNCATED_AT_MAX_DEPTH = "…(truncated: exceeded max input nesting depth)"
 
 
@@ -72,6 +77,11 @@ class PromptConfigError(ValueError):
     model-reply problem, so it is raised before any LLM call rather than retried. This module
     stays free of the management-command layer (see the module docstring), so callers that need a
     CLI-style CommandError translate this at their own boundary."""
+
+
+class TransientToolError(Exception):
+    """A tool hit a retryable Firecrawl condition; the caller must defer the org rather than
+    store a verdict."""
 
 
 def verdict_field_key(config: EnrichmentPromptConfig) -> str | None:
@@ -114,11 +124,11 @@ def to_domain(value: Any, depth: int = 0) -> Any:
 
 
 def extract_input_fields(payload: dict[str, Any], input_fields: list[str]) -> dict[str, Any]:
-    """Resolve dotted paths (e.g. "funding.fundingStage") into the archived payload.
+    """Resolve dotted paths into the archived payload.
 
     Keyed by the full dotted path so the LLM prompt shows provenance. Missing paths,
     None values, and paths that traverse through a non-dict are omitted rather than
-    included as null — the prompt should only see what's actually known.
+    included as null: the prompt should only see what's actually known.
     """
     result: dict[str, Any] = {}
     for path in input_fields:
@@ -318,6 +328,12 @@ def validate_output_fields(config: EnrichmentPromptConfig) -> None:
                 raise PromptConfigError(f"enrichment output field {key!r} has min {low} above max {high}")
 
 
+def _normalize_url(url: str) -> str:
+    parts = urlsplit(url)
+    normalized = urlunsplit(parts._replace(scheme=parts.scheme.lower(), netloc=parts.netloc.lower(), fragment=""))
+    return normalized[:-1] if normalized.endswith("/") else normalized
+
+
 def _parse_custom_output(config: EnrichmentPromptConfig, data: dict[str, Any]) -> dict[str, Any]:
     """Validate presence and coerce basic types for a configurable output schema — the stored
     output ends up with exactly the configured keys, nothing more.
@@ -347,6 +363,29 @@ def _parse_custom_output(config: EnrichmentPromptConfig, data: dict[str, Any]) -
     return output
 
 
+def _accumulate_meta(combined: dict[str, Any], turn: dict[str, Any]) -> None:
+    for key in ("prompt_tokens", "completion_tokens"):
+        if key in turn:
+            combined[key] = combined.get(key, 0) + turn[key]
+    for key in ("response_model", "system_fingerprint", "finish_reason"):
+        if key in turn:
+            combined[key] = turn[key]
+
+
+def _run_tool_call(call: Any) -> ToolOutcome:
+    try:
+        arguments = json.loads(call.function.arguments or "{}")
+    except (TypeError, ValueError):
+        return ToolOutcome(
+            name=call.function.name,
+            arguments={},
+            result={"error": "arguments were not valid JSON"},
+            urls=(),
+            error="bad_arguments",
+        )
+    return run_tool(call.function.name, arguments)
+
+
 @retry(
     # Allowlist, not a blacklist: only failures that can plausibly succeed on a retry earn one.
     # APIConnectionError covers its APITimeoutError subclass too. Everything else — most
@@ -362,33 +401,96 @@ def _parse_custom_output(config: EnrichmentPromptConfig, data: dict[str, Any]) -
     reraise=True,
 )
 def _call_and_parse(
-    config: EnrichmentPromptConfig, messages: list[dict[str, str]], client: OpenAI
+    config: EnrichmentPromptConfig, messages: list[dict[str, Any]], client: OpenAI
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    response = client.chat.completions.create(
-        model=config.model,
-        messages=cast(list[ChatCompletionMessageParam], messages),
-        response_format={"type": "json_object"},
-        # Not max_tokens: the OpenAI API rejects it for gpt-5 and o-series models, and config.model
-        # is an operator-editable row so the family isn't known here. The gateway's litellm
-        # normalizes this one for every route it serves, including Anthropic's native max_tokens.
-        max_completion_tokens=MAX_OUTPUT_TOKENS,
-        timeout=60,
-    )
-    # Content filtering and some upstream routes reply with an empty choices list; indexing it
-    # unguarded raises IndexError, which (unlike OutputParseError) tenacity retries at full cost
-    # for a response shape that will not change.
-    if not response.choices:
-        raise OutputParseError("LLM response had no choices (likely content filtering)")
-    choice = response.choices[0]
-    if choice.finish_reason == "length":
-        raise OutputParseError("response truncated at max_completion_tokens")
-    # Shared with the other products that talk to the gateway: response_format isn't reliably
-    # honored on the Anthropic route, so the reply can arrive fenced or wrapped in prose.
-    data = extract_json_object(choice.message.content or "")
-    if data is None:
-        raise OutputParseError("LLM response was not a JSON object")
-    output = _parse_custom_output(config, data)
-    return output, _response_meta(response)
+    messages = list(messages)
+    meta: dict[str, Any] = {}
+    tool_log: list[dict[str, Any]] = []
+    tool_urls: set[str] = set()
+    tool_calls_used = 0
+    tool_rounds_used = 0
+
+    while True:
+        request: dict[str, Any] = {
+            "model": config.model,
+            "messages": cast(list[ChatCompletionMessageParam], messages),
+            "response_format": {"type": "json_object"},
+            # Not max_tokens: the OpenAI API rejects it for gpt-5 and o-series models, and
+            # config.model is an operator-editable row so the family isn't known here. The
+            # gateway's litellm normalizes this one for every route it serves, including
+            # Anthropic's native max_tokens.
+            "max_completion_tokens": MAX_OUTPUT_TOKENS,
+            "timeout": 60,
+        }
+        if tool_calls_used < MAX_TOOL_CALLS:
+            request["tools"] = TOOLS
+            request["tool_choice"] = "auto"
+        response = client.chat.completions.create(**request)
+        _accumulate_meta(meta, _response_meta(response))
+        # Content filtering and some upstream routes reply with an empty choices list; indexing
+        # it unguarded raises IndexError, which (unlike OutputParseError) tenacity retries at
+        # full cost for a response shape that will not change.
+        if not response.choices:
+            raise OutputParseError("LLM response had no choices (likely content filtering)")
+        choice = response.choices[0]
+        if choice.finish_reason == "length":
+            raise OutputParseError("response truncated at max_completion_tokens")
+        message = choice.message
+        tool_calls = getattr(message, "tool_calls", None)
+        if tool_calls:
+            if tool_rounds_used >= MAX_TOOL_ROUNDS:
+                raise OutputParseError("no final answer after tool rounds")
+            tool_rounds_used += 1
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": message.content,
+                    "tool_calls": [
+                        {
+                            "id": call.id,
+                            "type": "function",
+                            "function": {"name": call.function.name, "arguments": call.function.arguments},
+                        }
+                        for call in tool_calls
+                    ],
+                }
+            )
+            for call in tool_calls:
+                if tool_calls_used >= MAX_TOOL_CALLS:
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call.id,
+                            "content": json.dumps({"error": "tool budget exhausted"}),
+                        }
+                    )
+                    continue
+                tool_calls_used += 1
+                outcome = _run_tool_call(call)
+                tool_log.append(
+                    {
+                        "name": outcome.name,
+                        "arguments": outcome.arguments,
+                        "result": outcome.result,
+                        "error": outcome.error,
+                    }
+                )
+                tool_urls.update(_normalize_url(url) for url in outcome.urls)
+                messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(outcome.result)})
+                if outcome.error in TRANSIENT_TOOL_ERRORS:
+                    raise TransientToolError(f"tool {outcome.name!r} hit a transient error: {outcome.error}")
+            continue
+
+        # Shared with the other products that talk to the gateway: response_format isn't reliably
+        # honored on the Anthropic route, so the reply can arrive fenced or wrapped in prose.
+        data = extract_json_object(message.content or "")
+        if data is None:
+            raise OutputParseError("LLM response was not a JSON object")
+        output = _parse_custom_output(config, data)
+        if tool_log:
+            meta["tool_calls"] = tool_log
+            meta["tool_urls"] = sorted(tool_urls)
+        return output, meta
 
 
 def _response_meta(response: Any) -> dict[str, Any]:
@@ -438,14 +540,53 @@ def is_unknown_output(output: dict[str, Any]) -> bool:
     return bool(output.get("meta", {}).get("skipped"))
 
 
+def has_usable_payload(payload: dict[str, Any] | None) -> TypeIs[dict[str, Any]]:
+    """Whether classify_payload will look at payload's fields at all, rather than
+    short-circuiting straight to unknown_output for a missing or not-found archived fetch."""
+    if not payload:
+        return False
+    return payload.get("companyFound") is not False
+
+
+def _reject_unsupported_evidence_url(
+    output: dict[str, Any], signup_domain: str | None, presented: set[str], meta: dict[str, Any]
+) -> None:
+    """Nulls an evidence_url the model could not actually have seen: not a tool result it was
+    shown and not the signup domain itself, rather than failing the whole verdict over one bad
+    citation."""
+    evidence_url = output.get("evidence_url")
+    if not evidence_url or not isinstance(evidence_url, str):
+        return
+    if _normalize_url(evidence_url) in presented:
+        return
+    host = urlsplit(evidence_url).hostname
+    if host is not None and signup_domain is not None:
+        host = host.lower()
+        domain = signup_domain.lower()
+        if host == domain or host.endswith(f".{domain}"):
+            return
+    meta["evidence_url_rejected"] = evidence_url
+    output["evidence_url"] = None
+
+
+def _stored_tool_result(result: dict[str, Any]) -> dict[str, Any]:
+    """The verdict keeps a fetched page's url and size, never its text: the evidence_url is the
+    audit pointer, and the page can be fetched again."""
+    stored = {key: value for key, value in result.items() if key not in ("note", "markdown")}
+    if "markdown" in result:
+        stored["chars"] = len(result["markdown"])
+    return _bounded(stored)
+
+
 def classify_payload(
-    config: EnrichmentPromptConfig, payload: dict[str, Any] | None, signup_domain: str | None, client: OpenAI
+    config: EnrichmentPromptConfig,
+    payload: dict[str, Any] | None,
+    signup_domain: str | None,
+    client: OpenAI,
 ) -> dict[str, Any]:
     validate_input_fields(config)
     validate_output_fields(config)
-    # Not-found fetches archive core.py's _MISS_PAYLOAD ({"companyFound": False}); that's
-    # evidence of absence, not a thin signal to guess from, so skip the LLM entirely.
-    if not payload or payload.get("companyFound") is False:
+    if not has_usable_payload(payload):
         return unknown_output(config, signup_domain, "missing or empty archived payload")
 
     # Checked after resolving, not before: a payload that's present but has none of the configured
@@ -457,7 +598,18 @@ def classify_payload(
 
     messages = build_messages(config, inputs, signup_domain)
     output, meta = _call_and_parse(config, messages, client)
-    output["inputs"] = {"signup_domain": signup_domain, "fields": inputs}
+    tool_calls = meta.pop("tool_calls", None)
+    _reject_unsupported_evidence_url(output, signup_domain, set(meta.get("tool_urls", ())), meta)
+    inputs_record: dict[str, Any] = {"signup_domain": signup_domain, "fields": inputs}
+    output["inputs"] = inputs_record
+    if tool_calls:
+        inputs_record["tool_calls"] = [
+            {"name": call["name"], "arguments": call["arguments"], "result": _stored_tool_result(call["result"])}
+            for call in tool_calls
+        ]
+        meta["tool_calls"] = [
+            {"name": call["name"], "arguments": call["arguments"], "error": call["error"]} for call in tool_calls
+        ]
     bounded = bounding_report(extracted, inputs)
     if bounded:
         meta["bounded"] = bounded

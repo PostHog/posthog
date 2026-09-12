@@ -14,6 +14,7 @@ from parameterized import parameterized
 
 from posthog.models.organization import Organization
 
+from products.growth.backend.enrichment.labels import TransientToolError
 from products.growth.backend.management.commands import enrichment_label_batch as batch_command_module
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
@@ -30,6 +31,7 @@ _OUTPUT_FIELDS = [
 def _response(content: str, prompt_tokens: int | None = None, completion_tokens: int | None = None) -> MagicMock:
     response = MagicMock()
     response.choices[0].message.content = content
+    response.choices[0].message.tool_calls = None
     if prompt_tokens is not None and completion_tokens is not None:
         response.usage.prompt_tokens = prompt_tokens
         response.usage.completion_tokens = completion_tokens
@@ -325,7 +327,7 @@ class TestExitCodeAndSummary(_BatchCommandTestCase):
                 call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
         assert "attempted 1" in out.getvalue()
-        assert "failures 1" in out.getvalue()
+        assert "failed 1" in out.getvalue()
 
     def test_summary_accumulates_prompt_and_completion_tokens_across_the_run(self):
         self._config()
@@ -463,6 +465,188 @@ class TestDryRunFixes(BaseTest):
                 call_command("enrichment_label_dry_run", label="test_label", sample=1)
 
 
+class TestDryRunToolDeferral(BaseTest):
+    def _config(self) -> EnrichmentPromptConfig:
+        return EnrichmentPromptConfig.objects.create(
+            name="test_label",
+            version="v1",
+            prompt_text="... Email: {email}",
+            model="gpt-5-mini",
+            input_fields=["name"],
+            output_fields=_OUTPUT_FIELDS,
+            is_active=True,
+        )
+
+    def test_prints_a_deferred_row_and_counts_it_in_the_summary(self):
+        self._config()
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
+        )
+        client = _mock_llm_client()
+        out = StringIO()
+
+        with (
+            patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_DRY_RUN_COMMAND_MODULE}.classify_payload", side_effect=TransientToolError("boom")),
+        ):
+            call_command("enrichment_label_dry_run", label="test_label", sample=1, stdout=out)
+
+        printed = out.getvalue()
+        assert "DEFERRED (search unavailable)" in printed
+        assert "deferred 1" in printed
+
+
+class TestToolCallAccounting(_BatchCommandTestCase):
+    def test_tool_calls_across_successful_classifications_reach_the_summary(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+        out = StringIO()
+
+        def _classify(config: Any, payload: Any, signup_domain: Any, llm_client: Any) -> dict[str, Any]:
+            return {
+                "is_ai": True,
+                "confidence": 0.9,
+                "reasoning": "x",
+                "meta": {"tool_calls": [{"name": "web_search", "arguments": {"query": "acme"}, "error": None}]},
+                "inputs": {"signup_domain": None, "fields": {}},
+            }
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=_classify),
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
+
+        assert "tool_calls 1" in out.getvalue()
+
+
+class TestToolDeferral(_BatchCommandTestCase):
+    """A transient tool problem (Firecrawl busy/not_configured) must defer the whole org - no
+    classification, no result row, and no contribution to the circuit breaker - rather than
+    compute a permanent verdict with a missing tool result. See labels.py's TransientToolError
+    and enrichment_label_batch.py's _process."""
+
+    def test_a_transient_tool_error_defers_the_org_without_writing_a_result(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+        out = StringIO()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=TransientToolError("boom")),
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
+
+        assert EnrichmentLabelResult.objects.count() == 0
+        assert "tools_deferred 1" in out.getvalue()
+        assert "failed 0" in out.getvalue()
+
+    def test_deferred_orgs_never_trip_the_circuit_breaker(self):
+        self._config()
+        for i in range(3):
+            self._fetch(organization=Organization.objects.create(name=f"org-{i}"))
+        client = _mock_llm_client()
+        out = StringIO()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=TransientToolError("boom")),
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1, max_failures=1, stdout=out)
+
+        assert EnrichmentLabelResult.objects.count() == 0
+        assert "tools_deferred 3" in out.getvalue()
+        assert "failed 0" in out.getvalue()
+
+    def test_deferred_orgs_are_excluded_from_the_success_rate_denominator(self) -> None:
+        self._config()
+        self._fetch(organization=Organization.objects.create(name="good"), payload={"name": "good"})
+        for i in range(3):
+            self._fetch(organization=Organization.objects.create(name=f"busy-{i}"), payload={"name": f"busy-{i}"})
+        client = _mock_llm_client()
+        out = StringIO()
+
+        def _classify(config: Any, payload: Any, signup_domain: Any, llm_client: Any) -> dict[str, Any]:
+            if isinstance(payload, dict) and str(payload.get("name", "")).startswith("busy"):
+                raise TransientToolError("boom")
+            return {"is_ai": True, "confidence": 0.9, "reasoning": "x", "inputs": {"signup_domain": None, "fields": {}}}
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=_classify),
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1, min_success_rate=0.9, stdout=out)
+
+        assert EnrichmentLabelResult.objects.count() == 1
+        assert "succeeded 1" in out.getvalue()
+        assert "tools_deferred 3" in out.getvalue()
+
+
+class TestBatchRunReportEvent(_BatchCommandTestCase):
+    def test_emits_one_event_with_the_run_counts(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+        capture = MagicMock()
+        scoped_capture = MagicMock()
+        scoped_capture.__enter__.return_value = capture
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.get_instance_region", return_value="EU"),
+            patch(f"{_BATCH_COMMAND_MODULE}.ph_scoped_capture", return_value=scoped_capture) as scoped_capture_factory,
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        scoped_capture_factory.assert_called_once_with(region="EU")
+        event = capture.call_args.kwargs
+        assert event["event"] == "ai_enrichment_label_batch_completed"
+        assert event["properties"] == {
+            "label": "test_label",
+            "version": "v1",
+            "attempted": 1,
+            "succeeded": 1,
+            "failed": 0,
+            "tool_calls": 0,
+            "tools_deferred": 0,
+        }
+
+    def test_skips_outside_a_cloud_region(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.get_instance_region", return_value=None),
+            patch(f"{_BATCH_COMMAND_MODULE}.ph_scoped_capture") as scoped_capture_factory,
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        scoped_capture_factory.assert_not_called()
+
+    def test_emits_even_when_the_run_fails(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+        client.chat.completions.create.return_value = _bad_response()
+        scoped_capture = MagicMock()
+        scoped_capture.__enter__.return_value = MagicMock()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.capture_exception"),
+            patch(f"{_BATCH_COMMAND_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_BATCH_COMMAND_MODULE}.ph_scoped_capture", return_value=scoped_capture) as scoped_capture_factory,
+        ):
+            with self.assertRaises(CommandError):
+                call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        scoped_capture_factory.assert_called_once()
+
+
 class TestAiProcessingConsent(_BatchCommandTestCase):
     def test_a_declined_org_is_never_sent_to_the_llm(self):
         self._config()
@@ -567,7 +751,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         assert EnrichmentLabelResult.objects.filter(organization=approved_org).exists()
         assert "attempted 1" in out.getvalue()
         assert "skipped_no_ai_consent 1" in out.getvalue()
-        assert "failures 0" in out.getvalue()
+        assert "failed 0" in out.getvalue()
 
     def test_the_dry_run_prints_a_skip_row_rather_than_an_error(self):
         self._config()

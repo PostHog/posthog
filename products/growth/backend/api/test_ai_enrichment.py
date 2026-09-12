@@ -23,6 +23,7 @@ from products.growth.backend.enrichment.labels import (
     MAX_OUTPUT_FIELD_DESCRIPTION_CHARS,
     MAX_OUTPUT_FIELDS,
     MAX_PROMPT_TEXT_CHARS,
+    TransientToolError,
 )
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
@@ -47,6 +48,7 @@ def _mock_llm_client(
     response.choices[0].message.content = json.dumps(
         {verdict_key: verdict, "confidence": confidence, "reasoning": reasoning}
     )
+    response.choices[0].message.tool_calls = None
     client.chat.completions.create.return_value = response
     return client
 
@@ -380,6 +382,20 @@ class TestAIEnrichmentAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(EnrichmentPromptConfig.objects.filter(name="too_many_fields_label").count(), 0)
+
+    def test_save_ignores_a_stray_sources_field_and_does_not_require_it(self):
+        payload = {
+            "label": "no_sources_label",
+            "prompt_text": "x",
+            "model": "gpt-5-mini",
+            "sources": [{"key": "pricing", "kind": "fetch", "url": "https://{domain}/pricing"}],
+            "output_fields": _OUTPUT_FIELDS,
+        }
+
+        response = self.client.post("/api/growth_ai_enrichment/save/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertNotIn("sources", response.json())
 
     def test_save_has_no_mutation_endpoint_for_an_existing_version(self):
         # Versions are immutable: the freeze is enforced by this viewset simply never defining
@@ -742,6 +758,34 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
         self.assertEqual(summary_row["summary"], {"classified": 0, "unknown": 0, "errors": 1})
         mock_capture.assert_called_once()
 
+    def test_run_reports_a_clear_message_for_a_transient_tool_error(self):
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
+        )
+        client = _mock_llm_client()
+
+        with (
+            patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=client),
+            patch("products.growth.backend.enrichment.lab.classify_payload", side_effect=TransientToolError("boom")),
+        ):
+            response = self.client.post(
+                "/api/growth_ai_enrichment/run/",
+                {
+                    "label": "transient_label",
+                    "prompt_text": "x",
+                    "model": "gpt-5-mini",
+                    "input_fields": ["name"],
+                    "output_fields": _OUTPUT_FIELDS,
+                    "sample": 1,
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            rows = _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
+
+        verdict_rows = [row for row in rows if "summary" not in row]
+        self.assertEqual(verdict_rows[0]["error"], "web search unavailable, retry later")
+
 
 class TestRunError(SimpleTestCase):
     """No DB needed: _run_error is pure string formatting plus a capture_exception call."""
@@ -827,3 +871,12 @@ class TestSaveAndRunSerializerCaps(SimpleTestCase):
 
         self.assertFalse(serializer.is_valid())
         self.assertIn("description", serializer.errors["output_fields"][0])
+
+
+class TestPromptTextHelpMentionsTools(SimpleTestCase):
+    @parameterized.expand([("save", SaveRequestSerializer), ("run", RunRequestSerializer)])
+    def test_mentions_web_search_and_fetch_page(self, _name, serializer_class):
+        help_text = serializer_class().fields["prompt_text"].help_text
+
+        self.assertIn("web_search", help_text)
+        self.assertIn("fetch_page", help_text)
