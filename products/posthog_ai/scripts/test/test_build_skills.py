@@ -574,8 +574,13 @@ def test_lint_all_catches_duplicate_skill_names(tmp_path: Path) -> None:
             "instrument-error-tracking",
             "---\nname: instrument-error-tracking\ndescription: Copy\n---\n# {{ 'x' }}\n",
         ),
+        (
+            "local-copy/SKILL.md",
+            "instrument-metrics",
+            "---\nname: instrument-metrics\ndescription: Copy\n---\nBody\n",
+        ),
     ],
-    ids=["loose-file", "renamed-dir", "j2-entry"],
+    ids=["loose-file", "renamed-dir", "j2-entry", "metrics"],
 )
 def test_lint_all_catches_reserved_name_in_frontmatter(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], relpath: str, reserved_name: str, content: str
