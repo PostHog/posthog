@@ -72,7 +72,13 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()
 
-    def test_a_duckgres_shadow_failure_does_not_mark_a_served_model_failed(self):
+    @parameterized.expand(
+        [
+            ("legacy_duckgres", DataModelingJobEngine.LEGACY_DUCKGRES),
+            ("managed_warehouse", DataModelingJobEngine.MANAGED_WAREHOUSE),
+        ]
+    )
+    def test_a_shadow_failure_does_not_mark_a_served_model_failed(self, _name: str, shadow_engine: str):
         """The shadow run finishes after the serving one, so reading the newest job of any engine
         would report a model that served fine as failed."""
         DataModelingJob.objects.create(
@@ -86,7 +92,7 @@ class TestNodeViewSet(APIBaseTest):
             team=self.team,
             saved_query=self.saved_query,
             status=DataModelingJob.Status.FAILED,
-            engine=DataModelingJobEngine.DUCKGRES,
+            engine=shadow_engine,
             last_run_at=timezone.now(),
         )
 
