@@ -219,8 +219,29 @@ The identifier used for hashing depends on the flag configuration:
 | Flag type   | Bucketing     | Identifier (in priority order)                                     |
 | ----------- | ------------- | ------------------------------------------------------------------ |
 | Group flag  | N/A           | Group key from `groups` map                                        |
-| Person flag | `device_id`   | `$device_id` from request, fallback to `distinct_id`               |
+| Person flag | `device_id`   | `$device_id` from request (no fallback, see below)                 |
 | Person flag | `distinct_id` | DB hash_key_override > request `$anon_distinct_id` > `distinct_id` |
+
+### Device bucketing
+
+`device_id` bucketing only changes the hash input.
+It swaps `$device_id` for `distinct_id` in `hashed_identifier`.
+Every condition still evaluates its person property filters normally, so person property filters work on a device-bucketed flag.
+
+Two caveats apply:
+
+- **No `distinct_id` fallback for a missing device id.**
+  A person-aggregated condition on a device-bucketed flag needs a `$device_id` in the request.
+  When the request has none, `get_match` skips that condition and increments `FLAG_CONDITION_SKIPPED_COUNTER` with reason `missing_device_id` (`flag_matching.rs`).
+  The condition does not fall back to `distinct_id`.
+  Absent a holdout, a pure person device-bucketed flag with no `$device_id` therefore matches nothing and reports `OutOfRolloutBound`.
+  A holdout is the exception: `get_match` checks it before the release conditions, and holdout hashing (`get_holdout_hash`) buckets on `distinct_id` rather than `$device_id` (see [Holdout groups](#holdout-groups)), so such a flag can still match its holdout (`HoldoutConditionValue`) without a `$device_id`.
+  Group-aggregated conditions on a mixed flag can still match without a `$device_id`.
+
+- **Local evaluation has no `$device_id`.**
+  The local-evaluation payload carries `bucketing_identifier` (`EvaluationFeatureFlagSerializer`), but a server-side SDK has no `$device_id` for the caller.
+  So an SDK that evaluates a device-bucketed flag locally buckets on the identifier it has instead of `$device_id`, and its variant assignment can differ from the flag service.
+  For correct device bucketing, evaluate through the flag service rather than locally.
 
 ## Condition matching
 
