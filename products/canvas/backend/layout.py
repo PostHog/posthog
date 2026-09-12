@@ -274,11 +274,14 @@ def validate_layout(layout: Any) -> list[dict[str, Any]]:
 def validate_layout_references(team_id: int, user_id: int | None, layout: dict[str, Any]) -> list[dict[str, Any]]:
     """Validate a layout's component references against the database.
 
-    Only components the acting user may see (channel visibility applied) are
-    placeable — a placement referencing anything else is rejected identically
-    whether the component is missing, deleted, the wrong kind, or merely
-    invisible, so the error does not disclose which.
+    Only components the acting user may see (channel visibility and per-object
+    access control applied) are placeable — a placement referencing anything else
+    is rejected identically whether the component is missing, deleted, the wrong
+    kind, or merely invisible, so the error does not disclose which.
     """
+    from products.canvas.backend.access_control import (  # noqa: PLC0415 — keeps this module import-light for the pure validators
+        filter_canvases_by_access_level_for_user_id,
+    )
     from products.canvas.backend.models import (  # noqa: PLC0415 — keeps this module import-light for the pure validators
         Canvas,
         CanvasBuild,
@@ -297,13 +300,14 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
 
     with team_scope(team_id):
         component_ids = {str(placement["component"]) for placement in referenced}
-        components = {
-            str(canvas.id): canvas
-            for canvas in Canvas.objects.for_team(team_id)
+        visible_components = filter_canvases_by_access_level_for_user_id(
+            Canvas.objects.for_team(team_id)
             .filter(id__in=component_ids, kind=Canvas.KIND_COMPONENT, deleted=False)
-            .filter(tasks_facade.visible_channels_q(user_id, relation="channel"))
-            .select_related("current_source_version")
-        }
+            .filter(tasks_facade.visible_channels_q(user_id, relation="channel")),
+            team_id,
+            user_id,
+        )
+        components = {str(canvas.id): canvas for canvas in visible_components.select_related("current_source_version")}
         version_ids = {str(placement["version"]) for placement in referenced if _is_uuid(placement.get("version"))}
         # A pinned placement renders that version's artifact against that
         # version's contract, so both have to be read per version; the

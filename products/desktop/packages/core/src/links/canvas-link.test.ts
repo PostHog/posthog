@@ -23,14 +23,14 @@ function makeDeepLinkService() {
     registerHandler: vi.fn((key: string, handler: DeepLinkHandler) => {
       handlers.set(key, handler);
     }),
-    trigger: (key: string, path: string) => {
+    trigger: (key: string, path: string, query = "") => {
       const handler = handlers.get(key);
       if (!handler) throw new Error(`No handler for ${key}`);
-      return handler(path, new URLSearchParams());
+      return handler(path, new URLSearchParams(query));
     },
   };
   return service as unknown as IDeepLinkRegistry & {
-    trigger: (key: string, path: string) => boolean;
+    trigger: (key: string, path: string, query?: string) => boolean;
   };
 }
 
@@ -74,6 +74,23 @@ describe("CanvasLinkService", () => {
     expect(listener).toHaveBeenCalledWith({
       channelId: "chan-1",
       dashboardId: "dash-2",
+    });
+  });
+
+  it.each([
+    ["fork=1", true],
+    ["fork=0", undefined],
+    ["", undefined],
+  ])("reads the copy flag from the query (%s)", (query, expected) => {
+    const listener = vi.fn();
+    service.on(CanvasLinkEvent.OpenCanvas, listener);
+
+    deepLinkService.trigger("canvas", "chan-1/dash-2", query);
+
+    expect(listener).toHaveBeenCalledWith({
+      channelId: "chan-1",
+      dashboardId: "dash-2",
+      ...(expected ? { fork: true } : {}),
     });
   });
 

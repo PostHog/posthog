@@ -11,6 +11,7 @@ import {
   canvasConnectorCallResultSchema,
   canvasConnectorCallServiceInput,
   canvasDraftSchema,
+  canvasSharingSchema,
   canvasSourceInput,
   canvasSourceSchema,
   canvasStateEntrySchema,
@@ -22,6 +23,7 @@ import {
   dashboardIdInput,
   dashboardRecordSchema,
   fileDashboardInput,
+  forkCanvasInput,
   listComponentsInput,
   listDashboardsInput,
   promoteCanvasInput,
@@ -29,6 +31,7 @@ import {
   reportCanvasErrorInput,
   requestCanvasAgentInput,
   revertCanvasInput,
+  setCanvasSharingInput,
   setGenerationTaskInput,
   setPinnedInput,
 } from "@posthog/core/canvas/dashboardSchemas";
@@ -253,5 +256,27 @@ export const dashboardsRouter = router({
       ctx.container
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
         .requestAgent(input),
+    ),
+  sharing: publicProcedure
+    .input(dashboardIdInput)
+    .output(canvasSharingSchema.nullable())
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .getSharing(input.id),
+    ),
+  setSharing: publicProcedure
+    .input(setCanvasSharingInput)
+    .output(canvasSharingSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .setSharing(input),
+    ),
+  fork: publicProcedure
+    .input(forkCanvasInput)
+    .output(dashboardRecordSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).fork(input.id),
     ),
 });
