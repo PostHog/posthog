@@ -44,6 +44,10 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     get_s3_client,
     hogql_table,
 )
+from posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse import (
+    ManagedWarehouseShadowInputs,
+    materialize_view_duckgres_activity,
+)
 from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
 
 from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
@@ -93,6 +97,38 @@ async def _make_job(
         parent_workflow_id=parent_workflow_id,
         manually_triggered_by=manually_triggered_by,
     )
+
+
+class TestMaterializeViewManagedWarehouseActivity:
+    async def test_legacy_activity_records_failure_against_the_job_engine(
+        self, activity_environment, ateam, anode, ajob, adag
+    ):
+        ajob.engine = DataModelingJobEngine.LEGACY_DUCKGRES
+        await database_sync_to_async(ajob.save)(update_fields=["engine"])
+        inputs = ManagedWarehouseShadowInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            dangerously_execute_raw_sql=True,
+        )
+
+        with (
+            unittest.mock.patch(
+                "products.managed_warehouse.backend.facade.client.execute_ducklake_create_table",
+                side_effect=RuntimeError("materialization failed"),
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.maybe_suspend_node_for_engine",
+                new_callable=unittest.mock.AsyncMock,
+                return_value=False,
+            ) as mock_maybe_suspend,
+        ):
+            await activity_environment.run(materialize_view_duckgres_activity, inputs)
+
+        mock_maybe_suspend.assert_awaited_once()
+        assert mock_maybe_suspend.await_args is not None
+        assert mock_maybe_suspend.await_args.kwargs["engine"] == DataModelingJobEngine.LEGACY_DUCKGRES
 
 
 class TestCreateDataModelingJobActivity:
@@ -517,7 +553,7 @@ class TestNodeSuspension:
         assert suspended is True
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
-        assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is False
+        assert is_node_suspended(anode, DataModelingJobEngine.MANAGED_WAREHOUSE) is False
         await database_sync_to_async(job.refresh_from_db)()
         assert ("has been suspended" in job.error) is enforced
 
@@ -810,12 +846,20 @@ class TestNodeSuspension:
 
         jobs = [
             await _make_job(
-                ateam, asaved_query, DataModelingJob.Status.FAILED, engine=DataModelingJobEngine.DUCKGRES, error="boom"
+                ateam,
+                asaved_query,
+                DataModelingJob.Status.FAILED,
+                engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+                error="boom",
             )
             for _ in range(5)
         ]
         job = await _make_job(
-            ateam, asaved_query, DataModelingJob.Status.FAILED, engine=DataModelingJobEngine.DUCKGRES, error="boom"
+            ateam,
+            asaved_query,
+            DataModelingJob.Status.FAILED,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            error="boom",
         )
         jobs.append(job)
 
@@ -828,10 +872,10 @@ class TestNodeSuspension:
             "job_id": str(job.id),
         }
         assert await maybe_suspend_node_for_engine(engine=DataModelingJobEngine.CLICKHOUSE, **kwargs) is False
-        assert await maybe_suspend_node_for_engine(engine=DataModelingJobEngine.DUCKGRES, **kwargs) is True
+        assert await maybe_suspend_node_for_engine(engine=DataModelingJobEngine.MANAGED_WAREHOUSE, **kwargs) is True
 
         await database_sync_to_async(anode.refresh_from_db)()
-        assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is True
+        assert is_node_suspended(anode, DataModelingJobEngine.MANAGED_WAREHOUSE) is True
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is False
         # shadow-engine suspension must not stamp customer digest language onto the job
         await database_sync_to_async(job.refresh_from_db)()
@@ -849,16 +893,19 @@ class TestNodeSuspension:
         )
 
         mark_node_suspended(anode, engine=DataModelingJobEngine.CLICKHOUSE, reason="x", job_id="j1")
-        mark_node_suspended(anode, engine=DataModelingJobEngine.DUCKGRES, reason="y", job_id="j2")
+        mark_node_suspended(anode, engine=DataModelingJobEngine.MANAGED_WAREHOUSE, reason="y", job_id="j2")
         await database_sync_to_async(anode.save)()
 
         cleared = await clear_node_suspension_for_engine(
-            node_id=str(anode.id), team_id=ateam.pk, dag_id=str(adag.id), engine=DataModelingJobEngine.DUCKGRES
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
         )
 
         assert cleared is True
         await database_sync_to_async(anode.refresh_from_db)()
-        assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is False
+        assert is_node_suspended(anode, DataModelingJobEngine.MANAGED_WAREHOUSE) is False
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
 
 
@@ -917,7 +964,7 @@ class TestSucceedMaterializationActivity:
         from posthog.temporal.data_modeling.activities.utils import is_node_suspended, mark_node_suspended
 
         mark_node_suspended(anode, engine=DataModelingJobEngine.CLICKHOUSE, reason="x", job_id="old")
-        mark_node_suspended(anode, engine=DataModelingJobEngine.DUCKGRES, reason="y", job_id="old")
+        mark_node_suspended(anode, engine=DataModelingJobEngine.MANAGED_WAREHOUSE, reason="y", job_id="old")
         await database_sync_to_async(anode.save)()
 
         inputs = SucceedMaterializationInputs(
@@ -932,7 +979,7 @@ class TestSucceedMaterializationActivity:
 
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is False
-        assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is True
+        assert is_node_suspended(anode, DataModelingJobEngine.MANAGED_WAREHOUSE) is True
 
     @pytest.mark.parametrize("edited_after_the_run_started", [False, True])
     async def test_success_clears_modified_only_when_the_run_started_after_the_edit(
