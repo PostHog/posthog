@@ -33900,6 +33900,8 @@ export namespace Schemas {
 
     export interface ErrorTrackingSignalExtra {
       fingerprint: string;
+      host?: string | null;
+      is_dev_host?: boolean;
     }
 
     export interface SimilarIssue {

@@ -21,6 +21,7 @@ from products.error_tracking.backend.temporal.lifecycle.side_effects import (
     emit_issue_lifecycle_signal,
     produce_issue_lifecycle_internal_event,
 )
+from products.signals.backend.facade.api import validate_signal_input
 
 
 def _inputs() -> IssueReopenedWorkflowInputs:
@@ -238,6 +239,99 @@ async def test_signal_is_truncated_and_uses_notification_id_for_idempotency() ->
         "source_id": inputs.issue_id,
         "description": description,
         "weight": 1.0,
-        "extra": {"fingerprint": inputs.fingerprint},
+        "extra": {"fingerprint": inputs.fingerprint, "host": None, "is_dev_host": False},
         "idempotency_key": inputs.notification_id,
     }
+
+
+@pytest.mark.asyncio
+async def test_signal_carries_dev_host_origin_in_description_and_extra() -> None:
+    inputs = _inputs()
+    team = MagicMock()
+    event_properties = {
+        "$exception_list": [{"type": "TypeError", "value": "boom"}],
+        "$current_url": "http://localhost:3000/dashboard",
+        "$lib": "posthog-js",
+    }
+
+    with (
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.Team.objects.aget",
+            new=AsyncMock(return_value=team),
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.fetch_event_properties",
+            return_value=event_properties,
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.emit_signal",
+            new=AsyncMock(),
+        ) as emit_signal,
+    ):
+        await emit_issue_lifecycle_signal(
+            inputs,
+            source_type="issue_reopened",
+            preamble="Previously resolved issue reappeared",
+        )
+
+    assert emit_signal.await_args is not None
+    call = emit_signal.await_args.kwargs
+    assert "Origin: host localhost:3000 (local development host), lib posthog-js\n" in call["description"]
+    assert call["extra"] == {"fingerprint": inputs.fingerprint, "host": "localhost:3000", "is_dev_host": True}
+
+
+@pytest.mark.asyncio
+async def test_signal_survives_special_token_in_origin_text() -> None:
+    inputs = _inputs()
+    team = MagicMock()
+    event_properties = {
+        "$exception_list": [{"type": "TypeError", "value": "boom"}],
+        "$host": "example.com",
+        "$lib": "<|endoftext|>",
+    }
+
+    with (
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.Team.objects.aget",
+            new=AsyncMock(return_value=team),
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.fetch_event_properties",
+            return_value=event_properties,
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.emit_signal",
+            new=AsyncMock(),
+        ) as emit_signal,
+    ):
+        await emit_issue_lifecycle_signal(
+            inputs,
+            source_type="issue_reopened",
+            preamble="Previously resolved issue reappeared",
+        )
+
+    emit_signal.assert_awaited_once()
+    assert emit_signal.await_args is not None
+    assert "lib <|endoftext|>" in emit_signal.await_args.kwargs["description"]
+
+
+@pytest.mark.parametrize("source_type", ["issue_created", "issue_reopened", "issue_spiking"])
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"fingerprint": "fp", "host": "app.example.com", "is_dev_host": False},
+        {"fingerprint": "fp", "host": None, "is_dev_host": False},
+    ],
+)
+def test_lifecycle_signal_extra_matches_contract(source_type: str, extra: dict[str, object]) -> None:
+    # emit_issue_lifecycle_signal sends fingerprint/host/is_dev_host on extra, so the signal contract
+    # must accept exactly those keys — otherwise emit_signal raises before any signal is emitted.
+    validate_signal_input(
+        source_product="error_tracking",
+        source_type=source_type,
+        source_id="issue-1",
+        description="d",
+        weight=1.0,
+        extra=extra,
+        remediation=None,
+    )
