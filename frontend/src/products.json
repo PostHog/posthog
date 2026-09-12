@@ -107,7 +107,7 @@
         },
         {
             "path": "Data warehouse",
-            "category": "Unreleased",
+            "category": "Tools",
             "iconType": "data_warehouse",
             "type": null,
             "intents": ["data_warehouse", "data_warehouse_saved_queries"]
