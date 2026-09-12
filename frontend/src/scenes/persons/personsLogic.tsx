@@ -720,7 +720,7 @@ export const personsLogic = kea<personsLogicType>([
 
                 try {
                     await api.persons.updateProperty(person.id, key, parsedValue)
-                    lemonToast.success(`Person property ${action}`)
+                    lemonToast.success(`Person property ${action}. The change can take a moment to appear.`)
 
                     actions.reportPersonPropertyUpdated(
                         action,
@@ -744,7 +744,7 @@ export const personsLogic = kea<personsLogicType>([
 
                 try {
                     await api.persons.deleteProperty(person.id, key)
-                    lemonToast.success(`Person property deleted`)
+                    lemonToast.success(`Person property deleted. The change can take a moment to appear.`)
 
                     actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
                 } catch {

@@ -20,7 +20,7 @@ from drf_spectacular.utils import (
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
-from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
+from rest_framework.exceptions import APIException, MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
@@ -523,6 +523,16 @@ def _exact_identifier_person_uuids(team_id: int, search: str) -> list[str]:
         if by_distinct_id is not None and str(by_distinct_id.uuid) not in matches:
             matches.append(str(by_distinct_id.uuid))
     return matches
+
+
+class PersonPropertyCaptureFailed(APIException):
+    # The write is an async capture event, so a swallowed failure looks exactly like a successful
+    # edit until the user reloads. Raising keeps the failure impossible for a caller to drop.
+    # The status stays 502 whatever capture answers, so this endpoint's contract does not grow
+    # every status an internal service can produce.
+    status_code = 502
+    default_detail = "Couldn't update the property. Try again, and if it keeps happening contact support."
+    default_code = "person_property_capture_failed"
 
 
 @extend_schema(extensions={"x-product": ProductKey.PERSONS})
@@ -1363,12 +1373,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             property_type=PropertyDefinition.Type.PERSON,
         )
 
-    def _set_properties(self, properties, user):
+    def _set_properties(self, properties, user) -> None:
         instance = self.get_object()
         distinct_id = instance.distinct_ids[0]
         event_name = "$set"
         timestamp = datetime.now(UTC)
-        properties = {
+        event_properties = {
             "$set": properties,
         }
 
@@ -1379,14 +1389,29 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 event_source="person_viewset",
                 distinct_id=distinct_id,
                 timestamp=timestamp,
-                properties=properties,
+                properties=event_properties,
                 process_person_profile=True,
             )
             result.raise_for_status()
 
-        # Failures in this codepath are ignored
-        except Exception:
-            pass
+        except CaptureInternalError as cre:
+            logger.warning(
+                "set_person_properties.capture_http_error",
+                team_id=self.team_id,
+                person_uuid=str(instance.uuid),
+                property_keys=sorted(properties),
+                status_code=cre.status_code,
+            )
+            raise PersonPropertyCaptureFailed from cre
+
+        except Exception as e:
+            logger.exception(
+                "set_person_properties.capture_error",
+                team_id=self.team_id,
+                person_uuid=str(instance.uuid),
+                property_keys=sorted(properties),
+            )
+            raise PersonPropertyCaptureFailed from e
 
         if self.organization.id:  # should always be true, but mypy...
             log_activity(
