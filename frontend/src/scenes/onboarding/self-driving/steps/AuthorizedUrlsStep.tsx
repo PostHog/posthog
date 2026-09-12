@@ -27,23 +27,22 @@ export function AuthorizedUrlsStep({
     onSkip: () => void
 }): JSX.Element {
     const logic = authorizedUrlListLogic(AUTHORIZED_URL_LOGIC_PROPS)
-    const { authorizedUrls, isAddUrlFormVisible, proposedUrl, isProposedUrlSubmitting } = useValues(logic)
+    const { authorizedUrls, editUrlIndex, proposedUrl, isProposedUrlSubmitting } = useValues(logic)
     const { newUrl } = useActions(logic)
     const [showRequirement, setShowRequirement] = useState(false)
 
     const handleContinue = async (): Promise<void> => {
-        // Continue is the only commit path, so a URL still in the form is saved before the step moves on.
-        // A URL that fails validation leaves the list empty and the form shows why.
-        if (isAddUrlFormVisible && proposedUrl.url) {
+        // Continue is the only commit path, so a URL still in the form, new or edited, is saved before the
+        // step moves on. A submit that fails validation keeps the form open with the reason.
+        if (editUrlIndex !== null && proposedUrl.url) {
             await logic.asyncActions.submitProposedUrl()
-            if (logic.values.authorizedUrls.length > 0) {
-                onContinue()
+            if (logic.values.editUrlIndex !== null) {
+                return
             }
-            return
         }
-        if (authorizedUrls.length === 0) {
+        if (logic.values.authorizedUrls.length === 0) {
             setShowRequirement(true)
-            if (!isAddUrlFormVisible) {
+            if (logic.values.editUrlIndex === null) {
                 newUrl()
             }
             return

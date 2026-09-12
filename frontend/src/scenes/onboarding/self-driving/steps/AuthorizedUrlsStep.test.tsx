@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { expectLogic } from 'kea-test-utils'
 
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 
@@ -49,5 +50,24 @@ describe('AuthorizedUrlsStep', () => {
 
         await waitFor(() => expect(onContinue).toHaveBeenCalledTimes(1))
         expect(logic.values.authorizedUrls).toContain('https://example.com')
+    })
+
+    it('commits a pending edit before it continues', async () => {
+        const onContinue = jest.fn()
+
+        logic.actions.setAuthorizedUrls(['https://example.com'])
+        render(<AuthorizedUrlsStep onContinue={onContinue} onSkip={jest.fn()} />)
+        act(() => logic.actions.setEditUrlIndex(0))
+        fireEvent.change(screen.getByPlaceholderText(/Enter a URL/), {
+            target: { value: 'https://edited.example.com' },
+        })
+
+        await expectLogic(logic, () => {
+            fireEvent.click(screen.getByText('Continue'))
+        }).toDispatchActions([
+            (action) =>
+                action.type === logic.actionTypes.updateUrl && action.payload.url === 'https://edited.example.com',
+        ])
+        await waitFor(() => expect(onContinue).toHaveBeenCalledTimes(1))
     })
 })
