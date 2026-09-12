@@ -85,6 +85,9 @@ Its team IDs refer to the original environment, without resolving a child enviro
 
 Distinct IDs and sessions have a many-to-many relationship.
 Ingestion records both directions of each association before publishing data.
+Each batch reads the organization/team directory entry with its initial state.
+It creates missing entries before session keys.
+This lets consent withdrawal discover every team without rewriting the directory in each key transaction.
 Team and distinct-ID lookups use 32 session shards with strongly consistent queries; they do not require ClickHouse or an eventually consistent secondary index.
 Deleting one distinct ID deletes each complete associated session, including events with other distinct IDs.
 A later event for a blocked distinct ID also blocks its session.
@@ -149,6 +152,8 @@ Resolve image references before training because they contain team IDs.
 V2 references are `image:v2:<team>:<grant>:<month>:<hash>` and `imageurl:v2:<team>:<grant>:<month>:<hash>`.
 Images do not deduplicate across teams, consent periods or session months.
 Source messages use session keys; stored scrubbed images use team image keys.
+Consumers reject malformed UUIDv7 session identifiers before reading DynamoDB.
+Oversized identifiers cannot fail a whole bulk key lookup.
 Inline images have an encrypted lookup for each reference, published after the shard and its index.
 Readers fetch that lookup directly; a missing image does not require a scan of the team's image history.
 Source deduplication includes the session, so deleting one source session cannot suppress another session's copy.

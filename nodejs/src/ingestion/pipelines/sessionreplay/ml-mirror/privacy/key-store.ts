@@ -18,6 +18,7 @@ import {
     keySessionMonth,
     monthBlockId,
     monthKeyIndexId,
+    organizationTeamId,
     sessionKeyId,
     tableKeyString,
     teamBlockId,
@@ -117,6 +118,7 @@ export class MlKeyBatch {
         const initial = this.identities.flatMap((identity) => [
             monthBlockId(sessionStartMonth(identity.sessionId)),
             consentKeyId(identity.organizationId),
+            organizationTeamId(identity.organizationId, identity.teamId),
             teamBlockId(identity.teamId),
             distinctBlockId(identity.teamId, identity.distinctId),
             sessionKeyId(identity.teamId, identity.sessionId),
@@ -227,6 +229,17 @@ export class MlKeyBatch {
     }
 
     private async persist(): Promise<void> {
+        const directories = new Map<string, TransactWriteItem[]>()
+        for (const key of this.keys.values()) {
+            const location = organizationTeamId(key.identity.organizationId, key.identity.teamId)
+            const id = tableKeyString(location)
+            if (!this.state.has(id)) {
+                directories.set(id, [
+                    this.put(location, { team_id: { N: String(key.identity.teamId) } }, 'attribute_not_exists(pk)'),
+                ])
+            }
+        }
+        await this.db.write(groupTransactions([...directories.values()]))
         const creations: TransactWriteItem[][] = []
         for (const [id, key] of this.keys) {
             if (this.state.has(id) || (key.identity.sessionId && this.blocked.has(id))) {
@@ -249,10 +262,6 @@ export class MlKeyBatch {
                     key_pk: { S: storedKeyId(key.identity).pk },
                     key_sk: { S: storedKeyId(key.identity).sk },
                 }),
-                this.put(
-                    { pk: `organization:${key.identity.organizationId}`, sk: `team:${key.identity.teamId}` },
-                    { team_id: { N: String(key.identity.teamId) } }
-                ),
             ])
         }
         await this.db.write(groupTransactions(creations))
