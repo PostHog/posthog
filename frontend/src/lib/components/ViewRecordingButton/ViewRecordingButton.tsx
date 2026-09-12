@@ -235,7 +235,7 @@ export const recordingDisabledReason = (
     } else if (hasRecording === true) {
         // We already know a recording exists, so no reported status can rule it out.
         return null
-    } else if (recordingStatus && recordingStatus in REPLAY_OFF_REASONS) {
+    } else if (recordingStatus && Object.hasOwn(REPLAY_OFF_REASONS, recordingStatus)) {
         return (
             <>
                 {REPLAY_OFF_REASONS[recordingStatus]}{' '}
@@ -265,7 +265,7 @@ export const recordingWarningReason = (
         const minimumDurationInSeconds = minimumDuration / 1000
         return `There is a chance this recording was not captured because the event happened earlier than the ${minimumDurationInSeconds}s minimum session duration.`
     }
-    if (recordingStatus && recordingStatus in UNCERTAIN_STATUS_WARNINGS) {
+    if (recordingStatus && Object.hasOwn(UNCERTAIN_STATUS_WARNINGS, recordingStatus)) {
         return UNCERTAIN_STATUS_WARNINGS[recordingStatus]
     }
     return undefined

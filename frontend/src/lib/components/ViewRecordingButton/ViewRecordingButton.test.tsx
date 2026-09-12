@@ -39,6 +39,9 @@ describe('recordingDisabledReason', () => {
         ['pending_config', false],
         ['paused', false],
         ['a_status_this_build_does_not_know', false],
+        // Event properties carry any key a client sends, including names inherited from Object.prototype.
+        ['toString', false],
+        ['__proto__', false],
         ['disabled', true],
         ['missing_config', true],
         ['rrweb_error', true],
@@ -65,7 +68,7 @@ describe('recordingWarningReason', () => {
         }
     )
 
-    it.each(['active', 'sampled', 'disabled'])('does not warn for %s', (recordingStatus) => {
+    it.each(['active', 'sampled', 'disabled', 'toString', '__proto__'])('does not warn for %s', (recordingStatus) => {
         expect(recordingWarningReason(undefined, undefined, recordingStatus, undefined)).toBeUndefined()
     })
 })
