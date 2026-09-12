@@ -9040,8 +9040,6 @@ class TestExperimentTags(APILicensedTest):
         assert response.json() == {"ids": [tagged["id"]], "total": 1}
 
     def test_matching_ids_excludes_view_only_experiments(self):
-        from ee.models.rbac.access_control import AccessControl
-
         editable = self._create_experiment("Mine", "tags-acl-flag-a")
 
         other_user = self._create_user("other-tags-acl@posthog.com")
