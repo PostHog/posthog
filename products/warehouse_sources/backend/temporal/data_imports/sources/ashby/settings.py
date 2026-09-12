@@ -1,6 +1,18 @@
 from dataclasses import dataclass
 from typing import Optional
 
+PAGE_SIZE = 100  # Ashby's documented max (and default).
+
+
+@dataclass(frozen=True)
+class AshbyFanoutConfig:
+    parent_path: str
+    """Ashby list method walked to enumerate parents. Not necessarily a table we expose."""
+    resolve_param: str
+    """Request-body key on the child method that takes the parent's ``id``."""
+    parent_id_field: Optional[str] = None
+    """Field the parent's ``id`` is written onto, for children that don't already carry it."""
+
 
 @dataclass
 class AshbyEndpointConfig:
@@ -12,9 +24,25 @@ class AshbyEndpointConfig:
     partition_key: Optional[str] = None
     """A STABLE creation-time field to partition on. ``None`` disables partitioning.
 
-    Only set where the object is documented to carry a top-level ``createdAt`` — never a
-    mutable field like ``updatedAt`` (partitions would rewrite on every sync).
+    Only set where the object is documented to carry a top-level creation timestamp that Ashby
+    never rewrites — never a mutable field like ``updatedAt`` (partitions would rewrite on
+    every sync).
     """
+    page_size: Optional[int] = PAGE_SIZE
+    """``None`` for methods that accept no ``limit`` — Ashby rejects unknown request-body keys."""
+    nested_field: Optional[str] = None
+    """Rows come from this array on each item of ``path``, instead of from the items themselves."""
+    fanout: Optional[AshbyFanoutConfig] = None
+    """Set when ``path`` must be called once per parent row rather than listed directly."""
+
+    @property
+    def probe_path(self) -> str:
+        """Path to probe when validating access to this table.
+
+        A fan-out child can't be called without a parent id, so we probe the parent listing the
+        sync starts from; both sit behind the same Ashby permission.
+        """
+        return self.fanout.parent_path if self.fanout else self.path
 
 
 # Every Ashby object exposes a top-level ``id``, so the primary key is ``["id"]`` throughout.
@@ -52,6 +80,37 @@ ASHBY_ENDPOINTS: dict[str, AshbyEndpointConfig] = {
     ),
     "sequences": AshbyEndpointConfig(
         name="sequences", path="sequence.list", primary_key=["id"], partition_key="createdAt"
+    ),
+    "application_feedback": AshbyEndpointConfig(
+        name="application_feedback",
+        path="applicationFeedback.list",
+        primary_key=["id"],
+        partition_key="submittedAt",
+    ),
+    "application_history": AshbyEndpointConfig(
+        name="application_history",
+        path="application.listHistory",
+        primary_key=["applicationId", "id"],
+        # enteredStageAt is editable through application.updateHistory, so it can't partition.
+        fanout=AshbyFanoutConfig(
+            parent_path="application.list", resolve_param="applicationId", parent_id_field="applicationId"
+        ),
+    ),
+    "interview_stages": AshbyEndpointConfig(
+        name="interview_stages",
+        path="interviewStage.list",
+        primary_key=["interviewPlanId", "id"],
+        page_size=None,
+        fanout=AshbyFanoutConfig(parent_path="interviewPlan.list", resolve_param="interviewPlanId"),
+    ),
+    "interview_events": AshbyEndpointConfig(
+        name="interview_events",
+        path="interviewSchedule.list",
+        primary_key=["id"],
+        partition_key="createdAt",
+        # interviewSchedule.list already returns every event in full, so read them from there
+        # instead of calling interviewEvent.list once per schedule.
+        nested_field="interviewEvents",
     ),
 }
 

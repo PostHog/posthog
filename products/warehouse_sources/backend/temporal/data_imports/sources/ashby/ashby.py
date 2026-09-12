@@ -1,9 +1,14 @@
 import dataclasses
+from collections.abc import Callable, Iterator
 from typing import Any, Optional
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.settings import ASHBY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.settings import (
+    ASHBY_ENDPOINTS,
+    PAGE_SIZE,
+    AshbyEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -16,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 ASHBY_BASE_URL = "https://api.ashbyhq.com"
-PAGE_SIZE = 100  # Ashby's documented max (and default).
 # Cheap endpoint to confirm a key is genuine when no specific schema is being validated.
 DEFAULT_PROBE_PATH = "department.list"
 
@@ -29,7 +33,14 @@ class AshbyAPIError(Exception):
 
 @dataclasses.dataclass
 class AshbyResumeConfig:
-    cursor: str
+    cursor: Optional[str] = None
+    """Next page cursor for a directly listed endpoint."""
+    parent_cursor: Optional[str] = None
+    """Fan-out: the cursor that fetched the parent page being walked."""
+    parent_index: int = 0
+    """Fan-out: how many parents in that page are already finished."""
+    child_cursor: Optional[str] = None
+    """Fan-out: next page cursor for the parent currently in progress."""
 
 
 def _headers() -> dict[str, str]:
@@ -86,6 +97,162 @@ class AshbyCursorPaginator(JSONResponseCursorPaginator):
             self._has_next_page = False
 
 
+def _rest_config(api_key: str, name: str, path: str, body: dict[str, Any]) -> RESTAPIConfig:
+    return {
+        "client": {
+            "base_url": ASHBY_BASE_URL,
+            "headers": _headers(),
+            # Ashby uses HTTP Basic auth: API key as username, empty password.
+            "auth": {"type": "http_basic", "username": api_key, "password": ""},
+            "paginator": AshbyCursorPaginator(path),
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": name,
+                "endpoint": {
+                    "path": path,
+                    "method": "post",
+                    "json": body,
+                    "data_selector": "results",
+                },
+            }
+        ],
+    }
+
+
+def _iter_pages(
+    api_key: str,
+    name: str,
+    path: str,
+    body: dict[str, Any],
+    team_id: int,
+    job_id: str,
+    *,
+    start_cursor: Optional[str] = None,
+    on_next_cursor: Optional[Callable[[Optional[str]], None]] = None,
+) -> Iterator[tuple[list[dict[str, Any]], Optional[str]]]:
+    """Yield each page of an Ashby list method with the cursor that fetched it.
+
+    ``on_next_cursor`` receives the cursor for the page after the one just yielded, or ``None``
+    once the listing is exhausted.
+    """
+    next_cursor: dict[str, Optional[str]] = {"value": None}
+
+    def remember(state: Optional[dict[str, Any]]) -> None:
+        next_cursor["value"] = str(state["cursor"]) if state and state.get("cursor") else None
+        if on_next_cursor is not None:
+            on_next_cursor(next_cursor["value"])
+
+    resource = rest_api_resource(
+        _rest_config(api_key, name, path, body),
+        team_id,
+        job_id,
+        None,  # every Ashby endpoint is full refresh
+        resume_hook=remember,
+        initial_paginator_state={"cursor": start_cursor} if start_cursor else None,
+    )
+
+    cursor = start_cursor
+    for index, page in enumerate(resource):
+        if index:
+            # ``remember`` for the previous page runs as the resource advances above, so by now
+            # it holds the cursor that fetched the page we are about to yield.
+            cursor = next_cursor["value"]
+        yield page, cursor
+
+
+def _listed_pages(
+    api_key: str,
+    config: AshbyEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[AshbyResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    def save_checkpoint(cursor: Optional[str]) -> None:
+        # Persist only when a next page remains; the checkpoint fires AFTER a page is yielded so a
+        # crash re-fetches from the next page (already-yielded pages are persisted); merge/replace
+        # dedupes on the primary key.
+        if cursor:
+            resumable_source_manager.save_state(AshbyResumeConfig(cursor=cursor))
+
+    body: dict[str, Any] = {} if config.page_size is None else {"limit": config.page_size}
+    for page, _ in _iter_pages(
+        api_key,
+        config.name,
+        config.path,
+        body,
+        team_id,
+        job_id,
+        start_cursor=resume.cursor if resume else None,
+        on_next_cursor=save_checkpoint,
+    ):
+        yield [row for item in page for row in (item.get(config.nested_field) or [])] if config.nested_field else page
+
+
+def _fanned_out_pages(
+    api_key: str,
+    config: AshbyEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[AshbyResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    fanout = config.fanout
+    assert fanout is not None
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    child_cursor = resume.child_cursor if resume else None
+    skip = resume.parent_index if resume else 0
+
+    for parent_page, parent_cursor in _iter_pages(
+        api_key,
+        fanout.parent_path,
+        fanout.parent_path,
+        {"limit": PAGE_SIZE},
+        team_id,
+        job_id,
+        start_cursor=resume.parent_cursor if resume else None,
+    ):
+        for index, parent in enumerate(parent_page):
+            if index < skip:
+                continue
+
+            parent_id = parent["id"]
+            body: dict[str, Any] = {fanout.resolve_param: parent_id}
+            if config.page_size is not None:
+                body["limit"] = config.page_size
+
+            def save_child_checkpoint(
+                cursor: Optional[str], page: Optional[str] = parent_cursor, at: int = index
+            ) -> None:
+                if cursor:
+                    resumable_source_manager.save_state(
+                        AshbyResumeConfig(parent_cursor=page, parent_index=at, child_cursor=cursor)
+                    )
+
+            for child_page, _ in _iter_pages(
+                api_key,
+                config.name,
+                config.path,
+                body,
+                team_id,
+                job_id,
+                start_cursor=child_cursor,
+                on_next_cursor=save_child_checkpoint,
+            ):
+                if fanout.parent_id_field:
+                    for row in child_page:
+                        row.setdefault(fanout.parent_id_field, parent_id)
+                yield child_page
+
+            child_cursor = None
+            resumable_source_manager.save_state(AshbyResumeConfig(parent_cursor=parent_cursor, parent_index=index + 1))
+
+        skip = 0
+
+
 def ashby_source(
     api_key: str,
     endpoint: str,
@@ -94,54 +261,11 @@ def ashby_source(
     resumable_source_manager: ResumableSourceManager[AshbyResumeConfig],
 ) -> SourceResponse:
     config = ASHBY_ENDPOINTS[endpoint]
-
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": ASHBY_BASE_URL,
-            "headers": _headers(),
-            # Ashby uses HTTP Basic auth: API key as username, empty password.
-            "auth": {"type": "http_basic", "username": api_key, "password": ""},
-            "paginator": AshbyCursorPaginator(config.path),
-        },
-        "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "method": "post",
-                    "json": {"limit": PAGE_SIZE},
-                    "data_selector": "results",
-                },
-            }
-        ],
-    }
-
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None:
-            initial_paginator_state = {"cursor": resume.cursor}
-
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only when a next page remains; the checkpoint fires AFTER a page is yielded so a
-        # crash re-fetches from the next page (already-yielded pages are persisted); merge/replace
-        # dedupes on the primary key.
-        if state and state.get("cursor"):
-            resumable_source_manager.save_state(AshbyResumeConfig(cursor=str(state["cursor"])))
-
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        None,  # every Ashby endpoint is full refresh
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+    pages = _fanned_out_pages if config.fanout else _listed_pages
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=lambda: pages(api_key, config, team_id, job_id, resumable_source_manager),
         primary_keys=config.primary_key,
         partition_count=1,
         partition_size=1,
