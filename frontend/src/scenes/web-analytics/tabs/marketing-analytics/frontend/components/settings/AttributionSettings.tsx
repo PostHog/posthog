@@ -144,7 +144,9 @@ export function AttributionSettings(): JSX.Element {
                     {currentTeamLoading && <Spinner className="text-muted" />}
                 </h3>
                 <p className="text-muted-foreground text-sm mb-4">
-                    Configure how conversions are attributed to marketing campaigns.
+                    Configure how conversions are attributed to marketing campaigns. These settings only change how
+                    PostHog attributes conversions. Conversion columns in an ad platform use that platform's own
+                    attribution window and model, so the two counts rarely match exactly.
                 </p>
             </div>
 
