@@ -22,6 +22,7 @@ from posthog.api.utils import ErrorResponseSerializer, action
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.filters.filter import Filter
+from posthog.models.group_type_mapping import GroupTypesUnavailable, get_group_types_for_projects
 from posthog.rate_limit import CopyFlagsBurstRateThrottle, CopyFlagsSustainedRateThrottle
 from posthog.user_permissions import UserPermissions
 from posthog.utils import safe_int
@@ -57,6 +58,22 @@ SCHEDULED_DEPENDENCY_COPY_PERMISSION_ERROR = (
 )
 TARGET_DEPENDENCY_CREATE_PERMISSION_WARNING = "Cannot automatically copy dependencies because you do not have permission to create feature flags in one or more target projects."
 EXISTING_TARGET_SCHEDULE_DEPENDENCY_WARNING = "Pending scheduled changes already attached to the target flag were left unchanged and may change this copied flag later."
+MISSING_TARGET_GROUP_TYPE_ERROR = (
+    "The target project does not have these group types: {group_types}. "
+    "Group types are numbered separately in each project, so the copy would match a different group type. "
+    "Capture an event for the missing group types in the target project, then copy the flag again."
+)
+UNKNOWN_SOURCE_GROUP_TYPE_ERROR = (
+    "The source project does not have these group type numbers: {group_type_indices}. "
+    "Set the group type again on the source flag's release conditions, then copy the flag again."
+)
+GROUP_TYPES_UNAVAILABLE_ERROR = "The group types could not be read. Try the copy again in a moment."
+SKIPPED_SCHEDULE_GROUP_TYPE_WARNING = "Skipped a scheduled change. {reason}"
+
+
+def _is_group_type_index(value: Any) -> bool:
+    # bool is a subclass of int, so exclude it explicitly.
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 @dataclass(frozen=True)
@@ -462,6 +479,7 @@ class OrganizationFeatureFlagView(
     def copy_flags(self, request, *args, **kwargs):
         serializer = CopyFlagsRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        self._group_types_by_project_id: dict[int, list[dict[str, Any]]] = {}
         body = serializer.validated_data
         feature_flag_key = body.get("feature_flag_key")
         from_project = body.get("from_project")
@@ -1298,6 +1316,9 @@ class OrganizationFeatureFlagView(
             **filters,
         }
 
+        source_project_id = source_flag.team.project_id
+        self._remap_group_type_indices(filters, source_project_id, target_team.project_id)
+
         # reference correct destination cohort ids in the flag
         for group in filters.get("groups", []) or []:
             props = group.get("properties", [])
@@ -1411,6 +1432,7 @@ class OrganizationFeatureFlagView(
                         source_dependency_keys,
                         disabled_source_dependency_keys,
                         target_team,
+                        source_project_id,
                     )
                     schedule_dependency_warnings.extend(copied_schedule_dependency_warnings)
             except Exception as e:
@@ -1560,8 +1582,9 @@ class OrganizationFeatureFlagView(
         source_dependency_keys: dict[str, str],
         disabled_source_dependency_keys: set[str],
         target_team: Team,
+        source_project_id: int,
     ) -> list[str]:
-        """Copy pending schedules, remapping cohort IDs and flag dependencies for the target project."""
+        """Copy pending schedules, remapping cohort IDs, group type indices and flag dependencies for the target project."""
         # Validate user has permission to create schedules in target project
         user_access_control = UserAccessControl(user, target_flag.team)
         user_access_level = user_access_control.get_user_access_level(target_flag)
@@ -1591,6 +1614,15 @@ class OrganizationFeatureFlagView(
         for schedule in source_schedules:
             # Remap cohort IDs in schedule payload
             updated_payload = self._remap_cohort_ids_in_payload(schedule.payload, cohort_mapping, cohort_cache)
+            payload_filters = self._get_schedule_payload_filters(updated_payload)
+            if payload_filters is not None:
+                try:
+                    self._remap_group_type_indices(payload_filters, source_project_id, target_team.project_id)
+                except ValueError as error:
+                    # Skip the one schedule rather than fail the whole copy, which matches how an
+                    # unremappable flag dependency is handled below.
+                    schedule_dependency_warnings.append(SKIPPED_SCHEDULE_GROUP_TYPE_WARNING.format(reason=error))
+                    continue
             schedule_dependency_context = schedule_dependency_contexts_by_id.get(cast(int, schedule.id))
             if schedule_dependency_context is None:
                 schedule_dependency_context = ScheduledChangeDependencyContext({}, set())
@@ -1699,6 +1731,95 @@ class OrganizationFeatureFlagView(
             restricted_target_dependency_keys,
             disabled_source_dependency_keys,
         )
+
+    def _iter_group_type_index_slots(self, filters: dict[str, Any]) -> list[tuple[dict[str, Any], str]]:
+        """Collect every dict entry in `filters` that holds a group type index."""
+        slots: list[tuple[dict[str, Any], str]] = []
+        if _is_group_type_index(filters.get("aggregation_group_type_index")):
+            slots.append((filters, "aggregation_group_type_index"))
+        for group in self._iter_filter_groups(filters):
+            if _is_group_type_index(group.get("aggregation_group_type_index")):
+                slots.append((group, "aggregation_group_type_index"))
+            for prop in self._iter_group_properties(group):
+                if prop.get("type") == "group" and _is_group_type_index(prop.get("group_type_index")):
+                    slots.append((prop, "group_type_index"))
+        return slots
+
+    def _get_group_types_by_project_id(self, project_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+        """Read each project's group types once per request.
+
+        One copy needs this lookup for every target project, every copied dependency flag and every
+        scheduled change, and a project's group types do not change inside one request.
+
+        The batch read is used instead of `get_group_types_for_project` because that helper answers
+        an unreachable mapping store with an empty list. Here an empty list means "the project has
+        no such group type", so it would reject a copy the target project can in fact accept.
+        """
+        unread = sorted(set(project_ids) - self._group_types_by_project_id.keys())
+        if unread:
+            try:
+                self._group_types_by_project_id.update(
+                    get_group_types_for_projects(unread, caller_tag="copy_feature_flags")
+                )
+            except GroupTypesUnavailable as error:
+                raise ValueError(GROUP_TYPES_UNAVAILABLE_ERROR) from error
+        return self._group_types_by_project_id
+
+    def _remap_group_type_indices(
+        self, filters: dict[str, Any], source_project_id: int, target_project_id: int
+    ) -> None:
+        """Rewrite the group type indices in `filters` to the target project's indices for the same group types.
+
+        A project numbers its group types in the order they first arrive, so index 1 can be
+        "organization" in one project and "company" in the next. Copying the index unchanged keeps
+        the rule readable but makes it evaluate a different group type in the target project.
+
+        Raises ValueError when a group type cannot be matched, before anything is rewritten.
+        """
+        slots = self._iter_group_type_index_slots(filters)
+        if not slots:
+            return
+
+        group_types_by_project_id = self._get_group_types_by_project_id([source_project_id, target_project_id])
+        source_names_by_index = {
+            group_type["group_type_index"]: group_type["group_type"]
+            for group_type in group_types_by_project_id[source_project_id]
+        }
+        target_indices_by_name = {
+            group_type["group_type"]: group_type["group_type_index"]
+            for group_type in group_types_by_project_id[target_project_id]
+        }
+
+        unknown_source_indices: set[int] = set()
+        missing_target_group_types: set[str] = set()
+        remapped_slots: list[tuple[dict[str, Any], str, int]] = []
+        for container, key in slots:
+            source_index = container[key]
+            source_name = source_names_by_index.get(source_index)
+            if source_name is None:
+                unknown_source_indices.add(source_index)
+                continue
+            target_index = target_indices_by_name.get(source_name)
+            if target_index is None:
+                missing_target_group_types.add(source_name)
+                continue
+            remapped_slots.append((container, key, target_index))
+
+        if unknown_source_indices:
+            raise ValueError(
+                UNKNOWN_SOURCE_GROUP_TYPE_ERROR.format(
+                    group_type_indices=", ".join(str(index) for index in sorted(unknown_source_indices))
+                )
+            )
+        if missing_target_group_types:
+            raise ValueError(
+                MISSING_TARGET_GROUP_TYPE_ERROR.format(
+                    group_types=", ".join(f'"{name}"' for name in sorted(missing_target_group_types))
+                )
+            )
+
+        for container, key, target_index in remapped_slots:
+            container[key] = target_index
 
     def _remap_cohort_ids_in_payload(
         self,
