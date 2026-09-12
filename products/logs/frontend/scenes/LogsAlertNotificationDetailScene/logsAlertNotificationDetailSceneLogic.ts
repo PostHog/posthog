@@ -19,7 +19,11 @@ import {
     groupLogsAlertDestinations,
     LogsAlertDestinationGroup,
 } from 'products/logs/frontend/components/LogsAlerting/logsAlertUtils'
-import { logsAlertsDestinationsDeleteCreate, logsAlertsRetrieve } from 'products/logs/frontend/generated/api'
+import {
+    logsAlertsDestinationsDeleteCreate,
+    logsAlertsDestinationsUpdate,
+    logsAlertsRetrieve,
+} from 'products/logs/frontend/generated/api'
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
 import type { LogsAlertConfigurationDetailApi } from '../../generated/api.schemas'
@@ -272,7 +276,9 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
         },
         setHogFunctionEnabled: async ({ hogFunctionId, enabled }) => {
             try {
-                await api.hogFunctions.update(hogFunctionId, { enabled })
+                await logsAlertsDestinationsUpdate(String(values.currentTeamId), props.alertId, hogFunctionId, {
+                    enabled,
+                })
             } catch (error: unknown) {
                 posthog.captureException(error, { tag: 'logs-alert-hog-function-toggle' })
                 const detail =
