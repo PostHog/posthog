@@ -601,11 +601,11 @@ CONVERSATIONS_TICKETS_JWT_SECRETS = get_list(
     get_from_env("CONVERSATIONS_TICKETS_JWT_SECRET", "local-dev-conversations-tickets-jwt" if DEBUG or TEST else "")
 )
 
-# Verifies the scoped JWTs the CDP worker's customer analytics account actions send to the
-# internal account routes (the worker mints, Django verifies;
-# products/customer_analytics/backend/presentation/views/internal.py). Comma-separated,
-# newest first. Empty outside dev/test, so the internal routes reject every request until
-# the secret is provisioned and the worker stays on its legacy auth path (#82564).
+# Account actions and customer task creation share these keys but require distinct JWT audiences.
+# The worker mints, Django verifies. Comma-separated, newest first. Empty outside dev/test,
+# so scoped routes fail closed until provisioned. Account actions retain their legacy auth
+# fallback (#82564). Customer task creation has no fallback.
+# The dev/test value must match the worker's default (nodejs/src/cdp/config.ts).
 CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS = get_list(
     get_from_env(
         "CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET", "local-dev-customer-analytics-accounts-jwt" if DEBUG or TEST else ""

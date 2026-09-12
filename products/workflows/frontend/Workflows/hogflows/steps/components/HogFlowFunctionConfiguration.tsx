@@ -16,6 +16,7 @@ import { CyclotronJobInputType, HogFunctionMappingType } from '~/types'
 import { workflowLogic } from '../../../workflowLogic'
 import { isGithubEventTriggerConfig } from '../../registry/triggers/githubTriggerFilters'
 import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
+import { CustomerTaskWorkflowReferenceInput } from './CustomerTaskWorkflowReferenceInput'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
 import { WorkflowAutoSaveIndicator } from './WorkflowAutoSaveIndicator'
 
@@ -241,7 +242,27 @@ export function HogFlowFunctionConfiguration({
 
     return (
         <>
-            {renderInputs(coreInputsSchema)}
+            {templateId === 'template-posthog-create-customer-task' ? (
+                <div className="flex flex-col gap-3">
+                    {coreInputsSchema.map((schema) =>
+                        schema.key === 'account_id' || schema.key === 'assigned_to_id' ? (
+                            <CustomerTaskWorkflowReferenceInput
+                                key={schema.key}
+                                schema={schema}
+                                input={inputs[schema.key] ?? { value: null }}
+                                onChange={(value) => setInputs({ ...inputs, [schema.key]: value })}
+                                projectId={currentTeam?.id ?? null}
+                                sampleGlobals={sampleGlobals}
+                                error={errors?.[schema.key]}
+                            />
+                        ) : (
+                            <div key={schema.key}>{renderInputs([schema])}</div>
+                        )
+                    )}
+                </div>
+            ) : (
+                renderInputs(coreInputsSchema)
+            )}
             {isPushStep && (androidInputsSchema.length > 0 || iosInputsSchema.length > 0) && (
                 <LemonCollapse
                     className="mt-2"

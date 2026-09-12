@@ -348,9 +348,7 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { isRowScopedTrigger } = useValues(workflowLogic)
 
-    const registeredCategories = getRegisteredActionNodeCategories().filter(
-        (cat) => !cat.featureFlag || featureFlags[cat.featureFlag]
-    )
+    const registeredCategories = getRegisteredActionNodeCategories(featureFlags)
 
     // Warehouse-triggered workflows have no person, so don't offer person-dependent steps at all.
     const hideIfRowScoped = (nodes: CreateActionType[]): CreateActionType[] =>

@@ -384,6 +384,7 @@ export type CyclotronJobInvocationHogFunctionContext = {
     firstScheduledAt?: string
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
     actionStepCount?: number
+    customerTaskIdempotencyVersion?: 1
 }
 
 export type WorkflowStepResumeStatus = 'completed' | 'failed' | 'cancelled'
@@ -431,6 +432,8 @@ export type HogFlowInvocationContext = {
     // rather than to a wrong one.
     flowVersion?: number
     actionStepCount: number
+    // Missing on legacy runs, which must keep run:action keys even when no function state was persisted.
+    customerTaskIdempotencyVersion?: 1
     currentAction?: {
         id: string
         startedAtTimestamp: number
