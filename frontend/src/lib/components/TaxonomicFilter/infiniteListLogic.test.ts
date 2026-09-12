@@ -727,6 +727,53 @@ describe('infiniteListLogic', () => {
             })
         })
 
+        it('captures a fetch failure from a list that feeds the open "All" tab', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => [500, { detail: 'server error' }],
+                },
+            })
+            initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            // The shape of every property filter picker: an aggregate "All" tab in front of the
+            // groups it aggregates. No list is the active tab when the picker opens.
+            const groupTypes = [
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.SuggestedFilters,
+            ]
+            const filterLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'allTabFailure',
+                taxonomicGroupTypes: groupTypes,
+            })
+            filterLogic.mount()
+            let eventsList!: ReturnType<typeof infiniteListLogic.build>
+            for (const groupType of groupTypes) {
+                const listLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'allTabFailure',
+                    listGroupType: groupType,
+                    taxonomicGroupTypes: groupTypes,
+                    showNumericalPropsOnly: false,
+                })
+                listLogic.mount()
+                if (groupType === TaxonomicFilterGroupType.Events) {
+                    eventsList = listLogic
+                }
+            }
+            expect(filterLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+
+            await expectLogic(eventsList)
+                .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+
+            const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
+            expect(failedCalls).toHaveLength(1)
+            expect(failedCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.Events,
+                searchQuery: '',
+            })
+        })
+
         // Group names go out over the query endpoint instead of the list endpoint, so they need
         // the abort signal wired separately - without it the watchdog fires against a controller
         // nobody is listening to and the list keeps spinning.

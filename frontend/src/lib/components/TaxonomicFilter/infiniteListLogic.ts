@@ -285,6 +285,7 @@ export interface infiniteListLogicValues {
         searchQuery: string
     } | null
     expandedCountResultLoading: boolean
+    feedsActiveTab: boolean
     fuse: ListFuse
     group: TaxonomicFilterGroup | undefined
     hasAppliedInitialPin: boolean
@@ -549,6 +550,11 @@ export interface infiniteListLogicMeta {
         isSuggestedFilters: (listGroupType: TaxonomicFilterGroupType) => boolean
         trimmedSearchQuery: (searchQuery: string) => string
         isActiveTab: (listGroupType: TaxonomicFilterGroupType, activeTab: TaxonomicFilterGroupType) => boolean
+        feedsActiveTab: (
+            isActiveTab: boolean,
+            activeTab: TaxonomicFilterGroupType,
+            listGroupType: TaxonomicFilterGroupType
+        ) => boolean
         excludedPropertiesWithHiddenEvents: (
             arg: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap | undefined,
             featureFlags: FeatureFlagsSet,
@@ -1134,6 +1140,20 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (s) => [s.listGroupType, s.activeTab],
             (listGroupType: TaxonomicFilterGroupType, activeTab: TaxonomicFilterGroupType): boolean =>
                 listGroupType === activeTab,
+        ],
+        // This list reaches the surface the user is looking at. Being the active tab is one way;
+        // the other is the aggregated "All" tab, which runs no fetch of its own and shows the
+        // substantive groups' results instead. Every property filter picker opens on "All", so a
+        // check for the active tab alone never sees a list there.
+        feedsActiveTab: [
+            (s) => [s.isActiveTab, s.activeTab, s.listGroupType],
+            (
+                isActiveTab: boolean,
+                activeTab: TaxonomicFilterGroupType,
+                listGroupType: TaxonomicFilterGroupType
+            ): boolean =>
+                isActiveTab ||
+                (activeTab === TaxonomicFilterGroupType.SuggestedFilters && !META_GROUP_TYPES.has(listGroupType)),
         ],
         // The Recent and Pinned tabs filter against the caller's record, so the names the Events
         // group hides from its own option list have to be folded in for them to drop too.
@@ -2279,12 +2299,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             // Failures land on the same empty state as genuine no-matches, so without this
             // capture the "event exists but the backend blipped" case is invisible in prod.
             // The empty-query load that runs when the picker opens counts too: it hits the same
-            // endpoint and fails just as often on a large project. Only count failures the user
-            // can actually see: the current query (a stale out-of-order failure is rejected by
-            // `remoteResultsAreFresh` and never renders) and the active tab, because every list
-            // runs the search in parallel and background-tab failures would inflate the metric.
+            // endpoint and fails just as often on a large project. Only count failures that reach
+            // the user: the current query (a stale out-of-order failure is rejected by
+            // `remoteResultsAreFresh` and never renders) and a list the open tab shows, because
+            // every list runs the search in parallel and background failures would inflate the
+            // metric. `feedsActiveTab` covers the aggregated "All" tab as well as this list's own,
+            // so a picker that opens on "All" still reports its first-load failures.
             const trimmedQuery = searchQuery.trim()
-            if (!values.isActiveTab || searchQuery !== values.searchQuery) {
+            if (!values.feedsActiveTab || searchQuery !== values.searchQuery) {
                 return
             }
             const dedupeKey = `${props.listGroupType}::${trimmedQuery}`
