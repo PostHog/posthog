@@ -58,7 +58,7 @@ jobs:
                       /proto/
                       /rust/
                       /nodejs/
-                      /posthog/personhog_client/
+                      /common/personhog_proto/
                       /.semgrep/
                       /frontend/bin/ci-report/
                       /products/README.md
