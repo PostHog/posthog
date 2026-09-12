@@ -14,10 +14,12 @@ from django.db import close_old_connections
 import duckdb
 import deltalake
 from structlog.contextvars import bind_contextvars
+from structlog.types import FilteringBoundLogger
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
@@ -1103,6 +1105,16 @@ def _quote_identifier(identifier: str) -> str:
     return f'"{escaped}"'
 
 
+@frozen(frozen=False)
+class _DuckLakeCopyRunState:
+    """What one copy run has and has not done yet, so a failure can close out the rest."""
+
+    track_source_job_state: bool
+    started_at: dt.datetime
+    pending_schema_ids: set[uuid.UUID]
+    pending_staging_cleanup: list[DuckLakeDataImportsStagingCleanupInputs] = dataclasses.field(default_factory=list)
+
+
 @workflow.defn(name="ducklake-copy.data-imports")
 class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
     """Temporal workflow that copies data imports into the DuckLake bucket."""
@@ -1139,159 +1151,30 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
             logger.info("DuckLake copy workflow disabled by feature flag")
             return
 
-        track_source_job_state = workflow.patched(_SOURCE_JOB_STATE_PATCH_ID)
-        workflow_started_at = workflow.now()
+        run_state = _DuckLakeCopyRunState(
+            track_source_job_state=workflow.patched(_SOURCE_JOB_STATE_PATCH_ID),
+            started_at=workflow.now(),
+            pending_schema_ids=set(inputs.schema_ids),
+        )
         get_ducklake_copy_data_imports_started_metric(team_id=inputs.team_id).add(1)
-        pending_staging_cleanup: list[DuckLakeDataImportsStagingCleanupInputs] = []
-        pending_schema_ids = set(inputs.schema_ids)
         status = "failed"
         try:
-            if track_source_job_state:
-                await _record_copy_source_job_state(
-                    inputs=inputs,
-                    schema_ids=inputs.schema_ids,
-                    status=ManagedWarehouseSourceJobStatus.RUNNING,
-                    started_at=workflow_started_at,
-                )
-            model_list: list[DuckLakeCopyDataImportsMetadata] = await workflow.execute_activity(
-                prepare_data_imports_ducklake_metadata_activity,
-                inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-
-            schema_ids_by_value = {str(schema_id): schema_id for schema_id in inputs.schema_ids}
-            active_schema_ids = {schema_ids_by_value[model.source_schema_id] for model in model_list}
-            skipped_schema_ids = pending_schema_ids - active_schema_ids
-            if skipped_schema_ids:
-                pending_schema_ids.difference_update(skipped_schema_ids)
-                if track_source_job_state:
-                    await _record_copy_terminal_source_job_state(
-                        inputs=inputs,
-                        schema_ids=list(skipped_schema_ids),
-                        status=ManagedWarehouseSourceJobStatus.SKIPPED,
-                        started_at=workflow_started_at,
-                        finished_at=workflow.now(),
-                    )
-
-            if not model_list:
-                status = "skipped"
-                logger.info("No DuckLake copy metadata resolved - nothing to do")
-                return
-
-            for model in model_list:
-                activity_inputs = DuckLakeCopyDataImportsActivityInputs(
-                    team_id=inputs.team_id, job_id=inputs.job_id, model=model
-                )
-                copy_workload: DeltaTableSnapshotWorkload | None = await workflow.execute_activity(
-                    copy_data_imports_to_ducklake_activity,
-                    activity_inputs,
-                    # TODO: Adjust timeouts based on table size?
-                    start_to_close_timeout=dt.timedelta(minutes=30),
-                    heartbeat_timeout=dt.timedelta(minutes=2),
-                    retry_policy=RetryPolicy(maximum_attempts=2),
-                )
-
-                cleanup_inputs = None
-                if model.staging_uri:
-                    cleanup_inputs = DuckLakeDataImportsStagingCleanupInputs(
-                        team_id=inputs.team_id,
-                        staging_uri=model.staging_uri,
-                        schema_id=model.source_schema_id,
-                        job_id=inputs.job_id,
-                    )
-                    pending_staging_cleanup.append(cleanup_inputs)
-
-                verification_results = await workflow.execute_activity(
-                    verify_data_imports_ducklake_copy_activity,
-                    activity_inputs,
-                    start_to_close_timeout=dt.timedelta(minutes=10),
-                    heartbeat_timeout=dt.timedelta(minutes=2),
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
-
-                for result in verification_results:
-                    verification_status = "passed" if result.passed else "failed"
-                    get_ducklake_copy_data_imports_verification_metric(
-                        team_id=inputs.team_id,
-                        schema_id=model.source_schema_id,
-                        check_name=result.name,
-                        status=verification_status,
-                    ).add(1)
-
-                failed_checks = [result for result in verification_results if not result.passed]
-                if failed_checks:
-                    failure_payload = [dataclasses.asdict(result) for result in failed_checks]
-                    logger.error(
-                        "DuckLake verification failed",
-                        model_label=model.model_label,
-                        failures=failure_payload,
-                    )
-                    raise ApplicationError(
-                        f"DuckLake copy verification failed: {failure_payload}",
-                        non_retryable=True,
-                    )
-
-                if copy_workload is not None:
-                    _record_copy_workload(
-                        team_id=inputs.team_id,
-                        schema_id=model.source_schema_id,
-                        workload=copy_workload,
-                    )
-                schema_finished_at = workflow.now()
-                get_ducklake_copy_data_imports_last_success_metric(
-                    team_id=inputs.team_id, schema_id=model.source_schema_id
-                ).set(schema_finished_at.timestamp())
-
-                completed_schema_id = schema_ids_by_value[model.source_schema_id]
-                pending_schema_ids.remove(completed_schema_id)
-                if track_source_job_state:
-                    await _record_copy_terminal_source_job_state(
-                        inputs=inputs,
-                        schema_ids=[completed_schema_id],
-                        status=ManagedWarehouseSourceJobStatus.COMPLETED,
-                        started_at=workflow_started_at,
-                        finished_at=schema_finished_at,
-                    )
-
-                if cleanup_inputs is not None:
-                    await workflow.execute_activity(
-                        cleanup_data_imports_staging_activity,
-                        cleanup_inputs,
-                        start_to_close_timeout=dt.timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=2),
-                    )
-                    pending_staging_cleanup.remove(cleanup_inputs)
-
-            status = "completed"
+            status = await self._copy_all_schemas(inputs, run_state, logger)
         except Exception as error:
-            if track_source_job_state:
+            if run_state.track_source_job_state:
                 await _record_copy_source_job_state(
                     inputs=inputs,
-                    schema_ids=list(pending_schema_ids),
+                    schema_ids=list(run_state.pending_schema_ids),
                     status=ManagedWarehouseSourceJobStatus.FAILED,
-                    started_at=workflow_started_at,
+                    started_at=run_state.started_at,
                     finished_at=workflow.now(),
                     latest_error=str(error),
                 )
             raise
         finally:
-            for cleanup_inputs in pending_staging_cleanup:
-                try:
-                    await workflow.execute_activity(
-                        cleanup_data_imports_staging_activity,
-                        cleanup_inputs,
-                        start_to_close_timeout=dt.timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=2),
-                    )
-                except Exception:
-                    logger.warning(
-                        "Failed to clean up staging files",
-                        staging_uri=cleanup_inputs.staging_uri,
-                    )
+            await self._clean_up_pending_staging(run_state, logger)
 
-            finished_at = workflow.now()
-            duration_seconds = (finished_at - workflow_started_at).total_seconds()
+            duration_seconds = (workflow.now() - run_state.started_at).total_seconds()
             logger.info(
                 "Finished DuckLakeCopyDataImportsWorkflow",
                 status=status,
@@ -1301,3 +1184,177 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
             get_ducklake_copy_data_imports_duration_metric(team_id=inputs.team_id, status=status).record(
                 duration_seconds
             )
+
+    async def _copy_all_schemas(
+        self,
+        inputs: DataImportsDuckLakeCopyInputs,
+        run_state: _DuckLakeCopyRunState,
+        logger: FilteringBoundLogger,
+    ) -> str:
+        """Copy every schema the metadata activity resolved, and return the run status to report."""
+        if run_state.track_source_job_state:
+            await _record_copy_source_job_state(
+                inputs=inputs,
+                schema_ids=inputs.schema_ids,
+                status=ManagedWarehouseSourceJobStatus.RUNNING,
+                started_at=run_state.started_at,
+            )
+        model_list: list[DuckLakeCopyDataImportsMetadata] = await workflow.execute_activity(
+            prepare_data_imports_ducklake_metadata_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        schema_ids_by_value = {str(schema_id): schema_id for schema_id in inputs.schema_ids}
+        await self._record_skipped_schemas(inputs, run_state, model_list, schema_ids_by_value)
+
+        if not model_list:
+            logger.info("No DuckLake copy metadata resolved - nothing to do")
+            return "skipped"
+
+        for model in model_list:
+            await self._copy_schema(inputs, run_state, model, schema_ids_by_value[model.source_schema_id], logger)
+
+        return "completed"
+
+    async def _record_skipped_schemas(
+        self,
+        inputs: DataImportsDuckLakeCopyInputs,
+        run_state: _DuckLakeCopyRunState,
+        model_list: list[DuckLakeCopyDataImportsMetadata],
+        schema_ids_by_value: dict[str, uuid.UUID],
+    ) -> None:
+        """Close out the schemas the metadata activity resolved no work for."""
+        active_schema_ids = {schema_ids_by_value[model.source_schema_id] for model in model_list}
+        skipped_schema_ids = run_state.pending_schema_ids - active_schema_ids
+        if not skipped_schema_ids:
+            return
+
+        run_state.pending_schema_ids.difference_update(skipped_schema_ids)
+        if run_state.track_source_job_state:
+            await _record_copy_terminal_source_job_state(
+                inputs=inputs,
+                schema_ids=list(skipped_schema_ids),
+                status=ManagedWarehouseSourceJobStatus.SKIPPED,
+                started_at=run_state.started_at,
+                finished_at=workflow.now(),
+            )
+
+    async def _copy_schema(
+        self,
+        inputs: DataImportsDuckLakeCopyInputs,
+        run_state: _DuckLakeCopyRunState,
+        model: DuckLakeCopyDataImportsMetadata,
+        schema_id: uuid.UUID,
+        logger: FilteringBoundLogger,
+    ) -> None:
+        """Copy one schema into DuckLake, verify it, and release its staging files."""
+        activity_inputs = DuckLakeCopyDataImportsActivityInputs(
+            team_id=inputs.team_id, job_id=inputs.job_id, model=model
+        )
+        copy_workload: DeltaTableSnapshotWorkload | None = await workflow.execute_activity(
+            copy_data_imports_to_ducklake_activity,
+            activity_inputs,
+            # TODO: Adjust timeouts based on table size?
+            start_to_close_timeout=dt.timedelta(minutes=30),
+            heartbeat_timeout=dt.timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+
+        cleanup_inputs = None
+        if model.staging_uri:
+            cleanup_inputs = DuckLakeDataImportsStagingCleanupInputs(
+                team_id=inputs.team_id,
+                staging_uri=model.staging_uri,
+                schema_id=model.source_schema_id,
+                job_id=inputs.job_id,
+            )
+            run_state.pending_staging_cleanup.append(cleanup_inputs)
+
+        await self._verify_copy(inputs, activity_inputs, model, logger)
+
+        if copy_workload is not None:
+            _record_copy_workload(
+                team_id=inputs.team_id,
+                schema_id=model.source_schema_id,
+                workload=copy_workload,
+            )
+        schema_finished_at = workflow.now()
+        get_ducklake_copy_data_imports_last_success_metric(
+            team_id=inputs.team_id, schema_id=model.source_schema_id
+        ).set(schema_finished_at.timestamp())
+
+        run_state.pending_schema_ids.remove(schema_id)
+        if run_state.track_source_job_state:
+            await _record_copy_terminal_source_job_state(
+                inputs=inputs,
+                schema_ids=[schema_id],
+                status=ManagedWarehouseSourceJobStatus.COMPLETED,
+                started_at=run_state.started_at,
+                finished_at=schema_finished_at,
+            )
+
+        if cleanup_inputs is not None:
+            await workflow.execute_activity(
+                cleanup_data_imports_staging_activity,
+                cleanup_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+            run_state.pending_staging_cleanup.remove(cleanup_inputs)
+
+    async def _verify_copy(
+        self,
+        inputs: DataImportsDuckLakeCopyInputs,
+        activity_inputs: DuckLakeCopyDataImportsActivityInputs,
+        model: DuckLakeCopyDataImportsMetadata,
+        logger: FilteringBoundLogger,
+    ) -> None:
+        """Fail the copy when any verification check on the copied schema does not pass."""
+        verification_results = await workflow.execute_activity(
+            verify_data_imports_ducklake_copy_activity,
+            activity_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=10),
+            heartbeat_timeout=dt.timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+        for result in verification_results:
+            get_ducklake_copy_data_imports_verification_metric(
+                team_id=inputs.team_id,
+                schema_id=model.source_schema_id,
+                check_name=result.name,
+                status="passed" if result.passed else "failed",
+            ).add(1)
+
+        failed_checks = [result for result in verification_results if not result.passed]
+        if not failed_checks:
+            return
+
+        failure_payload = [dataclasses.asdict(result) for result in failed_checks]
+        logger.error(
+            "DuckLake verification failed",
+            model_label=model.model_label,
+            failures=failure_payload,
+        )
+        raise ApplicationError(
+            f"DuckLake copy verification failed: {failure_payload}",
+            non_retryable=True,
+        )
+
+    async def _clean_up_pending_staging(self, run_state: _DuckLakeCopyRunState, logger: FilteringBoundLogger) -> None:
+        """Release the staging files of any schema that did not get that far on its own."""
+        for cleanup_inputs in run_state.pending_staging_cleanup:
+            try:
+                await workflow.execute_activity(
+                    cleanup_data_imports_staging_activity,
+                    cleanup_inputs,
+                    start_to_close_timeout=dt.timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to clean up staging files",
+                    staging_uri=cleanup_inputs.staging_uri,
+                )
