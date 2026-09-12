@@ -18,6 +18,9 @@ import {
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
+import { OnboardingStepKey } from '~/types'
+
 import {
     HealthCheck,
     HealthCheckAction,
@@ -51,11 +54,11 @@ const INSTALL_GUIDE_ACTION: HealthCheckAction = {
     to: 'https://posthog.com/docs/libraries/js',
 }
 
-// The failing $pageview check reads like a "finish installing" call to action, so its button
-// should say the same thing rather than the generic "View installation guide".
+// The failing $pageview check reads like a "finish installing" call to action, so it sends the
+// user back to the in-app install step they were part way through, not to the public docs.
 const COMPLETE_INSTALL_ACTION: HealthCheckAction = {
     label: 'Complete installation',
-    to: 'https://posthog.com/docs/libraries/js',
+    to: urls.onboarding({ productKey: ProductKey.WEB_ANALYTICS, stepKey: OnboardingStepKey.INSTALL }),
 }
 
 const WEB_HEALTH_CHECKS: WebHealthCheckConfig[] = [
@@ -587,17 +590,26 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         },
         loadHealthIssuesSuccess: () => {
             const { activeIssuesByKind, overallHealthStatus } = values
-            if (overallHealthStatus.status !== 'loading') {
-                actions.reportWebAnalyticsHealthStatus({
-                    has_pageviews: !activeIssuesByKind['no_live_events'],
-                    has_pageleaves: !activeIssuesByKind['no_pageleave_events'],
-                    has_scroll_depth: !activeIssuesByKind['scroll_depth'],
-                    has_web_vitals: !activeIssuesByKind['web_vitals'],
-                    has_authorized_urls: !activeIssuesByKind['authorized_urls'],
-                    has_reverse_proxy: !activeIssuesByKind['reverse_proxy'],
-                    overall_status: overallHealthStatus.status,
-                })
+            if (overallHealthStatus.status === 'loading') {
+                return
             }
+            const status = {
+                has_pageviews: !activeIssuesByKind['no_live_events'],
+                has_pageleaves: !activeIssuesByKind['no_pageleave_events'],
+                has_scroll_depth: !activeIssuesByKind['scroll_depth'],
+                has_web_vitals: !activeIssuesByKind['web_vitals'],
+                has_authorized_urls: !activeIssuesByKind['authorized_urls'],
+                has_reverse_proxy: !activeIssuesByKind['reverse_proxy'],
+                overall_status: overallHealthStatus.status,
+            }
+            // A manual refresh polls the results several times in a row, so report only when the
+            // status actually changes instead of once per poll.
+            const fingerprint = JSON.stringify(status)
+            if (cache.lastReportedStatus === fingerprint) {
+                return
+            }
+            cache.lastReportedStatus = fingerprint
+            actions.reportWebAnalyticsHealthStatus(status)
         },
         trackTabViewed: () => {
             const { overallHealthStatus } = values
