@@ -24,7 +24,6 @@ from products.warehouse_sources.backend.models.credential import DataWarehouseCr
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
     DataWarehouseTable,
-    chdb_set_statements,
     get_hogql_field_for_column,
     run_chdb_query,
 )
@@ -257,29 +256,6 @@ class TestStructureAgainstTheEngine(BaseTest):
         path.write_text("".join(f"{line}\n" for line in lines))
         return path
 
-    def test_optional_nested_key_from_a_later_file_is_inferred(self) -> None:
-        # The whole point of the widened settings: a nested key that only later files carry has to
-        # reach the schema, because the schema is also what every read of the table is parsed with.
-        directory = Path(tempfile.mkdtemp())
-        self._json_file(['{"id": 1, "usage": {"input_tokens": 10}}'], name="a.json", directory=directory)
-        self._json_file(
-            ['{"id": 2, "usage": {"input_tokens": 20, "cache_write_tokens": 5}}'], name="b.json", directory=directory
-        )
-        table = DataWarehouseTable(
-            name="runs",
-            format=DataWarehouseTable.TableFormat.JSON,
-            team=self.team,
-            url_pattern="s3://bucket/team_1/runs/*",
-        )
-
-        glob = escape_param_clickhouse(str(directory / "*.json"))
-        described = run_chdb_query(
-            f"{chdb_set_statements(table._describe_settings())}DESCRIBE TABLE file({glob}, JSONEachRow)",
-            timeout=self.CHDB_TIMEOUT_SECONDS,
-        )
-
-        assert "cache_write_tokens" in described
-
     def test_array_of_objects_is_readable_through_the_stored_structure(self) -> None:
         # The element names are what makes the column parseable. Without them ClickHouse reads
         # `items` as a positional array, so every query over the table raises code 27, including
@@ -318,28 +294,23 @@ class TestSchemaInferenceMode(BaseTest):
 
     @parameterized.expand(
         [
-            ("json", DataWarehouseTable.TableFormat.JSON, True),
-            ("csv_with_names", DataWarehouseTable.TableFormat.CSVWithNames, True),
-            # ClickHouse refuses `union` for a format that cannot read a subset of its columns:
-            # headerless CSV raises BAD_ARGUMENTS, which would leave those tables undescribable.
-            ("csv", DataWarehouseTable.TableFormat.CSV, False),
-            ("delta", DataWarehouseTable.TableFormat.Delta, False),
+            ("json", DataWarehouseTable.TableFormat.JSON),
+            ("csv_with_names", DataWarehouseTable.TableFormat.CSVWithNames),
+            ("delta", DataWarehouseTable.TableFormat.Delta),
         ]
     )
-    def test_union_inference_is_scoped_to_formats_that_accept_it(
-        self, _name: str, table_format: str, expects_union: bool
-    ) -> None:
+    def test_introspection_does_not_widen_the_file_sample(self, _name: str, table_format: str) -> None:
+        # `union` reads the head of every object the pattern matches. A table whose pattern spans a
+        # date-partitioned bucket cannot finish that inside a request, and the refresh fails instead
+        # of returning the narrow schema. Widening belongs on an asynchronous path, so introspection
+        # must keep the default sample until one exists.
         with patch(
             "products.warehouse_sources.backend.models.table.sync_execute",
             return_value=[("id", "Int64")],
         ) as mock_sync_execute:
             self._table(table_format).get_columns()
 
-        settings = mock_sync_execute.call_args.kwargs["settings"]
-        assert (settings.get("schema_inference_mode") == "union") is expects_union
-        # Reading the head of every file is unbounded work inside a synchronous request, so the
-        # widened pass carries a server-side time limit and the narrow pass keeps its old behavior.
-        assert ("max_execution_time" in settings) is expects_union
+        assert "schema_inference_mode" not in mock_sync_execute.call_args.kwargs["settings"]
 
     def test_a_failed_describe_raises_instead_of_storing_a_narrower_schema(self) -> None:
         # A degraded schema that persists silently is indistinguishable from the bug being fixed:
