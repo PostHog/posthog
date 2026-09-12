@@ -10,8 +10,13 @@ rather than going stale.
 from __future__ import annotations
 
 import io
+import json
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
+from functools import lru_cache
 from typing import Any, cast
+
+from django.conf import settings
 
 import pyarrow as pa
 import structlog
@@ -22,6 +27,7 @@ from botocore.client import Config
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.ai_training_privacy_reader import DynamoReader, KmsReader, TrainingDataKeyReader, TrainingKeyLocation
 from posthog.clickhouse.client import sync_execute
 from posthog.temporal.session_replay.surfacing_score_export_sweep import sql as export_sql
 from posthog.temporal.session_replay.surfacing_score_export_sweep.constants import (
@@ -43,12 +49,15 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.pseudonymize i
 from posthog.temporal.session_replay.surfacing_score_export_sweep.s3 import (
     score_export_destination,
     score_export_object_key,
+    score_export_prefix,
     upload_parquet,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.session_identifier_format import (
     uses_raw_session_identifiers,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.types import (
+    EncryptedScorePage,
+    EncryptedScorePageResult,
     ExportPartitionResult,
     ExportPartitionSpec,
     ExportScoresSweepInputs,
@@ -84,7 +93,12 @@ async def list_export_partitions_activity(_inputs: ExportScoresSweepInputs) -> L
 
     days = export_days(datetime.now(UTC).date())
     partitions = [
-        ExportPartitionSpec(day=d, chunk_id=chunk_id, of_chunks=DEFAULT_OF_CHUNKS)
+        ExportPartitionSpec(
+            day=d,
+            chunk_id=chunk_id,
+            of_chunks=DEFAULT_OF_CHUNKS,
+            encrypted_enabled=bool(settings.AI_RESEARCH_REPLAY_PRIVACY_TABLE) and d >= "2026-09-14",
+        )
         for d in days
         for chunk_id in range(DEFAULT_OF_CHUNKS)
     ]
@@ -109,7 +123,7 @@ _Cursor = tuple[str, int]
 _FIRST_PAGE: _Cursor = ("", 0)
 
 
-def _fetch_page(spec: ExportPartitionSpec, cursor: _Cursor) -> list[_ScoredRow]:
+def _fetch_page(spec: ExportPartitionSpec, cursor: _Cursor, page_size: int = EXPORT_PAGE_MAX_ROWS) -> list[_ScoredRow]:
     return cast(
         list[_ScoredRow],
         sync_execute(
@@ -120,7 +134,7 @@ def _fetch_page(spec: ExportPartitionSpec, cursor: _Cursor) -> list[_ScoredRow]:
                 "day_start": f"{spec.day} 00:00:00",
                 "cursor_session_id": cursor[0],
                 "cursor_team_id": cursor[1],
-                "page_size": EXPORT_PAGE_MAX_ROWS,
+                "page_size": page_size,
             },
             settings={
                 "max_execution_time": CH_EXPORT_QUERY_TIMEOUT_S,
@@ -146,6 +160,66 @@ def _page_table(rows: list[_ScoredRow], secret: bytes | None = None) -> pa.Table
     return pa.Table.from_pylist(records, schema=_PARQUET_SCHEMA)
 
 
+_ENCRYPTED_SCORE_FIELDS: list[pa.Field[Any]] = [
+    pa.field("session_id", pa.string(), nullable=False),
+    pa.field("team_id", pa.string(), nullable=False),
+    pa.field("consent_granted_at", pa.int64(), nullable=False),
+    pa.field("payload", pa.binary(), nullable=False),
+]
+_ENCRYPTED_SCORE_SCHEMA = pa.schema(_ENCRYPTED_SCORE_FIELDS)
+
+
+@lru_cache(maxsize=1)
+def _score_key_reader() -> TrainingDataKeyReader:
+    if not settings.AI_RESEARCH_REPLAY_PRIVACY_TABLE or not settings.AI_RESEARCH_REPLAY_KMS_KEY_ARN:
+        raise RuntimeError("ML v2 score export requires privacy configuration")
+    config = Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 3, "mode": "standard"})
+    dynamo = boto3_client(
+        "dynamodb",
+        region_name=settings.AI_RESEARCH_REPLAY_AWS_REGION,
+        endpoint_url=settings.AI_RESEARCH_REPLAY_DYNAMODB_ENDPOINT or None,
+        config=config,
+    )
+    kms = boto3_client("kms", region_name=settings.AI_RESEARCH_REPLAY_AWS_REGION, config=config)
+    return TrainingDataKeyReader(
+        cast(DynamoReader, dynamo),
+        cast(KmsReader, kms),
+        settings.AI_RESEARCH_REPLAY_PRIVACY_TABLE,
+        settings.AI_RESEARCH_REPLAY_KMS_KEY_ARN,
+    )
+
+
+def _encrypted_page_table(
+    rows: list[_ScoredRow], reader: TrainingDataKeyReader, heartbeat: Callable[[], None]
+) -> pa.Table:
+    tables = []
+    for start in range(0, len(rows), 256):
+        tables.append(_encrypted_score_batch(rows[start : start + 256], reader))
+        heartbeat()
+    return pa.concat_tables(tables) if tables else pa.Table.from_pylist([], schema=_ENCRYPTED_SCORE_SCHEMA)
+
+
+def _encrypted_score_batch(rows: list[_ScoredRow], reader: TrainingDataKeyReader) -> pa.Table:
+    keys = reader.read([TrainingKeyLocation.session(team_id, session_id) for team_id, session_id, _, _ in rows])
+    records = []
+    for team_id, session_id, started_at, score in rows:
+        key = keys.get(TrainingKeyLocation.session(team_id, session_id))
+        if key is None:
+            continue
+        records.append(
+            {
+                "team_id": str(team_id),
+                "session_id": session_id,
+                "consent_granted_at": key.identity.consent_granted_at,
+                "payload": key.encrypt(
+                    "score",
+                    json.dumps({"started_at": started_at.isoformat(), "surfacing_score": float(score)}).encode(),
+                ),
+            }
+        )
+    return pa.Table.from_pylist(records, schema=_ENCRYPTED_SCORE_SCHEMA)
+
+
 def _upload(key: str, body: bytes) -> None:
     dest = score_export_destination()
     if dest is None:
@@ -166,10 +240,14 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
     activity.heartbeat({"phase": "fetch", "day": spec.day, "chunk_id": spec.chunk_id})
 
     sinks = {False: io.BytesIO(), True: io.BytesIO()}
-    writers = {raw: pq.ParquetWriter(sink, _PARQUET_SCHEMA, compression="snappy") for raw, sink in sinks.items()}
+    writers = {
+        raw: pq.ParquetWriter(sink, _ENCRYPTED_SCORE_SCHEMA if raw else _PARQUET_SCHEMA, compression="snappy")
+        for raw, sink in sinks.items()
+    }
     cursor = _FIRST_PAGE
     rows_total = 0
     secret: bytes | None = None
+    reader: TrainingDataKeyReader | None = None
     try:
         while True:
             rows = await sync_to_async(_fetch_page, thread_sensitive=False)(spec, cursor)
@@ -183,8 +261,14 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
                         raise ApplicationError(str(error), type=type(error).__name__, non_retryable=True) from error
                 table = await sync_to_async(_page_table, thread_sensitive=False)(legacy_rows, secret)
                 await sync_to_async(writers[False].write_table, thread_sensitive=False)(table)
-            if raw_rows:
-                table = await sync_to_async(_page_table, thread_sensitive=False)(raw_rows)
+            if raw_rows and not spec.legacy_only:
+                if reader is None:
+                    reader = _score_key_reader()
+                table = await sync_to_async(_encrypted_page_table, thread_sensitive=False)(
+                    raw_rows,
+                    reader,
+                    lambda: activity.heartbeat({"phase": "encrypt", "day": spec.day, "chunk_id": spec.chunk_id}),
+                )
                 await sync_to_async(writers[True].write_table, thread_sensitive=False)(table)
             rows_total += len(rows)
             if len(rows) < EXPORT_PAGE_MAX_ROWS:
@@ -198,6 +282,8 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
     activity.heartbeat({"phase": "upload", "day": spec.day, "chunk_id": spec.chunk_id, "rows": rows_total})
     bytes_written = 0
     for raw_identifiers, sink in sinks.items():
+        if raw_identifiers and spec.legacy_only:
+            continue
         body = sink.getvalue()
         key = score_export_object_key(spec.day, spec.chunk_id, spec.of_chunks, raw_identifiers=raw_identifiers)
         await sync_to_async(_upload, thread_sensitive=False)(key, body)
@@ -217,3 +303,63 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
         bytes_written=bytes_written,
         key=score_export_object_key(spec.day, spec.chunk_id, spec.of_chunks),
     )
+
+
+ENCRYPTED_EXPORT_PAGE_ROWS = 4096
+
+
+def _publish_encrypted_score_manifest(page: EncryptedScorePage) -> None:
+    destination = score_export_destination()
+    if destination is None:
+        raise RuntimeError("ML score export destination not configured")
+    partition = page.partition
+    base = f"dt={partition.day}/part-{partition.chunk_id:04d}-of-{partition.of_chunks:04d}"
+    manifest_key = f"{score_export_prefix()}/v2-manifests/{base}/{page.export_id}.json"
+    prefix = f"{score_export_prefix()}/v2/{base}/export={page.export_id}/"
+    client = boto3_client(
+        "s3",
+        region_name=destination.region,
+        endpoint_url=destination.endpoint,
+        aws_access_key_id=destination.access_key_id,
+        aws_secret_access_key=destination.secret_access_key,
+        config=Config(connect_timeout=5, read_timeout=30, retries={"max_attempts": 3}),
+    )
+    client.put_object(
+        Bucket=destination.bucket,
+        Key=manifest_key,
+        ContentType="application/json",
+        Body=json.dumps({"prefix": prefix, "pages": page.page + 1}).encode(),
+    )
+
+
+@activity.defn
+async def export_encrypted_scores_page_activity(page: EncryptedScorePage) -> EncryptedScorePageResult:
+    activity.heartbeat({"phase": "fetch", "page": page.page})
+    rows = await sync_to_async(_fetch_page, thread_sensitive=False)(
+        page.partition, (page.cursor_session_id, page.cursor_team_id), ENCRYPTED_EXPORT_PAGE_ROWS
+    )
+    raw_rows = [row for row in rows if uses_raw_session_identifiers(row[1])]
+    table = await sync_to_async(_encrypted_page_table, thread_sensitive=False)(
+        raw_rows, _score_key_reader(), lambda: activity.heartbeat({"phase": "encrypt", "page": page.page})
+    )
+    sink = io.BytesIO()
+    pq.write_table(table, sink, compression="snappy")
+    partition = page.partition
+    key = (
+        f"{score_export_prefix()}/v2/dt={partition.day}/"
+        f"part-{partition.chunk_id:04d}-of-{partition.of_chunks:04d}/export={page.export_id}/page-{page.page:08d}.parquet"
+    )
+    body = sink.getvalue()
+    await sync_to_async(_upload, thread_sensitive=False)(key, body)
+    next_page = None
+    if len(rows) == ENCRYPTED_EXPORT_PAGE_ROWS:
+        next_page = EncryptedScorePage(
+            partition=partition,
+            export_id=page.export_id,
+            page=page.page + 1,
+            cursor_session_id=rows[-1][1],
+            cursor_team_id=rows[-1][0],
+        )
+    else:
+        await sync_to_async(_publish_encrypted_score_manifest, thread_sensitive=False)(page)
+    return EncryptedScorePageResult(rows=table.num_rows, bytes_written=len(body), next_page=next_page)

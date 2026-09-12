@@ -5,15 +5,17 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pyarrow.parquet as pq
 from temporalio.testing import ActivityEnvironment
 
+from posthog.ai_training_privacy_reader import TrainingDataKey, TrainingKeyIdentity, TrainingKeyLocation
 from posthog.temporal.session_replay.surfacing_score_export_sweep.activities import (
     _PARQUET_SCHEMA,
     _page_table,
     export_days,
+    export_encrypted_scores_page_activity,
     export_scores_partition_activity,
     list_export_partitions_activity,
 )
@@ -27,6 +29,7 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.s3 import (
     score_export_object_key,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.types import (
+    EncryptedScorePage,
     ExportPartitionSpec,
     ExportScoresSweepInputs,
 )
@@ -106,9 +109,24 @@ async def test_exports_sessions_to_the_same_format_as_the_mirror(mode: str, env_
     environment = {f"{env_prefix}SCORE_EXPORT_S3_BUCKET": "ml-bucket"}
     if any(not case["rawIdentifiers"] for case in cases):
         environment[f"{env_prefix}PSEUDONYM_SECRET"] = "test-secret"
+    keys = {
+        TrainingKeyLocation.session(7, row[1]): TrainingDataKey(
+            identity=TrainingKeyIdentity(
+                team_id=7, organization_id="test-org", session_id=row[1], consent_granted_at=1
+            ),
+            plaintext=bytes([7]) * 32,
+        )
+        for row in rows
+    }
+    reader = MagicMock()
+    reader.read.side_effect = lambda locations: {location: keys[location] for location in locations if location in keys}
     activity_environment = ActivityEnvironment()
     with (
         patch.dict(os.environ, environment, clear=True),
+        patch(
+            "posthog.temporal.session_replay.surfacing_score_export_sweep.activities._score_key_reader",
+            return_value=reader,
+        ),
         patch("posthog.temporal.session_replay.surfacing_score_export_sweep.pseudonymize._SECRET", None),
         patch("posthog.temporal.session_replay.surfacing_score_export_sweep.activities.EXPORT_PAGE_MAX_ROWS", 2),
         patch(
@@ -119,7 +137,8 @@ async def test_exports_sessions_to_the_same_format_as_the_mirror(mode: str, env_
         partitions = await activity_environment.run(list_export_partitions_activity, ExportScoresSweepInputs())
         assert partitions.disabled_reason is None
         result = await activity_environment.run(
-            export_scores_partition_activity, ExportPartitionSpec(day="2026-09-12", chunk_id=0, of_chunks=1)
+            export_scores_partition_activity,
+            ExportPartitionSpec(day="2026-09-12", chunk_id=0, of_chunks=1),
         )
 
     assert result.rows == len(rows)
@@ -131,7 +150,22 @@ async def test_exports_sessions_to_the_same_format_as_the_mirror(mode: str, env_
             call.kwargs for call in uploads if call.kwargs["Key"] == f"{prefix}/dt=2026-09-12/part-0000-of-0001.parquet"
         )
         assert upload["Bucket"] == "ml-bucket"
-        assert pq.read_table(io.BytesIO(upload["Body"])).to_pylist() == [
+        actual = pq.read_table(io.BytesIO(upload["Body"])).to_pylist()
+        if raw_identifiers:
+            assert all("surfacing_score" not in row for row in actual)
+            actual = [
+                {
+                    "team_id": row["team_id"],
+                    "session_id": row["session_id"],
+                    **json.loads(
+                        keys[TrainingKeyLocation.session(7, row["session_id"])].decrypt(row["payload"], "score")
+                    ),
+                }
+                for row in actual
+            ]
+            for row in actual:
+                row["started_at"] = datetime.fromisoformat(row["started_at"])
+        assert actual == [
             {
                 "team_id": case["storedTeamId"],
                 "session_id": case["storedSessionId"],
@@ -204,3 +238,39 @@ def test_legacy_key_uses_the_configured_wrapped_key_and_region(prefix: str) -> N
         assert resolve_pseudonym_key() == b"super-secret"
     client.assert_called_once_with("kms", region_name="us-west-2")
     client.return_value.decrypt.assert_called_once_with(CiphertextBlob=b"test")
+
+
+@pytest.mark.asyncio
+async def test_encrypted_export_publishes_manifest_only_after_last_page() -> None:
+    session_id = next(case["sessionId"] for case in _FORMAT_CASES if case["rawIdentifiers"])
+    rows = [(7, session_id, datetime(2026, 9, 14, 12, tzinfo=UTC), 0.75)]
+    reader = MagicMock()
+    reader.read.return_value = {}
+    page = EncryptedScorePage(
+        partition=ExportPartitionSpec(day="2026-09-14", chunk_id=0, of_chunks=1), export_id="test-export"
+    )
+    environment = ActivityEnvironment()
+    with (
+        patch("posthog.temporal.session_replay.surfacing_score_export_sweep.activities.ENCRYPTED_EXPORT_PAGE_ROWS", 1),
+        patch(
+            "posthog.temporal.session_replay.surfacing_score_export_sweep.activities._fetch_page",
+            side_effect=[rows, []],
+        ) as fetch,
+        patch(
+            "posthog.temporal.session_replay.surfacing_score_export_sweep.activities._score_key_reader",
+            return_value=reader,
+        ),
+        patch("posthog.temporal.session_replay.surfacing_score_export_sweep.activities._upload") as upload,
+        patch(
+            "posthog.temporal.session_replay.surfacing_score_export_sweep.activities._publish_encrypted_score_manifest"
+        ) as publish,
+    ):
+        first = await environment.run(export_encrypted_scores_page_activity, page)
+        assert first.next_page is not None
+        publish.assert_not_called()
+        assert pq.read_table(io.BytesIO(upload.call_args.args[1])).num_rows == 0
+        last = await environment.run(export_encrypted_scores_page_activity, first.next_page)
+        assert last.next_page is None
+        publish.assert_called_once_with(first.next_page)
+        assert fetch.call_args.args[1] == (session_id, 7)
+        assert upload.call_args_list[0].args[0] != upload.call_args_list[1].args[0]

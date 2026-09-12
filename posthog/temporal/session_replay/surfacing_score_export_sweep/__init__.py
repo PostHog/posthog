@@ -1,8 +1,13 @@
 from posthog.temporal.session_replay.surfacing_score_export_sweep.activities import (
+    export_encrypted_scores_page_activity,
     export_scores_partition_activity,
     list_export_partitions_activity,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.workflow import ExportSurfacingScoresWorkflow
 
 SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS = [ExportSurfacingScoresWorkflow]
-SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES = [list_export_partitions_activity, export_scores_partition_activity]
+SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES = [
+    list_export_partitions_activity,
+    export_scores_partition_activity,
+    export_encrypted_scores_page_activity,
+]

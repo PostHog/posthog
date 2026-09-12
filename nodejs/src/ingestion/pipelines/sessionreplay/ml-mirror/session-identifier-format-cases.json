@@ -1,61 +1,61 @@
 {
-  "cutoffMs": 1789124400000,
-  "cases": [
-    {
-      "sessionId": "01a0901f-d37f-7000-8000-000000000001",
-      "rawIdentifiers": false,
-      "storedSessionId": "43258229b4b0c515521e0b12d0b99459",
-      "storedTeamId": "a725cc999d0421ba516777bc3c460c8d",
-      "storedDistinctId": "e8849c688f907a7e5f182e09fc9fb598"
-    },
-    {
-      "sessionId": "01a0901f-d380-7000-8000-000000000001",
-      "rawIdentifiers": true,
-      "storedSessionId": "01a0901f-d380-7000-8000-000000000001",
-      "storedTeamId": "7",
-      "storedDistinctId": "user@example.com"
-    },
-    {
-      "sessionId": "01a0901f-d381-7000-8000-000000000001",
-      "rawIdentifiers": true,
-      "storedSessionId": "01a0901f-d381-7000-8000-000000000001",
-      "storedTeamId": "7",
-      "storedDistinctId": "user@example.com"
-    },
-    {
-      "sessionId": "01A0901F-D380-7000-8000-000000000001",
-      "rawIdentifiers": true,
-      "storedSessionId": "01A0901F-D380-7000-8000-000000000001",
-      "storedTeamId": "7",
-      "storedDistinctId": "user@example.com"
-    },
-    {
-      "sessionId": "legacy-session",
-      "rawIdentifiers": false,
-      "storedSessionId": "0fb0a749493d697fa8ec9a23e2295d12",
-      "storedTeamId": "a725cc999d0421ba516777bc3c460c8d",
-      "storedDistinctId": "e8849c688f907a7e5f182e09fc9fb598"
-    },
-    {
-      "sessionId": "01a0901f-d380-4000-8000-000000000001",
-      "rawIdentifiers": false,
-      "storedSessionId": "2ee209cc6b75fc8e07e99712ea3d5fb9",
-      "storedTeamId": "a725cc999d0421ba516777bc3c460c8d",
-      "storedDistinctId": "e8849c688f907a7e5f182e09fc9fb598"
-    },
-    {
-      "sessionId": "01a0901f-d380-7000-0000-000000000001",
-      "rawIdentifiers": false,
-      "storedSessionId": "32fe2d219454c3fd3b48ee4c46323b29",
-      "storedTeamId": "a725cc999d0421ba516777bc3c460c8d",
-      "storedDistinctId": "e8849c688f907a7e5f182e09fc9fb598"
-    },
-    {
-      "sessionId": "00000000-0000-7000-8000-000000000001",
-      "rawIdentifiers": false,
-      "storedSessionId": "7a7990c03b4abd6f26136d0ffb45cab9",
-      "storedTeamId": "a725cc999d0421ba516777bc3c460c8d",
-      "storedDistinctId": "e8849c688f907a7e5f182e09fc9fb598"
-    }
-  ]
+    "cutoffMs": 1789383600000,
+    "cases": [
+        {
+            "sessionId": "01a09f92-e77f-7000-8000-000000000001",
+            "rawIdentifiers": false,
+            "storedSessionId": "02c3d66ce6dea1f761377fc838a08e24",
+            "storedTeamId": "a725cc999d0421ba516777bc3c460c8d",
+            "storedDistinctId": "e8849c688f907a7e5f182e09fc9fb598"
+        },
+        {
+            "sessionId": "01a09f92-e780-7000-8000-000000000001",
+            "rawIdentifiers": true,
+            "storedSessionId": "01a09f92-e780-7000-8000-000000000001",
+            "storedTeamId": "7",
+            "storedDistinctId": "user@example.com"
+        },
+        {
+            "sessionId": "01a09f92-e781-7000-8000-000000000001",
+            "rawIdentifiers": true,
+            "storedSessionId": "01a09f92-e781-7000-8000-000000000001",
+            "storedTeamId": "7",
+            "storedDistinctId": "user@example.com"
+        },
+        {
+            "sessionId": "01A09F92-E780-7000-8000-000000000001",
+            "rawIdentifiers": true,
+            "storedSessionId": "01A09F92-E780-7000-8000-000000000001",
+            "storedTeamId": "7",
+            "storedDistinctId": "user@example.com"
+        },
+        {
+            "sessionId": "legacy-session",
+            "rawIdentifiers": false,
+            "storedSessionId": "0fb0a749493d697fa8ec9a23e2295d12",
+            "storedTeamId": "a725cc999d0421ba516777bc3c460c8d",
+            "storedDistinctId": "e8849c688f907a7e5f182e09fc9fb598"
+        },
+        {
+            "sessionId": "01a09f92-e780-4000-8000-000000000001",
+            "rawIdentifiers": false,
+            "storedSessionId": "5c41fd2087ce8baf7579aeadfa48cad1",
+            "storedTeamId": "a725cc999d0421ba516777bc3c460c8d",
+            "storedDistinctId": "e8849c688f907a7e5f182e09fc9fb598"
+        },
+        {
+            "sessionId": "01a09f92-e780-7000-0000-000000000001",
+            "rawIdentifiers": false,
+            "storedSessionId": "f541931f647c60995d59d6e840c45a3a",
+            "storedTeamId": "a725cc999d0421ba516777bc3c460c8d",
+            "storedDistinctId": "e8849c688f907a7e5f182e09fc9fb598"
+        },
+        {
+            "sessionId": "00000000-0000-7000-8000-000000000001",
+            "rawIdentifiers": false,
+            "storedSessionId": "7a7990c03b4abd6f26136d0ffb45cab9",
+            "storedTeamId": "a725cc999d0421ba516777bc3c460c8d",
+            "storedDistinctId": "e8849c688f907a7e5f182e09fc9fb598"
+        }
+    ]
 }

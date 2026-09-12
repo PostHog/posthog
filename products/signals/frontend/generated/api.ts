@@ -21,7 +21,7 @@ import type {
     ForgetResponseApi,
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportArtefactListApi,
-    PaginatedSignalReportListApi,
+    PaginatedSignalReportListListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedPullRequestReviewCommentUpdateApi,
     PatchedSignalReportArtefactLogUpdateApi,
@@ -65,6 +65,8 @@ import type {
     SignalReportClaimApi,
     SignalReportFeedbackRequestApi,
     SignalReportFeedbackResponseApi,
+    SignalReportMetricRefreshRequestApi,
+    SignalReportMetricRefreshResponseApi,
     SignalReportRefundRequestApi,
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
@@ -75,6 +77,7 @@ import type {
     SignalScoutCreateResponseApi,
     SignalScoutEmissionApi,
     SignalScoutManualRunApi,
+    SignalScoutManualRunRequestApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
@@ -82,6 +85,13 @@ import type {
     SignalUserAutonomyConfigCreateApi,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
+    SignalsReportPrChecksParams,
+    SignalsReportPrCommentsParams,
+    SignalsReportPrReviewCommentDestroyParams,
+    SignalsReportPrReviewCommentReactionDestroyParams,
+    SignalsReportPrReviewCommentReactionsCreateParams,
+    SignalsReportPrReviewCommentUpdateParams,
+    SignalsReportPrReviewCommentsCreateParams,
     SignalsReportsListParams,
     SignalsReportsPrCiStatusesParams,
     SignalsScoutConfigListParams,
@@ -202,8 +212,8 @@ export const signalsReportsList = async (
     projectId: string,
     params?: SignalsReportsListParams,
     options?: RequestInit
-): Promise<PaginatedSignalReportListApi> => {
-    return apiMutator<PaginatedSignalReportListApi>(getSignalsReportsListUrl(projectId, params), {
+): Promise<PaginatedSignalReportListListApi> => {
+    return apiMutator<PaginatedSignalReportListListApi>(getSignalsReportsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -251,7 +261,7 @@ export const getSignalsReportsClaimUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Claim a report for the current user, internal task, or external MCP agent. A later claim silently takes over ownership. Supply pr_url to attach or replace the report's pull request, or release=true to clear only ownership while preserving the pull request.
+ * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links.
  * @summary Claim or release a signal report
  */
 export const signalsReportsClaim = async (
@@ -290,8 +300,20 @@ export const signalsReportsFeedbackCreate = async (
     })
 }
 
-export const getSignalsReportPrChecksUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/pr_checks/`
+export const getSignalsReportPrChecksUrl = (projectId: string, id: string, params?: SignalsReportPrChecksParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/pr_checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/pr_checks/`
 }
 
 /**
@@ -301,16 +323,33 @@ export const getSignalsReportPrChecksUrl = (projectId: string, id: string) => {
 export const signalsReportPrChecks = async (
     projectId: string,
     id: string,
+    params?: SignalsReportPrChecksParams,
     options?: RequestInit
 ): Promise<PullRequestChecksResponseApi> => {
-    return apiMutator<PullRequestChecksResponseApi>(getSignalsReportPrChecksUrl(projectId, id), {
+    return apiMutator<PullRequestChecksResponseApi>(getSignalsReportPrChecksUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getSignalsReportPrCommentsUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/pr_comments/`
+export const getSignalsReportPrCommentsUrl = (
+    projectId: string,
+    id: string,
+    params?: SignalsReportPrCommentsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/pr_comments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/pr_comments/`
 }
 
 /**
@@ -320,16 +359,33 @@ export const getSignalsReportPrCommentsUrl = (projectId: string, id: string) => 
 export const signalsReportPrComments = async (
     projectId: string,
     id: string,
+    params?: SignalsReportPrCommentsParams,
     options?: RequestInit
 ): Promise<PullRequestCommentsResponseApi> => {
-    return apiMutator<PullRequestCommentsResponseApi>(getSignalsReportPrCommentsUrl(projectId, id), {
+    return apiMutator<PullRequestCommentsResponseApi>(getSignalsReportPrCommentsUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getSignalsReportPrReviewCommentsCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/`
+export const getSignalsReportPrReviewCommentsCreateUrl = (
+    projectId: string,
+    id: string,
+    params?: SignalsReportPrReviewCommentsCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/`
 }
 
 /**
@@ -340,10 +396,11 @@ export const signalsReportPrReviewCommentsCreate = async (
     projectId: string,
     id: string,
     pullRequestReviewCommentCreateApi: PullRequestReviewCommentCreateApi,
+    params?: SignalsReportPrReviewCommentsCreateParams,
     options?: RequestInit
 ): Promise<PullRequestReviewCommentCreateResponseApi> => {
     return apiMutator<PullRequestReviewCommentCreateResponseApi>(
-        getSignalsReportPrReviewCommentsCreateUrl(projectId, id),
+        getSignalsReportPrReviewCommentsCreateUrl(projectId, id, params),
         {
             ...options,
             method: 'POST',
@@ -353,8 +410,25 @@ export const signalsReportPrReviewCommentsCreate = async (
     )
 }
 
-export const getSignalsReportPrReviewCommentUpdateUrl = (projectId: string, id: string, commentId: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/`
+export const getSignalsReportPrReviewCommentUpdateUrl = (
+    projectId: string,
+    id: string,
+    commentId: string,
+    params?: SignalsReportPrReviewCommentUpdateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/`
 }
 
 /**
@@ -365,10 +439,11 @@ export const signalsReportPrReviewCommentUpdate = async (
     id: string,
     commentId: string,
     patchedPullRequestReviewCommentUpdateApi?: PatchedPullRequestReviewCommentUpdateApi,
+    params?: SignalsReportPrReviewCommentUpdateParams,
     options?: RequestInit
 ): Promise<PullRequestReviewCommentCreateResponseApi> => {
     return apiMutator<PullRequestReviewCommentCreateResponseApi>(
-        getSignalsReportPrReviewCommentUpdateUrl(projectId, id, commentId),
+        getSignalsReportPrReviewCommentUpdateUrl(projectId, id, commentId, params),
         {
             ...options,
             method: 'PATCH',
@@ -378,8 +453,25 @@ export const signalsReportPrReviewCommentUpdate = async (
     )
 }
 
-export const getSignalsReportPrReviewCommentDestroyUrl = (projectId: string, id: string, commentId: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/`
+export const getSignalsReportPrReviewCommentDestroyUrl = (
+    projectId: string,
+    id: string,
+    commentId: string,
+    params?: SignalsReportPrReviewCommentDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/`
 }
 
 /**
@@ -389,16 +481,34 @@ export const signalsReportPrReviewCommentDestroy = async (
     projectId: string,
     id: string,
     commentId: string,
+    params?: SignalsReportPrReviewCommentDestroyParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getSignalsReportPrReviewCommentDestroyUrl(projectId, id, commentId), {
+    return apiMutator<void>(getSignalsReportPrReviewCommentDestroyUrl(projectId, id, commentId, params), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export const getSignalsReportPrReviewCommentReactionsCreateUrl = (projectId: string, id: string, commentId: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/`
+export const getSignalsReportPrReviewCommentReactionsCreateUrl = (
+    projectId: string,
+    id: string,
+    commentId: string,
+    params?: SignalsReportPrReviewCommentReactionsCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/`
 }
 
 /**
@@ -409,10 +519,11 @@ export const signalsReportPrReviewCommentReactionsCreate = async (
     id: string,
     commentId: string,
     pullRequestReviewCommentReactionCreateApi: PullRequestReviewCommentReactionCreateApi,
+    params?: SignalsReportPrReviewCommentReactionsCreateParams,
     options?: RequestInit
 ): Promise<PullRequestReviewCommentReactionCreateResponseApi> => {
     return apiMutator<PullRequestReviewCommentReactionCreateResponseApi>(
-        getSignalsReportPrReviewCommentReactionsCreateUrl(projectId, id, commentId),
+        getSignalsReportPrReviewCommentReactionsCreateUrl(projectId, id, commentId, params),
         {
             ...options,
             method: 'POST',
@@ -426,9 +537,22 @@ export const getSignalsReportPrReviewCommentReactionDestroyUrl = (
     projectId: string,
     id: string,
     commentId: string,
-    reactionId: string
+    reactionId: string,
+    params?: SignalsReportPrReviewCommentReactionDestroyParams
 ) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/${reactionId}/`
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/${reactionId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/${reactionId}/`
 }
 
 /**
@@ -439,12 +563,16 @@ export const signalsReportPrReviewCommentReactionDestroy = async (
     id: string,
     commentId: string,
     reactionId: string,
+    params?: SignalsReportPrReviewCommentReactionDestroyParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getSignalsReportPrReviewCommentReactionDestroyUrl(projectId, id, commentId, reactionId), {
-        ...options,
-        method: 'DELETE',
-    })
+    return apiMutator<void>(
+        getSignalsReportPrReviewCommentReactionDestroyUrl(projectId, id, commentId, reactionId, params),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
 }
 
 export const getSignalsReportsRefundCreateUrl = (projectId: string, id: string) => {
@@ -751,6 +879,27 @@ export const signalsReportsPrCiStatuses = async (
     })
 }
 
+export const getSignalsReportsRefreshMetricsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/refresh_metrics/`
+}
+
+/**
+ * Re-run the stored metric queries of the given reports through the query cache and save the newest values as their snapshots. Call it when a person opens the inbox list or a report, with the ids on screen. Report titles and summaries are point-in-time text and never change here; only value, value_at, and series do, and legacy comparisons are cleared. A snapshot measured in the last 15 minutes is served as is. Each call runs at most 40 source series inside a 20-second budget, row metrics first; the rest keep their previous snapshot until the next open. Returns snapshot-only metrics for every requested report the caller can read whose status is ready or pending_input. A report in any other status is left out of the response, and its saved snapshots stay as they are.
+ * @summary Refresh the saved metric snapshots of the reports on screen
+ */
+export const signalsReportsRefreshMetricsCreate = async (
+    projectId: string,
+    signalReportMetricRefreshRequestApi: SignalReportMetricRefreshRequestApi,
+    options?: RequestInit
+): Promise<SignalReportMetricRefreshResponseApi> => {
+    return apiMutator<SignalReportMetricRefreshResponseApi>(getSignalsReportsRefreshMetricsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportMetricRefreshRequestApi),
+    })
+}
+
 export const getSignalsReportsRefundSummaryRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/reports/refund-summary/`
 }
@@ -909,17 +1058,20 @@ export const getSignalsScoutConfigRunUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if self-driving is paused at the project's pull request limit, or the project is over its daily report limit or daily run budget (429), or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Returns immediately with the workflow id — poll the scout's runs for the result.
+ * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if self-driving is paused at the project's pull request limit, or the project is over its daily report limit or daily run budget (429), or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Pass an optional `note` to steer this one run without leaving a scout note that would steer every later run too. Returns immediately with the workflow id: poll the scout's runs for the result.
  * @summary Run a scout now
  */
 export const signalsScoutConfigRun = async (
     projectId: string,
     id: string,
+    signalScoutManualRunRequestApi?: SignalScoutManualRunRequestApi,
     options?: RequestInit
 ): Promise<SignalScoutManualRunApi> => {
     return apiMutator<SignalScoutManualRunApi>(getSignalsScoutConfigRunUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalScoutManualRunRequestApi),
     })
 }
 

@@ -13,6 +13,7 @@ from temporalio import common
 
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Detail, LogActivityEntry, bulk_log_activity
+from posthog.models.ai_training import queue_training_deletion
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
 from posthog.models.person.util import (
@@ -71,6 +72,9 @@ def delete_persons_profile(
     """
     from posthog.personhog_client.client import personhog_call
 
+    queue_training_deletion(
+        team_id, "distinct", [distinct_id for person in persons for distinct_id in person.distinct_ids]
+    )
     deleted: builtins.list[Person] = []
     errors: builtins.list[uuid_lib.UUID] = []
     # A missing map entry (or a failed batch fetch) passes None below, making delete_person
@@ -146,6 +150,9 @@ def queue_person_recording_deletion(
 ) -> None:
     if not persons:
         return
+    queue_training_deletion(
+        team_id, "distinct", [distinct_id for person in persons for distinct_id in person.distinct_ids]
+    )
     _start_recording_workflows(team_id, persons, actor, reason)
 
 

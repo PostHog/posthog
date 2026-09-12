@@ -10,7 +10,7 @@ import { sessionStartTimestampFromUuidV7 } from './session-identifier-format'
 import cases from './session-identifier-format-cases.json'
 
 const block = (over: Partial<SessionBlockMetadata> = {}): SessionBlockMetadata => ({
-    ...createNoopBlockMetadata('01a0901f-d380-7000-8000-000000000001', 7),
+    ...createNoopBlockMetadata('01a09f92-e780-7000-8000-000000000001', 7),
     distinctId: 'user@example.com',
     blockUrl: 's3://ml-bucket/session_recordings/key-abc?range=bytes=100-250',
     startDateTime: DateTime.fromMillis(1_000),

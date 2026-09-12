@@ -101,6 +101,7 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     let team_id = opt_string_arg(&mut cx, 2)?;
     let content_key = opt_string_arg(&mut cx, 3)?;
     let url_key = opt_string_arg(&mut cx, 4)?;
+    let reference_namespace = opt_string_arg(&mut cx, 5)?;
     if team_id.is_none() && content_key.is_some() {
         return cx.throw_error("contentKey requires teamId");
     }
@@ -111,7 +112,10 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         }),
         _ => None,
     };
-    let url_collection = url_key.map(|url_key| UrlCollection { url_key });
+    let url_collection = url_key.map(|url_key| UrlCollection {
+        url_key,
+        reference_namespace,
+    });
     // Created on the JS thread so every offset shares one monotonic origin: the task-start mark
     // becomes the threadpool queue wait, and no wall clock is involved.
     let timings = PhaseTimings::new();

@@ -26,6 +26,7 @@ dependencies = [
     "clickhouse-pool==0.5.3",
     "circular-dict==1.9",
     "cryptography==46.0.7",
+    "PyNaCl==1.5.0",
     "dagster==1.10.18",
     "dagster-cloud==1.10.18",
     "dagster-aws==0.26.18",
@@ -41,7 +42,6 @@ dependencies = [
     "django~=5.2.0",
     "django-axes[ipware]==8.3.1",
     "django-cors-headers~=4.9.0",
-    "django-deprecate-fields==0.2.3",
     "django-extensions~=4.1.0",
     "django-filter~=26.1",
     "django-loginas==0.3.14",
@@ -100,7 +100,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=5.29.6",
-    "posthoganalytics==7.49.0",
+    "posthoganalytics==7.51.2",
     "polars==1.37.1",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
@@ -234,7 +234,7 @@ dev = [
     "hypothesis~=6.151.9",
     "pyinstrument~=5.1",
     "pytest-rerunfailures~=16.1",
-    "freezegun==1.5.5",
+    "time-machine==3.5.0",
     "grpcio-tools~=1.71.0",
     "protoletariat~=3.3.10",
     "ipython~=9.3.0",
@@ -328,6 +328,9 @@ profile = "black"
 
 [tool.ruff]
 line-length = 120
+# Pinned apart from requires-python. Raising it to py314 makes ruff format drop the parentheses
+# in `except (A, B):` (PEP 758) across the repo, and makes UP037 flag every quoted annotation.
+target-version = "py313"
 force-exclude = true
 exclude = [
     ".git",
@@ -440,8 +443,8 @@ section-order = [
 [tool.ruff.lint.isort.sections]
 "django" = ["django"] # Group all Django imports into a separate section.
 "testing" = [ # Group all testing imports into a separate section.
-    "freezegun",
     "pytest",
+    "time_machine",
     "unittest",
     "posthog.test.base",
 ]

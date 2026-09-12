@@ -32,6 +32,7 @@ from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, MCP_READ_SCOPES
 
 from products.context_layer.backend.dreams import DREAM_AI_STAGE
 from products.context_layer.backend.facade import api as context_layer_facade
@@ -192,14 +193,10 @@ async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOu
         previous_dream_started_at = target.config.last_dream_started_at
         await create_task_and_trigger(
             _build_dream_prompt(previous_dream_started_at),
-            # Read-only MCP surface: the dream gathers from reads and lands its
-            # branch through the commits endpoint, which accepts the run token's
-            # task:write + internal_run:read pair — it never needs user-facing writes.
-            # ACP carries that MCP surface and the publish environment into tool shells.
             CustomPromptSandboxContext(
                 team_id=target.team_id,
                 user_id=target.user_id,
-                posthog_mcp_scopes="read_only",
+                posthog_mcp_scopes=[*MCP_READ_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE],
                 runtime="acp",
                 runtime_adapter="codex",
                 model="gpt-5.6-sol",

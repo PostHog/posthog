@@ -10,7 +10,7 @@ from posthog.ph_client import feature_enabled_or_false
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine
 
-DUCKGRES_SHADOW_FLAG = "duckgres-data-modeling-shadow"
+MANAGED_WAREHOUSE_SHADOW_FLAG = "managed-warehouse-data-modeling-shadow"
 
 
 class DataModelingJobSerializer(serializers.ModelSerializer):
@@ -69,15 +69,15 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     pagination_class = DataModelingJobPagination
     queryset = DataModelingJob.objects.all()
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["saved_query_id"]
+    filterset_fields = ["saved_query_id", "status"]
     search_fields = ["saved_query_id"]
     ordering_fields = ["created_at"]
     ordering = "-created_at"
 
-    def _is_duckgres_shadow_enabled(self) -> bool:
+    def _is_managed_warehouse_shadow_enabled(self) -> bool:
         try:
             return feature_enabled_or_false(
-                DUCKGRES_SHADOW_FLAG,
+                MANAGED_WAREHOUSE_SHADOW_FLAG,
                 str(self.team.pk),
                 groups={
                     "organization": str(self.team.organization_id),
@@ -95,8 +95,8 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team_id=self.team_id)
-        if not self._is_duckgres_shadow_enabled():
-            qs = qs.exclude(engine=DataModelingJobEngine.DUCKGRES)
+        if not self._is_managed_warehouse_shadow_enabled():
+            qs = qs.filter(engine=DataModelingJobEngine.CLICKHOUSE)
         return qs.order_by("-created_at")
 
     @action(methods=["GET"], detail=False)

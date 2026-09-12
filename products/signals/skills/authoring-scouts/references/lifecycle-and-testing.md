@@ -6,27 +6,29 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
 
 - **Discovery.** A scout is a skill that holds a `SignalScoutConfig`, and the coordinator dispatches from those config rows.
   The `signals-scout-` name prefix is optional; it controls only auto-registration, below.
-- **Config.** Each scout has one `SignalScoutConfig` per `(project, skill_name)` carrying `run_interval_minutes` (default 1440), `enabled`, `emit`, `network_access` (`trusted` default, `full` for scouts that read arbitrary external sites), and a `last_run_at` stamp.
+- **Config.** Each scout has one `SignalScoutConfig` per `(project, skill_name)` carrying its schedule (`run_interval_minutes`, default 1440, or a project-local `run_cron_schedule` that takes precedence when set), `enabled`, `emit`, `network_access` (`trusted` default, `full` for scouts that read arbitrary external sites), the rest of the run posture (`output_destinations`, `structured_output_schema`, `write_scopes`, `mcp_gateway_server_ids`, `model`, `tags`, `auto_pause_exempt`, `display_name`), and a `last_run_at` stamp.
   A config is **auto-registered** the first time the coordinator sees a `signals-scout-*` skill without one, so authoring a prefixed skill is enough to get a scout.
   A skill named anything else needs its config created with it.
-  Prepare a fresh per-team scout and its config together with `posthog:scout-create-prepare`; the nested `config` object sets its schedule, emit posture, and destinations before it can run.
-  Show the returned confirmation message, wait for the user to type `confirm`, then call `posthog:scout-create-execute` with the returned `confirmation_hash` and that literal confirmation.
+  Create a fresh per-team scout and its config together with `posthog:scout-create`; the nested `config` object sets its schedule, emit posture, and destinations before it can run, and `files` bundles reference files in the same call.
   The lower-level `posthog:scout-config-create` remains available when a skill already exists without a config.
-  Config responses also carry the scout's `description`, read live from the skill's frontmatter — not a config field you set.
+  Config responses also carry the scout's `description`, read live from the skill's frontmatter (not a config field you set), plus `scout_origin` (`canonical` or `custom`) and `owners`.
 - **Coordinator.** A periodic Temporal workflow ticks (~every 30 min).
-  Each tick it bounds candidates to projects enrolled via the `signals-scout` feature-flag allowlist, then dispatches every **enabled** scout whose schedule is **due** (`last_run_at is None`, or `now - last_run_at ≥ run_interval_minutes`), most-overdue first, capped per tick.
+  Each tick it bounds candidates to projects enrolled via the `signals-scout` feature-flag allowlist, then dispatches every **enabled** scout whose schedule is **due**, most-overdue first, capped per tick.
+  On a rolling interval, due means `last_run_at is None` (a never-dispatched scout is maximally overdue; manual runs do not set the stamp) or `now - last_run_at ≥ run_interval_minutes`.
+  On a cron schedule, due means the first slot after the latest of `last_run_at`, the last schedule edit, and the config's creation has passed, so a fresh or re-scheduled cron scout waits for its next slot instead of firing at once.
   There is no sampling — every due scout runs.
   `last_run_at` advances for everything dispatched.
-- **Run.** Each dispatched scout becomes one sandboxed agent run with a short budget (single-digit minutes).
+- **Run.** Each dispatched scout becomes one sandboxed agent run with a hard budget of 15 minutes; a run still going at the wall is killed and its row marked failed.
   The body is the system prompt; the agent orients, explores, files reports or remembers, and writes a one-paragraph summary to the run row.
+  A streak of consecutive **scheduled** failures longer than a twelve-hour outage could explain trips a breaker that pauses the scout (`pause_reason=repeated_failures`): the threshold is one more than the runs the schedule fits in twelve hours, clamped to 5–25 (five for a daily scout, thirteen for a rolling hourly interval, fifteen for an hourly cron, whose slots are counted over a window padded for daylight-saving shifts). Manual (`scout-run-now`) and workflow-triggered failures never count toward the streak, while a clean run from any trigger clears it. The coordinator then probes a paused scout once a day and resumes it on a clean run, unless the project is at its enabled-scout cap, in which case it stays paused until another scout is paused or deleted; enabling it by hand is refused at the cap too.
 
 Pausing a scout = `enabled=false`.
 That records `status=paused_by_user`, which automatic lifecycle sweeps never resume or re-pause; `enabled=true` resumes from any pause, including a system-applied one (`status=paused_by_system`, cause in the read-only `pause_reason`).
 Config responses expose `status` and `pause_reason` read-only; writes flow through `enabled`.
-Slowing it = a larger `run_interval_minutes`.
+Slowing it = a larger `run_interval_minutes` (or, on a cron scout, a sparser `run_cron_schedule`; the cron wins while it is set).
 Dry-running it = `emit=false`.
 Letting it reach sites outside the trusted-domain allowlist = `network_access="full"`.
-All of these via `posthog:scout-config-update` (get the `id` from `-config-list`), or set at creation time in the nested `config` object passed to `posthog:scout-create-prepare`.
+All of these via `posthog:scout-config-update` (get the `id` from `-config-list`), or set at creation time in the nested `config` object passed to `posthog:scout-create`.
 
 ## Path A — per-team (skills store)
 
@@ -40,11 +42,8 @@ posthog:skill-list {"search": "signals-scout"}
 # Read a canonical scout to use as a template
 posthog:skill-get {"skill_name": "signals-scout-error-tracking"}
 
-# New scout from scratch: prepare the complete definition and config.
-posthog:scout-create-prepare {"name": "signals-scout-<scope>", "description": "...", "body": "...", "config": {"run_interval_minutes": 120}}
-
-# Show the returned message and wait for the user to type `confirm`, then execute.
-posthog:scout-create-execute {"confirmation_hash": "<returned-hash>", "confirmation": "confirm"}
+# New scout from scratch: create the complete definition and config.
+posthog:scout-create {"name": "signals-scout-<scope>", "description": "...", "body": "...", "config": {"run_interval_minutes": 120}}
 
 # Adapt an existing per-team scout — use the SMALLEST primitive (find/replace, not full-body)
 posthog:skill-get {"skill_name": "signals-scout-<scope>"}          # get current version first
@@ -91,7 +90,8 @@ Free and instant — refine the body, re-run the queries, repeat, until the logi
 
 Only once you're happy do you spend a real run.
 `posthog:scout-run-now {"id": <config_id>}` dispatches one run of the scout immediately, regardless of its schedule (get the `id` from `-config-list`) — the **initial real run**, the scout executing end-to-end in the harness.
-The run is **asynchronous** — the call returns a workflow id right away; poll `-runs-list` / `-runs-retrieve` for the result.
+An optional `note` steers that run alone (read next to the durable notes and never delivered to a later run as a note, though it stays visible in that run's metadata; needs `llm_skill:write` and skill-editor access, like a durable note), so you can aim the first run at the case you dogfooded.
+The run is **asynchronous**: the call returns a workflow id right away; poll `-runs-list` (pass `skill_name` to scope to this scout) / `-runs-retrieve` for the result.
 A disabled scout can still be run this way (test before enabling), and a manual run doesn't touch the schedule or `last_run_at`.
 It inherits the scheduled path's guards (403 not enabled, 429 over quota / daily run budget, 409 a run already in progress) and draws from the **same daily run budget** as scheduled runs — a dry-run (`emit=false`) counts too.
 There's no free test run, and it's slow (async, one run per call): firing the same scout repeatedly in a short window burns the project's daily allowance (and can starve its scheduled scouts).
@@ -99,7 +99,7 @@ There's no free test run, and it's slow (async, one run per call): firing the sa
 The loop is **dogfood → run once ready → inspect**:
 
 1. Dogfood the discriminator + explore patterns yourself against the live project (above), refining the body until the logic holds — the cheap, iterable part.
-2. Create the scout and its config together via `posthog:scout-create-prepare` → `-execute` (the default `emit=true` goes in the nested `config`), leaving `run_interval_minutes` at a sustainable value — no short-interval trick needed.
+2. Create the scout and its config together via `posthog:scout-create` (the default `emit=true` goes in the nested `config`), leaving `run_interval_minutes` at a sustainable value — no short-interval trick needed.
    Then spend one `-run-now` to watch the whole scout execute end-to-end, and inspect once it finishes:
    - `posthog:inbox-reports-list` — the reports it actually wrote.
    - `posthog:scout-runs-list` — run summaries.

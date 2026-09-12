@@ -2,7 +2,7 @@ import uuid
 from datetime import timedelta
 from typing import Any, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import AsyncMock, patch
@@ -2162,9 +2162,9 @@ class TestSavedQuery(APIBaseTest):
             )
             for i in range(2)
         ]
-        with freeze_time("2026-07-01T00:00:00Z"):
+        with time_machine.travel("2026-07-01T00:00:00Z", tick=False):
             mark_node_suspended(nodes[0], engine="clickhouse", reason="first failure", job_id="job-1")
-        with freeze_time("2026-07-02T00:00:00Z"):
+        with time_machine.travel("2026-07-02T00:00:00Z", tick=False):
             mark_node_suspended(nodes[1], engine="clickhouse", reason="later failure", job_id="job-2")
         for node in nodes:
             node.save()
@@ -2652,10 +2652,15 @@ class TestSavedQueryStateComesFromTheServingRun(APIBaseTest):
         self.assertEqual(body["status"], "Completed")
         self.assertIsNone(body["latest_error"])
 
-    def test_a_duckgres_shadow_does_not_stand_in_for_the_serving_run(self):
+    def test_a_managed_warehouse_shadow_does_not_stand_in_for_the_serving_run(self):
         view = self._view("shadowed")
         self._run(view, DataModelingJob.Status.FAILED, minutes_ago=30, error="the real failure")
-        self._run(view, DataModelingJob.Status.COMPLETED, minutes_ago=1, engine=DataModelingJobEngine.DUCKGRES)
+        self._run(
+            view,
+            DataModelingJob.Status.COMPLETED,
+            minutes_ago=1,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+        )
 
         body = self._detail(view)
 

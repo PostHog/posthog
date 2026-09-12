@@ -1,6 +1,6 @@
 from typing import Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
@@ -14,7 +14,7 @@ from products.alerts.backend.models import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
 
-@freeze_time("2024-06-02T08:55:00.000Z")
+@time_machine.travel("2024-06-02T08:55:00.000Z", tick=False)
 @patch("posthog.tasks.alerts.utils.send_notifications_for_errors", return_value=[])
 @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
 class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
@@ -116,7 +116,7 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
         ).model_dump()
         alert_data = self._create_formula_alert(query_dict, series_index=0)
 
-        with freeze_time("2024-06-02T07:55:00.000Z"):
+        with time_machine.travel("2024-06-02T07:55:00.000Z", tick=False):
             _create_event(team=self.team, event="$pageview", distinct_id="1")
             flush_persons_and_events()
 
@@ -140,7 +140,7 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
         ).model_dump()
         alert_data = self._create_formula_alert(query_dict, series_index=0)
 
-        with freeze_time("2024-06-02T07:55:00.000Z"):
+        with time_machine.travel("2024-06-02T07:55:00.000Z", tick=False):
             _create_event(team=self.team, event="$pageview", distinct_id="1")
             flush_persons_and_events()
 
@@ -163,7 +163,7 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
         ).model_dump()
         alert_data = self._create_formula_alert(query_dict, series_index=0)
 
-        with freeze_time("2024-06-02T07:55:00.000Z"):
+        with time_machine.travel("2024-06-02T07:55:00.000Z", tick=False):
             _create_event(team=self.team, event="$pageview", distinct_id="1")
             flush_persons_and_events()
 
@@ -192,7 +192,7 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
         ).model_dump()
         alert_data = self._create_formula_alert(query_dict, series_index=1)
 
-        with freeze_time("2024-06-02T07:55:00.000Z"):
+        with time_machine.travel("2024-06-02T07:55:00.000Z", tick=False):
             _create_event(team=self.team, event="$pageview", distinct_id="1")
             flush_persons_and_events()
 

@@ -3,9 +3,12 @@ import { ParquetSchema } from '@dsnp/parquetjs'
 import { randomUUID } from 'node:crypto'
 
 import { logger } from '~/common/utils/logger'
+import { MlDataKey, encryptEnvelope } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/crypto'
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
+
 export interface ScrubbedImage {
+    consentGrantedAt?: number
     teamId?: string
     pseudoTeam?: string
     hash: string
@@ -13,6 +16,8 @@ export interface ScrubbedImage {
 }
 
 export interface ScrubbedUrlImage {
+    teamId?: string
+    consentGrantedAt?: number
     hash: string
     bytes: Buffer
     sourcePartition: number
@@ -135,14 +140,33 @@ export class ImageShardStore {
         }
     }
 
-    public async writeShard(images: ScrubbedImage[]): Promise<{ shard: string; bytes: number }> {
+    public async writeShard(
+        images: ScrubbedImage[],
+        encryptionKey?: MlDataKey
+    ): Promise<{ shard: string; bytes: number }> {
         const rawTeamIds = images[0]?.teamId !== undefined
         if (
             images.some((image) => (image.teamId !== undefined) !== rawTeamIds || !(image.teamId ?? image.pseudoTeam))
         ) {
             throw new Error('Inline image shards must use one team ID format')
         }
-        const prefix = rawTeamIds ? `${this.prefix}/v2` : this.prefix
+        if (
+            images.some(
+                (image) =>
+                    image.consentGrantedAt !== undefined &&
+                    (!encryptionKey ||
+                        encryptionKey.identity.sessionId ||
+                        image.teamId !== String(encryptionKey.identity.teamId) ||
+                        image.consentGrantedAt !== encryptionKey.identity.consentGrantedAt)
+            )
+        ) {
+            throw new Error('Image shard encryption ownership mismatch')
+        }
+        const prefix = encryptionKey
+            ? `${this.prefix}/v2/${encryptionKey.identity.teamId}/${encryptionKey.identity.consentGrantedAt}`
+            : rawTeamIds
+              ? `${this.prefix}/v2`
+              : this.prefix
         this.seq += 1
         const stamp = `${this.nodeId}-${Date.now()}-${this.seq}`
         const shardKey = `${prefix}/shards/${stamp}.bin`
@@ -170,7 +194,7 @@ export class ImageShardStore {
             new PutObjectCommand({
                 Bucket: this.bucket,
                 Key: shardKey,
-                Body: shardBody,
+                Body: encryptionKey ? encryptEnvelope(encryptionKey, 'image-shard', shardBody, shardKey) : shardBody,
                 ContentType: 'application/octet-stream',
             })
         )
@@ -178,9 +202,11 @@ export class ImageShardStore {
             await this.send(
                 new PutObjectCommand({
                     Bucket: this.bucket,
-                    Key: `${prefix}/index/${stamp}.parquet`,
-                    Body: indexBody,
-                    ContentType: 'application/vnd.apache.parquet',
+                    Key: `${prefix}/index/${stamp}.${encryptionKey ? 'encrypted' : 'parquet'}`,
+                    Body: encryptionKey
+                        ? encryptEnvelope(encryptionKey, 'image-index', indexBody, shardKey)
+                        : indexBody,
+                    ContentType: encryptionKey ? 'application/octet-stream' : 'application/vnd.apache.parquet',
                 })
             )
         } catch (e) {
@@ -191,7 +217,7 @@ export class ImageShardStore {
         return { shard: shardKey, bytes: offset }
     }
 
-    public async writeUrlImage(image: ScrubbedUrlImage): Promise<UrlImageWriteOutcome> {
+    public async writeUrlImage(image: ScrubbedUrlImage, encryptionKey?: MlDataKey): Promise<UrlImageWriteOutcome> {
         if (
             !Number.isSafeInteger(image.sourcePartition) ||
             image.sourcePartition < 0 ||
@@ -200,14 +226,27 @@ export class ImageShardStore {
         ) {
             throw new Error('URL image source position must contain non-negative safe integers')
         }
-        const key = `${this.prefix}/url/${image.hash}`
+        if (
+            image.consentGrantedAt !== undefined &&
+            (!encryptionKey ||
+                encryptionKey.identity.sessionId ||
+                image.teamId !== String(encryptionKey.identity.teamId) ||
+                image.consentGrantedAt !== encryptionKey.identity.consentGrantedAt)
+        ) {
+            throw new Error('URL image encryption ownership mismatch')
+        }
+        const key = encryptionKey
+            ? `${this.prefix}/v2/${encryptionKey.identity.teamId}/${encryptionKey.identity.consentGrantedAt}/url/${image.hash}`
+            : `${this.prefix}/url/${image.hash}`
         for (let attempt = 0; attempt < URL_WRITE_MAX_ATTEMPTS; attempt++) {
             try {
                 await this.send(
                     new PutObjectCommand({
                         Bucket: this.bucket,
                         Key: key,
-                        Body: image.bytes,
+                        Body: encryptionKey
+                            ? encryptEnvelope(encryptionKey, 'image-url', image.bytes, key)
+                            : image.bytes,
                         ContentType: 'application/octet-stream',
                         Metadata: {
                             [URL_SOURCE_PARTITION_METADATA]: String(image.sourcePartition),

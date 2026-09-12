@@ -159,14 +159,16 @@ export async function anonymizeKafkaPayload(
     contentEncoding?: string | null,
     teamId?: string | null,
     contentKey?: string | null,
-    urlKey?: string | null
+    urlKey?: string | null,
+    referenceNamespace?: string | null
 ): Promise<AnonymizeKafkaPayloadResult> {
     const result = await native.anonymizeKafkaPayload(
         payload,
         contentEncoding ?? undefined,
         teamId ?? undefined,
         contentKey ?? undefined,
-        urlKey ?? undefined
+        urlKey ?? undefined,
+        referenceNamespace ?? undefined
     )
     // Timings are best-effort telemetry: a malformed timings blob must never fail the message.
     let timings: AnonymizeTimings | null = null

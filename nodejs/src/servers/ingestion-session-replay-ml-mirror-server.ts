@@ -31,6 +31,8 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
 import { createMlMirrorReplayPipeline } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-mirror-pipeline'
+import { LegacyMlKeyStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/legacy-key-store'
+import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
 import { resolvePseudonymKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/pseudonym-key'
 import { SessionFormatFileStorage } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-format-file-storage'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
@@ -40,11 +42,10 @@ import { S3SessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/s
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
 import { CleartextRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto/cleartext-encryptor'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
-import { CleartextKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cleartext-keystore'
 import { getDefaultKafkaSessionreplayProducerEnvConfig } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
+import { RedisPool } from '~/types'
 
-import { RedisPool } from '../types'
 import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 import { IngestionSessionReplayServerConfig, buildSessionReplayRedisPools } from './ingestion-session-replay-server'
 
@@ -94,6 +95,7 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayMlMirrorServerConfig
 
+    private privacy?: MlPrivacyRuntime
     private postgres?: PostgresRouter
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
     private crawlHistoryClient?: DynamoDBClient
@@ -163,14 +165,18 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         logger.info('🦀', 'ml_mirror_rust_anonymizer_initialized')
 
         // Block metadata is produced to Kafka; the dedicated Parquet-sink deployment writes it to the ML bucket.
-        const metadataStore = new MlBlockMetadataSink(outputs, pseudonymSecret)
+        if (this.config.AI_RESEARCH_REPLAY_PRIVACY_TABLE) {
+            this.privacy = new MlPrivacyRuntime(this.config)
+            await this.privacy.start()
+        }
+        const metadataStore = new MlBlockMetadataSink(outputs, pseudonymSecret, this.privacy?.reader)
         const urlProducerEnabled =
             this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED &&
             this.config.SESSION_RECORDING_ML_URL_PRODUCER_ENABLED
         const urlCrawlHistory = urlProducerEnabled ? this.buildUrlCrawlHistory() : undefined
 
-        // Cleartext crypto: no encryption, deletions not honored (every session stays cleartext).
-        const keyStore = new CleartextKeyStore()
+        const privacy = this.privacy?.controller
+        const keyStore = privacy ?? new LegacyMlKeyStore()
         const collaborators: SessionRecordingIngesterCollaborators = {
             fileStorage,
             metadataStore,
@@ -181,11 +187,12 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
             }),
             featureStore: new SessionFeatureStore(outputs, false),
             keyStore,
-            encryptor: new CleartextRecordingEncryptor(keyStore),
+            encryptor: privacy ?? new CleartextRecordingEncryptor(keyStore),
             createPipeline: (pipelineConfig) =>
                 createMlMirrorReplayPipeline(
                     pipelineConfig,
                     {
+                        privacy,
                         anonymizeMaxConcurrency: resolveMlAnonymizeMaxConcurrency(
                             this.config.SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY
                         ),
@@ -271,6 +278,7 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
             redisPools: [this.redisPool, this.restrictionRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             additionalCleanup: async () => {
+                this.privacy?.stop()
                 this.crawlHistoryClient?.destroy()
                 await this.producerRegistry?.disconnectAll()
             },

@@ -1,7 +1,7 @@
 import re
 from datetime import UTC, datetime
 
-RAW_SESSION_IDENTIFIERS_START_MS = int(datetime(2026, 9, 11, 11, tzinfo=UTC).timestamp() * 1000)
+RAW_SESSION_IDENTIFIERS_START_MS = int(datetime(2026, 9, 14, 11, tzinfo=UTC).timestamp() * 1000)
 _SESSION_UUID_V7 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", re.IGNORECASE)
 
 

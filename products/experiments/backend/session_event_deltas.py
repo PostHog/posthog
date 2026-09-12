@@ -131,7 +131,7 @@ from products.experiments.backend.replay_linkage import (
     exposed_persons_select,
     resolve_exposure_linkage,
 )
-from products.experiments.backend.session_exposure import never_session_linked_events
+from products.experiments.backend.session_exposure import MAX_SESSION_DURATION_HOURS, never_session_linked_events
 
 # Tighter than MAX_BUCKET_SCAN_DAYS. The bucket scan filters by event name in its WHERE, so
 # ClickHouse prunes on the events table's primary key; this one compares every event name there is
@@ -143,11 +143,6 @@ MAX_DELTA_SCAN_DAYS = 14
 # variants stay covered over the same period — a comparison split across different stretches of time
 # would be measuring the calendar as much as the variant.
 MAX_DELTA_SCAN_SESSIONS = 20_000
-# How far back of a session's own events the scan has to reach once the window is clamped to what
-# the ceiling covers. The ceiling is resolved from each session's *last* activity, so a session that
-# began before that floor would otherwise be read from the middle, and the events it opened with
-# would go missing from a comparison that claims to have seen the session.
-MAX_SESSION_DURATION_HOURS = 24
 # Ceiling on (event name x variant) rows one comparison ranks. Distinct event names per project are
 # normally in the hundreds; a project that keys event names by id is what this is for.
 MAX_DELTA_EVENT_ROWS = 10_000
@@ -742,9 +737,16 @@ class _QuerySetup:
                 right=ast.Constant(value=self.window_end),
             ),
             ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq,
+                # An SDK that sends `$session_id: null` leaves the string "null" in the column,
+                # because the materialization keeps the raw JSON token. That string is a non-empty
+                # value, so it needs its own exclusion. Without it, every such event of every
+                # exposed person groups into one session whose last activity is always the most
+                # recent. That session takes a slot of the session ceiling, and the scan reads
+                # people from a session they never had. HogQL's own property read of `$session_id`
+                # treats both values as absent.
+                op=ast.CompareOperationOp.NotIn,
                 left=ast.Field(chain=["$session_id"]),
-                right=ast.Constant(value=""),
+                right=ast.Constant(value=["", "null"]),
             ),
         ]
 

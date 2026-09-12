@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from textwrap import dedent
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
@@ -215,13 +215,13 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         base_time = datetime.now(UTC)
         for i in range(25):
             id = f"person{i}"
-            with freeze_time(base_time - timedelta(minutes=25 - i)):
+            with time_machine.travel(base_time - timedelta(minutes=25 - i), tick=False):
                 _create_person(
                     distinct_ids=[id],
                     properties={"taxonomy_email": f"{id}@example.com", "id": i},
                     team=self.team,
                 )
-        with freeze_time(base_time):
+        with time_machine.travel(base_time, tick=False):
             _create_person(
                 distinct_ids=["person25"],
                 properties={"taxonomy_email": "person25@example.com", "id": 25},
@@ -253,14 +253,14 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(7):
             id = f"group{i}"
-            with freeze_time(f"2024-01-01T{i}:00:00Z"):
+            with time_machine.travel(f"2024-01-01T{i}:00:00Z", tick=False):
                 create_group(
                     group_type_index=0,
                     group_key=id,
                     properties={"test": i},
                     team_id=self.team.pk,
                 )
-        with freeze_time(f"2024-01-02T00:00:00Z"):
+        with time_machine.travel(f"2024-01-02T00:00:00Z", tick=False):
             create_group(
                 group_type_index=1,
                 group_key="org",

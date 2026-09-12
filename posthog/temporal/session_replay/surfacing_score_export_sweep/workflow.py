@@ -4,6 +4,7 @@ Failed partitions don't fail the tick — deterministic keys mean the next run r
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -18,6 +19,7 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.constants impo
     WORKFLOW_NAME,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.types import (
+    EncryptedScorePage,
     ExportPartitionResult,
     ExportPartitionSpec,
     ExportScoresSweepInputs,
@@ -26,6 +28,7 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.types import (
 
 with workflow.unsafe.imports_passed_through():
     from posthog.temporal.session_replay.surfacing_score_export_sweep.activities import (
+        export_encrypted_scores_page_activity,
         export_scores_partition_activity,
         list_export_partitions_activity,
     )
@@ -78,9 +81,10 @@ class ExportSurfacingScoresWorkflow(PostHogWorkflow):
         return _summarize(plan.partitions, results)
 
     async def _export_partition(self, spec: ExportPartitionSpec) -> ExportPartitionResult:
-        return await workflow.execute_activity(
+        paged = workflow.patched("ai-research-encrypted-score-pages") and spec.encrypted_enabled
+        result = await workflow.execute_activity(
             export_scores_partition_activity,
-            spec,
+            replace(spec, legacy_only=True) if paged else spec,
             start_to_close_timeout=EXPORT_PARTITION_ACTIVITY_TIMEOUT,
             heartbeat_timeout=EXPORT_PARTITION_HEARTBEAT_TIMEOUT,
             retry_policy=RetryPolicy(
@@ -91,6 +95,20 @@ class ExportSurfacingScoresWorkflow(PostHogWorkflow):
                 ],
             ),
         )
+        if paged:
+            export_id = f"{workflow.info().start_time.strftime('%Y%m%dT%H%M%S%f')}-{workflow.info().run_id}"
+            page: EncryptedScorePage | None = EncryptedScorePage(partition=spec, export_id=export_id)
+            while page is not None:
+                exported = await workflow.execute_activity(
+                    export_encrypted_scores_page_activity,
+                    page,
+                    start_to_close_timeout=EXPORT_PARTITION_ACTIVITY_TIMEOUT,
+                    heartbeat_timeout=EXPORT_PARTITION_HEARTBEAT_TIMEOUT,
+                    retry_policy=RetryPolicy(maximum_attempts=EXPORT_PARTITION_MAX_ATTEMPTS),
+                )
+                result.bytes_written += exported.bytes_written
+                page = exported.next_page
+        return result
 
 
 def _summarize(

@@ -12,6 +12,7 @@ from posthog.hogql.database.schema.events import (
     EventsPersonSubTable,
     EventsTable,
 )
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.errors import QueryError
@@ -118,7 +119,7 @@ class PropertyFinder(TraversingVisitor):
                     self.person_properties.add(property_name)
                 elif isinstance(resolved_table, EventsGroupSubTable):
                     pass  # group properties are handled above via GroupsTable
-                elif isinstance(resolved_table, EventsTable):
+                elif isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
                     self.event_properties.add(property_name)
 
     def visit_field(self, node: ast.Field):
@@ -709,7 +710,7 @@ class PropertySwapper(CloningVisitor):
                 if isinstance(resolved_table, EventsPersonSubTable):
                     if property_name in self.person_properties:
                         return self._convert_string_property_to_type(node, "person", property_name)
-                elif isinstance(resolved_table, EventsTable):
+                elif isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
                     if property_name in self.event_properties:
                         return self._convert_string_property_to_type(node, "event", property_name)
         if isinstance(type, ast.PropertyType) and type.field_type.name == "person_properties" and len(type.chain) == 1:

@@ -25,6 +25,7 @@ import {
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { MlMirrorMetrics } from './metrics'
+import { MlPrivacyBatchController } from './privacy/batch-controller'
 import {
     PSEUDONYM_IMAGE_CONTENT_KEY,
     PSEUDONYM_IMAGE_URL_GLOBAL_VALUE,
@@ -111,7 +112,8 @@ export interface ImageCollectionConfig {
  * ingestion warnings are unchanged.
  */
 export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInput & { team: TeamForReplay }>(
-    imageCollection?: ImageCollectionConfig
+    imageCollection?: ImageCollectionConfig,
+    privacy?: MlPrivacyBatchController
 ): ProcessingStep<T, T & ParseAndAnonymizeStepOutput> {
     const globalUrlKey =
         imageCollection?.collectUrls === true
@@ -171,6 +173,12 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         )
 
         const teamKeys = teamKeysFor(input.team.teamId, headers.session_id)
+        const privacyKeys = privacy?.keys(input.team.teamId, headers.session_id)
+        const referenceNamespace =
+            privacyKeys && usesRawSessionIdentifiers(headers.session_id)
+                ? `v2:${input.team.teamId}:${privacyKeys.image.identity.consentGrantedAt}`
+                : undefined
+        const imageTeamId = referenceNamespace ?? teamKeys?.teamId
         const t0 = performance.now()
         const callStartEpochMs = performance.timeOrigin + t0
         let result
@@ -178,9 +186,10 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             result = await getRustAnonymizer().anonymizeKafkaPayload(
                 message.value,
                 contentEncoding,
-                teamKeys?.teamId,
+                imageTeamId,
                 teamKeys?.contentKey,
-                globalUrlKey
+                globalUrlKey,
+                ...(referenceNamespace ? ([referenceNamespace] as const) : [])
             )
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.
@@ -258,6 +267,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             return dlq('distinct_id_header_body_mismatch')
         }
 
+        recordImageSources(meta)
         MlMirrorMetrics.incrementMlJsonLdEvents(meta.jsonLdEventCount)
 
         const parsedMessage: ParsedMessageData = {
@@ -290,10 +300,11 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         }
 
         const collectedImages = teamKeys?.contentKey
-            ? unpackCollectedImages(teamKeys.teamId, meta, result.images)
+            ? unpackCollectedImages(imageTeamId!, meta, result.images)
             : undefined
-        const collectedUrls = globalUrlKey && teamKeys ? unpackCollectedUrls(teamKeys.teamId, meta) : undefined
-        recordImageSources(meta)
+        const collectedUrls =
+            globalUrlKey && teamKeys ? unpackCollectedUrls(teamKeys.teamId, meta, referenceNamespace) : undefined
+
         return ok({ ...input, parsedMessage, collectedImages, collectedUrls })
     }
 }
@@ -344,12 +355,16 @@ function unpackCollectedImages(
  * that carry one describes an image-heavy page, and this number exists to size a topic that
  * carries all the traffic.
  */
-function unpackCollectedUrls(teamId: string, meta: AnonymizeMeta): CollectedUrl[] | undefined {
+function unpackCollectedUrls(
+    teamId: string,
+    meta: AnonymizeMeta,
+    referenceNamespace?: string
+): CollectedUrl[] | undefined {
     const urls: CollectedUrl[] = []
     const domains = new Set<string>()
     for (const entry of meta.urls ?? []) {
         urls.push({
-            ref: urlRef(entry.hash),
+            ref: referenceNamespace ? `imageurl:${referenceNamespace}:${entry.hash}` : urlRef(entry.hash),
             teamId,
             url: entry.url,
             host: entry.host,

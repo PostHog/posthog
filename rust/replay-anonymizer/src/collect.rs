@@ -63,6 +63,16 @@ pub fn is_image_ref(s: &str) -> bool {
 /// have it copied verbatim into anonymized output. Limit preserved refs to a numeric team ID
 /// or legacy pseudonym and a fixed-width hash.
 pub fn is_image_ref_strict(s: &str) -> bool {
+    if let Some(rest) = s
+        .strip_prefix("image:v2:")
+        .or_else(|| s.strip_prefix("imageurl:v2:"))
+    {
+        let parts: Vec<&str> = rest.split(':').collect();
+        return parts.len() == 3
+            && is_raw_team_id(parts[0])
+            && is_raw_team_id(parts[1])
+            && is_ref_hash(parts[2]);
+    }
     if let Some(rest) = s.strip_prefix("image:") {
         let Some((team, hash)) = rest.split_once(':') else {
             return false;

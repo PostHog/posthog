@@ -2,6 +2,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 
@@ -12,7 +13,7 @@ import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PersonsTabType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { personsLogic } from './personsLogic'
+import { personViewedProperties, personsLogic } from './personsLogic'
 
 describe('personsLogic', () => {
     afterEach(resumeKeaLoadersErrors)
@@ -50,6 +51,51 @@ describe('personsLogic', () => {
         initKeaTests()
         logic = personsLogic({ syncWithUrl: true })
         logic.mount()
+    })
+
+    describe('reports the person viewed', () => {
+        const person = (properties: Record<string, unknown>): PersonType =>
+            ({ id: 1, uuid: 'abc-123', distinct_ids: ['abc'], properties }) as unknown as PersonType
+
+        const cases: [string, Record<string, unknown>, Record<string, unknown>][] = [
+            ['no properties', {}, { properties_count: 0, custom_properties_count: 0, posthog_properties_count: 0 }],
+            [
+                'one PostHog key and one custom key',
+                { $browser: 'Firefox', favourite_colour: 'green' },
+                { properties_count: 2, custom_properties_count: 1, posthog_properties_count: 1 },
+            ],
+            [
+                'email and name',
+                { email: 'someone@example.com', name: 'Someone' },
+                { properties_count: 2, custom_properties_count: 2, has_email: true, has_name: true },
+            ],
+        ]
+
+        it.each(cases)('counts %s', (_name, properties, expected) => {
+            expect(personViewedProperties(person(properties), ['$browser'])).toEqual({
+                has_email: false,
+                has_name: false,
+                posthog_properties_count: 0,
+                ...expected,
+            })
+        })
+
+        it.each([
+            ['stays mounted', false],
+            ['unmounts inside the delay', true],
+        ])('captures once the person has loaded when the logic %s', async (_name, unmount) => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPerson('test@test.com')
+            }).toDispatchActions(['reportPersonDetailViewed'])
+            if (unmount) {
+                logic.unmount()
+            }
+            await new Promise((resolve) => setTimeout(resolve, 600))
+
+            expect(capture).toHaveBeenCalledWith('person viewed', expect.objectContaining({ properties_count: 0 }))
+        })
     })
 
     describe('syncs with insightLogic', () => {

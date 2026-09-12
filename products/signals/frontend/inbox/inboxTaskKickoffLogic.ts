@@ -28,6 +28,7 @@ import {
     SignalReportTaskRelationship,
 } from './types'
 import { aiConsentDisabledReason } from './utils/aiConsent'
+import { reportPullRequests } from './utils/reportPullRequests'
 
 // Cloud-adapted port of desktop `useDiscussReport` / `useCreatePrReport`. These are
 // task-kickoff actions (create a cloud Task linked to the report, then navigate to it) –
@@ -117,7 +118,7 @@ export function isActionCapableReport(report: SignalReport): boolean {
         ACTION_CAPABLE_STATUSES.includes(report.status) &&
         report.already_addressed !== true &&
         report.actionability !== 'not_actionable' &&
-        !report.implementation_pr_url
+        reportPullRequests(report).length === 0
     )
 }
 

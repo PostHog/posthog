@@ -30,6 +30,7 @@ export interface PiSessionError {
 export interface PiControllerSessionState {
   connectionState: SessionStatus;
   events: AgentConversationEvent[];
+  historyVersion: number;
   models: Array<Pick<PiNativeModelInfo, "provider" | "id">>;
   modelsLoaded: boolean;
   thinkingLevels: PiThinkingLevel[];
@@ -59,6 +60,7 @@ export function createEmptyPiControllerSession(): PiControllerSessionState {
   return {
     connectionState: "connecting",
     events: [],
+    historyVersion: 0,
     models: [],
     modelsLoaded: false,
     thinkingLevels: [],

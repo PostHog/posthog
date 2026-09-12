@@ -737,6 +737,7 @@ mod tests {
             }),
         )
         .collecting_urls(Some(UrlCollection {
+            reference_namespace: None,
             url_key: "0123456789abcdef0123456789abcdef".to_string(),
         }));
         let original = png_data_uri(8, 8, [10, 20, 30, 255]);
@@ -765,6 +766,7 @@ mod tests {
     fn collected_remote_images_record_the_css_property() {
         let allow = AllowLists::default();
         let ctx = Ctx::new(&allow).collecting_urls(Some(UrlCollection {
+            reference_namespace: None,
             url_key: "0123456789abcdef0123456789abcdef".to_string(),
         }));
         let css = "mask-image:url('https://cdn.example.com/mask.png')";

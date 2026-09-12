@@ -4,12 +4,6 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/signals/api'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
-import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
-import {
-    executeConfirmedAction,
-    prepareConfirmedAction,
-    type PrepareConfirmedActionResult,
-} from '@/tools/confirmed-action-runtime'
 import {
     withPostHogUrl,
     withAgentNote,
@@ -36,6 +30,9 @@ const inboxReportArtefactsCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportArtefactsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.claim_id !== undefined) {
+            body['claim_id'] = params.claim_id
+        }
         if (params.artefact_type !== undefined) {
             body['artefact_type'] = params.artefact_type
         }
@@ -206,6 +203,15 @@ const inboxReportsClaim = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsClaimSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.claim_id !== undefined) {
+            body['claim_id'] = params.claim_id
+        }
+        if (params.pull_requests !== undefined) {
+            body['pull_requests'] = params.pull_requests
+        }
+        if (params.takeover !== undefined) {
+            body['takeover'] = params.takeover
+        }
         if (params.pr_url !== undefined) {
             body['pr_url'] = params.pr_url
         }
@@ -228,13 +234,13 @@ const InboxReportsListSchema = () => {
 
 const inboxReportsList = (): ToolBase<
     ReturnType<typeof InboxReportsListSchema>,
-    WithAgentNote<WithPostHogUrl<Schemas.PaginatedSignalReportList>>
+    WithAgentNote<WithPostHogUrl<Schemas.PaginatedSignalReportListList>>
 > => ({
     name: 'inbox-reports-list',
     schema: InboxReportsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSignalReportList>({
+        const result = await context.api.request<Schemas.PaginatedSignalReportListList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
             query: {
@@ -272,6 +278,7 @@ const inboxReportsList = (): ToolBase<
                     'id',
                     'title',
                     'summary',
+                    'metrics',
                     'status',
                     'priority',
                     'actionability',
@@ -283,6 +290,7 @@ const inboxReportsList = (): ToolBase<
                     'source_products',
                     'scout_name',
                     'is_suggested_reviewer',
+                    'pull_requests',
                     'implementation_pr_url',
                     'implementation_pr_state',
                     'implementation_pr_merged',
@@ -307,7 +315,7 @@ const inboxReportsList = (): ToolBase<
                 },
                 '/inbox'
             ),
-            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can replace the current owner.\nIf you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to attach it. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
+            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
         )
     },
 })
@@ -334,7 +342,7 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can replace the current owner.\nIf you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to attach it. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
+            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
         )
     },
 })
@@ -770,51 +778,11 @@ const ScoutCreateSchema = () => {
     return SignalsScoutCreateBody
 }
 
-const ScoutCreateSchemaExecute = z.strictObject({
-    confirmation_hash: z
-        .string()
-        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
-    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
-})
-
-const scoutCreatePrepare = (): ToolBase<ReturnType<typeof ScoutCreateSchema>, PrepareConfirmedActionResult> => ({
-    name: 'scout-create-prepare',
+const scoutCreate = (): ToolBase<ReturnType<typeof ScoutCreateSchema>, Schemas.SignalScoutCreateResponse> => ({
+    name: 'scout-create',
     schema: ScoutCreateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutCreateSchema>>) => {
-        const __runtime = getConfirmedActionRuntime()
-        const __scopeProjectId = await context.stateManager.getProjectId()
-        return await prepareConfirmedAction(context, {
-            args: params,
-            purpose: 'scout-create',
-            actionLabel: 'create scout',
-            messageTemplate:
-                "About to create scout '{name}', a persistent automation that can run unattended on its configured schedule and write reports to the inbox when enabled with emit on. Reply 'confirm' to create it.\n",
-            codec: __runtime.codec,
-            stash: __runtime.stash,
-            boundScope: { projectId: String(__scopeProjectId) },
-        })
-    },
-})
-
-const scoutCreateExecute = (): ToolBase<typeof ScoutCreateSchemaExecute, Schemas.SignalScoutCreateResponse> => ({
-    name: 'scout-create-execute',
-    schema: ScoutCreateSchemaExecute,
-    handler: async (context: Context, confirmationParams: z.infer<typeof ScoutCreateSchemaExecute>) => {
-        const __runtime = getConfirmedActionRuntime()
-        const __scopeProjectId = await context.stateManager.getProjectId()
-        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof ScoutCreateSchema>>>(context, {
-            incomingArgs: confirmationParams,
-            purpose: 'scout-create',
-            codec: __runtime.codec,
-            ledger: __runtime.ledger,
-            stash: __runtime.stash,
-            expectedScope: { projectId: String(__scopeProjectId) },
-        })
-        if (!__guard.ok) {
-            return __guard.result as never
-        }
-        const params = __guard.verifiedArgs
-        const projectId = __scopeProjectId
+        const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
             body['name'] = params.name
@@ -873,6 +841,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.charts !== undefined) {
             body['charts'] = params.charts
         }
+        if (params.metrics !== undefined) {
+            body['metrics'] = params.metrics
+        }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
         }
@@ -929,6 +900,9 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
         }
         if (params.charts !== undefined) {
             body['charts'] = params.charts
+        }
+        if (params.metrics !== undefined) {
+            body['metrics'] = params.metrics
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
@@ -1168,8 +1142,9 @@ const scoutRecordOutput = (): ToolBase<
 })
 
 const ScoutRunNowSchema = () => {
+    const SignalsScoutConfigRunBody = orvalSchemas.SignalsScoutConfigRunBody()
     const SignalsScoutConfigRunParams = orvalSchemas.SignalsScoutConfigRunParams()
-    return SignalsScoutConfigRunParams.omit({ project_id: true })
+    return SignalsScoutConfigRunParams.omit({ project_id: true }).extend(SignalsScoutConfigRunBody.shape)
 }
 
 const scoutRunNow = (): ToolBase<ReturnType<typeof ScoutRunNowSchema>, unknown> => ({
@@ -1177,9 +1152,14 @@ const scoutRunNow = (): ToolBase<ReturnType<typeof ScoutRunNowSchema>, unknown> 
     schema: ScoutRunNowSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutRunNowSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.note !== undefined) {
+            body['note'] = params.note
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/run/`,
+            body,
         })
         return result
     },
@@ -1618,6 +1598,9 @@ const signalsScoutEditReport = (): ToolBase<
         if (params.charts !== undefined) {
             body['charts'] = params.charts
         }
+        if (params.metrics !== undefined) {
+            body['metrics'] = params.metrics
+        }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
         }
@@ -1677,6 +1660,9 @@ const signalsScoutEmitReport = (): ToolBase<
         }
         if (params.charts !== undefined) {
             body['charts'] = params.charts
+        }
+        if (params.metrics !== undefined) {
+            body['metrics'] = params.metrics
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
@@ -1796,8 +1782,9 @@ const signalsScoutProjectProfileGet = (): ToolBase<
 })
 
 const SignalsScoutRunNowSchema = () => {
+    const SignalsScoutConfigRunBody = orvalSchemas.SignalsScoutConfigRunBody()
     const SignalsScoutConfigRunParams = orvalSchemas.SignalsScoutConfigRunParams()
-    return SignalsScoutConfigRunParams.omit({ project_id: true })
+    return SignalsScoutConfigRunParams.omit({ project_id: true }).extend(SignalsScoutConfigRunBody.shape)
 }
 
 const signalsScoutRunNow = (): ToolBase<ReturnType<typeof SignalsScoutRunNowSchema>, unknown> => ({
@@ -1805,9 +1792,14 @@ const signalsScoutRunNow = (): ToolBase<ReturnType<typeof SignalsScoutRunNowSche
     schema: SignalsScoutRunNowSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof SignalsScoutRunNowSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.note !== undefined) {
+            body['note'] = params.note
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/run/`,
+            body,
         })
         return result
     },
@@ -2047,8 +2039,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-config-list': scoutConfigList,
     'scout-config-sync': scoutConfigSync,
     'scout-config-update': scoutConfigUpdate,
-    'scout-create-prepare': scoutCreatePrepare,
-    'scout-create-execute': scoutCreateExecute,
+    'scout-create': scoutCreate,
     'scout-edit-report': scoutEditReport,
     'scout-emit-report': scoutEmitReport,
     'scout-emit-signal': scoutEmitSignal,
