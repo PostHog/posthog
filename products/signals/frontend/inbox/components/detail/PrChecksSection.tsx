@@ -159,7 +159,12 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
         >
             {prChecksError ? (
                 <div className="rounded border border-danger bg-danger-highlight px-3 py-2.5 text-sm text-danger">
-                    {prChecksError}
+                    <span>{prChecksError.message}</span>
+                    {prChecksError.remediationUrl ? (
+                        <Link to={prChecksError.remediationUrl} className="ml-2">
+                            Open GitHub integration settings
+                        </Link>
+                    ) : null}
                 </div>
             ) : prChecks === null ? (
                 <div className="overflow-hidden rounded border border-primary bg-surface-primary">
