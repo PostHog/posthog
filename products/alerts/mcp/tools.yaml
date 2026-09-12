@@ -26,8 +26,9 @@ tools:
             configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly
             detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos,
             isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and
-            window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at
-            least one subscribed user.
+            window size. Ensemble detectors combine 2+ sub-detectors and take an operator of 'and' or 'or', lowercase.
+            Every detector parameter is optional: pass only the ones you want to change from their defaults. Requires
+            an insight ID and at least one subscribed user.
 
             The config type must match the insight kind. Trends insights: TrendsAlertConfig (series_index,
             check_ongoing_interval). SQL/HogQL insights: HogQLAlertConfig — column picks which result column to evaluate
@@ -145,13 +146,17 @@ tools:
         title: Simulate detector on insight
         description: >
             Run an anomaly detector on an insight's historical data without creating any alert or check records. Use
-            this to preview how a detector configuration would perform before saving it as an alert. Pass either the
-            numeric insight ID or its saved short ID. Omit detector_config to use the default daily z-score detector
-            (threshold 0.95, window 90, first-difference preprocessing). To choose another detector, pass
-            detector_config with a type (zscore, mad, iqr, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca, or
-            ensemble). Optionally specify date_from (e.g. '-48h', '-30d') to control how far back to simulate, and
-            series_index to pick which series to analyze. Returns data values, anomaly scores per point, triggered
-            indices and dates, and for ensemble detectors, per-sub-detector score breakdowns.
+            this to preview how a detector configuration would perform before saving it as an alert. The required
+            `insight` parameter identifies the insight, not an alert: pass either the numeric insight ID or its saved
+            short ID. To preview the detector on an alert you already created, read the alert with alert-get and pass
+            its insight. Omit detector_config to use the default daily z-score detector (threshold 0.95, window 90,
+            first-difference preprocessing). To choose another detector, pass detector_config with a type (zscore, mad,
+            iqr, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca, or ensemble). Every other detector
+            parameter is optional, so a config naming only its type is valid and uses that detector's defaults. An
+            ensemble also needs detectors (2 or more) and an operator of 'and' or 'or', lowercase. Optionally specify
+            date_from (e.g. '-48h', '-30d') to control how far back to simulate, and series_index to pick which series
+            to analyze. Returns data values, anomaly scores per point, triggered indices and dates, and for ensemble
+            detectors, per-sub-detector score breakdowns.
     alert-update:
         operation: alerts_partial_update
         enabled: true

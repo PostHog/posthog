@@ -1,10 +1,12 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 import numpy as np
 
 from posthog.tasks.alerts.detectors.preprocessing import preprocess_data
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -32,7 +34,18 @@ class BaseDetector(ABC):
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self.preprocessing_config = config.get("preprocessing") or {}
-        self.training_offset: int = config.get("training_offset_n", self.DEFAULT_TRAINING_OFFSET)
+        self.training_offset: int = self._param("training_offset_n", self.DEFAULT_TRAINING_OFFSET)
+
+    def _param(self, key: str, default: T) -> T:
+        """Read a tuning parameter, treating a present-but-None value as unset.
+
+        A stored detector config comes from a pydantic model dump, which writes every
+        unset optional field back as an explicit None. Read every tuning parameter in
+        this package through here rather than `config.get(key, default)`, which hands
+        that None on to the arithmetic and comparisons instead of the default.
+        """
+        value = self.config.get(key)
+        return default if value is None else value
 
     @abstractmethod
     def detect(self, data: np.ndarray) -> DetectionResult:

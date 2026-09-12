@@ -1807,16 +1807,71 @@ class TestAlertSimulate(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert mock_simulate.call_args.kwargs["insight"].id == self.insight["id"]
 
-    def test_simulate_invalid_detector_config_returns_400(self) -> None:
+    @parameterized.expand(
+        [
+            ("unknown_type", {"type": "nonexistent_detector"}, "nonexistent_detector"),
+            (
+                "wrong_operator_case",
+                {
+                    "type": "ensemble",
+                    "operator": "AND",
+                    "detectors": [{"type": "zscore"}, {"type": "mad"}],
+                },
+                "operator",
+            ),
+            ("wrong_field_type", {"type": "zscore", "window": "thirty"}, "window"),
+        ]
+    )
+    def test_simulate_invalid_detector_config_returns_400_naming_the_problem(
+        self, _name: str, detector_config: dict, expected_in_message: str
+    ) -> None:
+        # The rejection has to say which field broke which constraint. Callers are mostly
+        # agents, and an opaque "Invalid detector configuration." leaves them retrying the
+        # same malformed config instead of correcting it.
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/simulate",
             {
                 "insight": self.insight["id"],
-                "detector_config": {"type": "nonexistent_detector"},
+                "detector_config": detector_config,
                 "series_index": 0,
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_in_message in response.json()["detail"]
+
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    def test_simulate_accepts_a_detector_config_carrying_only_its_type(self, mock_calculate) -> None:
+        # The smallest valid request: name the detector and leave every tuning parameter
+        # at its default. The serializer stores a pydantic dump, so those unset parameters
+        # reach the detector as explicit nulls and still have to resolve to their defaults.
+        mock_calculate.return_value = mock.MagicMock(
+            result=[
+                {
+                    "data": [10.0, 12.0, 11.0, 50.0, 13.0, 12.0, 11.0] * 5,
+                    "days": [f"2024-01-{i:02d}" for i in range(1, 36)],
+                    "labels": [f"2024-01-{i:02d}" for i in range(1, 36)],
+                    "label": "pageview",
+                    "action": {"name": "pageview"},
+                    "actions": [],
+                    "count": 35,
+                    "breakdown_value": "",
+                    "status": None,
+                    "compare_label": None,
+                    "compare": False,
+                    "persons_urls": [],
+                    "persons": {},
+                    "filter": {},
+                }
+            ]
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {"insight": self.insight["id"], "detector_config": {"type": "zscore"}, "series_index": 0},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["total_points"] > 0
 
     @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_simulate_does_not_create_alert_check_records(self, mock_calculate) -> None:
