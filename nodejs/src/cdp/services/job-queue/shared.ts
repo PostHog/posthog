@@ -37,6 +37,29 @@ const cdpCyclotronJobsProcessed = new Counter({
     labelNames: ['queue', 'source'],
 })
 
+export const cdpCyclotronUnroutableInvocations = new Counter({
+    name: 'cdp_cyclotron_unroutable_invocations',
+    help: 'Invocations failed because their target queue has no topic on this cluster. Every increment is a job that cannot run, so alert on any sustained non-zero rate.',
+    labelNames: ['queue'],
+})
+
+/**
+ * Raised when a batch held invocations whose target queue has no topic on this cluster.
+ *
+ * These are carried out of the produce path instead of being thrown as the raw produce error, so
+ * the consumer can record a terminal failure for each one and let the batch commit. A raw throw
+ * latches the consumer's fatal-error flag and exits the process, and the offset is never
+ * committed, so the restart replays the same message. That stalls the partition for every team on
+ * it, indefinitely.
+ */
+export class UnroutableInvocationsError extends Error {
+    constructor(public readonly invocations: CyclotronJobInvocation[]) {
+        const queues = [...new Set(invocations.map((x) => x.queue))].join(', ')
+        super(`${invocations.length} invocation(s) target queue(s) [${queues}] with no topic on this cluster`)
+        this.name = 'UnroutableInvocationsError'
+    }
+}
+
 /**
  * Records throughput and batch utilization for a consumed batch.
  * `cdp_cyclotron_batch_utilization` is consumed by KEDA to autoscale the cyclotron workers, so this

@@ -4,6 +4,7 @@ import { captureException } from '~/common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { UnroutableInvocationsError } from '../services/job-queue/shared'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
     CyclotronJobInvocation,
@@ -260,7 +261,33 @@ export class CdpCyclotronWorker<
 
     @instrumented({ key: 'cdpConsumer.backgroundTask.queueInvocationResults', timeoutMs: 15_000, sendException: false })
     protected async queueInvocationResults(invocations: CyclotronJobInvocationResult[]) {
-        await this.cyclotronJobQueue.queueInvocationResults(invocations)
+        try {
+            await this.cyclotronJobQueue.queueInvocationResults(invocations)
+        } catch (e) {
+            if (!(e instanceof UnroutableInvocationsError)) {
+                throw e
+            }
+
+            // These jobs target a queue with no topic on this cluster, so they can never run.
+            // Record a terminal row for each and let the batch commit, rather than rethrowing:
+            // a rethrow latches the consumer's fatal error and exits the process, and the offset
+            // is never committed, so the restart replays the same message and the partition
+            // stalls for every team on it. Same reasoning as the poison-pill guard in
+            // loadHogFunctions, and the same ordering — record before the job is let go, or the
+            // run sits in 'running' forever and cannot be re-run.
+            captureException(e)
+            await Promise.all(
+                e.invocations.map((invocation) =>
+                    this.invocationResultsService.invocationResultsRowsService.recordTerminalFailureDurably(
+                        invocation,
+                        {
+                            errorKind: 'unroutable_queue',
+                            error: `This invocation was routed to the "${invocation.queue}" queue, which this worker cannot deliver to, so it was dropped.`,
+                        }
+                    )
+                )
+            )
+        }
     }
 
     public override async start() {

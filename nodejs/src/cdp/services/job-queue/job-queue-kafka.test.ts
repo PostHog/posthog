@@ -1,4 +1,8 @@
-import { migrateKafkaCyclotronInvocation } from './job-queue-kafka'
+import { UnknownTopicError } from '~/common/utils/db/error'
+
+import { CyclotronJobInvocation, CyclotronJobQueueKind } from '../../types'
+import { CyclotronJobQueueKafka, migrateKafkaCyclotronInvocation } from './job-queue-kafka'
+import { UnroutableInvocationsError } from './shared'
 
 describe('CyclotronJobQueueKafka', () => {
     describe('migrateKafkaCyclotronInvocation', () => {
@@ -91,6 +95,65 @@ describe('CyclotronJobQueueKafka', () => {
                   "teamId": 1,
                 }
             `)
+        })
+    })
+
+    describe('queueInvocations', () => {
+        const buildQueue = (produce: jest.Mock): CyclotronJobQueueKafka => {
+            const queue = new CyclotronJobQueueKafka(
+                undefined,
+                {
+                    CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: false,
+                    CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+                } as any,
+                10
+            )
+            ;(queue as any).kafkaProducer = { produce }
+            return queue
+        }
+
+        const invocation = (id: string, queue: CyclotronJobQueueKind): CyclotronJobInvocation => ({
+            id,
+            teamId: 1,
+            functionId: 'fn-1',
+            state: {},
+            queue,
+            queuePriority: 0,
+        })
+
+        // 'email' is served only by Postgres, so cdp_cyclotron_email exists on no cluster. Producing
+        // to it must not take the worker down: that is what stalls the partition for every other
+        // team, and a restart just replays the same message.
+        it('reports unroutable invocations instead of throwing the produce error', async () => {
+            const produce = jest.fn(({ topic }: { topic: string }) =>
+                topic === 'cdp_cyclotron_email'
+                    ? Promise.reject(new UnknownTopicError(topic, new Error('Broker: Unknown topic or partition')))
+                    : Promise.resolve()
+            )
+            const queue = buildQueue(produce)
+
+            const error = await queue
+                .queueInvocations([invocation('a', 'hog'), invocation('b', 'email')])
+                .then(() => null)
+                .catch((e) => e)
+
+            expect(error).toBeInstanceOf(UnroutableInvocationsError)
+            expect(error.invocations.map((x: CyclotronJobInvocation) => x.id)).toEqual(['b'])
+            // The routable job is still produced — one undeliverable job must not hold up the batch.
+            expect(produce).toHaveBeenCalledTimes(2)
+        })
+
+        it('rethrows any other produce error so the batch is retried', async () => {
+            const boom = new Error('broker unavailable')
+            const queue = buildQueue(jest.fn(() => Promise.reject(boom)))
+
+            await expect(queue.queueInvocations([invocation('a', 'hog')])).rejects.toBe(boom)
+        })
+
+        it('resolves when every invocation is routable', async () => {
+            const queue = buildQueue(jest.fn(() => Promise.resolve()))
+
+            await expect(queue.queueInvocations([invocation('a', 'hog')])).resolves.toBeUndefined()
         })
     })
 })
