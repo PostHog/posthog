@@ -18,9 +18,16 @@ describe('recordingDisabledReason', () => {
         expect(recordingDisabledReason('0190-good-session', undefined, true)).toBeNull()
     })
 
-    it('disables when the server reports no recording exists', () => {
-        expect(recordingDisabledReason('0190-good-session', undefined, false)).toBe('No recording for this event')
-    })
+    // A confirmed absence blocks whatever the status says. The hedge is suppressed on this path, so a
+    // branch that stopped blocking here would leave the reader no signal at all.
+    it.each([undefined, 'lazy_loading', 'paused', 'a_status_this_build_does_not_know'])(
+        'disables when the server reports no recording exists, whatever %s claims',
+        (recordingStatus) => {
+            expect(recordingDisabledReason('0190-good-session', recordingStatus, false)).toBe(
+                'No recording for this event'
+            )
+        }
+    )
 
     it('prompts to set a session id when it is genuinely absent', () => {
         // Absent (not malformed) keeps the existing "no session id" guidance rather than "no recording".
@@ -71,4 +78,15 @@ describe('recordingWarningReason', () => {
     it.each(['active', 'sampled', 'disabled', 'toString', '__proto__'])('does not warn for %s', (recordingStatus) => {
         expect(recordingWarningReason(undefined, undefined, recordingStatus, undefined)).toBeUndefined()
     })
+
+    // The button already states a confirmed absence. A hedge beside it says the opposite at the same time.
+    it.each<[string, number | undefined, number | undefined, string | undefined]>([
+        ['a transient status', undefined, undefined, 'lazy_loading'],
+        ['a short recording', 1000, 5000, undefined],
+    ])(
+        'does not hedge about %s once the server confirmed no recording exists',
+        (_label, recordingDuration, minimumDuration, recordingStatus) => {
+            expect(recordingWarningReason(recordingDuration, minimumDuration, recordingStatus, false)).toBeUndefined()
+        }
+    )
 })

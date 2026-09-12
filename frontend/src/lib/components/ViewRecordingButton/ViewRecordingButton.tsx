@@ -257,8 +257,9 @@ export const recordingWarningReason = (
     recordingStatus: string | undefined,
     hasRecording: boolean | undefined
 ): string | undefined => {
-    // These warnings only caveat that a recording might not exist. Once we know one does, they're just confusing.
-    if (hasRecording === true) {
+    // These warnings only caveat that a recording might not exist. Once the server has answered either
+    // way, the disabled reason states the outcome, so a hedge beside it only contradicts it.
+    if (hasRecording !== undefined) {
         return undefined
     }
     if (recordingDuration && minimumDuration && recordingDuration < minimumDuration) {
