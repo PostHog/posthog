@@ -3,9 +3,6 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, Survey, SurveyPosition, SurveyQuestionType, SurveySchedule, SurveyType } from '~/types'
@@ -67,7 +64,6 @@ describe('SurveyWizard', () => {
 
     afterEach(() => {
         cleanup()
-        featureFlagLogic.unmount()
         jest.restoreAllMocks()
     })
 
@@ -83,11 +79,7 @@ describe('SurveyWizard', () => {
         expect(replaceSpy).not.toHaveBeenCalled()
     })
 
-    it('shows the translations section in the guided form when the feature flag is enabled', async () => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SURVEYS_TRANSLATIONS], {
-            [FEATURE_FLAGS.SURVEYS_TRANSLATIONS]: true,
-        })
+    it('shows the translations section in the guided form', async () => {
         router.actions.push('/surveys/guided/test-survey')
 
         render(<SurveyWizardComponent id="test-survey" />)
