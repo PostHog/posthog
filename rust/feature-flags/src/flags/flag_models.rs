@@ -92,6 +92,34 @@ impl EvaluationMetadata {
             ..Default::default()
         }
     }
+
+    /// Drops every reference to a flag outside `kept_flag_ids`, and marks a kept
+    /// flag that depends on a dropped one as missing a dependency, so it fails
+    /// closed like any other flag whose dependency Django cannot resolve.
+    /// A no-op while both sides agree, which is every payload Django writes.
+    pub fn retain_flags(&mut self, kept_flag_ids: &HashSet<i32>) {
+        let mut missing_deps: HashSet<i32> = self
+            .flags_with_missing_deps
+            .iter()
+            .copied()
+            .filter(|id| kept_flag_ids.contains(id))
+            .collect();
+        for (id, deps) in &self.transitive_deps {
+            if kept_flag_ids.contains(id) && deps.iter().any(|dep| !kept_flag_ids.contains(dep)) {
+                missing_deps.insert(*id);
+            }
+        }
+        let mut missing_deps: Vec<i32> = missing_deps.into_iter().collect();
+        missing_deps.sort_unstable();
+        self.flags_with_missing_deps = missing_deps;
+
+        self.transitive_deps
+            .retain(|id, _| kept_flag_ids.contains(id));
+        for stage in &mut self.dependency_stages {
+            stage.retain(|id| kept_flag_ids.contains(id));
+        }
+        self.dependency_stages.retain(|stage| !stage.is_empty());
+    }
 }
 
 /// Wrapper struct for deserializing hypercache format:

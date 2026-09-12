@@ -11,6 +11,10 @@ use crate::metrics::consts::{
 use common_database::PostgresReader;
 use common_types::TeamId;
 use metrics::counter;
+use serde::de::Deserializer;
+use serde::Deserialize;
+use serde_json::value::RawValue;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Parsed hypercache result: flags, evaluation metadata, optional preloaded cohorts.
@@ -56,6 +60,100 @@ impl Default for PreparedFlags {
 impl From<Vec<FeatureFlag>> for PreparedFlags {
     fn from(flags: Vec<FeatureFlag>) -> Self {
         Self::seal(flags)
+    }
+}
+
+/// A flags array that skips an element it cannot deserialize, instead of
+/// failing the whole array. Counts the skips so the caller can report them.
+#[derive(Debug, Default)]
+struct LenientFlags {
+    flags: Vec<FeatureFlag>,
+    skipped: u64,
+}
+
+impl<'de> Deserialize<'de> for LenientFlags {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Each flag is buffered as raw JSON first, because serde cannot resume a
+        // sequence after one element fails. The hypercache payload is JSON on
+        // every tier, even when Redis holds it inside a pickle, so RawValue
+        // buffers one contiguous slice per flag rather than a whole value tree.
+        let raw_flags: Vec<Box<RawValue>> = Vec::deserialize(deserializer)?;
+
+        let mut out = LenientFlags::default();
+        for raw in raw_flags {
+            match serde_json::from_str::<FeatureFlag>(raw.get()) {
+                Ok(flag) => out.flags.push(flag),
+                Err(e) => {
+                    out.skipped += 1;
+                    let flag_key = serde_json::from_str::<serde_json::Value>(raw.get())
+                        .ok()
+                        .and_then(|v| v.get("key").and_then(|k| k.as_str()).map(str::to_owned));
+                    tracing::warn!(
+                        "Failed to deserialize cached flag {}: {}",
+                        flag_key.as_deref().unwrap_or("<unknown>"),
+                        e
+                    );
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// Read-path view of the hypercache payload, with the same keys as
+/// [`HypercacheFlagsWrapper`]. A flag that does not deserialize is skipped here
+/// rather than failing the team's whole payload, which mirrors what
+/// [`FeatureFlagList::from_pg`] does with a malformed `filters` column. The
+/// cache builder, the shadow comparator and the contract tests keep the strict
+/// type, so a payload-shape break still fails loudly there.
+#[derive(Debug, Deserialize)]
+pub struct LenientHypercacheFlagsWrapper {
+    flags: LenientFlags,
+    evaluation_metadata: EvaluationMetadata,
+    #[serde(default)]
+    cohorts: Option<Vec<Cohort>>,
+}
+
+impl LenientHypercacheFlagsWrapper {
+    pub fn into_wrapper(self, team_id: TeamId) -> HypercacheFlagsWrapper {
+        let LenientHypercacheFlagsWrapper {
+            flags,
+            mut evaluation_metadata,
+            cohorts,
+        } = self;
+
+        if flags.skipped > 0 {
+            tracing::warn!(
+                "Skipped {} unparseable cached flags for team {}, kept {}",
+                flags.skipped,
+                team_id,
+                flags.flags.len()
+            );
+            counter!(FLAG_MALFORMED_FILTER_COUNTER).increment(flags.skipped);
+            counter!(FLAG_MALFORMED_FILTER_READ_COUNTER).increment(1);
+            // Details (team_id, flag_key) are logged above to avoid high-cardinality labels
+            counter!(
+                TOMBSTONE_COUNTER,
+                "namespace" => "feature_flags",
+                "operation" => "hypercache_flag_deserialization_error",
+                "component" => "feature_flag_list",
+            )
+            .increment(flags.skipped);
+
+            // Django computes the metadata over every flag, so it still points at
+            // the flags we just skipped.
+            let kept_flag_ids: HashSet<i32> = flags.flags.iter().map(|f| f.id).collect();
+            evaluation_metadata.retain_flags(&kept_flag_ids);
+        }
+
+        HypercacheFlagsWrapper {
+            flags: flags.flags,
+            evaluation_metadata,
+            cohorts,
+        }
     }
 }
 
@@ -850,6 +948,85 @@ mod tests {
     // =========================================================================
 
     use serde_json::json;
+
+    #[test]
+    fn test_lenient_wrapper_skips_unparseable_flag_and_keeps_the_rest() {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        // Flag 2 carries a property filter with no "type" key, which PropertyFilter
+        // requires. Flag 3 depends on flag 2.
+        let wrapper: LenientHypercacheFlagsWrapper = serde_json::from_value(json!({
+            "flags": [
+                {
+                    "id": 1,
+                    "key": "healthy_flag",
+                    "team_id": 123,
+                    "active": true,
+                    "deleted": false,
+                    "filters": { "groups": [] }
+                },
+                {
+                    "id": 2,
+                    "key": "malformed_flag",
+                    "team_id": 123,
+                    "active": true,
+                    "deleted": false,
+                    "filters": {
+                        "groups": [
+                            {
+                                "properties": [{ "key": "email", "value": "a@example.com" }],
+                                "rollout_percentage": 100
+                            }
+                        ]
+                    }
+                },
+                {
+                    "id": 3,
+                    "key": "dependent_flag",
+                    "team_id": 123,
+                    "active": true,
+                    "deleted": false,
+                    "filters": { "groups": [] }
+                }
+            ],
+            "evaluation_metadata": {
+                "dependency_stages": [[1, 2], [3]],
+                "flags_with_missing_deps": [],
+                "transitive_deps": { "1": [], "2": [], "3": [2] }
+            }
+        }))
+        .unwrap();
+
+        let wrapper = wrapper.into_wrapper(123);
+        let metadata = &wrapper.evaluation_metadata;
+
+        let keys: Vec<&str> = wrapper.flags.iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(keys, vec!["healthy_flag", "dependent_flag"]);
+        assert_eq!(metadata.dependency_stages, vec![vec![1], vec![3]]);
+        assert_eq!(metadata.flags_with_missing_deps, vec![3]);
+        assert!(!metadata.transitive_deps.contains_key(&2));
+
+        let counter_value = |name: &str| {
+            snapshotter
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .find(|(ckey, _, _, _)| ckey.key().name() == name)
+                .map(|(_, _, _, value)| value)
+        };
+        assert_eq!(
+            counter_value(FLAG_MALFORMED_FILTER_COUNTER),
+            Some(DebugValue::Counter(1))
+        );
+        assert_eq!(
+            counter_value(FLAG_MALFORMED_FILTER_READ_COUNTER),
+            Some(DebugValue::Counter(1))
+        );
+    }
 
     #[test]
     fn test_from_wrapper_valid_flags() {
