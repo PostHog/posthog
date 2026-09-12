@@ -355,13 +355,46 @@ export function isAbortError(error: unknown): boolean {
     return (error as { name?: string } | null)?.name === 'AbortError'
 }
 
-export async function getJSONOrNull(response: Response): Promise<any> {
+/**
+ * Read a response body as text, so a body that never finished arriving can be told apart from one
+ * that arrived and does not parse. A read failure is reported to `apiStatusLogic` — `handleFetch`
+ * already counted the headers as a healthy response, and this is what corrects that verdict — then
+ * raised, so callers can classify it. A no-content response resolves to null without a read: some
+ * engines (in our telemetry, overwhelmingly WebKit) reject `.text()` on an empty body rather than
+ * resolving to "". Aborts propagate untouched.
+ */
+async function readResponseText(response: Response): Promise<string | null> {
+    if (response.status === 204 || response.status === 205 || response.body === null) {
+        return null
+    }
     try {
-        return await response.json()
+        return await response.text()
     } catch (error) {
         if (isAbortError(error)) {
             throw error
         }
+        // A network drop truncating a chunked response lands here
+        apiStatusLogic.findMounted()?.actions.onResponseBodyFailure()
+        throw error
+    }
+}
+
+export async function getJSONOrNull(response: Response): Promise<any> {
+    let text: string | null
+    try {
+        text = await readResponseText(response)
+    } catch (error) {
+        if (isAbortError(error)) {
+            throw error
+        }
+        return null
+    }
+    if (text === null || !text.trim()) {
+        return null
+    }
+    try {
+        return JSON.parse(text)
+    } catch {
         return null
     }
 }
@@ -391,25 +424,17 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
-    // A no-content response must not depend on reading its body: some engines (in our telemetry,
-    // overwhelmingly WebKit) reject `.text()` on an empty body rather than resolving to "".
-    if (response.status === 204 || response.status === 205 || response.body === null) {
-        return null
-    }
-    let text: string
+    let text: string | null
     try {
-        text = await response.text()
+        text = await readResponseText(response)
     } catch (error) {
         if (isAbortError(error)) {
             throw error
         }
-        // The body stream failed mid-read (e.g. a network drop truncating a chunked response) —
-        // the response is unusable, so surface it instead of handing callers a null. `handleFetch`
-        // already reported the headers as a healthy response, so correct that verdict here.
-        apiStatusLogic.findMounted()?.actions.onResponseBodyFailure()
+        // The response is unusable, so surface it instead of handing callers a null
         throw new ApiError(`Failed to read response body ${requestContext()}`)
     }
-    if (!text.trim()) {
+    if (text === null || !text.trim()) {
         return null
     }
     try {

@@ -1,7 +1,7 @@
 import * as fetchEventSourceModule from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiError, ApiRequest, NetworkError } from 'lib/api'
+import api, { ApiConfig, ApiError, ApiRequest, NetworkError, getJSONOrNull } from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -382,6 +382,27 @@ describe('API helper', () => {
             onResponseBodyFailure.mockClear()
             fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf('{"results": []}') }))
             await api.get('api/environments/2/insights')
+            expect(onResponseBodyFailure).not.toHaveBeenCalled()
+
+            apiStatusLogicSpy.mockRestore()
+        })
+
+        // The default dashboard load reads its body through getJSONOrNull, not through api.get,
+        // so without this the banner still clears on a dashboard whose body died mid-read
+        it('reports a raw response whose body fails mid-read, and stays quiet for one that parses', async () => {
+            const onResponseBodyFailure = jest.fn()
+            const apiStatusLogicSpy = jest
+                .spyOn(apiStatusLogic, 'findMounted')
+                .mockReturnValue({ actions: { onApiResponse: jest.fn(), onResponseBodyFailure } } as any)
+
+            fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(new TypeError('network error')) }))
+            await expect(getJSONOrNull(await api.getResponse('api/environments/2/insights'))).resolves.toBeNull()
+            expect(onResponseBodyFailure).toHaveBeenCalledTimes(1)
+
+            // A body that arrives and does not parse is a server fault, not a connection one
+            onResponseBodyFailure.mockClear()
+            fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf('<html></html>') }))
+            await expect(getJSONOrNull(await api.getResponse('api/environments/2/insights'))).resolves.toBeNull()
             expect(onResponseBodyFailure).not.toHaveBeenCalled()
 
             apiStatusLogicSpy.mockRestore()
