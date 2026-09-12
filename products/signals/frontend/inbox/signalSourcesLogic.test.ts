@@ -324,6 +324,38 @@ describe('signalSourcesLogic', () => {
         expect(logic.values.toolStatusBySource.llm_analytics?.dataStatus).toBe('none')
     })
 
+    it('keeps one enable request in flight from clearing another', async () => {
+        const responses: Record<string, ReturnType<typeof deferred<[number, { results: Record<string, string> }]>>> = {
+            error_tracking: deferred(),
+            session_replay: deferred(),
+        }
+        useMocks({
+            post: {
+                '/api/projects/:team_id/product_enablement/': async ({ request }) => {
+                    const body = (await request.clone().json()) as { products: string[] }
+                    return responses[body.products[0]].promise
+                },
+            },
+            get: {
+                '/api/environments/:team_id/': () => [200, MOCK_DEFAULT_TEAM],
+            },
+        })
+
+        logic.actions.enableSourceTool('error_tracking')
+        logic.actions.enableSourceTool('session_replay')
+
+        responses.error_tracking.resolve([200, { results: { error_tracking: 'enabled' } }])
+        await expectLogic(logic).toDispatchActions(['enableSourceToolComplete'])
+
+        expect(logic.values.enablingTools.has('error_tracking')).toBe(false)
+        expect(logic.values.enablingTools.has('session_replay')).toBe(true)
+
+        responses.session_replay.resolve([200, { results: { session_replay: 'enabled' } }])
+        await expectLogic(logic).toDispatchActions(['enableSourceToolComplete'])
+
+        expect(logic.values.enablingTools.size).toBe(0)
+    })
+
     it('keeps tool enablement loading until the refreshed team is available', async () => {
         const enablementResponse = deferred<[number, { results: Record<string, string> }]>()
         const teamResponse = deferred<[number, typeof MOCK_DEFAULT_TEAM]>()
@@ -345,11 +377,11 @@ describe('signalSourcesLogic', () => {
         })
 
         logic.actions.enableSourceTool('error_tracking')
-        expect(logic.values.enablingTool).toBe('error_tracking')
+        expect(logic.values.enablingTools.has('error_tracking')).toBe(true)
 
         enablementResponse.resolve([200, { results: { error_tracking: 'enabled' } }])
         await teamRequestStarted.promise
-        expect(logic.values.enablingTool).toBe('error_tracking')
+        expect(logic.values.enablingTools.has('error_tracking')).toBe(true)
 
         teamResponse.resolve([
             200,
@@ -360,7 +392,7 @@ describe('signalSourcesLogic', () => {
         ])
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.enablingTool).toBeNull()
+        expect(logic.values.enablingTools.has('error_tracking')).toBe(false)
         expect(logic.values.toolStatusBySource.error_tracking?.enabled).toBe(true)
     })
 })
