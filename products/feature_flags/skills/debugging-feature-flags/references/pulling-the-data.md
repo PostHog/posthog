@@ -2,10 +2,9 @@
 
 Run this read-only before diagnosing or asking the customer anything. §1 and §2 produce the config and
 the reproduced evaluation, and you need both on every ticket. §3 costs a scan of the project's events,
-so reach for it only when §2 didn't settle the question, or when the ticket is about usage itself — "I
-see no `$feature_flag_called`", "works locally but not in production", or "the value flipped". Reach
-for §6 whenever the flag's `evaluation_runtime` isn't `all`: it's the only step here that sees what a
-particular caller receives, and §2 is blind to that by construction.
+so reach for it only when §2 didn't settle the question or the ticket is about usage itself. Go
+straight to §4 on "it used to work", and to §6 whenever the flag's `evaluation_runtime` isn't `all` —
+that's the only step here that sees what a particular caller receives.
 
 **Step 2 of the SKILL's workflow comes first.** Every call below answers for the session's **active**
 project and takes no project ID, so if `posthog:switch-project` hasn't put you on the ticket's project
@@ -14,58 +13,37 @@ it. Run the entitlement check, then come back here.
 
 ## 1. Flag config — `posthog:feature-flag-get-definition-by-key`
 
-Pull these fields; they are inputs to almost every cause:
+Pull these; the SKILL's reason expansions explain what each one causes, so this is a retrieval list,
+not a second catalog.
 
-- `key`, `active` — a `false` here means the flag is inactive: it returns false for everyone.
-  `evaluation-reasons` names that state `disabled`, and `test-evaluation` names it `flag_not_found` —
-  but `flag_not_found` covers more than inactive, so read `evaluation_runtime` too before concluding
-  anything from it (see the SKILL's `disabled` / `flag_not_found` expansion).
-- `evaluation_runtime` — `all` (the default), `client` (client-side SDKs only), or `server` (server-side
-  SDKs only). Anything but `all` means PostHog decides **per flags request** which runtime is calling
-  and omits the flag when that verdict doesn't match. The verdict is read off the request (an explicit
-  `evaluation_runtime` in the body, else the `User-Agent`, else browser-ish headers), so don't settle
-  the question against the ticket's `$lib` — that's what the SDK calls itself, not what it put on the
-  wire. §6 checks the wire directly. The value the customer reports here is usually `false` rather than
-  `undefined`, because server-side SDKs read an absent flag as `false`. It's also why `test-evaluation`
-  can return `flag_not_found` for an active flag.
-- `last_called_at` — batch-synced from `$feature_flag_called` events on a schedule of tens of minutes
-  rather than written per evaluation, so it lags live traffic by that much and a stale-looking value
-  proves nothing. It also never advances when the SDK suppresses usage events. Don't quote it to a
-  customer as evidence about whether their call arrived.
-- `filters.groups[]` — the **release conditions**. Per group read `properties` (the targeting),
-  `rollout_percentage`, and `variant` (a non-null variant is a forced assignment for that group, not
-  randomized).
-- `filters.multivariate.variants[]` — variant keys, percentages, and **stored order** (the variant
-  hash walks them in this order).
-- `filters.feature_enrollment` (plus the person property `$feature_enrollment/<key>`) — **early-access
-  enrollment**: an early-return override evaluated _before_ the release conditions (reason
-  `super_condition_value`); see the SKILL's `super_condition_value` expansion. (`filters.super_groups`
-  is a legacy key: dropped on write and not read by the matcher.)
-- `filters.holdout` — a global holdout; matched users return the holdout value, reason
-  `holdout_condition_value`. Cross-check `posthog:experiment-holdouts-list`. (A flag created before the
-  holdout format change still carries a legacy `holdout_groups` array alongside it — the backfill added
-  the new key without removing the old one, so read `filters.holdout` and don't quote the stale
-  percentage from `holdout_groups`.)
-- `filters.aggregation_group_type_index` — the **flag-level** aggregation, and only a summary:
-  aggregation is set **per release condition**, so each entry in `filters.groups[]` carries its own
-  `aggregation_group_type_index`. This flag-level field is `null` when the conditions are **mixed**
-  (some group-aggregated, some person-aggregated) even though group conditions exist, so read the
-  per-condition field on each group, not just this one. A group condition evaluated without its
-  `groups` passed is skipped (`no_group_type`) while the **other** conditions still evaluate — a
-  mixed flag doesn't wholesale return false, so a person condition can still decide the value.
-- Flag dependencies — a property of type `flag` in `filters.groups[].properties` means this flag
-  gates on another flag and fails **closed** (`missing_dependency`) when the parent is absent (deleted
-  or part of a cycle). The `"type": "flag"` entry holds the parent's numeric ID — pass it to
-  `posthog:feature-flag-get-definition`. (`posthog:feature-flags-dependent-flags-retrieve` goes the other way: it lists
-  flags that depend on _this_ one.)
-- `ensure_experience_continuity` — if `true`, assignment hashes a stored override key so a user's
-  value is pinned across anonymous→identified transitions (and the offline hash check below is
-  unreliable).
-- `bucketing_identifier` — `distinct_id` (the default) or `device_id`. It decides which identifier the
-  rollout and variant hashes consume, so §5 needs it; `device_id` is incompatible with
-  `ensure_experience_continuity`.
-- `payloads` — per-variant (or boolean) payload map; an empty/mismatched entry explains a blank
-  payload.
+- `key`, `active` — inactive returns false for everyone. See `disabled` / `flag_not_found`.
+- `evaluation_runtime` — `all` (the default), `client`, or `server`. Anything but `all` can withhold
+  the flag from a caller. See "Runtime scoping"; §6 checks it on the wire.
+- `filters.groups[]` — the **release conditions**: `properties`, `rollout_percentage`, and `variant`
+  (non-null forces that variant for the group rather than randomizing).
+- `filters.multivariate.variants[]` — variant keys, percentages, and **stored order**.
+- `filters.feature_enrollment`, plus the person property `$feature_enrollment/<key>` — early-access
+  enrollment. See `super_condition_value`.
+- `filters.aggregation_group_type_index` — flag-level only, and `null` on a **mixed** flag, so read
+  each condition's own. See `no_group_type`.
+- A `"type": "flag"` property inside `filters.groups[].properties` — a dependency on another flag.
+  See `missing_dependency`.
+- `ensure_experience_continuity` — pins a user's value across anonymous→identified, and makes §5
+  unreliable.
+- `payloads` — per-variant or boolean map; an empty or mismatched entry explains a blank payload.
+
+Four carry gotchas the SKILL doesn't:
+
+- `last_called_at` — batch-synced from `$feature_flag_called` on a schedule of tens of minutes rather
+  than written per evaluation, so it lags live traffic and a stale-looking value proves nothing. It
+  never advances at all when the SDK suppresses usage events. Don't quote it to a customer as evidence
+  about whether their call arrived.
+- `filters.holdout` — cross-check `posthog:experiment-holdouts-list`. A flag predating the holdout
+  format change still carries a legacy `holdout_groups` array alongside it, so read `filters.holdout`
+  and don't quote the stale percentage from `holdout_groups`.
+- `bucketing_identifier` — `distinct_id` (the default) or `device_id`. §5 needs it, and `device_id` is
+  incompatible with `ensure_experience_continuity`.
+- `filters.super_groups` — legacy: dropped on write and not read by the matcher. Ignore it.
 
 ## 2. Reproduce the evaluation (the decisive step)
 
@@ -81,14 +59,12 @@ PostHog evaluates the flag for you server-side and returns the **match reason** 
 - **`posthog:feature-flags-user-blast-radius-create`** — how many users a release condition would match;
   run this **before** recommending the customer widen a condition.
 
-Map the returned reason with the reason table in [SKILL.md](../SKILL.md#known-cause-catalog--the-evaluation-reason-start-here).
-If the reproduced value **matches** what the customer expected but they still report the wrong value,
-the cause is on the caller's side — go to the SDK catalog in the SKILL.
+Map the returned reason with the reason table in [SKILL.md](../SKILL.md#known-cause-catalog--the-evaluation-reason-start-here),
+and route from there.
 
-**Neither tool reproduces the customer's runtime.** `evaluation-reasons` asks for
-`evaluation_runtime: "all"`, which disables runtime filtering outright, and `test-evaluation` arrives
-over an internal request that always classifies as server-side. On a flag scoped to `client` or
-`server`, a clean match here does **not** clear runtime scoping. Only §6 does.
+**Neither tool reproduces the customer's runtime** (why, in the SKILL's `flag_not_found` expansion), so
+on a flag scoped to `client` or `server` a clean match here does **not** clear runtime scoping. Only §6
+does.
 
 ## 3. Historical usage — `posthog:execute-sql`
 
@@ -97,11 +73,9 @@ The `$feature_flag_called` event records what real clients actually got. Useful 
 (the match reason, same enum as above), `locally_evaluated`, `$used_bootstrap_value`,
 `$feature_flag_request_id`, `$lib`, `$lib_version`.
 
-Value + reason distribution over recent traffic. `uniq` is an approximate counter (~0.5% error), which
-is all a "roughly how many users got each value" diagnostic needs — `count(DISTINCT person_id)` compiles
-to `uniqExact` and holds every distinct person UUID in memory for the query's duration. If it still times
-out, `uniq(distinct_id)` reads a column physically on `events` and skips the person-overrides join that
-`person_id` resolves through:
+Value + reason distribution over recent traffic. Keep `uniq` rather than `count(DISTINCT person_id)`,
+which compiles to `uniqExact` and holds every person UUID in memory; if it still times out,
+`uniq(distinct_id)` skips the person-overrides join too:
 
 ```sql
 SELECT
@@ -155,8 +129,7 @@ quote rule and then the backslash rule over your own output, which turns `x' OR 
 `x\` followed by live SQL) before substituting.
 
 If the flag records **no** `$feature_flag_called` at all despite being read, that's the "no usage"
-catalog in the SKILL (events disabled, bulk/payload accessor, or local eval without per-call events)
-— not evidence the flag isn't evaluating.
+catalog in the SKILL, not evidence the flag isn't evaluating.
 
 ## 4. Change history — `posthog:feature-flags-activity-retrieve`
 
@@ -185,23 +158,19 @@ PostHog's flag hash, verified against `rust/feature-flags/src/flags/flag_matchin
 - **Variant walk** (which multivariate key): same hash but with the salt `"variant"`
   (`sha1(f"{flag_key}.{identifier}variant")`), then walk `filters.multivariate.variants` in stored
   order accumulating `rollout_percentage / 100`; the first bound **strictly** exceeding `h` wins.
-  Two things to get right: the salt (the rollout gate above uses an _empty_ one, and mixing the two
-  is the classic reimplementation bug), and the stored order, since a wrong order silently inverts
-  the answer. Read both from the _live_ flag.
+  Mixing this salt with the rollout gate's empty one is the classic reimplementation bug, and a wrong
+  stored order silently inverts the answer. Read both from the _live_ flag.
 - **Holdout**: `h = sha1(f"holdout-{identifier}")`, same 15-hex-digit conversion. The flag key is
   **not** in this one — that's what makes a holdout consistent across every flag in it. Empty salt.
   The user is **in** the holdout if `h <= filters.holdout.exclusion_percentage / 100`.
 
 For the rollout and variant hashes, `identifier` is resolved **per release condition**: the group key
-when that condition is group-aggregated (read its own `aggregation_group_type_index` in
-`filters.groups[]`, which falls back to the flag-level field when absent), otherwise the `distinct_id`
-— or the **device ID** when the flag sets `bucketing_identifier: "device_id"`. A **mixed** flag hashes a
-group key for one condition and a `distinct_id` for another, so don't read only the flag-level
-`aggregation_group_type_index` (it's `null` on a mixed flag) — read each condition's, with the rest of
-the config in §1. The **holdout** hash is the exception: it uses the **flag-level** aggregation, so on a
-mixed flag the holdout hashes by `distinct_id`. SHA1 isn't in HogQL's whitelist, so this runs outside the
-database. `ensure_experience_continuity = true` makes it unreliable (assignment hashes a stored override
-key).
+when that condition is group-aggregated (its own `aggregation_group_type_index`, falling back to the
+flag-level field when absent), otherwise the `distinct_id` — or the **device ID** under
+`bucketing_identifier: "device_id"`. So a mixed flag hashes a group key for one condition and a
+`distinct_id` for another. The **holdout** hash is the exception: it uses the **flag-level**
+aggregation, so on a mixed flag the holdout hashes by `distinct_id`. SHA1 isn't in HogQL's whitelist,
+so this runs outside the database.
 
 ## 6. What a caller actually receives (runtime scoping)
 
@@ -221,15 +190,14 @@ curl -s -X POST "$URL" -A '' -H 'Content-Type: application/json' -d "$BODY"
 curl -s -X POST "$URL" -H 'User-Agent: posthog-node/<version>' -H 'Content-Type: application/json' -d "$BODY"
 ```
 
-A flag present in B and missing from A confirms runtime scoping, and that reading survives whatever the
-filtering rules are, since you're observing the response rather than predicting it.
+A flag present in B and missing from A confirms runtime scoping.
 
 **Set the header deliberately.** Bare `curl` sends `curl/<version>`, which is recognized as
 server-side, so an unadorned request reproduces arm B and passes while the customer's caller still
-fails. Older SDKs post to `/decide` rather than `/flags`, but both run the same classification, so
-either path reproduces the customer's request. `<region>` is `us` or `eu`; `<project_api_key>` is their public key, the one already in their
-client bundle. The `distinct_id` lands in a **shell** command here, not a SQL literal, so put it in a
-variable rather than pasting it inline — a quote in it runs the rest as commands.
+fails. `<region>` is `us` or `eu`; `<project_api_key>` is their public key, the one already in their
+client bundle. Older SDKs post to `/decide`, which runs the same classification. The `distinct_id`
+lands in a **shell** command here, not a SQL literal, so put it in a variable rather than pasting it
+inline — a quote in it runs the rest as commands.
 
 ## Handing off
 
