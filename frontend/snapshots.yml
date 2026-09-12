@@ -2997,9 +2997,9 @@ snapshots:
     insights-funnelbarhorizontalchart--breakdown-narrow--light:
         hash: v1.k794b7964.2b9f03c8989cdaf7ae1f3e3d02bd1fa6f397fb5c661606dbd1c37ac08295fe54.or8-CpruZkNNbylxWbqBJCkfV7CJqORRm_y2BaE6q_c
     insights-funnelbarhorizontalchart--default--dark:
-        hash: v1.k794b7964.f011a655d8dc1eafb11a9830e8783c08c3a14c4c8ca3ccf08a36f686edaea71c.tdW3aO9QQYirn_75pNWDlKSmyvRoyOkaVQya7VRejUA
+        hash: v1.k794b7964.f9ac7dc1e214e006c2e5c775fc8a619d7f45fd1e64d764bf9ab3b3b9d6f5bd9b.wnbeBsYPxVtxszJzztoAlI8urWXEdxZJq-NWqoyggAE
     insights-funnelbarhorizontalchart--default--light:
-        hash: v1.k794b7964.12179cfcb1aa09aca736c81fea823577963aac1c12c3a2abe01c6cfcf31cac2b.SikkivwGywIQHXjEWBc69l5SMigCMtYx-DmMWMJ0b9g
+        hash: v1.k794b7964.036e89548439e5bd022bbd160db92c810fe4bbe2db1e308b4399c8383e425a07.DeoUX5Vn17eGjpdk0fWUlkqCX16pFYJbjeVAAwnEeXA
     insights-funnelbarhorizontalchart--default-narrow--dark:
         hash: v1.k794b7964.00ffd091da542465f6b15fb03ad6bc2aa3118855c0f29612b9ebe9f93ee2d428.p0EYCXIBkMJ0Ed8aFkDkd-IRVCoJKzUPMPkrMNTAHJo
     insights-funnelbarhorizontalchart--default-narrow--light:
@@ -3009,9 +3009,9 @@ snapshots:
     insights-funnelbarhorizontalchart--funnel-top-to-bottom-breakdown-compare--light:
         hash: v1.k794b7964.69d24116a127fce32e031acc3053b696adf6434551435ab9580406d3fa6d5cd5.xBMAqnyCfkb6pT0YZp1xG0h-mx1Dk593HGmCzh8Nu_w
     insights-funnelbarhorizontalchart--funnel-top-to-bottom-compare--dark:
-        hash: v1.k794b7964.c0cb3c277a6081f617f8ea8669b80691aae8284a398eeaf75be2f855537f6a7c.YWqcUF2RMT4ILrETfQAfyuyrLbF7EACFRBAi4HTeAZQ
+        hash: v1.k794b7964.f94c302de8dfbed206926739a37006b96720c7a9ad6686efc86611d609285fcd.GgyaREXehsa_-BnURcyo8yFDKDMPBjyDechGJuOD2FU
     insights-funnelbarhorizontalchart--funnel-top-to-bottom-compare--light:
-        hash: v1.k794b7964.42740d8b45dfc8f7cb167e71d930c1cc42b10c44ba97402a6b160f29698c6792.7x2CWt4-sb-tW06e0FLN_r97SDmvhyyHoOxMpCuElg8
+        hash: v1.k794b7964.81a3bd20e5e694a30e8137edf405d2ddd54c5848e6074e16ab7a3145de78d4ec.hixqKFoxTq6GIJ6BG8s4mH2y5snHdwonZZhuXEdmpG4
     insights-funnelcorrelationtable--default--dark:
         hash: v1.k794b7964.0af5256b33397ecdb46b1ac61212b729dfed0d19852b4ed18e0eda9a0b0050ed.OQxSp3ebKc2qKtkfvM3ISvz8-U4EJiCVB1XoN1qCAK8
     insights-funnelcorrelationtable--default--light:
