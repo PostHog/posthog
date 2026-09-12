@@ -1,6 +1,9 @@
 import { TransactWriteItem } from '@aws-sdk/client-dynamodb'
 
-import { sessionStartTimestampFromUuidV7 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
+import {
+    sessionStartMonth,
+    sessionStartTimestampFromUuidV7,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
 import { MlDataKey, MlKeyEncryption } from './crypto'
 import { DynamoItem, MlPrivacyDynamoDB, encodeKey } from './dynamodb'
@@ -12,6 +15,9 @@ import {
     consentKeyId,
     distinctBlockId,
     imageKeyId,
+    keySessionMonth,
+    monthBlockId,
+    monthKeyIndexId,
     sessionKeyId,
     tableKeyString,
     teamBlockId,
@@ -25,7 +31,7 @@ export interface MlSessionKeys {
 function storedKeyId(identity: MlKeyIdentity): TableKey {
     return identity.sessionId
         ? sessionKeyId(identity.teamId, identity.sessionId)
-        : imageKeyId(identity.teamId, identity.consentGrantedAt)
+        : imageKeyId(identity.teamId, identity.consentGrantedAt, keySessionMonth(identity))
 }
 
 function actionId(action: TransactWriteItem): string {
@@ -76,7 +82,15 @@ export class MlSessionKeyStore {
     ) {}
 
     public async prepare(identities: MlSessionIdentity[]): Promise<MlKeyBatch> {
-        const batch = new MlKeyBatch(this.db, this.encryption, identities)
+        const eligible = identities.filter((identity) => {
+            try {
+                sessionStartMonth(identity.sessionId)
+                return true
+            } catch {
+                return false
+            }
+        })
+        const batch = new MlKeyBatch(this.db, this.encryption, eligible)
         await batch.read()
         return batch
     }
@@ -101,6 +115,7 @@ export class MlKeyBatch {
         this.blocked.clear()
         this.grants.clear()
         const initial = this.identities.flatMap((identity) => [
+            monthBlockId(sessionStartMonth(identity.sessionId)),
             consentKeyId(identity.organizationId),
             teamBlockId(identity.teamId),
             distinctBlockId(identity.teamId, identity.distinctId),
@@ -121,6 +136,7 @@ export class MlKeyBatch {
                 continue
             }
             if (
+                this.state.has(tableKeyString(monthBlockId(sessionStartMonth(identity.sessionId)))) ||
                 consent?.allowed?.BOOL !== true ||
                 !Number.isSafeInteger(grantedAt) ||
                 startedAt === null ||
@@ -135,7 +151,7 @@ export class MlKeyBatch {
                     teamId: identity.teamId,
                     organizationId: identity.organizationId,
                     consentGrantedAt: grantedAt,
-                    ...(sessionId ? { sessionId } : {}),
+                    ...(sessionId ? { sessionId } : { sessionMonth: sessionStartMonth(identity.sessionId) }),
                 }
                 keyIdentities.set(tableKeyString(storedKeyId(keyIdentity)), keyIdentity)
             }
@@ -183,12 +199,15 @@ export class MlKeyBatch {
         if (!session) {
             return undefined
         }
-        const image = this.keys.get(tableKeyString(imageKeyId(teamId, session.identity.consentGrantedAt)))
+        const image = this.keys.get(
+            tableKeyString(imageKeyId(teamId, session.identity.consentGrantedAt, sessionStartMonth(sessionId)))
+        )
         return image ? { session, image } : undefined
     }
 
     private guards(identity: MlKeyIdentity): TransactWriteItem[] {
         return [
+            this.db.check(monthBlockId(keySessionMonth(identity)), 'attribute_not_exists(pk)'),
             this.db.check(teamBlockId(identity.teamId), 'attribute_not_exists(pk)'),
             this.db.check(consentKeyId(identity.organizationId), 'allowed = :allowed AND granted_at = :grant', {
                 ':allowed': { BOOL: true },
@@ -222,9 +241,14 @@ export class MlKeyBatch {
                         granted_at: { N: String(key.identity.consentGrantedAt) },
                         organization_id: { S: key.identity.organizationId },
                         team_id: { N: String(key.identity.teamId) },
+                        session_month: { S: keySessionMonth(key.identity) },
                     },
                     'attribute_not_exists(pk)'
                 ),
+                this.put(monthKeyIndexId(key.identity, storedKeyId(key.identity)), {
+                    key_pk: { S: storedKeyId(key.identity).pk },
+                    key_sk: { S: storedKeyId(key.identity).sk },
+                }),
                 this.put(
                     { pk: `organization:${key.identity.organizationId}`, sk: `team:${key.identity.teamId}` },
                     { team_id: { N: String(key.identity.teamId) } }

@@ -1,3 +1,4 @@
+import re
 import time
 import hashlib
 from collections.abc import Sequence
@@ -79,6 +80,26 @@ class AITrainingPrivacyStore:
             f"team:{team_id}", f"distinct:{identity_digest(distinct_id)}" if distinct_id is not None else "deleted"
         )
         self.client.put_item(TableName=self.table_name, Item={**key, "deleted": {"BOOL": True}})
+
+    def delete_month(self, session_month: str) -> int:
+        if re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", session_month) is None:
+            raise ValueError("Session month must use YYYY-MM")
+        self.client.put_item(
+            TableName=self.table_name,
+            Item={**item_key(f"month:{session_month}", "deleted"), "deleted": {"BOOL": True}},
+        )
+        count = 0
+        for shard in range(KEY_SHARDS):
+            cursor = None
+            while True:
+                response = self.page(f"month:{session_month}:shard:{shard}", "key:", cursor)
+                rows = response.get("Items", [])
+                self.shred([item_key(str(row["key_pk"]["S"]), str(row["key_sk"]["S"])) for row in rows])
+                count += len(rows)
+                cursor = response.get("LastEvaluatedKey")
+                if not cursor:
+                    break
+        return count
 
     def update_consent(self, request: AITrainingPrivacyRequest) -> None:
         try:
