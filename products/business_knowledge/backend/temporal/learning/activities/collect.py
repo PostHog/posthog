@@ -12,6 +12,7 @@ from django.utils import timezone
 import structlog
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import asyncify
@@ -40,6 +41,12 @@ from ..constants import (
 from ..schemas import CollectLearningEvidenceOutput, LearningCoordinatorInput, LearningWorkItem
 
 logger = structlog.get_logger(__name__)
+
+
+@frozen
+class _EvidenceIdentity:
+    provider: str
+    evidence_key: str
 
 
 def _canonical_teams(input: LearningCoordinatorInput, now: datetime) -> Iterable[tuple[Team, int | None]]:
@@ -99,7 +106,7 @@ def _source_team_ids(canonical_team: Team, requested_source_team_id: int | None)
     )
 
 
-def _existing_runs(canonical_team_id: int, refs: list[EvidenceRef]) -> dict[tuple[str, str], KnowledgeLearningRun]:
+def _existing_runs(canonical_team_id: int, refs: list[EvidenceRef]) -> dict[_EvidenceIdentity, KnowledgeLearningRun]:
     if not refs:
         return {}
     providers = {ref.provider for ref in refs}
@@ -109,7 +116,7 @@ def _existing_runs(canonical_team_id: int, refs: list[EvidenceRef]) -> dict[tupl
         provider__in=providers,
         evidence_key__in=evidence_keys,
     )
-    return {(run.provider, run.evidence_key): run for run in runs}
+    return {_EvidenceIdentity(provider=run.provider, evidence_key=run.evidence_key): run for run in runs}
 
 
 def _run_can_start(run: KnowledgeLearningRun, ref: EvidenceRef, now: datetime) -> bool:
@@ -158,7 +165,7 @@ def _valid_page_refs(
     provider_name: str,
     settle_cutoff: datetime,
     ticket_id: UUID | None,
-    seen: set[tuple[str, str]],
+    seen: set[_EvidenceIdentity],
 ) -> list[EvidenceRef]:
     page_refs: list[EvidenceRef] = []
     for ref in collected:
@@ -172,7 +179,7 @@ def _valid_page_refs(
             continue
         if ref.revision_at > settle_cutoff:
             continue
-        identity = (ref.provider, ref.evidence_key)
+        identity = _EvidenceIdentity(provider=ref.provider, evidence_key=ref.evidence_key)
         if identity in seen or (ticket_id is not None and ref.ticket_id != ticket_id):
             continue
         seen.add(identity)
@@ -189,7 +196,7 @@ def _collect_provider_refs(
     settle_cutoff: datetime,
     ticket_id: UUID | None,
     now: datetime,
-    seen: set[tuple[str, str]],
+    seen: set[_EvidenceIdentity],
     limit: int,
 ) -> list[EvidenceRef]:
     refs: list[EvidenceRef] = []
@@ -229,7 +236,8 @@ def _collect_provider_refs(
         )
         existing = _existing_runs(canonical_team.id, page_refs)
         for ref in page_refs:
-            run = existing.get((ref.provider, ref.evidence_key))
+            identity = _EvidenceIdentity(provider=ref.provider, evidence_key=ref.evidence_key)
+            run = existing.get(identity)
             if run is not None and not _run_can_start(run, ref, now):
                 continue
             refs.append(ref)
@@ -252,7 +260,7 @@ def _collect_team_refs(
     now: datetime,
 ) -> list[EvidenceRef]:
     refs: list[EvidenceRef] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[_EvidenceIdentity] = set()
     for source_team_id in _source_team_ids(canonical_team, requested_source_team_id):
         for provider in get_learning_providers():
             refs.extend(
@@ -301,7 +309,7 @@ def collect_learning_evidence(input: LearningCoordinatorInput) -> CollectLearnin
         for ref in refs:
             if selected_for_team >= LEARNING_MAX_ITEMS_PER_TEAM or len(items) >= LEARNING_MAX_ITEMS_PER_TICK:
                 break
-            identity = (ref.provider, ref.evidence_key)
+            identity = _EvidenceIdentity(provider=ref.provider, evidence_key=ref.evidence_key)
             run = existing.get(identity)
             created = False
             if run is None:
