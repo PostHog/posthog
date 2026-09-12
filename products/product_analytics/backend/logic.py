@@ -71,7 +71,7 @@ def attach_last_viewed_at(insights: Sequence[Insight]) -> None:
         .annotate(latest=Max("last_viewed_at"))
     )
     for insight in insights:
-        setattr(insight, "last_viewed_at", latest_by_insight_id.get(insight.pk))
+        insight.last_viewed_at = latest_by_insight_id.get(insight.pk)  # type: ignore[attr-defined]
 
 
 def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[Insight]:
