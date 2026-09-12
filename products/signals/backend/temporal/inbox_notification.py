@@ -74,7 +74,12 @@ def _compute_inbox_notification_state(team_id: int, report_id: str) -> InboxNoti
     # Resolved from the implementation tasks alone, not the report's surfaced PR: the wait exists to
     # give the implementation task time to open its PR, so a PR from some other task (a "Discuss"
     # chat that opened one) must not end it early.
-    pr_available = bool(tasks_facade.get_latest_pr_url_by_task(impl_task_ids))
+    from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
+
+    pr_available = any(
+        pr.task_id in impl_task_ids
+        for pr in fetch_implementation_prs_for_reports([report_id], team_id=team_id).get(report_id, [])
+    )
     # Most recent run across the report's implementation task(s).
     latest_run = max(
         tasks_facade.get_latest_run_by_task(impl_task_ids).values(),

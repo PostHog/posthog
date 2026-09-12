@@ -9,6 +9,7 @@ import asyncio
 from collections.abc import Callable, Iterable
 from dataclasses import asdict
 from datetime import UTC, datetime
+from functools import partial
 from operator import attrgetter
 from typing import Any
 from uuid import UUID, uuid4
@@ -38,6 +39,7 @@ from .errors import (
 from .exceptions import CheckNameConflict
 from .health import CheckStatusRow, roll_up_health
 from .registry import get_spec
+from .schedules import provision_metric_schedule
 from .serialization import compute_fingerprint
 from .spec import CheckConfig
 from .subjects import resolve_subject, subject_column_type
@@ -164,6 +166,8 @@ def upsert_check(
                     **_subject_fk(subject_type, subject_uuid),
                     **fields,
                 )
+                if check.subject_type == SubjectType.METRIC and check.metric_id:
+                    transaction.on_commit(partial(provision_metric_schedule, check.team_id, str(check.metric_id)))
             return check, True
         except IntegrityError:
             # Check-then-insert race: a concurrent identical request inserted this fingerprint between

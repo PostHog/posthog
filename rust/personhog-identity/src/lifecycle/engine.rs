@@ -16,7 +16,7 @@
 //! renew/release match only while `attempt` is unchanged, so a displaced
 //! driver cannot extend or clear a stealer's lease.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -37,6 +37,7 @@ const SWEEPER_RESUMED_TOTAL: &str = "personhog_lifecycle_sweeper_resumed_total";
 const STEP_FAILURES_TOTAL: &str = "personhog_lifecycle_step_failures_total";
 const OPS_PARKED_TOTAL: &str = "personhog_lifecycle_ops_parked_total";
 const OPS_PARKED: &str = "personhog_lifecycle_ops_parked";
+const STEP_DURATION_MS: &str = "personhog_lifecycle_step_duration_ms";
 
 /// How many abandoned ops one sweep pass will pick up.
 const SWEEP_BATCH_SIZE: i64 = 100;
@@ -141,6 +142,17 @@ impl From<SagaError> for Status {
             SagaError::CorruptState(msg) => Status::internal(msg),
         }
     }
+}
+
+fn record_step_duration(row: &OpRow, start: Instant) {
+    common_metrics::histogram(
+        STEP_DURATION_MS,
+        &[
+            ("op_type".to_string(), row.op_type.clone()),
+            ("step".to_string(), row.step.clone()),
+        ],
+        start.elapsed().as_secs_f64() * 1000.0,
+    );
 }
 
 /// One row of `lifecycle_op`: the complete checkpoint of an operation.
@@ -302,7 +314,10 @@ impl Engine {
         if row.completed_at.is_some() {
             return Ok(row);
         }
-        driver.run_step(&self.pool, &row).await?;
+        let step_start = Instant::now();
+        let stepped = driver.run_step(&self.pool, &row).await;
+        record_step_duration(&row, step_start);
+        stepped?;
         self.load(op_id).await?.ok_or_else(|| {
             SagaError::CorruptState(format!("op {op_id} vanished while being driven"))
         })
@@ -418,7 +433,10 @@ impl Engine {
                 }
             }
 
-            if let Err(err) = driver.run_step(&self.pool, &row).await {
+            let step_start = Instant::now();
+            let stepped = driver.run_step(&self.pool, &row).await;
+            record_step_duration(&row, step_start);
+            if let Err(err) = stepped {
                 // Attributable escalation: a persistently failing op (a
                 // corrupt row, a wedged leader call) shows up as this
                 // counter climbing for one op_type/kind, not as generic

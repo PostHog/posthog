@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import ast
 import json
 import random
 import asyncio
@@ -8,6 +9,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -36,7 +38,17 @@ from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_charts import ReportChart
-from products.signals.backend.scout_harness import run_costs, scout_costs
+from products.signals.backend.report_metrics import (
+    DEFAULT_LIVE_METRIC_DATE_FROM,
+    MAX_LIVE_METRIC_QUERY_POINTS,
+    MAX_LIVE_METRIC_QUERY_SERIES,
+    MAX_REPORT_METRICS,
+)
+from products.signals.backend.scout_harness import (
+    prompt as scout_prompt,
+    run_costs,
+    scout_costs,
+)
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
@@ -376,6 +388,82 @@ class TestReportChartsSection(SimpleTestCase):
         assert sql_chart["chartSettings"]["yAxis"][0]["column"]
 
 
+class TestPromptCacheablePrefix(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("signal_canonical", [], "canonical", False, False),
+            ("signal_custom_knowledge", [], "custom", False, True),
+            ("report_both_custom", ["emit_report", "edit_report"], "custom", False, False),
+            ("report_both_canonical_github_knowledge", ["emit_report", "edit_report"], "canonical", True, True),
+            ("report_emit_only_github", ["emit_report"], "custom", True, False),
+            ("report_edit_only_canonical_knowledge", ["edit_report"], "canonical", False, True),
+        ]
+    )
+    def test_per_team_and_per_run_values_render_only_in_the_trailing_block(
+        self,
+        _name: str,
+        allowed_tools: list[str],
+        origin: str,
+        github_read_access: bool,
+        business_knowledge_maintained: bool,
+    ) -> None:
+        # Both runtimes cache on prefix, so one interpolated value above the trailing block leaves
+        # every stable section after it uncacheable, and the fleet pays for the whole body again on
+        # the first turn of every run. The regression is a section drifting back up the prompt,
+        # which changes nothing a reader would notice, so assert on the split itself.
+        # The channel, report-tool, skill-origin, `gh` and business-knowledge forks each swap
+        # sections into the prose above the block, so a value added inside one of them renders for
+        # only some scouts — one shape would leave the other shapes' sections unchecked.
+        prompt = build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-prefix-probe",
+                version=7,
+                body="watch",
+                description="d",
+                allowed_tools=allowed_tools,
+                files=[],
+                skill_id="skill-1",
+                origin=origin,  # type: ignore[arg-type]
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=987654,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            github_read_access=github_read_access,
+            business_knowledge_maintained=business_knowledge_maintained,
+            governed_metric_names=["mrr_probe_metric"],
+            write_scopes=["dashboard:write"],
+            structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
+            mcp_server_names=["Datadog (EU)"],
+        )
+
+        offsets = [
+            prompt.index(heading)
+            for heading in (
+                "# Governed metrics",
+                "# External MCP servers",
+                "# Write access",
+                "# Structured output",
+                "# Your run identity",
+            )
+        ]
+        # Per-team values first, the run's own identity last.
+        assert offsets == sorted(offsets)
+        head = prompt[: offsets[0]]
+        # Every stable section, down to the closing output-format one, sits above the block.
+        assert "# Output format" in head
+        for value in (
+            "00000000-0000-0000-0000-000000000abc",
+            "2026-05-01T12:34:56+00:00",
+            "987654",
+            "signals-scout-prefix-probe",
+            "mrr_probe_metric",
+            "Datadog",
+            '"verdict"',
+        ):
+            assert value not in head, f"{value} interpolated above the per-run block"
+
+
 class TestPromptCrossReferences(SimpleTestCase):
     @parameterized.expand(
         [
@@ -425,6 +513,24 @@ class TestPromptCrossReferences(SimpleTestCase):
         referenced = set(re.findall(r"(?<![\w*])\*([A-Z][^*\n]{3,60})\*(?!\*)", prompt))
         assert referenced, "no cross-references found — the extraction pattern has drifted"
         assert referenced <= headings, f"dangling cross-references: {sorted(referenced - headings)}"
+
+
+class TestHarnessPromptVersionInputs(SimpleTestCase):
+    def test_every_imported_value_the_templates_render_is_hashed_into_the_version(self) -> None:
+        # The version hashes this module's source plus `_RENDERED_IMPORTS`. A constant a template
+        # interpolates but the map omits changes what every scout is told while the digest stays
+        # put, so an A/B or eval spanning that change merges two prompt builds under one id.
+        source = Path(scout_prompt.__file__).read_text()
+        imported = {
+            alias.asname or alias.name
+            for node in ast.parse(source).body
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+        }
+        interpolated = set(re.findall(r"{([A-Za-z_][A-Za-z0-9_]*)}", source)) & imported
+        assert interpolated, "no interpolated imports found - the extraction pattern has drifted"
+        missing = sorted(interpolated - set(scout_prompt._RENDERED_IMPORTS))
+        assert not missing, f"interpolated imports missing from _RENDERED_IMPORTS: {missing}"
 
 
 class TestStructuredOutputPromptSection(SimpleTestCase):
@@ -690,9 +796,12 @@ class TestPromptBuilder(BaseTest):
             team_id=self.team.id,
             started_at=started_at,
         )
-        # Identity carries the skill name + version so bootstrap can reference it.
+        # Identity carries the skill name + version so bootstrap can reference it. The version
+        # renders as the bare number `skill-get` takes, since the endpoint validates it as an
+        # integer and the bootstrap points here rather than interpolating the value itself.
         assert "signals-scout-errors" in prompt
-        assert "(v1)" in prompt
+        assert "- **skill_version**: `1`" in prompt
+        assert "(v1)" not in prompt
         # The agent needs to know its own run id to attribute emits and memories.
         assert "00000000-0000-0000-0000-000000000abc" in prompt
         # Calling convention is stated up front: bare tool names resolve only
@@ -705,8 +814,11 @@ class TestPromptBuilder(BaseTest):
         # inlined — they're discovered at run time.
         assert "First: read your skill" in prompt
         # Skill version is pinned explicitly — the run row + tool resolution + budget
-        # were snapshotted against v1, so the bootstrap fetch must lock to v1 too.
-        assert 'skill-get(skill_name="signals-scout-errors", version=1)' in prompt
+        # were snapshotted against v1, so the bootstrap fetch must lock to v1 too. The two values
+        # ride in the run-identity block (asserted above), which is what keeps them out of the
+        # cacheable prose; the bootstrap step still has to say the version is not optional.
+        assert "skill-get(skill_name=<the skill_name there>, version=<the skill_version there>)" in prompt
+        assert "Pin that version explicitly" in prompt
         assert "skill-file-get" in prompt
         assert "watch for spikes" not in prompt
         assert "refs/playbook.md" not in prompt
@@ -766,6 +878,7 @@ class TestPromptBuilder(BaseTest):
         assert "scout-emit-report" not in prompt
         assert "Suggested reviewers route the report" not in prompt
         assert "scratchpad entry is a pointer" not in prompt
+        assert "Measuring report impact" not in prompt
 
     def test_github_evidence_section_gated_on_token_grant(self) -> None:
         LLMSkill.objects.create(
@@ -927,6 +1040,28 @@ class TestPromptBuilder(BaseTest):
         assert "include_all_statuses=true" in prompt
         assert "dismissal_note" in prompt
         assert "record the rationale in your own words" in prompt
+        # Report authors need the metric semantics the generated tool shape cannot express on its own:
+        # distinct people, a live bounded query, and whole-window rather than summed-bucket totals.
+        assert "Measuring report impact" in prompt
+        assert 'math: "dau"' in prompt
+        assert "stored Trends definition is executed as `BoldNumber`" in prompt
+        assert "as `ActionsBar` for the longitudinal buckets" in prompt
+        assert "bar or line response does not supply the whole-window total" in prompt
+        assert "Never sum distinct-user buckets" in prompt
+        assert (
+            f'Default the query to `dateRange.date_from: "{DEFAULT_LIVE_METRIC_DATE_FROM}"` with `interval: "day"`'
+            in prompt
+        )
+        assert f"at most {MAX_LIVE_METRIC_QUERY_POINTS} estimated interval points" in prompt
+        assert "Every source series must be an `EventsNode` or `ActionsNode`" in prompt
+        assert "Do not use a breakdown or compare mode on any report metric" in prompt
+        assert "exactly one output series per query" in prompt
+        assert f"up to {MAX_LIVE_METRIC_QUERY_SERIES} event/action source series as formula inputs" in prompt
+        assert "exactly one formula output" in prompt
+        assert "must set `aggregationAxisFormat` to exactly the same value" in prompt
+        assert f"at most {MAX_REPORT_METRICS} metrics" in prompt
+        assert "Omit it or send null" in prompt
+        assert "send `metrics: []` to clear" in prompt
         # Signal-only sections (weak-finding schema, tagging taxonomy) are dropped
         # for a report scout — it doesn't fire `emit_signal`.
         assert "scout-emit-signal" not in prompt
@@ -1000,7 +1135,7 @@ class TestPromptBuilder(BaseTest):
         # Reviewer routing for self-improvement reports points at the run-identity authors line,
         # not at "whoever owns this scout" guesswork — dropping the reference re-opens the
         # last-editor-becomes-the-assignee failure mode.
-        assert ("the skill authors listed under *Your run identity*" in prompt) is expect_escalation
+        assert ("the skill authors named in *Your run identity*" in prompt) is expect_escalation
         if _name == "custom_report_scout_emit_only":
             # The emit-only variant must never name the edit tool it lacks (fails closed).
             assert "scout-edit-report" not in prompt
@@ -1121,6 +1256,7 @@ class TestPromptBuilder(BaseTest):
         # An emit-only scout can't edit, so a relapse of a CLOSED report must become a fresh report
         # rather than a skip — otherwise relapses on resolved/suppressed/failed reports are dropped.
         assert "relapse of a closed report" in prompt
+        assert "Measuring report impact" in prompt
 
     def test_edit_only_report_scout_never_references_emit_tool(self) -> None:
         # The mirror case: an edit_report-only scout must never be told to author via
@@ -1134,6 +1270,7 @@ class TestPromptBuilder(BaseTest):
         assert "Suggested reviewers route the report" not in prompt
         assert "Writing the report" not in prompt
         assert "suggested_reviewers" in prompt
+        assert "Measuring report impact" in prompt
         # An edit-only scout can still rescue an unrouted report's reviewers, so the editing guidance
         # carries the in-run member lookup too — even though the standalone author-time deep-dive drops.
         assert "scout-members-list" in prompt

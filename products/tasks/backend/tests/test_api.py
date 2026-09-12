@@ -2346,6 +2346,19 @@ class TestTaskAPI(BaseTaskAPITest):
             self.assertIn(expected_detail, response.json()["error"])
             self.assertFalse(Task.objects.filter(title="Report task").exists())
 
+    def test_implementation_creation_respects_an_external_claim(self):
+        from products.signals.backend.models import SignalReport, SignalReportAssignment
+
+        report = SignalReport.objects.create(team=self.team)
+        assignment = SignalReportAssignment.all_teams.create(
+            team=self.team, report=report, actor_kind="agent", actor_user=self.user, actor_agent="test-agent"
+        )
+        response = self._post_signal_report_task(report.id, "implementation")
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.actor_agent, "test-agent")
+        self.assertFalse(Task.objects.filter(title="Report task").exists())
+
     @parameterized.expand(
         [
             # Another task took the slot this one released, so rerunning would make two live
@@ -6729,6 +6742,28 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         mock_heartbeat.assert_called_once_with(agent_active=True)
+
+    @parameterized.expand(
+        [
+            ("append_log", TaskRun.Status.IN_PROGRESS, {"entries": [{"type": "info", "message": "hello"}]}),
+            ("clear_conversation", TaskRun.Status.COMPLETED, None),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.heartbeat_workflow")
+    @patch("products.tasks.backend.storage.get_client")
+    def test_log_write_refused_while_lock_contended(self, action, run_status, body, mock_get_client, mock_heartbeat):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=run_status)
+        mock_get_client.return_value.lock.return_value.acquire.return_value = False
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{action}/", body, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response["Retry-After"], "2")
+        self.assertEqual(response.json(), {"error": "Log append busy"})
+        mock_heartbeat.assert_not_called()
 
     @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.tag")

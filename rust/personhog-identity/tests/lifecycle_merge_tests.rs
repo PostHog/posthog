@@ -50,7 +50,11 @@ impl MergeHarness {
         let ctx = TestContext::new_with_tables(tables).await;
         let engine = ctx.engine();
         let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.person.clone()));
-        let driver = MergeDriver::new(leader.clone(), ctx.tables.clone());
+        let driver = MergeDriver::new(
+            leader.clone(),
+            ctx.tables.clone(),
+            common::FAN_OUT_CONCURRENCY,
+        );
         Self {
             ctx,
             engine,
@@ -1673,9 +1677,14 @@ impl MergeHarness {
                 self.leader.clone(),
                 MergeOpExecutor::new(
                     engine,
-                    MergeDriver::new(self.leader.clone(), self.ctx.tables.clone()),
+                    MergeDriver::new(
+                        self.leader.clone(),
+                        self.ctx.tables.clone(),
+                        common::FAN_OUT_CONCURRENCY,
+                    ),
                 ),
             ),
+            common::FAN_OUT_CONCURRENCY,
         )
     }
 
@@ -1694,9 +1703,14 @@ impl MergeHarness {
                 self.leader.clone(),
                 MergeOpExecutor::new(
                     engine,
-                    MergeDriver::new(self.leader.clone(), self.ctx.tables.clone()),
+                    MergeDriver::new(
+                        self.leader.clone(),
+                        self.ctx.tables.clone(),
+                        common::FAN_OUT_CONCURRENCY,
+                    ),
                 ),
             ),
+            common::FAN_OUT_CONCURRENCY,
         )
     }
 }
@@ -2132,7 +2146,11 @@ async fn a_create_race_loser_answers_retryable_unavailable() {
     let h = MergeHarness::new().await;
     let executor = MergeOpExecutor::new(
         Arc::new(h.ctx.engine()),
-        MergeDriver::new(h.leader.clone(), h.ctx.tables.clone()),
+        MergeDriver::new(
+            h.leader.clone(),
+            h.ctx.tables.clone(),
+            common::FAN_OUT_CONCURRENCY,
+        ),
     );
     let op_id = Uuid::now_v7();
 
