@@ -565,6 +565,11 @@ class TestConvexNonRetryableErrors:
                 "https://x.convex.cloud/api/list_snapshot?tableName=verification&format=json&component=betterAuth",
             ),
             (
+                "cursor_conflict_409",
+                "409 Client Error: Conflict for url: "
+                "https://x.convex.cloud/api/document_deltas?tableName=users&cursor=123&format=json",
+            ),
+            (
                 "invalid_window",
                 "Delta cursor for table 'events' is older than Convex's ~30 day retention window. "
                 "Please trigger a full resync of this source.",
@@ -627,6 +632,7 @@ class TestConvexRetryableErrors:
         [
             ("401", "401 Client Error: Unauthorized for url: https://x.convex.cloud/api/document_deltas"),
             ("403", "403 Client Error: Forbidden for url: https://x.convex.cloud/api/document_deltas"),
+            ("409", "409 Client Error: Conflict for url: https://x.convex.cloud/api/document_deltas"),
             (
                 "invalid_window",
                 "Delta cursor for table 'events' is older than Convex's ~30 day retention window. "

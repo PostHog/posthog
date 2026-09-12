@@ -1326,7 +1326,12 @@ class CSPMiddleware:
                 # can. Session replay decompresses snapshots with snappy-wasm and the HogQL editor
                 # parses with a WebAssembly build, so both break without it.
                 f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com",
-                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com https://cdn.jsdelivr.net",
+                # A data: font cannot execute script, and this directive governs font loading only,
+                # so the token widens nothing else. It also carries nothing out: a data: URL makes
+                # no request, which is what the CSS-injection attacks on this directive need. The
+                # `data:` refusal in the worker-src note below is a different case, because a
+                # worker body is code.
+                f"font-src 'self' data: {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com",
                 # `blob:` grants nothing to an attacker who cannot already run script, because only
                 # script can mint a blob URL, and a worker started from one inherits this policy
                 # rather than escaping it. The ServiceWorker spec rejects `blob:` on its own, so
@@ -1344,7 +1349,11 @@ class CSPMiddleware:
                 "worker-src 'self' blob:",
                 "child-src 'none'",
                 "object-src 'none'",
-                "media-src https://res.cloudinary.com",
+                # `'self'` carries the PostHog AI onboarding videos under /static/. Max hands-free
+                # needs the other two: it primes playback with a silent `data:` clip, then plays
+                # the TTS response from a blob URL. None of the three can execute, because
+                # media-src governs <audio> and <video> only.
+                "media-src 'self' data: blob: https://res.cloudinary.com",
                 # `https:` is here for the OAuth authorize page, which renders an application's icon
                 # from a URL its registrant supplied. There is no allowlist that covers those, so
                 # until we serve them ourselves the directive has to accept any host.

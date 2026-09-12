@@ -414,6 +414,11 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
         "base_branch": None,
     }
     with patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create:
+        assignment_model = apps.get_model("signals", "SignalReportAssignment")
+        assignment_model.all_teams.create(team=team, report=report, actor_kind="user", actor_user=user)
+        assert _create_implementation_task_if_absent(**kwargs) is False
+        mock_create.assert_not_called()
+        assignment_model.all_teams.filter(report=report).update(actor_kind=None, actor_user=None)
         first = _create_implementation_task_if_absent(**kwargs)
         second = _create_implementation_task_if_absent(**kwargs)
 

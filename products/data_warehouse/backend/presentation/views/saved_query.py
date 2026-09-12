@@ -463,8 +463,7 @@ class DataWarehouseSavedQuerySerializerMixin:
             return jobs[0] if jobs else None
         except AttributeError:
             return (
-                DataModelingJob.objects.filter(saved_query_id=view.id)
-                .exclude(engine=DataModelingJobEngine.DUCKGRES)
+                DataModelingJob.objects.filter(saved_query_id=view.id, engine=DataModelingJobEngine.CLICKHOUSE)
                 .order_by("-last_run_at")
                 .first()
             )
@@ -1449,12 +1448,6 @@ class IncrementalEligibilitySerializer(serializers.Serializer):
     )
 
 
-# Same bound other SQL-accepting endpoints put on caller-supplied queries (see
-# `posthog/api/query_performance_proxy.py`): parsing runs synchronously on an API worker, so the
-# body has to be capped before it reaches the parser.
-CHECK_INCREMENTAL_MAX_QUERY_LENGTH = 64 * 1024
-
-
 class CheckIncrementalThrottle(PersonalApiKeyOrUserRateThrottle):
     """check_incremental parses caller-supplied SQL synchronously on a read scope. The editor calls
     it on a debounce, so a per-caller budget far above typing speed only stops scripted floods of
@@ -1462,6 +1455,11 @@ class CheckIncrementalThrottle(PersonalApiKeyOrUserRateThrottle):
 
     scope = "check_incremental"
     rate = "120/minute"
+
+
+# The check parses synchronously on an API worker. The bound keeps a scripted flood of large bodies
+# from tying up workers while sitting well above any view the editor produces.
+CHECK_INCREMENTAL_MAX_QUERY_LENGTH = 256 * 1024
 
 
 class CheckIncrementalSerializer(serializers.Serializer):
@@ -1551,7 +1549,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 "column_annotations",
                 Prefetch(
                     "datamodelingjob_set",
-                    queryset=DataModelingJob.objects.exclude(engine=DataModelingJobEngine.DUCKGRES).order_by(
+                    queryset=DataModelingJob.objects.filter(engine=DataModelingJobEngine.CLICKHOUSE).order_by(
                         "-last_run_at"
                     )[:1],
                     to_attr="jobs",

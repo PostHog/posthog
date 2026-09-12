@@ -402,6 +402,10 @@ class TaskAnalysisError(Exception):
     """A task analysis could not be created or recorded; ``message`` is safe to surface."""
 
 
+class TaskRunLogAppendUnserialized(Exception):
+    """The per-log append lock could not be taken; the caller should retry the append."""
+
+
 @dataclass(frozen=True)
 class TaskValidationError:
     """A structured validation-error payload the presentation layer renders as a 400/404.
@@ -859,3 +863,9 @@ class ComputeQuotaDenialReason(StrEnum):
 
     COMPUTE_QUOTA_EXHAUSTED = "posthog_code_billing_limit_exceeded"
     ORGANIZATION_DEACTIVATED = "organization_deactivated"
+
+
+@dataclass(frozen=True, kw_only=True)
+class TaskPullRequest:
+    url: str
+    state: str

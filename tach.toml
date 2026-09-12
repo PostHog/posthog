@@ -945,6 +945,7 @@ layer = "modules"
 path = "products.visual_review"
 depends_on = [
     "posthog",
+    "products.engineering_analytics",
 ]
 layer = "modules"
 
@@ -1247,7 +1248,7 @@ from = [
 
 [[modules]]
 path = "products.business_knowledge"
-depends_on = ["posthog", "ee"]
+depends_on = ["posthog", "ee", "products.access_control"]
 layer = "modules"
 
 [[interfaces]]
@@ -1257,6 +1258,9 @@ expose = [
     "backend\\.constants.*",
     "backend\\.models.*",
     "backend\\.temporal.*",
+    # Other products register LearningEvidenceProvider here. BK never imports them.
+    "backend\\.learning\\.contracts.*",
+    "backend\\.learning\\.providers.*",
 ]
 from = [
     "products.business_knowledge",
@@ -1355,6 +1359,7 @@ from = [
 path = "products.data_catalog"
 depends_on = [
     "posthog",
+    "products.data_quality",
     "products.data_tools",
     "products.product_analytics",
     "products.warehouse_sources",
@@ -1380,6 +1385,7 @@ layer = "modules"
 path = "products.data_quality"
 depends_on = [
     "posthog",
+    "products.data_catalog",
     "products.data_modeling",
     "products.notifications",
     "products.warehouse_sources", "products.access_control",

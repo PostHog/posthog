@@ -1,6 +1,7 @@
 import uuid
 import datetime as dt
 from typing import cast
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
@@ -48,6 +49,8 @@ from posthog.tasks.email import (
     send_provisioning_welcome,
     send_team_matview_failure_digest,
     send_wizard_pr_ready_email,
+    send_workflow_email_sending_paused,
+    send_workflow_email_sending_warning,
     should_send_pipeline_error_notification,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
@@ -152,6 +155,38 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    def test_workflow_email_subjects_survive_a_newline_in_the_name(self, MockEmailMessage: MagicMock) -> None:
+        # A CR or LF in the workflow name would make Django reject the whole email as a multiline
+        # header. The send path swallows that error, so a name with an embedded newline would
+        # silently drop this notice to every project admin.
+        mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        name_with_newline = "Welcome series\nBcc: sneaky@example.com"
+
+        send_workflow_email_sending_paused(
+            team_id=self.team.id,
+            hog_flow_id=str(uuid4()),
+            hog_flow_name=name_with_newline,
+            reason="Spam complaints reached 2% of the 400 emails this workflow sent in the last hour.",
+            paused_at="2026-01-01T00:00:00+00:00",
+        )
+        send_workflow_email_sending_warning(
+            team_id=self.team.id,
+            hog_flow_id=str(uuid4()),
+            hog_flow_name=name_with_newline,
+            reason="Spam complaints reached 0.2% of the 10,000 emails this workflow sent in the last 24 hours.",
+            pause_rate="0.3%",
+            warned_at="2026-01-01T00:00:00+00:00",
+        )
+
+        subjects = [call.kwargs["subject"] for call in MockEmailMessage.call_args_list]
+        assert len(subjects) == 2
+        for subject in subjects:
+            assert "\n" not in subject
+            assert "\r" not in subject
+            assert "Welcome series" in subject
 
     def test_send_delegation_invite_falls_back_when_organization_name_is_a_url(
         self, MockEmailMessage: MagicMock
@@ -2219,7 +2254,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         else:
             assert len(mocked_email_messages) == 0
 
-    def test_send_matview_failure_digest_ignores_duckgres_shadow(self, MockEmailMessage: MagicMock) -> None:
+    def test_send_matview_failure_digest_ignores_managed_warehouse_shadow(self, MockEmailMessage: MagicMock) -> None:
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2242,8 +2277,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             saved_query=saved_query,
             status=DataModelingJob.Status.FAILED,
-            engine=DataModelingJobEngine.DUCKGRES,
-            error="duckgres translation gap",
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            error="managed warehouse translation gap",
             last_run_at=timezone.now() - dt.timedelta(hours=1),
         )
 
@@ -2277,8 +2312,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             saved_query=saved_query,
             status=DataModelingJob.Status.FAILED,
-            engine=DataModelingJobEngine.DUCKGRES,
-            error="duckgres boom",
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            error="managed warehouse boom",
             last_run_at=timezone.now() - dt.timedelta(hours=1),
         )
 
@@ -2286,7 +2321,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 1
         assert "clickhouse boom" in mocked_email_messages[0].html_body
-        assert "duckgres boom" not in mocked_email_messages[0].html_body
+        assert "managed warehouse boom" not in mocked_email_messages[0].html_body
 
     def test_send_matview_failure_digest_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
 
@@ -2552,7 +2587,14 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 True,
             ),
             ("not_enforced", False, DataModelingJobEngine.CLICKHOUSE, False, [("retrying_view", False)], False),
-            ("shadow_marker_only", True, DataModelingJobEngine.DUCKGRES, False, [("retrying_view", False)], False),
+            (
+                "shadow_marker_only",
+                True,
+                DataModelingJobEngine.LEGACY_DUCKGRES,
+                False,
+                [("retrying_view", False)],
+                False,
+            ),
             (
                 "reverted_after_suspension",
                 True,
