@@ -1,3 +1,4 @@
+import io
 import re
 import uuid
 
@@ -329,3 +330,54 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         assert isinstance(storage, ObjectStorage)
         assert storage.aws_client is internal_client
         assert storage.presigned_client is presigned_client
+
+
+class _AlwaysFailingClient:
+    def __getattr__(self, operation_name: str):
+        def fail(*args, **kwargs):
+            raise ClientError(
+                {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}},  # type: ignore[arg-type]
+                operation_name,
+            )
+
+        return fail
+
+
+class TestObjectStorageErrorReporting(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("head_object_strict", lambda storage: storage.head_object_strict("bucket", "key")),
+            ("read_object", lambda storage: storage.read_object("bucket", "key")),
+            ("tag", lambda storage: storage.tag("bucket", "key", {"tag": "value"})),
+            ("write", lambda storage: storage.write("bucket", "key", "content", None)),
+            ("write_stream", lambda storage: storage.write_stream("bucket", "key", io.BytesIO(b"content"))),
+            ("write_from_file", lambda storage: storage.write_from_file("bucket", "key", "/tmp/file")),
+            ("copy", lambda storage: storage.copy("bucket", "source-key", "target-key")),
+            ("delete", lambda storage: storage.delete("bucket", "key")),
+        ]
+    )
+    @patch("posthog.storage.object_storage.capture_exception")
+    def test_a_wrapped_failure_is_reported_once(self, _name, operation, patched_capture) -> None:
+        # The wrapper reaches error tracking through the caller, so reporting here too
+        # files a second issue for the same failure.
+        storage = ObjectStorage(_AlwaysFailingClient())
+
+        with self.assertRaises(ObjectStorageError):
+            operation(storage)
+
+        patched_capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("get_presigned_url", lambda storage: storage.get_presigned_url("bucket", "key")),
+            ("get_presigned_post", lambda storage: storage.get_presigned_post("bucket", "key", [])),
+            ("list_objects", lambda storage: storage.list_objects("bucket", "prefix")),
+        ]
+    )
+    @patch("posthog.storage.object_storage.capture_exception")
+    def test_a_swallowed_failure_is_still_reported(self, _name, operation, patched_capture) -> None:
+        storage = ObjectStorage(_AlwaysFailingClient())
+
+        assert operation(storage) is None
+
+        patched_capture.assert_called_once()
