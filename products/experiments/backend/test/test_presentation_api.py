@@ -3430,6 +3430,32 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(response.json()["only_count_matured_users"])
 
+    def test_update_experiment_only_count_matured_users_round_trips(self):
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_only_count_matured_users = True
+        config.save()
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Round Trip Matured",
+                "feature_flag_key": "round-trip-matured",
+                "parameters": None,
+            },
+        )
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        experiment_id = created.json()["id"]
+
+        updated = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"only_count_matured_users": False},
+        )
+
+        self.assertEqual(updated.status_code, status.HTTP_200_OK)
+        self.assertFalse(updated.json()["only_count_matured_users"])
+        read_back = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
+        self.assertFalse(read_back.json()["only_count_matured_users"])
+
     def test_create_experiment_with_feature_flag_without_control(self):
         # An existing flag without a 'control' variant is eligible; the baseline
         # defaults to the first variant downstream.
