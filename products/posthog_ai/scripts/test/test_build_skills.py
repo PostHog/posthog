@@ -357,6 +357,23 @@ def test_build_manifest_produces_valid_structure(tmp_path: Path) -> None:
     assert manifest.resources[0].description == "desc"
 
 
+def test_build_manifest_rejects_duplicate_rendered_names(tmp_path: Path) -> None:
+    # Distinct source directories, one frontmatter name: the lint deduplicates the
+    # source names, so only the manifest can catch this collision.
+    products = tmp_path / "products"
+    for product, dir_name in (("alpha", "first-copy"), ("beta", "second-copy")):
+        skill_dir = products / product / "skills" / dir_name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("---\nname: shared-name\ndescription: desc\n---\n# Body\n")
+
+    discoverer = SkillDiscoverer(products_dir=products)
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=products, output_dir=tmp_path / "output")
+
+    assert builder.lint_all() is True
+    with pytest.raises(ValueError, match="Duplicate skill name 'shared-name'"):
+        builder.build_manifest(discoverer.discover(), SkillRenderer())
+
+
 def test_end_to_end_template_with_pydantic(tmp_path: Path) -> None:
     from pydantic import BaseModel, Field
 
