@@ -79,8 +79,9 @@ export function preflightBannerMessage(preflight: PagePreflight | null): string 
         const said = preflight.body_excerpt ? ` It said: "${preflight.body_excerpt}".` : ''
         return (
             `${host} returned ${preflight.http_status} when we tried to load this page.${said} ` +
-            `This came from your site's host or CDN, not from PostHog. ` +
-            `Check its rate limits and firewall rules, then try again.`
+            `Bot protection often blocks automated loads like this. A screenshot background sends the ` +
+            `"X-PostHog-Heatmap-Screenshot: 1" header, which a bot protection rule can allow. The live ` +
+            `preview cannot send that header, so add the rule and switch to a screenshot background.`
         )
     }
 
