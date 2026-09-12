@@ -1456,5 +1456,29 @@
     "name": "Discord",
     "category": "social_crawler",
     "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SEOkicks",
+    "name": "SEOkicks",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SEARWEB-Crawler",
+    "name": "SEARWEB Crawler",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "RunAgentsSEO",
+    "name": "RunAgentsSEO",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "danotes/",
+    "name": "danotes",
+    "category": "http_client",
+    "traffic_type": "Bot"
   }
 ]
