@@ -1,3 +1,5 @@
+import { MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { humanizeReportTitle } from "@posthog/core/inbox/reportPresentation";
 import { useService } from "@posthog/di/react";
 import {
   closeTab as closeTabLocal,
@@ -22,7 +24,9 @@ import {
   useDashboard,
   useDashboards,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
+import { isRestorableVisitHref } from "@posthog/ui/features/canvas/railPane";
 import {
   activityReportIdFromHref,
   useActivitySelection,
@@ -32,16 +36,18 @@ import {
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { feedIdFromHref } from "@posthog/ui/features/canvas/stores/taskFeedSelectionStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useInboxReportById } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
-import { useActiveSession } from "@posthog/ui/features/navigation/useActiveSession";
+import { useTabSession } from "@posthog/ui/features/navigation/useActiveSession";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { getLeafPanel } from "@posthog/ui/features/panels/panelStoreHelpers";
 import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { reportIdFromHref } from "@posthog/ui/router/reportNavigation";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { isMac } from "@posthog/ui/utils/platform";
 import { useQuery } from "@tanstack/react-query";
@@ -51,7 +57,7 @@ import {
   useRouter,
   useRouterState,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { shouldHandleBrowserTabSwitch } from "./browserTabShortcuts";
 import {
@@ -126,7 +132,7 @@ type TabRef = {
   appView: string | null;
 };
 
-export function BrowserTabStrip() {
+function BrowserTabStripImpl() {
   const spacesLayout = useChannelsLayout();
   const snapshot = useTabsSnapshot();
   const navigate = useNavigate();
@@ -137,7 +143,10 @@ export function BrowserTabStrip() {
     channelId?: string;
     dashboardId?: string;
     taskId?: string;
+    feedId?: string;
+    reportId?: string;
   };
+  const routeFeedId = params.feedId ?? null;
   // The in-flight tag: flips the instant you navigate, so the strip's highlight
   // and the active tab's name don't lag a navigation behind. Rendering only —
   // the effect below must not write from it (see settledLocation).
@@ -162,9 +171,7 @@ export function BrowserTabStrip() {
   // Which rail destination this location belongs to, so the tab can remember
   // where that destination was when it left.
   const railPane = useRailPane();
-  // Which session the content pane is about, wherever it came from: a path
-  // param, Activity's picked item, or a feed's.
-  const activeSession = useActiveSession();
+  const activeSession = useTabSession();
   // Top-level app pages are tab targets too. Their typed metadata keeps route
   // classification, persisted labels, and rendered labels in one vocabulary.
   const view = useAppView();
@@ -176,6 +183,9 @@ export function BrowserTabStrip() {
     routeAppView === "activity" && activitySelection?.kind === "report"
       ? activitySelection.reportId
       : null;
+  const activeReportId =
+    activeActivityReportId ??
+    (routeAppView === "report" ? (params.reportId ?? null) : null);
 
   const { channels, isLoading: channelsLoading } = useChannels();
   // The scoped space is null until the channel list has loaded and the route
@@ -230,6 +240,12 @@ export function BrowserTabStrip() {
   const activeTabId =
     (historyTabIsLive ? historyTabId : null) ?? win?.activeTabId ?? null;
 
+  const feeds = useProjectTaskFeeds();
+  const feedName = useMemo(() => {
+    const map = new Map(feeds.map((f) => [f.id, f.name]));
+    return (id: string | null) => (id ? (map.get(id) ?? null) : null);
+  }, [feeds]);
+
   const channelName = useMemo(() => {
     const map = new Map(channels.map((c) => [c.id, c.name]));
     return (id: string | null) => (id ? (map.get(id) ?? null) : null);
@@ -251,9 +267,7 @@ export function BrowserTabStrip() {
     ...taskDetailQuery(activeSession.taskId ?? ""),
     enabled: !!activeSession.taskId,
   });
-  const { data: activeReportRecord } = useInboxReportById(
-    activeActivityReportId,
-  );
+  const { data: activeReportRecord } = useInboxReportById(activeReportId);
   // Remember names so a background tab from another channel keeps its label
   // after its channel's list unloads. Written in an effect (not during render)
   // to keep render pure; the tabs memo reads the live lists first anyway.
@@ -287,15 +301,15 @@ export function BrowserTabStrip() {
       if (activeRecord?.id === params.dashboardId) return activeRecord.name;
       return dashboards.find((d) => d.id === params.dashboardId)?.name ?? null;
     }
-    if (activeActivityReportId) {
-      if (activeReportRecord?.id !== activeActivityReportId) return null;
-      return activeReportRecord.title?.trim() || "Untitled report";
+    if (activeReportId) {
+      if (activeReportRecord?.id !== activeReportId) return null;
+      return humanizeReportTitle(activeReportRecord.title, "Untitled report");
     }
     return null;
   }, [
     activeSession.taskId,
     params.dashboardId,
-    activeActivityReportId,
+    activeReportId,
     activeTaskRecord,
     allTasks,
     activeRecord,
@@ -304,6 +318,7 @@ export function BrowserTabStrip() {
   ]);
 
   const routeTitle = useMemo(() => {
+    if (routeFeedId) return feedName(routeFeedId);
     if (activeTitle) return activeTitle;
     const currentChannelId =
       params.channelId ?? activeSession.channelId ?? null;
@@ -313,14 +328,16 @@ export function BrowserTabStrip() {
     }
     // A selected Activity report owns the tab label. While its query resolves,
     // keep the tab's stored title instead of replacing it with "Activity".
-    if (activeActivityReportId) return null;
+    if (activeReportId) return null;
     if (routeAppView) return TAB_APP_VIEW_META[routeAppView].label;
     return null;
   }, [
     activeTitle,
+    routeFeedId,
+    feedName,
     params.channelId,
     activeSession.channelId,
-    activeActivityReportId,
+    activeReportId,
     channelName,
     routeChannelSection,
     routeAppView,
@@ -381,16 +398,16 @@ export function BrowserTabStrip() {
       href: locationHref,
       ...(railPane === "spaces" ? { listOpen, spaceId: stampedSpaceId } : {}),
     };
+    const previousLastByPane = mirrorActive?.viewState?.lastByPane ?? {};
     const viewState: TabViewState = {
       // Keep the stored name when nothing has resolved yet, so a loading frame
       // does not blank a background tab's label.
       title: routeTitle ?? mirrorActive?.viewState?.title,
       listOpen,
       spaceId: stampedSpaceId,
-      lastByPane: {
-        ...(mirrorActive?.viewState?.lastByPane ?? {}),
-        [railPane]: visit,
-      },
+      lastByPane: isRestorableVisitHref(railPane, locationHref)
+        ? { ...previousLastByPane, [railPane]: visit }
+        : previousLastByPane,
     };
     const decision = decideTabNavigation({
       // The SETTLED tag, not the in-flight one. Pairing the in-flight tag with
@@ -550,6 +567,16 @@ export function BrowserTabStrip() {
         const section = isActive ? routeChannelSection : t.channelSection;
         const appView = isActive ? routeAppView : t.appView;
         const channel = channelName(channelId);
+        const feedId = isActive ? routeFeedId : feedIdFromHref(t.href);
+        if (feedId) {
+          return {
+            id: t.id,
+            label: feedName(feedId) ?? t.viewState?.title ?? "Saved search",
+            icon: <MagnifyingGlassIcon size={14} />,
+            channelName: null,
+            pinned,
+          };
+        }
         if (taskId) {
           const task = findTask(taskId);
           return {
@@ -583,17 +610,17 @@ export function BrowserTabStrip() {
         // space to Activity, persisted channel context must not turn the new
         // top-level tab into a space tab.
         if (appView && isTabAppView(appView)) {
-          const activityReportId = isActive
-            ? activeActivityReportId
-            : activityReportIdFromHref(t.href);
-          const activityReport = activityReportId
+          const tabReportId = isActive
+            ? activeReportId
+            : (activityReportIdFromHref(t.href) ?? reportIdFromHref(t.href));
+          const reportTab = tabReportId
             ? {
                 title: isActive
                   ? (activeTitle ?? t.viewState?.title)
                   : t.viewState?.title,
               }
             : null;
-          const display = resolveTabAppViewDisplay(appView, activityReport);
+          const display = resolveTabAppViewDisplay(appView, reportTab);
           return {
             id: t.id,
             ...display,
@@ -645,10 +672,12 @@ export function BrowserTabStrip() {
     params.dashboardId,
     activeSession.taskId,
     activeSession.channelId,
-    activeActivityReportId,
+    activeReportId,
     activeTitle,
     routeChannelSection,
     routeAppView,
+    routeFeedId,
+    feedName,
     spacesLayout,
   ]);
 
@@ -711,6 +740,7 @@ export function BrowserTabStrip() {
             navigate({ to: "/activity", state });
             break;
           case "home":
+          case "report":
             navigate({ to: "/", state });
             break;
           case "inbox":
@@ -720,7 +750,11 @@ export function BrowserTabStrip() {
             });
             break;
           case "agents":
-            navigate({ to: "/agents", state });
+            navigate({
+              to: "/settings/$category",
+              params: { category: "agents" },
+              state,
+            });
             break;
           case "loops":
             navigate({ to: "/loops", state });
@@ -944,3 +978,6 @@ export function BrowserTabStrip() {
     />
   );
 }
+
+// The root layout re-renders on every navigation; this keeps that from cascading here.
+export const BrowserTabStrip = memo(BrowserTabStripImpl);

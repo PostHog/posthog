@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 
 from django.test import override_settings
 
@@ -39,7 +39,7 @@ class TestPrecomputationDurationGate:
         start_date = None if start_offset_seconds is None else now + timedelta(seconds=start_offset_seconds)
         end_date = None if end_offset_seconds is None else now + timedelta(seconds=end_offset_seconds)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             assert experiment_has_min_runtime_for_precomputation(start_date, end_date) is expected
 
 
@@ -53,7 +53,7 @@ class TestShouldPrecomputeRespectsGate(ExperimentQueryRunnerBaseTest):
         query = ExperimentQuery(**kwargs)
         return ExperimentQueryRunner(query=query, team=self.team)
 
-    @freeze_time("2026-04-30T12:00:00Z")
+    @time_machine.travel("2026-04-30T12:00:00Z", tick=False)
     def test_team_default_skips_when_under_threshold(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -64,7 +64,7 @@ class TestShouldPrecomputeRespectsGate(ExperimentQueryRunnerBaseTest):
         runner = self._build_runner(experiment)
         assert runner._should_precompute() is False
 
-    @freeze_time("2026-04-30T12:00:00Z")
+    @time_machine.travel("2026-04-30T12:00:00Z", tick=False)
     def test_team_default_enables_when_over_threshold(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -75,7 +75,7 @@ class TestShouldPrecomputeRespectsGate(ExperimentQueryRunnerBaseTest):
         runner = self._build_runner(experiment)
         assert runner._should_precompute() is True
 
-    @freeze_time("2026-04-30T12:00:00Z")
+    @time_machine.travel("2026-04-30T12:00:00Z", tick=False)
     def test_explicit_precomputed_mode_bypasses_gate(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -86,7 +86,7 @@ class TestShouldPrecomputeRespectsGate(ExperimentQueryRunnerBaseTest):
         runner = self._build_runner(experiment, precomputation_mode=PrecomputationMode.PRECOMPUTED)
         assert runner._should_precompute() is True
 
-    @freeze_time("2026-04-30T12:00:00Z")
+    @time_machine.travel("2026-04-30T12:00:00Z", tick=False)
     def test_explicit_direct_mode_overrides_passing_gate(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -97,7 +97,7 @@ class TestShouldPrecomputeRespectsGate(ExperimentQueryRunnerBaseTest):
         runner = self._build_runner(experiment, precomputation_mode=PrecomputationMode.DIRECT)
         assert runner._should_precompute() is False
 
-    @freeze_time("2026-04-30T12:00:00Z")
+    @time_machine.travel("2026-04-30T12:00:00Z", tick=False)
     def test_team_disabled_skips_regardless_of_gate(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -154,7 +154,7 @@ class TestUncalculatedCohortGate(ExperimentQueryRunnerBaseTest):
         )
         assert has_uncalculated_cohorts(self.team, metric) is True
 
-    @freeze_time("2026-04-30T12:00:00Z")
+    @time_machine.travel("2026-04-30T12:00:00Z", tick=False)
     def test_should_precompute_waits_for_first_cohort_calculation(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(

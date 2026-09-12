@@ -182,7 +182,9 @@ describe("ClaudeAcpAgent turn queue input dispatch", () => {
       _meta: { steer: true },
     });
 
-    await expect(steer).resolves.toMatchObject({ _meta: { steer: false } });
+    await expect(steer).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "compacting" },
+    });
     expect(harness.pushed).toHaveLength(1);
 
     harness.query._mockHelpers.sendMessage(createSuccessResult());

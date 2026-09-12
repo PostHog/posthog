@@ -3,8 +3,10 @@ import type {
     Series,
     TimeSeriesBarChartConfig,
     TimeSeriesLineChartConfig,
+    TimeInterval,
     TooltipConfig,
     TrendLineConfig,
+    XAxisConfig,
     YAxisConfig,
 } from '@posthog/quill-charts'
 
@@ -12,8 +14,8 @@ import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/in
 import type { GoalLineLike } from 'products/product_analytics/frontend/insights/trends/shared/trendsChartDisplayOptions'
 
 // Dependency-neutral shape both the kea `RetentionTrendPayload` and lighter fixtures (e.g. the MCP
-// UI app) satisfy. Declared structurally rather than imported from `scenes/retention/types` so this
-// module stays free of `~/`/`scenes/` deps and compiles in the MCP Vite bundle, which only resolves
+// UI app) satisfy. Declared structurally rather than imported from `../types`, which pulls in
+// `lib/dayjs` and `~/types`, so this module compiles in the MCP Vite bundle, which only resolves
 // `products/*` and `@posthog/*`. The real `RetentionTrendPayload` is assignable to this (asserted in
 // retentionChartTransforms.test.ts), so web callers pass it unchanged.
 export interface RetentionResultLike {
@@ -91,6 +93,9 @@ export interface BuildRetentionChartConfigOpts {
     showTrendLines?: boolean
     series: Series<RetentionSeriesMeta>[]
     tooltip?: TooltipConfig
+    isIntervalView?: boolean
+    period?: string
+    timezone?: string
 }
 
 function buildTrendLines(
@@ -107,8 +112,21 @@ function buildGoalLines(goalLines: GoalLineLike[] | null | undefined): GoalLineC
     return schemaGoalLinesToConfigs(goalLines)
 }
 
+const TIME_INTERVAL_BY_RETENTION_PERIOD: Record<string, TimeInterval> = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+}
+
+function buildXAxis(opts: BuildRetentionChartConfigOpts): XAxisConfig | undefined {
+    const interval = opts.period ? TIME_INTERVAL_BY_RETENTION_PERIOD[opts.period] : undefined
+    return opts.isIntervalView && interval && opts.timezone ? { interval, timezone: opts.timezone } : undefined
+}
+
 export function buildRetentionLineChartConfig(opts: BuildRetentionChartConfigOpts): TimeSeriesLineChartConfig {
     return {
+        xAxis: buildXAxis(opts),
         yAxis: {
             format: opts.isPercentage ? 'percentage' : 'numeric',
             scale: 'linear',
@@ -124,6 +142,7 @@ export function buildRetentionBarChartConfig(
     opts: BuildRetentionChartConfigOpts
 ): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     return {
+        xAxis: buildXAxis(opts),
         yAxis: {
             format: opts.isPercentage ? 'percentage' : 'numeric',
             scale: 'linear',

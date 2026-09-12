@@ -13,7 +13,8 @@ export type SyncFrequencyValue = DataModelingSyncInterval | 'never'
  * request the scheduler quietly tightens. The bar carries the wording once in its label, so each
  * segment only has to say which duration it is.
  */
-const CADENCE_LABELS: Record<DataModelingSyncInterval, string> = {
+/** How a cadence is spoken after "every", so every surface says "every 6 hours" the same way. */
+export const CADENCE_LABELS: Record<DataModelingSyncInterval, string> = {
     '15min': '15 minutes',
     '30min': '30 minutes',
     '1hour': '1 hour',
@@ -50,7 +51,6 @@ const PACE_ICON_CLASS = 'text-xl text-secondary shrink-0'
  * cadence write, so a live control only buys a 400. The reason carries the way out instead.
  */
 const MODE_DISABLED_REASONS: Record<string, string> = {
-    dag_schedule: 'This view refreshes on a shared schedule. Its frequency is not set per view.',
     managed_viewset: 'PostHog manages this view, including how often it refreshes.',
     no_node: 'This view is not set up for scheduled refreshes yet. Save it again, then pick a cadence.',
 }

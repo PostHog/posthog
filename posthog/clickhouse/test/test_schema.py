@@ -1,9 +1,15 @@
 import re
+import json
 import uuid
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
+from posthog.hogql.database.models import DatabaseField, Table
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_CLICKHOUSE_TABLE, FlagEvaluationsTable
+
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON, KAFKA_COLUMNS_WITH_PARTITION
 from posthog.clickhouse.schema import (
     CREATE_KAFKA_TABLE_QUERIES,
@@ -13,6 +19,7 @@ from posthog.clickhouse.schema import (
     build_query,
     get_table_name,
 )
+from posthog.models.event.person_property_mutation_sql import PERSON_PROPERTY_MUTATION_LOG_MV_SQL
 from posthog.models.event.sql import (
     EVENTS_JSON_TABLE_MV_SQL,
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
@@ -22,8 +29,11 @@ from posthog.models.flag_evaluations.sql import (
     DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
     FLAG_EVALUATIONS_KAFKA_COLUMNS,
     FLAG_EVALUATIONS_MV_SQL,
+    FLAG_EVALUATIONS_TABLE,
     FLAG_EVALUATIONS_TABLE_SQL,
 )
+from posthog.settings.data_stores import SUFFIX
+from posthog.settings.kafka import KAFKA_PREFIX
 
 
 @pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=get_table_name)
@@ -59,6 +69,43 @@ def test_events_json_table_uses_dedicated_kafka_consumer_group(settings):
     assert f"CREATE TABLE IF NOT EXISTS {KAFKA_EVENTS_NATIVE_JSON_TABLE}" in kafka_table_query
     assert f"kafka_group_name = '{CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON}'" in kafka_table_query
     assert f"FROM {settings.CLICKHOUSE_DATABASE}.{KAFKA_EVENTS_NATIVE_JSON_TABLE}" in mv_query
+
+
+@pytest.mark.parametrize(
+    "properties,expected",
+    [
+        (
+            {
+                "$set": {"nested": {"values": [True, None, 42, "雪"]}},
+                "$set_once": {"first": False},
+                "$unset": ["old"],
+                "ordinary": "discard",
+            },
+            {"$set": {"nested": {"values": [True, None, 42, "雪"]}}, "$set_once": {"first": False}, "$unset": ["old"]},
+        ),
+        ({"$unset": ["old"]}, {"$unset": ["old"]}),
+        ({"$unset": {"old": True}}, {"$unset": {"old": True}}),
+        ({"$set_once": {"first": 0}}, {"$set_once": {"first": 0}}),
+        ({"ordinary": "discard"}, None),
+    ],
+)
+def test_person_property_mutation_projection(properties: dict[str, object], expected: dict[str, object] | None) -> None:
+    select = PERSON_PROPERTY_MUTATION_LOG_MV_SQL().split("AS SELECT", 1)[1]
+    rows = sync_execute(
+        """
+        WITH kafka_person_property_mutation_log AS (
+            SELECT 42 AS team_id,
+                toUUID('0192a5c8-0000-0000-0000-000000000000') AS uuid,
+                %(properties)s AS properties,
+                now() AS _timestamp
+        )
+        SELECT """
+        + select,
+        {"properties": json.dumps(properties)},
+        team_id=42,
+        flush=False,
+    )
+    assert [json.loads(row[2]) for row in rows] == ([] if expected is None else [expected])
 
 
 def _column_definition_lines(block: str) -> Iterator[str]:
@@ -123,8 +170,66 @@ def test_flag_evaluations_read_table_declares_every_stored_column():
     assert _flag_evaluations_table_columns(DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL()) == stored_columns
 
 
+def _hogql_column_names(table: Table) -> set[str]:
+    names: set[str] = set()
+    for field in table.fields.values():
+        if isinstance(field, Table):
+            names |= _hogql_column_names(field)
+        elif isinstance(field, DatabaseField):
+            names.add(field.name)
+    return names
+
+
+# Kafka metadata, deliberately not exposed to customers.
+_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {"_timestamp", "_offset", "_partition"}
+
+
+def test_flag_evaluations_hogql_table_matches_the_read_table():
+    # The HogQL table spells its column names by hand, and spells the read table's name again
+    # because it cannot import this module (posthog/hogql/test/test_no_django_imports.py). Both
+    # copies drift silently: a query naming a column the shards lack fails only when someone runs
+    # it. Asserting the difference rather than a subset means a column added to the read table has
+    # to be either exposed or named here, instead of staying invisible to HogQL by default.
+    declared = {
+        column.split()[0] for column in _flag_evaluations_table_columns(DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL())
+    }
+    exposed = _hogql_column_names(FlagEvaluationsTable())
+
+    assert FLAG_EVALUATIONS_CLICKHOUSE_TABLE == FLAG_EVALUATIONS_TABLE
+    assert declared - exposed == _FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL
+    assert exposed - declared == set()
+
+
 @pytest.fixture(autouse=True)
 def mock_uuid4(mocker):
     mock_uuid4 = mocker.patch("uuid.uuid4")
     mock_uuid4.return_value = uuid.UUID("77f1df52-4b43-11e9-910f-b8ca3a9b9f3e")
     yield mock_uuid4
+
+
+def _kafka_topics_in_schema() -> set[str]:
+    # Topic names are built as KAFKA_PREFIX + name + SUFFIX, and the test settings set a
+    # suffix the dev stack does not use. Compare the bare names the bootstrap file holds.
+    topics: set[str] = set()
+    for query in CREATE_KAFKA_TABLE_QUERIES:
+        sql = build_query(query)
+        topics.update(re.findall(r"kafka_topic_list\s*=\s*'([^']+)'", sql))
+        topics.update(re.findall(r"Kafka\('[^']*',\s*'([^']+)'", sql))
+    return {t.removeprefix(KAFKA_PREFIX).removesuffix(SUFFIX) for t in topics}
+
+
+def test_dev_stack_pre_creates_every_kafka_table_topic():
+    bootstrap = Path(__file__).parents[3] / "docker" / "kafka" / "topics.txt"
+    listed = {
+        stripped
+        for line in bootstrap.read_text().splitlines()
+        if (stripped := line.strip()) and not stripped.startswith("#")
+    }
+
+    missing = sorted(_kafka_topics_in_schema() - listed)
+
+    assert not missing, (
+        f"{bootstrap.name} does not list {missing}. A ClickHouse Kafka table whose topic is "
+        "absent never gets a partition assignment, so it holds a thread and repeats the "
+        "request for as long as a local stack runs. Add each topic to that file."
+    )

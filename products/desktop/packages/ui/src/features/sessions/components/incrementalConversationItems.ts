@@ -1,7 +1,8 @@
-import type { AcpMessage } from "@posthog/shared";
+import type { AcpMessage, AgentConversationEvent } from "@posthog/shared";
 import {
   type BuildConversationOptions,
   type BuildResult,
+  buildAgentConversationItems,
   buildConversationItems,
   type ConversationItem,
   createItemBuilder,
@@ -9,6 +10,7 @@ import {
   type ItemBuilder,
   markThoughtCompletion,
   orderEventsByTimestamp,
+  processAgentConversationEvent,
   processEvent,
   readLastTurnInfo,
   type TurnContext,
@@ -20,17 +22,29 @@ import {
  * the last event fed, so a late arrival that belongs earlier in the transcript
  * fails here and forces a re-read of the whole array in sorted order.
  */
-function extendsTimestampOrder(
-  events: AcpMessage[],
+function extendsTimestampOrder<Event>(
+  events: Event[],
   from: number,
   lastTs: number,
+  timestamp: (event: Event) => number,
 ): boolean {
   let previous = lastTs;
   for (let i = from; i < events.length; i++) {
-    if (events[i].ts < previous) return false;
-    previous = events[i].ts;
+    if (timestamp(events[i]) < previous) return false;
+    previous = timestamp(events[i]);
   }
   return true;
+}
+
+export interface IncrementalConversationBuilder<Event> {
+  /** Derives the transcript for `events`, reusing the work of earlier calls. */
+  update(
+    events: Event[],
+    isPromptPending: boolean | null,
+    options?: BuildConversationOptions,
+  ): BuildResult;
+  /** Drops the retained state so the next `update` starts from scratch. */
+  reset(): void;
 }
 
 /**
@@ -49,11 +63,39 @@ function extendsTimestampOrder(
  * state (idle, non-append event change, options change, or a progress card in
  * an already-frozen turn being mutated).
  */
-export function createIncrementalConversationBuilder() {
+export function createIncrementalConversationBuilder(): IncrementalConversationBuilder<AcpMessage> {
+  return createBuilder<AcpMessage>({
+    timestamp: (event) => event.ts,
+    process: processEvent,
+    build: buildConversationItems,
+  });
+}
+
+export function createIncrementalAgentConversationBuilder(): IncrementalConversationBuilder<AgentConversationEvent> {
+  return createBuilder<AgentConversationEvent>({
+    timestamp: (event) => event.timestamp,
+    process: processAgentConversationEvent,
+    build: buildAgentConversationItems,
+  });
+}
+
+function createBuilder<Event>(adapter: {
+  timestamp: (event: Event) => number;
+  process: (
+    builder: ItemBuilder,
+    event: Event,
+    options?: BuildConversationOptions,
+  ) => void;
+  build: (
+    events: Event[],
+    pending: boolean | null,
+    options?: BuildConversationOptions,
+  ) => BuildResult;
+}): IncrementalConversationBuilder<Event> {
   let b: ItemBuilder | null = null;
   let processedCount = 0;
-  let firstEventRef: AcpMessage | null = null;
-  let boundaryEventRef: AcpMessage | null = null;
+  let firstEventRef: Event | null = null;
+  let boundaryEventRef: Event | null = null;
   let showDebugLogs: boolean | undefined;
   /** Timestamp of the last event fed to `b`, so a late arrival is detectable. */
   let lastProcessedTs = Number.NEGATIVE_INFINITY;
@@ -67,7 +109,7 @@ export function createIncrementalConversationBuilder() {
   }
 
   function update(
-    events: AcpMessage[],
+    events: Event[],
     isPromptPending: boolean | null,
     options?: BuildConversationOptions,
   ): BuildResult {
@@ -86,12 +128,17 @@ export function createIncrementalConversationBuilder() {
         (processedCount === 0 || events[0] === firstEventRef) &&
         (processedCount === 0 ||
           events[processedCount - 1] === boundaryEventRef) &&
-        extendsTimestampOrder(events, processedCount, lastProcessedTs);
+        extendsTimestampOrder(
+          events,
+          processedCount,
+          lastProcessedTs,
+          adapter.timestamp,
+        );
 
       if (canFinalizeInPlace) {
         const builder = b as ItemBuilder;
         for (let i = processedCount; i < events.length; i++) {
-          processEvent(builder, events[i], options);
+          adapter.process(builder, events[i], options);
         }
         finalizeBuilder(builder, isPromptPending);
         const result: BuildResult = {
@@ -110,7 +157,7 @@ export function createIncrementalConversationBuilder() {
       }
 
       reset();
-      return buildConversationItems(events, isPromptPending, options);
+      return adapter.build(events, isPromptPending, options);
     }
 
     // The fast path is valid only when this call appends to the exact prefix we
@@ -127,7 +174,12 @@ export function createIncrementalConversationBuilder() {
       (processedCount === 0 || events[0] === firstEventRef) &&
       (processedCount === 0 ||
         events[processedCount - 1] === boundaryEventRef) &&
-      extendsTimestampOrder(events, processedCount, lastProcessedTs);
+      extendsTimestampOrder(
+        events,
+        processedCount,
+        lastProcessedTs,
+        adapter.timestamp,
+      );
 
     if (!canAppend) {
       b = createItemBuilder();
@@ -142,14 +194,16 @@ export function createIncrementalConversationBuilder() {
     // a sequence already in ts-order and takes the new events as they came.
     const ordered =
       processedCount === 0
-        ? orderEventsByTimestamp(events, (event) => event.ts)
+        ? orderEventsByTimestamp(events, adapter.timestamp)
         : events;
     for (let i = processedCount; i < ordered.length; i++) {
-      processEvent(builder, ordered[i], options);
+      adapter.process(builder, ordered[i], options);
     }
     processedCount = events.length;
     lastProcessedTs =
-      ordered[ordered.length - 1]?.ts ?? Number.NEGATIVE_INFINITY;
+      ordered.length > 0
+        ? adapter.timestamp(ordered[ordered.length - 1])
+        : Number.NEGATIVE_INFINITY;
     firstEventRef = events[0] ?? null;
     boundaryEventRef = events[processedCount - 1] ?? null;
 
@@ -164,7 +218,7 @@ export function createIncrementalConversationBuilder() {
     // show that, so rebuild fully this frame (the persistent builder stays
     // valid for the next one).
     if (builder.lowestTouchedProgressIndex < activeStart) {
-      return buildConversationItems(events, isPromptPending, options);
+      return adapter.build(events, isPromptPending, options);
     }
 
     // `buildConversationItems` always marks a trailing implicit turn complete.

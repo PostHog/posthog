@@ -60,14 +60,7 @@ const IS_STATUS_SUGAR: Record<string, TaskRunStatus> = {
 
 const IS_FLAG_VALUES: ReadonlySet<string> = new Set(["archived", "pinned"]);
 
-export const PR_VALUES = [
-  "any",
-  "none",
-  "open",
-  "draft",
-  "merged",
-  "closed",
-] as const;
+const PR_VALUES = ["any", "none", "open", "draft", "merged", "closed"] as const;
 export type PrValue = (typeof PR_VALUES)[number];
 
 const PR_STATE_VALUES: ReadonlySet<string> = new Set([
@@ -101,7 +94,7 @@ const CI_ALIASES: Record<string, string> = {
 };
 
 // Keep unknown origins unchanged so new server-side enum values remain searchable.
-export const ORIGIN_ALIASES: Record<string, string> = {
+const ORIGIN_ALIASES: Record<string, string> = {
   desktop: "user_created",
   user: "user_created",
   scout: "signals_scout",

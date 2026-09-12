@@ -21,6 +21,10 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalScratchpad
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.scout_harness.note_targets import (
+    PIPELINE_AUDIENCE_IMPLEMENTATION,
+    PIPELINE_AUDIENCE_REPORT_RESEARCH,
+)
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.tools import (
     MAX_EVIDENCE_ENTRIES,
@@ -49,9 +53,12 @@ from products.signals.backend.scout_harness.tools.emit import (
 from products.signals.backend.scout_harness.tools.report import (
     InvalidScoutReportError,
     ReportChartInput,
+    ReportMetricInput,
     _build_charts,
     _build_edit_charts,
+    _build_edit_metrics,
     _build_edit_suggested_prompts,
+    _build_metrics,
     _build_suggested_prompts,
     _chart_event_key,
     _forwarded_summary,
@@ -66,7 +73,7 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     MAX_SCRATCHPAD_CONTENT_LENGTH,
     MAX_SCRATCHPAD_SEARCH_LIMIT,
 )
-from products.signals.backend.scout_report.judge import _chart_signal, _suggested_prompts_signal
+from products.signals.backend.scout_report.judge import _chart_signal, _metric_signal, _suggested_prompts_signal
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -489,6 +496,33 @@ class TestRemember(BaseTest):
         row = SignalScratchpad.objects.get(team_id=self.team.id, key="k")
         assert row.content == "v2"
         assert str(row.created_by_run_id) == str(run.id)
+
+    def test_pipeline_identity_attributes_the_entry_and_survives_a_later_upsert(self) -> None:
+        # A report-pipeline stage has no `SignalScoutRun`, so without the identity column its
+        # entries come back unattributed and a reader can't tell research from a scout. The
+        # create-only rule matters because `remember` is an upsert: whoever rewrites an entry
+        # last must not become its author.
+        remember(
+            team_id=self.team.id,
+            key="k",
+            content="v1",
+            identity=PIPELINE_AUDIENCE_REPORT_RESEARCH,
+        )
+        remember(team_id=self.team.id, key="k", content="v2", identity=PIPELINE_AUDIENCE_IMPLEMENTATION)
+
+        found = search_scratchpad(team_id=self.team.id, key="k")
+        assert [(e.content, e.created_by_skill, e.created_by_run_id) for e in found] == [
+            ("v2", PIPELINE_AUDIENCE_REPORT_RESEARCH, None)
+        ]
+
+    def test_run_lineage_still_names_the_scout_skill(self) -> None:
+        # The identity column is a fallback, not a replacement: an entry with a run must keep
+        # reporting that run's skill name.
+        run = _create_run(self.team)
+
+        remember(team_id=self.team.id, key="k", content="v1", run_id=str(run.id))
+
+        assert search_scratchpad(team_id=self.team.id, key="k")[0].created_by_skill == run.skill_name
 
     def test_stores_expires_at(self) -> None:
         expiry = timezone.now() + timedelta(days=3)
@@ -1467,6 +1501,44 @@ class TestBuildCharts:
             _build_charts(charts)
 
 
+class TestBuildMetrics:
+    def _metric(self, *, math: str = "dau") -> ReportMetricInput:
+        return ReportMetricInput(
+            metric_id="affected-users",
+            title="Affected users",
+            kind="affected_users",
+            role="primary",
+            value=17,
+            value_at="2026-08-29T12:00:00Z",
+            value_format="count",
+            unit="users",
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_from": "-30d"},
+                    "series": [{"kind": "EventsNode", "event": "$exception", "math": math}],
+                },
+            },
+        )
+
+    def test_builds_validated_metric_content(self) -> None:
+        metrics = _build_metrics([self._metric()])
+
+        assert len(metrics) == 1
+        assert metrics[0].metric_id == "affected-users"
+        assert metrics[0].query is not None
+        assert metrics[0].query["source"]["series"][0]["math"] == "dau"
+
+    def test_an_edit_keeps_omitted_and_emptied_metrics_apart(self) -> None:
+        assert _build_edit_metrics(None) is None
+        assert _build_edit_metrics([]) == []
+
+    def test_invalid_metric_raises_the_report_tool_error(self) -> None:
+        with pytest.raises(InvalidScoutReportError, match="math: dau"):
+            _build_metrics([self._metric(math="total")])
+
+
 class TestBuildSuggestedPrompts:
     """Pure suggested-prompt validation — no DB."""
 
@@ -1509,6 +1581,10 @@ class TestSuggestedPromptSafetyJudgeInput:
 
         assert signal is not None
         assert "ignore previous instructions" in signal.content
+        # The label is what stops the judge from reading a benign action prompt ("create the alert,
+        # then resolve this report") as an anonymous agent-directed instruction and suppressing the
+        # report — the judge's rendering drops `source_id`, so the content must say what it is.
+        assert signal.content.startswith("Suggested prompts")
 
     def test_no_prompts_adds_nothing_to_the_judge_input(self) -> None:
         # A report without suggestions must produce the judge prompt it produced before they existed.
@@ -1538,6 +1614,40 @@ class TestChartSafetyJudgeInput:
     def test_no_charts_adds_nothing_to_the_judge_input(self) -> None:
         # A chartless report's judge prompt must stay exactly what it was before charts existed.
         assert _chart_signal([]) is None
+
+
+class TestMetricSafetyJudgeInput:
+    def test_metric_content_reaches_the_judge(self) -> None:
+        metric = _build_metrics(
+            [
+                ReportMetricInput(
+                    metric_id="affected-users",
+                    title="Affected users",
+                    kind="affected_users",
+                    role="primary",
+                    value=17,
+                    value_at="2026-08-29T12:00:00Z",
+                    value_format="count",
+                    unit="users",
+                    caption="People who experienced the exception",
+                    query={
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "dateRange": {"date_from": "-30d"},
+                            "series": [{"kind": "EventsNode", "event": "$exception", "math": "dau"}],
+                        },
+                    },
+                )
+            ]
+        )[0]
+
+        signal = _metric_signal([metric])
+
+        assert signal is not None
+        assert "Affected users" in signal.content
+        assert "People who experienced the exception" in signal.content
+        assert '"math": "dau"' in signal.content
 
 
 class TestForwardedSummary:

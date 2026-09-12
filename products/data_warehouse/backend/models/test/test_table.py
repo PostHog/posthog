@@ -519,6 +519,26 @@ class TestTable(BaseTest):
 
     @parameterized.expand(
         [
+            ("backtick", "id`"),
+            ("backslash", "id\\"),
+            ("newline", "id\n"),
+            ("carriage_return", "id\r"),
+            ("null_byte", "id\0"),
+        ]
+    )
+    def test_get_columns_rejects_unquotable_column_names(self, _name: str, column_name: str):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
+        )
+
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [[column_name, "String"]]
+            with pytest.raises(Exception, match="PostHog can't use the column name"):
+                table.get_columns()
+
+    @parameterized.expand(
+        [
             ("get_columns", "id,Int64\n"),
             ("get_count", "42\n"),
         ]
@@ -632,7 +652,26 @@ class TestTable(BaseTest):
             [IntegerDatabaseField(name="id", nullable=False)],
         )
 
-    def test_hogql_definition_column_name_hyphen(self):
+    @parameterized.expand(
+        [
+            (
+                "hyphen",
+                "timestamp-dash",
+                "`id` String, `timestamp-dash` DateTime64(3, 'UTC')",
+            ),
+            (
+                "backtick_closing_the_identifier",
+                "x` String DEFAULT hostName(), y",
+                "`id` String, `x`` String DEFAULT hostName(), y` DateTime64(3, 'UTC')",
+            ),
+            (
+                "backslash",
+                "a\\b",
+                "`id` String, `a\\\\b` DateTime64(3, 'UTC')",
+            ),
+        ]
+    )
+    def test_hogql_definition_quotes_special_column_names(self, _name: str, column_name: str, expected_structure: str):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="bla",
@@ -641,15 +680,15 @@ class TestTable(BaseTest):
             team=self.team,
             columns={
                 "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-                "timestamp-dash": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                column_name: {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
             },
             credential=credential,
         )
 
         definition = table.hogql_definition()
         assert isinstance(definition, HogQLDataWarehouseTable)
-        assert list(definition.fields.keys()) == ["id", "timestamp-dash"]
-        assert definition.structure == "`id` String, `timestamp-dash` DateTime64(3, 'UTC')"
+        assert list(definition.fields.keys()) == ["id", column_name]
+        assert definition.structure == expected_structure
 
     def test_complex_type_with_array_nested_datetime_fields(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
@@ -948,12 +987,32 @@ class TestTable(BaseTest):
         result = remove_named_tuples("Array(Tuple(`1` String, `2` String, `3` Nullable(String)))")
         assert result == "Array(Tuple( String,  String,  Nullable(String)))"
 
-    def test_hogql_definition_tuple_with_backtick_positional_names(self):
+    @parameterized.expand(
+        [
+            # A parquet reader given element names matches the nested fields by name, so a renamed
+            # nested field comes back as an empty array. Positional matching still returns the data.
+            (
+                "parquet_stays_positional",
+                DataWarehouseTable.TableFormat.Parquet,
+                "`id` String, `deal_details` Array(Tuple( String,  String,  Nullable(String)))",
+            ),
+            # JSONEachRow has no positional reading of a nested object: without the names ClickHouse
+            # expects an array and every read of the table raises code 27.
+            (
+                "json_keeps_names",
+                DataWarehouseTable.TableFormat.JSON,
+                "`id` String, `deal_details` Array(Tuple(`1` String, `2` String, `3` Nullable(String)))",
+            ),
+        ]
+    )
+    def test_hogql_definition_tuple_element_names_follow_the_format(
+        self, _name: str, table_format: str, expected_structure: str
+    ):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="test_table",
             url_pattern="https://example.com",
-            format=DataWarehouseTable.TableFormat.Parquet,
+            format=table_format,
             team=self.team,
             columns={
                 "id": "String",
@@ -967,7 +1026,7 @@ class TestTable(BaseTest):
         )
         definition = table.hogql_definition()
         assert isinstance(definition, HogQLDataWarehouseTable)
-        assert definition.structure == "`id` String, `deal_details` Array(Tuple( String,  String,  Nullable(String)))"
+        assert definition.structure == expected_structure
 
     def assert_raises_with_invalid_hog_column_type(self, column_type):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)

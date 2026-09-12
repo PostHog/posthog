@@ -9,12 +9,16 @@ interface HogQLResponse {
   results?: unknown[];
   columns?: string[];
   error?: string | null;
+  last_refresh?: string | null;
 }
 
 export interface HogQLResult {
   columns: string[];
   /** Raw result rows from the query endpoint (each row is typically an array). */
   results: unknown[];
+  /** ISO time the returned result was computed, when the endpoint reports it —
+   * what callers judge cached-result freshness by. */
+  lastRefresh: string | null;
 }
 
 /**
@@ -31,55 +35,59 @@ export async function runQuery(
   query: Record<string, unknown>,
   opts?: { refresh?: string },
 ): Promise<HogQLResult> {
+  const body = await postQuery(authService, query, opts?.refresh);
+  return {
+    columns: Array.isArray(body.columns) ? body.columns.map(String) : [],
+    results: Array.isArray(body.results) ? body.results : [],
+    lastRefresh:
+      typeof body.last_refresh === "string" ? body.last_refresh : null,
+  };
+}
+
+/**
+ * Read a query's CACHED result without ever computing (`refresh: "force_cache"`).
+ * Returns null on a cache miss — the endpoint answers a miss with no `results`
+ * key at all, which is distinct from a computed-but-empty `results: []`.
+ */
+export async function readCachedQuery(
+  authService: AuthService,
+  query: Record<string, unknown>,
+): Promise<HogQLResult | null> {
+  const body = await postQuery(authService, query, "force_cache");
+  if (!Array.isArray(body.results)) return null;
+  return {
+    columns: Array.isArray(body.columns) ? body.columns.map(String) : [],
+    results: body.results,
+    lastRefresh:
+      typeof body.last_refresh === "string" ? body.last_refresh : null,
+  };
+}
+
+async function postQuery(
+  authService: AuthService,
+  query: Record<string, unknown>,
+  refresh: string | undefined,
+): Promise<HogQLResponse> {
   const { apiHost } = await authService.getValidAccessToken();
   const projectId = authService.getState().currentProjectId;
   if (projectId == null) {
     throw new Error("No PostHog project selected");
   }
-
   const response = await authService.authenticatedFetch(
     fetch,
     `${apiHost}/api/projects/${projectId}/query/`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query,
-        ...(opts?.refresh ? { refresh: opts.refresh } : {}),
-      }),
+      body: JSON.stringify({ query, ...(refresh ? { refresh } : {}) }),
     },
   );
-
   if (!response.ok) {
     throw new Error(`Query failed (${response.status})`);
   }
   const body = (await response.json()) as HogQLResponse;
   if (body.error) throw new Error(body.error);
-
-  return {
-    columns: Array.isArray(body.columns) ? body.columns.map(String) : [],
-    results: Array.isArray(body.results) ? body.results : [],
-  };
-}
-
-/**
- * Run an inline HogQL string. A thin wrapper over {@link runQuery} that boxes the
- * SQL into a HogQLQuery node — the escape hatch for shapes a typed node can't
- * express. Prefer a typed node (TrendsQuery/etc.) for standard metrics.
- */
-export async function runHogQLQuery(
-  authService: AuthService,
-  hogql: string,
-  opts?: { refresh?: string },
-): Promise<HogQLResult> {
-  // `tags.productKey` attributes the query to a product so PostHog's
-  // query-tagging guard is satisfied (it hard-fails untagged ClickHouse queries
-  // in local dev). The desktop canvas/dashboard surfaces are the "max" product.
-  return runQuery(
-    authService,
-    { kind: "HogQLQuery", query: hogql, tags: { productKey: "max" } },
-    opts,
-  );
+  return body;
 }
 
 /** A saved insight's stored result, fetched by short id. */

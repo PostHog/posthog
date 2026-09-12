@@ -160,15 +160,44 @@ describe('CDP API', () => {
         expect(res.status).toEqual(404)
     })
 
-    it('errors if missing values', async () => {
+    it.each([
+        ['nothing at all', {}],
+        ['an empty clickhouse_event', { clickhouse_event: {} }],
+        ['a clickhouse_event with no timestamp', { clickhouse_event: { event: '$pageview' } }],
+        ['a clickhouse_event with a numeric timestamp', { clickhouse_event: { event: '$pageview', timestamp: 1 } }],
+        [
+            'a clickhouse_event with an unparseable timestamp',
+            { clickhouse_event: { event: '$pageview', timestamp: 'not-a-date' } },
+        ],
+    ])('errors if the body carries %s', async (_name, body) => {
         const res = await supertest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
-            .send({})
+            .send(body)
 
         expect(res.status).toEqual(400)
         expect(res.body).toEqual({
             error: 'Missing event',
         })
+    })
+
+    it('still converts a clickhouse_event that has a timestamp but no event name', async () => {
+        const res = await supertest(app)
+            .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+            .send({
+                clickhouse_event: { uuid: new UUIDT().toString(), timestamp: '2021-09-28 14:00:00.000' },
+                mock_async_functions: true,
+            })
+
+        expect(res.status).toEqual(200)
+    })
+
+    it('uses the given globals when clickhouse_event carries no event', async () => {
+        const res = await supertest(app)
+            .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+            .send({ globals, clickhouse_event: {}, mock_async_functions: true })
+
+        expect(res.status).toEqual(200)
+        expect(res.body.errors).toEqual([])
     })
 
     it("does not error if hog function is 'new'", async () => {
@@ -993,6 +1022,67 @@ describe('CDP API', () => {
                 }
             }
         )
+
+        const slackMessageFlowConfiguration = {
+            id: 'slack-message-flow',
+            team_id: 0,
+            name: 'Slack message flow',
+            actions: [
+                {
+                    id: 'trigger_node',
+                    name: 'Trigger',
+                    type: 'trigger',
+                    config: {
+                        type: 'internal-event',
+                        filters: {
+                            source: 'internal-events',
+                            events: [{ id: '$slack_message_received', type: 'events' }],
+                            properties: [{ key: 'channel', value: 'C0ALERTS', operator: 'exact', type: 'event' }],
+                            // properties.channel == 'C0ALERTS'
+                            bytecode: ['_H', 1, 32, 'C0ALERTS', 32, 'channel', 32, 'properties', 1, 2, 11],
+                        },
+                    },
+                },
+                { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+            ],
+            edges: [{ from: 'trigger_node', to: 'exit_node', type: 'continue' }],
+        }
+
+        it.each([
+            ['skips a non-slack event', '$pageview', 'skipped', null],
+            ['passes a matching slack message', '$slack_message_received', 'success', 'exit_node'],
+        ])(
+            '%s against a Slack-connected internal-event trigger',
+            async (_, eventName, expectedStatus, expectedNextActionId) => {
+                const res = await supertest(app)
+                    .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                    .send({
+                        globals: {
+                            ...globals,
+                            event: {
+                                ...globals.event!,
+                                event: eventName,
+                                properties: { channel: 'C0ALERTS', text: 'deploy failed' },
+                            },
+                        },
+                        mock_async_functions: true,
+                        configuration: { ...slackMessageFlowConfiguration, team_id: team.id },
+                    })
+
+                expect(res.status).toEqual(200)
+                expect(res.body.status).toEqual(expectedStatus)
+                expect(res.body.nextActionId).toEqual(expectedNextActionId)
+                if (expectedStatus === 'skipped') {
+                    expect(res.body.logs).toEqual(
+                        expect.arrayContaining([
+                            expect.objectContaining({
+                                message: expect.stringContaining('would not trigger this workflow'),
+                            }),
+                        ])
+                    )
+                }
+            }
+        )
     })
 
     describe('hogflow wait_until_condition test invocations', () => {
@@ -1246,13 +1336,62 @@ describe('CDP API', () => {
                     .post(
                         `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-791`
                     )
-                    .send({ filters: { properties: snapshotProperties } })
+                    .send({ filters: { properties: snapshotProperties, assignment_status: 'assigned' } })
 
                 expect(res.status).toEqual(200)
                 const arg = createJobMock.mock.calls[0][0]
                 const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
                 expect(state.filters.properties).toEqual(snapshotProperties)
+                expect(state.filters.assignment_status).toEqual('assigned')
+                expect(state.filters.all_roles_unassigned).toBeUndefined()
                 expect(state.filters.properties).not.toEqual((batchHogFlow as any).trigger.filters.properties)
+            } finally {
+                api['batchResolverProducer'] = null
+            }
+        })
+
+        it('takes the whole assignment filter from the snapshot instead of one key at a time', async () => {
+            // A snapshot saved before assignment statuses existed carries assignee ids and no status.
+            // If the status came off the live trigger instead, Django would reject 'unassigned'
+            // paired with those ids and the run would fail.
+            const statusFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test batch hog flow with an assignment status',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'batch',
+                    filters: {
+                        audience_type: 'accounts',
+                        properties: [],
+                        assignment_status: 'unassigned',
+                        assigned_to_user_ids: [],
+                    },
+                },
+            })
+
+            const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+            api['batchResolverProducer'] = {
+                createJob: createJobMock,
+                countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
+                rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
+                disconnect: jest.fn().mockResolvedValue(undefined),
+            }
+
+            try {
+                const res = await supertest(app)
+                    .post(`/api/projects/${statusFlow.team_id}/hog_flows/${statusFlow.id}/batch_invocations/job-792`)
+                    .send({ filters: { audience_type: 'accounts', properties: [], assigned_to_user_ids: [7] } })
+
+                expect(res.status).toEqual(200)
+                const arg = createJobMock.mock.calls[0][0]
+                const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
+                expect(state.filters.assigned_to_user_ids).toEqual([7])
+                expect(state.filters.assignment_status).toBeUndefined()
             } finally {
                 api['batchResolverProducer'] = null
             }
@@ -2049,6 +2188,7 @@ describe('CDP API', () => {
                         capturedPostHogEvents: [],
                         warehouseWebhookPayloads: [],
                         messageAssets: [],
+                        conversionWatchers: [],
                     })
                 )
         })

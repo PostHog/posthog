@@ -36,6 +36,10 @@ export type GitHubRepositoryPickerProps = {
     value: string
     onChange: (value: string) => void
     className?: string
+    /** Which repo field the picker stores and returns. Default 'name' keeps existing callers'
+     * stored short names working; 'full_name' is for callers matching a webhook delivery's
+     * "owner/repo" property, which carries no owner otherwise. */
+    valueKey?: 'name' | 'full_name'
 }
 
 export const GitHubRepositoryPicker = ({
@@ -43,8 +47,9 @@ export const GitHubRepositoryPicker = ({
     onChange,
     integrationId,
     className,
+    valueKey,
 }: GitHubRepositoryPickerProps): JSX.Element => {
-    const { options, loading } = useRepositories(integrationId)
+    const { options, loading } = useRepositories(integrationId, { valueKey })
 
     return (
         <LemonInputSelect
@@ -154,7 +159,10 @@ function RepoOptionLabel({ repo }: { repo: GitHubRepoApi }): JSX.Element {
     )
 }
 
-export function useRepositories(integrationId: number): { options: LemonInputSelectOption[]; loading: boolean } {
+export function useRepositories(
+    integrationId: number,
+    { valueKey = 'name' }: { valueKey?: 'name' | 'full_name' } = {}
+): { options: LemonInputSelectOption[]; loading: boolean } {
     const logic = githubIntegrationLogic({ id: integrationId })
     const { repositories, repositoriesLoading } = useValues(logic)
     const { loadRepositories } = useActions(logic)
@@ -168,8 +176,8 @@ export function useRepositories(integrationId: number): { options: LemonInputSel
             // Most-recently-pushed first so the repo the user is working in floats to the top.
             [...repositories]
                 .sort((a, b) => pushedAtMs(b.pushed_at) - pushedAtMs(a.pushed_at))
-                .map((r) => ({ key: r.name, label: r.full_name, labelComponent: <RepoOptionLabel repo={r} /> })),
-        [repositories]
+                .map((r) => ({ key: r[valueKey], label: r.full_name, labelComponent: <RepoOptionLabel repo={r} /> })),
+        [repositories, valueKey]
     )
 
     return { options, loading: repositoriesLoading }

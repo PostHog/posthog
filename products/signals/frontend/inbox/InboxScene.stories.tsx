@@ -19,6 +19,7 @@ import {
     mockTask,
     mockTeamConfig,
     pullRequestReports,
+    reportTabReports,
 } from './__mocks__/inboxMocks'
 import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns } from './__mocks__/scoutConfigs'
 import { InboxScene } from './InboxScene'
@@ -57,6 +58,8 @@ const sceneMocks = mswDecorator({
             200,
             { report: null, signals: mockSignals(req.params.reportId as string, 4) },
         ],
+        // Must precede the `:taskId` handler, which would otherwise swallow this path.
+        '/api/projects/:id/tasks/repo_routing_rules/': () => [200, []],
         '/api/projects/:id/tasks/:taskId': (req) => [200, mockTask(req.params.taskId as string)],
         '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
         '/api/projects/:id/signals/config': () => [200, mockTeamConfig],
@@ -90,6 +93,26 @@ export default meta
 type Story = StoryObj
 
 export const Inbox: Story = {}
+
+function reportWithEvidenceItems(count: number): Story {
+    return {
+        decorators: [
+            routeTo(urls.inboxReport('reports', reportTabReports[0].id)),
+            mswDecorator({
+                get: {
+                    '/api/projects/:id/signals/reports/:reportId/signals': (req) => [
+                        200,
+                        { report: null, signals: mockSignals(req.params.reportId as string, count) },
+                    ],
+                },
+            }),
+        ],
+    }
+}
+
+export const ReportWithManyEvidenceItems: Story = reportWithEvidenceItems(12)
+export const ReportWithTwoEvidenceItems: Story = reportWithEvidenceItems(2)
+export const ReportWithoutEvidence: Story = reportWithEvidenceItems(0)
 
 // Triage mode over the Needs-a-decision queue: one report at a time, keyboard-driven.
 export const Triage: Story = {
@@ -210,30 +233,8 @@ export const InstallingSelfDriving: Story = {
     ],
 }
 
-// Fresh project: nothing watching and nothing in the inbox → the single-command takeover.
+// Fresh project: nothing watching and nothing in the inbox → the full-pane welcome page (no tab row).
 export const SelfDrivingOnboarding: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
-                '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
-                '/api/projects/:id/signals/scout/configs': () => [200, []],
-            },
-        }),
-    ],
-}
-
-// The same fresh-project state with the welcome-redesign experiment's test arm pinned → the
-// full-pane hero welcome (no tab row) instead of the locked "Welcome" tab.
-export const SelfDrivingOnboardingRedesign: Story = {
-    parameters: {
-        // Story parameters replace the meta's, so the meta-level flag is re-listed here.
-        featureFlags: {
-            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
-            [FEATURE_FLAGS.INBOX_WELCOME_REDESIGN]: 'test',
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-        },
-    },
     decorators: [
         mswDecorator({
             get: {

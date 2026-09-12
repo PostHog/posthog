@@ -1,108 +1,232 @@
 """Resolve implementation PR URLs linked to signal reports."""
 
-from dataclasses import dataclass
-from typing import Literal, cast
+import re
+from dataclasses import replace
+from datetime import datetime
+from typing import TYPE_CHECKING, Literal, cast
+from uuid import NAMESPACE_URL, uuid5
 
 from django.db.models import Q
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
-from products.signals.backend.models import SignalReport
-from products.signals.backend.task_run_artefacts import (
-    NON_PR_BEARING_TASK_RUN_TYPES,
-    SIGNALS_PRODUCT,
-    TASK_RUN_TYPE_IMPLEMENTATION,
+from products.signals.backend.models import (
+    SignalActorKind,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportAssignment,
+    SignalReportPullRequest,
 )
+from products.signals.backend.task_run_artefacts import NON_PR_BEARING_TASK_RUN_TYPES, SIGNALS_PRODUCT
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
-@dataclass(frozen=True)
+# A report in one of these statuses is finished with its pull request. Anything else still holds
+# it open — a status this list doesn't know about keeps the PR, which is the safe direction.
+_FINISHED_REPORT_STATUSES = frozenset(
+    {SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED, SignalReport.Status.DELETED}
+)
+
+
+@frozen
 class ImplementationPr:
-    """The one implementation PR surfaced for a report, and whether the webhook saw it merge."""
+    """The implementation PR surfaced for a report and its latest known state."""
 
     url: str
     merged: bool
+    state: str = SignalReportAssignment.PrState.UNKNOWN
+    task_id: str | None = None
+    actor_kind: str | None = None
+    id: str | None = None
+    claim_id: str | None = None
+    attached_at: datetime | None = None
+    attached_by_user: "User | None" = None
+    agent_name: str | None = None
 
 
-def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str, ImplementationPr]:
-    """The implementation PR surfaced for each report, with its merge state, when one exists.
-
-    The task↔report association comes from `SignalReport.associated_task_runs_for_reports` (the
-    unified view of the `task_run` artefact log + legacy gate rows, batched over the whole page);
-    the facade then resolves the latest PR-bearing run for each task, so multiple runs of a task
-    collapse to the newest PR.
-
-    Every code-shipping signals task associated with the report is a candidate, not just the `implementation`
-    ones: a task started from the inbox's "Discuss" button runs the same agent against the same
-    repo, so it can push a branch and open a PR too, and that PR is the report's PR as much as an
-    auto-started one is. Implementation tasks are still consulted first, so a report that has both
-    surfaces exactly what it surfaced before.
-
-    Research, repo-selection, and scout runs are never candidates (`NON_PR_BEARING_TASK_RUN_TYPES`):
-    they read other people's PRs while checking for in-flight work, and a PR URL recorded on one of
-    them is a PR the agent saw, not one it opened. Surfacing it would label a stranger's PR as the
-    report's, and `close_implementation_pr_for_report` would then close it on dismissal.
-
-    A report can be associated with several tasks (retries, plus any discussion), but only one PR is
-    surfaced — the first candidate that has one. The merge flag is read from *that* task, so the URL
-    and its state always describe the same PR. Reading them independently would let a retry's merged
-    PR vouch for a different PR's URL.
-    """
+def fetch_implementation_prs_for_reports(report_ids: list[str], *, team_id: int) -> dict[str, list[ImplementationPr]]:
     if not report_ids:
         return {}
-
-    # (report_id, task_id) for each report's signals task(s); signals owns this mapping.
-    # Batched across the whole page so association costs two queries, not two per report (N+1).
-    runs_by_report = SignalReport.associated_task_runs_for_reports(
-        report_ids=[str(report_id) for report_id in report_ids],
-        product=SIGNALS_PRODUCT,
-    )
-    pairs: list[tuple[str, str]] = [
-        (report_id, run.task_id)
-        for report_id, runs in runs_by_report.items()
-        # Stable sort, so implementation tasks lead and each group keeps its oldest-first order.
-        for run in sorted(runs, key=lambda run: run.type != TASK_RUN_TYPE_IMPLEMENTATION)
-        if run.type not in NON_PR_BEARING_TASK_RUN_TYPES
+    report_ids = [
+        str(pk) for pk in SignalReport.objects.filter(team_id=team_id, id__in=report_ids).values_list("id", flat=True)
     ]
-    if not pairs:
+    if not report_ids:
         return {}
+    result: dict[str, list[ImplementationPr]] = {}
+    seen: set[tuple[str, str]] = set()
+    links = (
+        SignalReportArtefact.objects.filter(
+            team_id=team_id,
+            report_id__in=report_ids,
+            pull_request__isnull=False,
+            type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+        )
+        .select_related("pull_request", "created_by")
+        .order_by("created_at", "id")
+    )
+    for link in links:
+        linked_pr = link.pull_request
+        if linked_pr is None or linked_pr.team_id != link.team_id:
+            continue
+        key = (str(link.report_id), str(linked_pr.id))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.setdefault(str(link.report_id), []).append(
+            ImplementationPr(
+                id=str(linked_pr.id),
+                url=linked_pr.url,
+                state=linked_pr.state,
+                merged=linked_pr.state == "merged",
+                task_id=str(link.task_id) if link.task_id else None,
+                actor_kind=link.actor_kind,
+                claim_id=str(link.claim_id) if link.claim_id else None,
+                attached_at=link.created_at,
+                attached_by_user=link.created_by,
+                agent_name=link.actor_agent,
+            )
+        )
+    assignments = list(
+        SignalReportAssignment.objects.for_team(team_id).filter(report_id__in=report_ids).select_related("actor_user")
+    )
+    runs = SignalReport.associated_task_runs_for_reports(
+        report_ids=report_ids, team_id=team_id, product=SIGNALS_PRODUCT
+    )
+    tasks_by_report = {
+        report_id: {
+            str(run.task_id)
+            for run in report_runs
+            if run.type not in NON_PR_BEARING_TASK_RUN_TYPES and not run.type.startswith("scout:")
+        }
+        for report_id, report_runs in runs.items()
+    }
+    for assignment in assignments:
+        report_id = str(assignment.report_id)
+        if assignment.pr_url:
+            result.setdefault(report_id, []).append(
+                ImplementationPr(
+                    url=assignment.pr_url,
+                    state="merged" if assignment.pr_merged else assignment.pr_state or "unknown",
+                    merged=assignment.pr_merged,
+                    task_id=str(assignment.actor_task_id) if assignment.actor_task_id else None,
+                    actor_kind=assignment.actor_kind,
+                    attached_by_user=assignment.actor_user,
+                    agent_name=assignment.actor_agent,
+                )
+            )
+        if assignment.actor_task_id:
+            tasks_by_report.setdefault(report_id, set()).add(str(assignment.actor_task_id))
+    task_prs = tasks_facade.get_pull_requests_for_tasks(
+        team_id, set().union(*tasks_by_report.values()) if tasks_by_report else set(), pr_bearing_task_run_filter()
+    )
+    for report_id, task_ids in tasks_by_report.items():
+        for task_id in sorted(task_ids):
+            for task_pr in task_prs.get(task_id, []):
+                state = task_pr.state if task_pr.state in SignalReportPullRequest.State.values else "unknown"
+                result.setdefault(report_id, []).append(
+                    ImplementationPr(
+                        url=task_pr.url,
+                        state=state,
+                        merged=state == "merged",
+                        task_id=task_id,
+                        actor_kind=SignalActorKind.TASK,
+                    )
+                )
+    combined: dict[str, list[ImplementationPr]] = {}
+    for report_id, prs in result.items():
+        identities: set[tuple[str, int]] = set()
+        for pr in prs:
+            parsed = GitHubIntegrationBase.parse_pull_request_url(pr.url)
+            if parsed is None:
+                continue
+            identity = (parsed.repository.lower(), parsed.number)
+            if identity in identities:
+                continue
+            identities.add(identity)
+            if pr.id is None:
+                pr = replace(pr, id=str(uuid5(NAMESPACE_URL, f"signals:{team_id}:{identity[0]}:{identity[1]}")))
+            combined.setdefault(report_id, []).append(pr)
+    return combined
 
-    task_ids = [task_id for _, task_id in pairs]
-    pr_url_by_task = tasks_facade.get_latest_pr_url_by_task(task_ids)
-    merged_task_ids = tasks_facade.get_merged_pr_task_ids(task_ids)
 
-    result: dict[str, ImplementationPr] = {}
-    for report_id, task_id in pairs:
-        pr_url = pr_url_by_task.get(task_id)
-        if pr_url and report_id not in result:
-            result[report_id] = ImplementationPr(url=pr_url, merged=task_id in merged_task_ids)
-    return result
+def pull_request_matches_id(pr: ImplementationPr, requested_id: str, team_id: int) -> bool:
+    if pr.id == requested_id:
+        return True
+    parsed = GitHubIntegrationBase.parse_pull_request_url(pr.url)
+    return parsed is not None and requested_id == str(
+        uuid5(NAMESPACE_URL, f"signals:{team_id}:{parsed.repository.lower()}:{parsed.number}")
+    )
+
+
+def primary_pull_request(prs: list[ImplementationPr]) -> ImplementationPr:
+    return min(prs, key=lambda pr: ({"merged": 1, "closed": 2}.get(pr.state, 0), pr.url.lower()))
+
+
+def fetch_implementation_pr_state_for_reports(report_ids: list[str], *, team_id: int) -> dict[str, ImplementationPr]:
+    # Older clients show one PR. Prefer unfinished work so one merged stack layer cannot hide it.
+    return {
+        report_id: primary_pull_request(prs)
+        for report_id, prs in fetch_implementation_prs_for_reports(report_ids, team_id=team_id).items()
+    }
 
 
 def pr_bearing_task_run_filter() -> Q:
-    """SQL counterpart of the `NON_PR_BEARING_TASK_RUN_TYPES` exclusion, as a `Q` on `tasks.TaskRun`.
-
-    The run type lives in artefact JSON the SQL path deliberately doesn't cast, so this keys on the
-    `state.ai_stage` stamp the pipeline writes at run creation, which carries the same names
-    (`research`, `repo_selection`, `scout:<skill>`). Runs without a stamp pass, matching the Python
-    path, where an unlabelled legacy association is a candidate.
-    """
     return Q(state__ai_stage__isnull=True) | (
         ~Q(state__ai_stage__in=sorted(NON_PR_BEARING_TASK_RUN_TYPES)) & ~Q(state__ai_stage__startswith="scout:")
     )
 
 
-def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str, str]:
-    """PR URL from the latest PR-bearing task run for each report, when available."""
-    return {report_id: pr.url for report_id, pr in fetch_implementation_pr_state_for_reports(report_ids).items()}
+def fetch_implementation_pr_urls_for_reports(report_ids: list[str], *, team_id: int) -> dict[str, str]:
+    return {
+        report_id: pr.url
+        for report_id, pr in fetch_implementation_pr_state_for_reports(report_ids, team_id=team_id).items()
+    }
 
 
-PrCloseReason = Literal["suppressed", "snoozed"]
+def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number: int) -> list[str]:
+    # Narrow by task output before resolving reports so webhooks do not scan the whole inbox.
+    owner, repo = repository.split("/", 1)
+    url_body = rf'[^:"]+://(www\.)?github\.com/+{re.escape(owner)}/+{re.escape(repo)}/+pull/+0*{pr_number}'
+    url_pattern = rf"^{url_body}([/?#]|$)"
+    array_url_pattern = rf'"{url_body}([/?#"]|$)'
+    task_ids = tasks_facade.task_ids_with_pr_url_subquery(
+        team_id,
+        pr_bearing_task_run_filter(),
+        Q(output__pr_url__iregex=url_pattern) | Q(output__pr_urls__iregex=array_url_pattern),
+    )
+    candidates = SignalReport.objects.filter(team_id=team_id).filter(
+        Q(
+            artefacts__pull_request__repository__iexact=repository,
+            artefacts__pull_request__number=pr_number,
+            artefacts__pull_request__team_id=team_id,
+        )
+        | Q(assignment__repository__iexact=repository, assignment__pr_number=pr_number)
+        | SignalReport.reports_for_task_ids_filter(task_ids, team_id=team_id)
+    )
+    prs = fetch_implementation_prs_for_reports(
+        [str(report_id) for report_id in candidates.values_list("id", flat=True).distinct()], team_id=team_id
+    )
+    return [
+        report_id
+        for report_id, report_prs in prs.items()
+        if any(
+            (parsed := GitHubIntegrationBase.parse_pull_request_url(pr.url)) is not None
+            and parsed.repository.lower() == repository.lower()
+            and parsed.number == pr_number
+            for pr in report_prs
+        )
+    ]
+
+
+PrCloseReason = Literal["suppressed", "snoozed", "resolved"]
 
 # Left on the PR before it's closed, so anyone looking at the PR sees why it was closed and how to undo it.
 _PR_CLOSE_COMMENT_TEMPLATE = (
@@ -113,17 +237,23 @@ _PR_CLOSE_COMMENTS: dict[PrCloseReason, str] = {
     reason: _PR_CLOSE_COMMENT_TEMPLATE.format(action=reason)
     for reason in cast(tuple[PrCloseReason, ...], ("suppressed", "snoozed"))
 }
+# A resolved report never reopens, so the undo advice above does not apply to it.
+_PR_CLOSE_COMMENTS["resolved"] = (
+    "🔕 Closing this PR because the linked PostHog report was resolved without it.\n\n"
+    "If that wasn't intended, reopen this PR."
+)
 
 
-def close_implementation_pr_for_report(
+def _close_implementation_pr(
     team_id: int,
     report_id: str,
     *,
     reason: PrCloseReason = "suppressed",
+    pr: ImplementationPr,
 ) -> bool:
-    """Best-effort: comment on and close the GitHub PR opened for this report's implementation task.
+    """Best-effort: comment on and close the GitHub PR attached to this report.
 
-    Called when a report is suppressed or snoozed — the open PR shouldn't linger. Only acts on a PR
+    Called when a report is suppressed, snoozed, or resolved without its PR — the open PR shouldn't linger. Only acts on a PR
     that is still open: an already-closed or merged PR is left untouched (no comment, no close), so
     we never leave a confusing "closing this PR" note on a PR that shipped months ago. Leaves an
     explanatory comment, then closes the PR. Returns True when the PR was closed, False when there
@@ -131,13 +261,44 @@ def close_implementation_pr_for_report(
     must succeed regardless.
     """
     try:
-        pr_url = fetch_implementation_pr_urls_for_reports([str(report_id)]).get(str(report_id))
-        if not pr_url:
+        if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
             return False
+        if pr.actor_kind not in {SignalActorKind.TASK, SignalActorKind.SYSTEM}:
+            logger.info(
+                "close_implementation_pr_untrusted_actor",
+                report_id=str(report_id),
+                actor_kind=pr.actor_kind,
+            )
+            return False
+        pr_url = pr.url
 
         parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
         if parsed is None:
             logger.warning("close_implementation_pr_unparseable_url", report_id=str(report_id), pr_url=pr_url)
+            return False
+
+        from products.signals.backend.report_assignments import update_assignments_for_pull_request
+
+        # One pull request can back several reports. Closing it for one dismissal would close the
+        # work the others still depend on, and the close webhook would then suppress them too, so
+        # only the last report still using it closes it.
+        still_used_elsewhere = (
+            SignalReport.objects.filter(
+                team_id=team_id,
+                id__in=report_ids_for_implementation_pr(
+                    team_id=team_id, repository=parsed.repository, pr_number=parsed.number
+                ),
+            )
+            .exclude(id=report_id)
+            .exclude(status__in=_FINISHED_REPORT_STATUSES)
+            .exists()
+        )
+        if still_used_elsewhere:
+            logger.info(
+                "close_implementation_pr_still_used_by_another_report",
+                report_id=str(report_id),
+                pr_url=pr_url,
+            )
             return False
 
         github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
@@ -161,6 +322,13 @@ def close_implementation_pr_for_report(
                 status_code=pr_status.get("status_code"),
             )
             return False
+        if pr_status.get("merged") or pr_status.get("state") == "closed":
+            update_assignments_for_pull_request(
+                team_ids=[team_id],
+                repository=parsed.repository,
+                pr_number=parsed.number,
+                pr_state="merged" if pr_status.get("merged") else "closed",
+            )
         if pr_status.get("state") != "open" or pr_status.get("merged"):
             logger.info(
                 "close_implementation_pr_not_open",
@@ -171,7 +339,7 @@ def close_implementation_pr_for_report(
             )
             return False
 
-        # Explain first, close second — a failed comment shouldn't stop the close.
+        # Explain first, close second. A failed comment should not stop the close.
         comment_outcome = github.comment_on_pull_request(parsed.repository, parsed.number, _PR_CLOSE_COMMENTS[reason])
         if not comment_outcome.get("success"):
             logger.warning(
@@ -192,7 +360,29 @@ def close_implementation_pr_for_report(
                 status_code=outcome.get("status_code"),
             )
             return False
+        # Closing a merged pull request is a no-op that still reports success, so a merge that landed
+        # during the round trip must keep its state. A merge is terminal: no later webhook would
+        # correct a downgrade here.
+        update_assignments_for_pull_request(
+            team_ids=[team_id],
+            repository=parsed.repository,
+            pr_number=parsed.number,
+            pr_state="closed",
+        )
         return True
     except Exception:
         logger.exception("close_implementation_pr_unexpected_error", report_id=str(report_id))
+        return False
+
+
+def close_implementation_pr_for_report(team_id: int, report_id: str, *, reason: PrCloseReason = "suppressed") -> bool:
+    try:
+        if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
+            return False
+        closed = False
+        for pr in fetch_implementation_prs_for_reports([str(report_id)], team_id=team_id).get(str(report_id), []):
+            closed = _close_implementation_pr(team_id, report_id, reason=reason, pr=pr) or closed
+        return closed
+    except Exception:
+        logger.exception("close_implementation_pr_lookup_failed", report_id=str(report_id))
         return False

@@ -1,7 +1,7 @@
 from datetime import timedelta
 
+import time_machine
 import unittest.mock
-from freezegun import freeze_time
 
 from django.db.models import Q
 from django.test import TestCase, override_settings
@@ -35,7 +35,7 @@ class TestOAuthTokenCleanup(TestCase):
             algorithm="RS256",
         )
 
-    @freeze_time("2023-01-15 02:00:00")
+    @time_machine.travel("2023-01-15 02:00:00", tick=False)
     def test_oauth_cleanup_job_with_real_tokens(self):
         expired_time = timezone.now() - timedelta(days=95)  # Beyond retention period
         OAuthAccessToken.objects.create(

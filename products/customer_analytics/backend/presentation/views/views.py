@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import builtins
 from dataclasses import asdict
+from functools import cached_property
 from typing import Any, cast
 from uuid import UUID
 
@@ -37,17 +38,20 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
+from posthog.auth import SessionAuthentication
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
     PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
     is_service_auth,
 )
@@ -66,6 +70,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountEmailThreadSerializer,
     AccountNotebookSerializer,
     AccountNoteSerializer,
+    AccountPresenceViewerSerializer,
     AccountRelationshipDefinitionSerializer,
     AccountRelationshipSerializer,
     AccountRelationshipWriteSerializer,
@@ -74,6 +79,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountTrackRuleRunRequestSerializer,
     AccountTrackRuleRunSerializer,
     AccountTrackRulesConfigSerializer,
+    CalendarSyncBackfillSerializer,
     CalendarSyncStatusSerializer,
     CalendarSyncTriggerResponseSerializer,
     CalendarSyncTriggerSerializer,
@@ -107,9 +113,10 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     MeetingSerializer,
     SupportTicketMessageSerializer,
     SupportTicketSerializer,
+    UserCustomerAnalyticsConfigSerializer,
+    UserCustomerAnalyticsConfigUpdateSerializer,
 )
-
-from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
+from products.notebooks.backend.facade.content import build_markdown_notebook_content
 
 # Object-level access levels for the resource ViewSets, matching what
 # ``AccessControlPermission._get_required_access_level`` derives for these scope objects:
@@ -120,20 +127,18 @@ _OBJECT_WRITE_LEVEL = "editor"
 _ICON_DOMAIN_VALIDATOR = DomainNameValidator(accept_idna=False)
 
 
-# The warehouse resources a person/group-property source can bind to: the import source behind a
-# table, or a materialized view. Each needs its own API-token scope folded into the object check.
-_WAREHOUSE_SCOPE_GATED_RESOURCES = frozenset({"external_data_source", "warehouse_view"})
+# Custom-property responses can include metadata from these resources. Token scopes must apply even
+# though the endpoint itself is authorized as an account resource.
+_SCOPE_GATED_RESOURCES = frozenset({"external_data_source", "warehouse_view", "hog_flow"})
 
 
-class _WarehouseScopeGatedAccessControl:
-    """Wraps ``UserAccessControl`` so object-level warehouse access additionally requires the request
-    token to carry the matching scope for that resource (``read`` for viewer, ``write`` for editor) —
-    ``external_data_source`` for a table binding, ``warehouse_view`` for a view binding.
-    Person-property sources gate all warehouse read/write through ``check_access_level_for_object`` on
-    the bound warehouse object, so folding the token scope in here enforces the cross-resource scope on
-    every path without threading it through the facade. Session auth (no token scopes) and ``*`` tokens
-    are unaffected — API scopes never gate session requests, which stay RBAC-only. Everything else
-    delegates to the wrapped instance."""
+class _ScopeGatedAccessControl:
+    """Wraps ``UserAccessControl`` so cross-resource reads require the matching token scope.
+
+    Custom-property sources and workflow references resolve through object access checks and queryset
+    filtering. Applying token scopes here keeps those secondary resources from leaking through an
+    account-scoped endpoint. Session auth and ``*`` tokens keep the wrapped access-control behavior.
+    """
 
     def __init__(self, inner: UserAccessControl, token_scopes: list[str]) -> None:
         self._inner = inner
@@ -143,27 +148,31 @@ class _WarehouseScopeGatedAccessControl:
         return getattr(self._inner, name)
 
     def check_access_level_for_object(self, obj: Any, required_level: Any, *args: Any, **kwargs: Any) -> bool:
-        if self._token_lacks_scope_for(obj, required_level):
+        if self._token_lacks_scope_for_resource(model_to_resource(obj), required_level):
             return False
         return self._inner.check_access_level_for_object(obj, required_level, *args, **kwargs)
 
-    def _token_lacks_scope_for(self, obj: Any, required_level: Any) -> bool:
+    def filter_queryset_by_access_level(self, queryset: Any, *args: Any, **kwargs: Any) -> Any:
+        resource = kwargs.get("resource") or model_to_resource(queryset.model)
+        if self._token_lacks_scope_for_resource(resource, "viewer"):
+            return queryset.none()
+        return self._inner.filter_queryset_by_access_level(queryset, *args, **kwargs)
+
+    def _token_lacks_scope_for_resource(self, resource: str | None, required_level: Any) -> bool:
         scopes = self._token_scopes
-        resource = model_to_resource(obj)
-        if "*" in scopes or resource not in _WAREHOUSE_SCOPE_GATED_RESOURCES:
+        if "*" in scopes or resource not in _SCOPE_GATED_RESOURCES:
             return False
         if f"{resource}:write" in scopes:
-            return False  # write implies read, so it satisfies both viewer and editor
+            return False
         return not (required_level == "viewer" and f"{resource}:read" in scopes)
 
 
 def _warehouse_scoped_uac(view: Any) -> UserAccessControl:
-    """The view's ``UserAccessControl``, additionally gating warehouse object access on the request
-    token's scope for that resource. A no-op for session/other non-token auth (no token scopes)."""
+    """The view's ``UserAccessControl``, with token scopes applied to secondary resource reads."""
     scopes = get_authenticator_scopes(getattr(view.request, "successful_authenticator", None))
     if scopes is None:
         return view.user_access_control
-    return cast(UserAccessControl, _WarehouseScopeGatedAccessControl(view.user_access_control, scopes))
+    return cast(UserAccessControl, _ScopeGatedAccessControl(view.user_access_control, scopes))
 
 
 # drf-spectacular auto-describes the pk path param for a model-backed viewset as
@@ -776,6 +785,104 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestStatusHistorySerializer(instance=history, many=True).data)
 
 
+class UserConfigCanonicalTeamAccessPermission(BasePermission):
+    message = "You don't have access to the project."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        if not request.user.is_authenticated:
+            return True
+        config_view = cast(UserCustomerAnalyticsConfigViewSet, view)
+        canonical_team = config_view.canonical_team
+        if canonical_team.id == config_view.team_id:
+            return True
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_team_ids and canonical_team.id not in scoped_team_ids:
+            return False
+        return config_view.user_permissions.team(canonical_team).effective_membership_level is not None
+
+
+class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "account"
+    scope_object_read_actions = ["retrieve"]
+    scope_object_write_actions = ["partial_update"]
+    serializer_class = UserCustomerAnalyticsConfigSerializer
+    queryset = None
+    lookup_value_regex = "@me"
+    permission_classes = [UserConfigCanonicalTeamAccessPermission]
+
+    @cached_property
+    def canonical_team(self) -> Team:
+        return self.team.parent_team or self.team
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        return UserAccessControl(
+            user=cast(User, self.request.user),
+            team=self.canonical_team,
+            organization_id=self.organization_id,
+        )
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Browser viewers can personalize their own sidebar without account edit access.
+        # Scoped credentials still need write permission to change their owner's preferences.
+        if self.action == "partial_update" and isinstance(request.successful_authenticator, SessionAuthentication):
+            return ["account:read"]
+        return None
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=UserCustomerAnalyticsConfigSerializer,
+                description="The requesting user's account sidebar configuration.",
+            )
+        },
+        summary="Get account sidebar configuration",
+        description=(
+            "Get the requesting user's account sidebar configuration for this project. "
+            "The first read creates an empty configuration row."
+        ),
+    )
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        config = api.get_user_customer_analytics_config(
+            team_id=self.team_id,
+            user_id=cast(User, request.user).id,
+        )
+        return Response(UserCustomerAnalyticsConfigSerializer(instance=config).data)
+
+    @validated_request(
+        request_serializer=UserCustomerAnalyticsConfigUpdateSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=UserCustomerAnalyticsConfigSerializer,
+                description="The updated account sidebar configuration.",
+            ),
+            400: OpenApiResponse(description="A pinned definition is invalid for this project."),
+        },
+        summary="Update account sidebar configuration",
+        description=(
+            "Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. "
+            "Omitting pinned_properties leaves the configuration unchanged. "
+            "At most 50 account custom properties and relationships can be pinned."
+        ),
+    )
+    def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        if "pinned_properties" not in request.validated_data:
+            return self.retrieve(request, *args, **kwargs)
+        pinned_properties = [
+            contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
+            for reference in request.validated_data["pinned_properties"]
+        ]
+        try:
+            config = api.update_user_customer_analytics_config(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).id,
+                pinned_properties=pinned_properties,
+            )
+        except api.InvalidPinnedAccountProperties as error:
+            raise ValidationError({"pinned_properties": error.errors})
+        return Response(UserCustomerAnalyticsConfigSerializer(instance=config).data)
+
+
 class CustomerProfileConfigViewSet(
     TeamAndOrgViewSetMixin,
     _FacadePaginationMixin,
@@ -980,10 +1087,7 @@ class CustomPropertyDefinitionViewSet(
 
     def _guard_group_definition(self, request: Request, definition_id) -> None:
         # Group-target definitions gate the group-writing pipeline, so mutating one needs group scope.
-        definition = api.get_custom_property_definition(
-            self.team_id, definition_id, user_access_control=self.user_access_control
-        )
-        if definition is not None and definition.target_type == _GROUP_TARGET_TYPE:
+        if api.get_custom_property_definition_target_type(self.team_id, definition_id) == _GROUP_TARGET_TYPE:
             _assert_group_scope(request, write=True)
 
     def update(self, request: Request, *args, **kwargs) -> Response:
@@ -1532,7 +1636,11 @@ class AccountViewSet(
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Case-insensitive substring search across account name and external ID.",
+                description=(
+                    "Case-insensitive substring search across account name and external ID. "
+                    "A query holding an email address also matches accounts that list it as a known "
+                    "email, and a query holding a domain matches accounts that own that email domain."
+                ),
             ),
             OpenApiParameter(
                 name="tags",
@@ -1613,6 +1721,27 @@ class AccountViewSet(
         except api.ResourceForbiddenError:
             raise PermissionDenied()
         return Response(AccountSerializer(instance=account).data)
+
+    @extend_schema(
+        parameters=[_ACCOUNT_ID_PARAM],
+        request=None,
+        responses={200: AccountPresenceViewerSerializer(many=True)},
+    )
+    @action(methods=["POST"], detail=True, pagination_class=None, required_scopes=["account:read"])
+    def presence(self, request: Request, *args, **kwargs) -> Response:
+        if is_service_auth(request):
+            if api.get_account(self.team_id, self.kwargs["pk"]) is None:
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response([])
+        viewers = api.list_account_presence_viewers(
+            self.team_id,
+            self.kwargs["pk"],
+            self.user_access_control,
+            cast(User, request.user),
+        )
+        if viewers is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountPresenceViewerSerializer(instance=viewers, many=True).data)
 
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: SupportTicketSerializer(many=True)})
     @action(methods=["GET"], detail=True, pagination_class=None)
@@ -2021,18 +2150,18 @@ class AccountNotebookViewSet(
 
 def _synthesize_notebook_content(text_content, existing_content):
     """When the caller passed Markdown ``text_content`` but no usable ProseMirror ``content``
-    tree, build one from the Markdown. Agents calling the MCP notebook-create tool typically
-    send ``text_content`` only (hand-writing ProseMirror is awkward), and NotebookScene only
-    renders ``content`` — so without this the result is a blank page. The tiptap helper lives
-    in ``ee.hogai`` and stays in the view so it never reaches the facade import path. Returns
-    ``None`` when the caller already supplied usable content (or no markdown)."""
+    tree, build a markdown notebook document from the Markdown. Agents calling the MCP
+    notebook-create tool typically send ``text_content`` only, because hand-writing ProseMirror
+    is awkward, and NotebookScene renders ``content`` only, so without this the result is a
+    blank page. Returns ``None`` when the caller already supplied usable content (or no
+    markdown)."""
     has_usable_content = (
         isinstance(existing_content, dict)
         and existing_content.get("type") == "doc"
         and isinstance(existing_content.get("content"), list)
     )
     if text_content and not has_usable_content:
-        return {"type": "doc", "content": markdown_to_tiptap_nodes(text_content) or [{"type": "paragraph"}]}
+        return build_markdown_notebook_content(text_content)
     return None
 
 
@@ -2159,8 +2288,10 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         values = api.list_active_custom_property_values(self.team_id, account_id)
         return Response(CustomPropertyValueSerializer(values, many=True).data)
 
-    @extend_schema(request=CustomPropertyValueWriteSerializer, responses={201: CustomPropertyValueSerializer})
-    def create(self, request: Request, *args, **kwargs) -> Response:
+    @extend_schema(
+        request=CustomPropertyValueWriteSerializer, responses={201: CustomPropertyValueSerializer, 204: None}
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         account_id = self._accessible_account_id()
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2168,6 +2299,14 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         write.is_valid(raise_exception=True)
 
         try:
+            if write.validated_data["value"] is None:
+                api.clear_custom_property_value(
+                    team_id=self.team_id,
+                    account_id=account_id,
+                    definition_id=write.validated_data["definition"],
+                    actor=cast(User, request.user),
+                )
+                return Response(status=status.HTTP_204_NO_CONTENT)
             value = api.set_custom_property_value(
                 team_id=self.team_id,
                 account_id=account_id,
@@ -2180,7 +2319,7 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.CustomPropertyDefinitionNotFound:
             raise ValidationError({"definition": "Custom property definition not found."})
-        except api.CustomPropertyValueSourceManaged as exc:
+        except (api.CustomPropertyValueSourceManaged, api.CanonicalCustomPropertyReadOnlyError) as exc:
             raise ValidationError({"definition": str(exc)})
         except api.InvalidCustomPropertyValue as exc:
             raise ValidationError({"value": str(exc)})
@@ -2485,6 +2624,43 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     def list(self, request: Request, *args, **kwargs) -> Response:
         statuses = api.list_calendar_sync_statuses(self.team_id)
         return Response(CalendarSyncStatusSerializer(instance=statuses, many=True).data)
+
+    @validated_request(
+        request_serializer=CalendarSyncBackfillSerializer,
+        responses={200: OpenApiResponse(response=CalendarSyncTriggerResponseSerializer)},
+        summary="Backfill a connected Google account",
+        description="Start an admin-only Gmail and Google Calendar backfill for an inclusive UTC date range.",
+    )
+    @action(methods=["POST"], detail=False, url_path="backfill")
+    def backfill(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        requesting_level = self.user_permissions.current_team.effective_membership_level
+        has_management_access = requesting_level is not None and requesting_level >= OrganizationMembership.Level.ADMIN
+        try:
+            result = api.trigger_google_account_backfill(
+                self.team_id,
+                request.validated_data["integration_id"],
+                start_date=request.validated_data["start_date"],
+                end_date=request.validated_data["end_date"],
+                has_management_access=has_management_access,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied("Only project admins can backfill Google accounts.")
+        except api.GoogleAccountBackfillUnavailable:
+            raise ValidationError(
+                {"integration_id": "This Google account cannot sync email. Ask its owner to reconnect it."}
+            )
+        if result is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        report_user_action(
+            cast(User, request.user),
+            "google account backfill triggered",
+            {
+                "range_days": (request.validated_data["end_date"] - request.validated_data["start_date"]).days + 1,
+                "already_running": result == "already_running",
+            },
+            team=self.team,
+        )
+        return Response(CalendarSyncTriggerResponseSerializer({"status": result}).data)
 
     @validated_request(
         request_serializer=CalendarSyncTriggerSerializer,

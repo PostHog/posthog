@@ -6,6 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
+import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { EvaluationRun } from '../evaluations/types'
 import type { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogic'
 import { EvaluationResultTag, getEvaluationResultSortValue } from './EvaluationResultTag'
@@ -17,6 +18,7 @@ export function GenerationEvalRunsTable({
     generationRunsLogic: BuiltLogic<generationEvaluationRunsLogicType>
 }): JSX.Element {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(generationRunsLogic)
+    const { detectorEvaluationIds } = useValues(llmEvaluationsLogic)
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {
@@ -42,9 +44,18 @@ export function GenerationEvalRunsTable({
         {
             title: 'Result',
             key: 'result',
-            render: (_, run) => <EvaluationResultTag run={run} />,
+            render: (_, run) => (
+                <EvaluationResultTag run={run} trueIsFailure={detectorEvaluationIds.includes(run.evaluation_id)} />
+            ),
             sorter: (a, b) => {
-                return getEvaluationResultSortValue(b) - getEvaluationResultSortValue(a)
+                return (
+                    getEvaluationResultSortValue(b, {
+                        trueIsFailure: detectorEvaluationIds.includes(b.evaluation_id),
+                    }) -
+                    getEvaluationResultSortValue(a, {
+                        trueIsFailure: detectorEvaluationIds.includes(a.evaluation_id),
+                    })
+                )
             },
         },
         {

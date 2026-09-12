@@ -123,6 +123,7 @@ describe("useDiscussReport", () => {
     expect(input.signalReportId).toBe("r1");
     // Routed to the discussion cap, not the report's one-live-PR gate.
     expect(input.signalReportTaskRelationship).toBe("discussion");
+    expect(input.signalReportDiscussionQuestion).toBe("why?");
     // First message: question leading, whole report + evidence behind it.
     expect(input.content).toContain("Answer this first: why?");
     expect(input.content).toContain("# Report: Return 400 instead of 500");

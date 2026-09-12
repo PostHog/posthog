@@ -397,6 +397,14 @@ export function LemonInputSelect<T = string>({
         }
     }, [showPopover])
 
+    // Close the popover when the control becomes disabled mid-interaction (e.g. a save kicked off
+    // by selecting an option) — an open popover's options would otherwise stay clickable.
+    useEffect(() => {
+        if (disabled) {
+            setShowPopover(false)
+        }
+    }, [disabled])
+
     const setInputValue = (newValue: string): void => {
         if (newValue) {
             setFrozenOptions(null)
@@ -455,6 +463,11 @@ export function LemonInputSelect<T = string>({
         if (mode === 'single') {
             setInputValue('')
             onChange?.([actualTypedValue])
+            return
+        }
+        // Option rows disable themselves at the limit, but Enter and blur add values without
+        // going through a row, so the cap has to hold here as well.
+        if (currentValues.length >= limit && !currentValues.includes(actualTypedValue)) {
             return
         }
         if (mode === 'multiple' && inputValue) {

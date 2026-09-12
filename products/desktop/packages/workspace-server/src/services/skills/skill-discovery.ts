@@ -17,7 +17,7 @@ interface InstalledPluginsFile {
 }
 
 /** Sources whose directories we own on the user's behalf and may mutate. */
-export function isEditableSource(source: SkillSource): boolean {
+function isEditableSource(source: SkillSource): boolean {
   return source === "user" || source === "repo";
 }
 

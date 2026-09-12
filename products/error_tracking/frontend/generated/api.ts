@@ -9,6 +9,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ErrorTrackingAlertApi,
+    ErrorTrackingAlertCreateRequestApi,
+    ErrorTrackingAlertPutRequestApi,
+    ErrorTrackingAlertsListParams,
     ErrorTrackingAssignmentRuleApi,
     ErrorTrackingAssignmentRuleCreateRequestApi,
     ErrorTrackingAssignmentRuleUpdateRequestApi,
@@ -32,6 +36,7 @@ import type {
     ErrorTrackingGroupingRuleCreateRequestApi,
     ErrorTrackingGroupingRuleListResponseApi,
     ErrorTrackingGroupingRuleUpdateRequestApi,
+    ErrorTrackingIssueAssignResponseApi,
     ErrorTrackingIssueDetailApi,
     ErrorTrackingIssueEventsQueryRequestApi,
     ErrorTrackingIssueEventsResponseApi,
@@ -67,6 +72,8 @@ import type {
     ErrorTrackingSuppressionRuleUpdateRequestApi,
     ErrorTrackingSuppressionRulesListParams,
     ErrorTrackingSymbolSetApi,
+    ErrorTrackingSymbolSetBulkCheckUploadApi,
+    ErrorTrackingSymbolSetBulkCheckUploadResponseApi,
     ErrorTrackingSymbolSetBulkDeleteApi,
     ErrorTrackingSymbolSetBulkFinishUploadApi,
     ErrorTrackingSymbolSetBulkStartUploadApi,
@@ -74,6 +81,7 @@ import type {
     ErrorTrackingSymbolSetFinishUploadApi,
     ErrorTrackingSymbolSetsListParams,
     GitProviderFileLinkResolveResponseApi,
+    PaginatedErrorTrackingAlertListApi,
     PaginatedErrorTrackingAssignmentRuleListApi,
     PaginatedErrorTrackingBypassRuleListApi,
     PaginatedErrorTrackingExternalReferenceResultListApi,
@@ -85,13 +93,14 @@ import type {
     PaginatedErrorTrackingStackFrameListApi,
     PaginatedErrorTrackingSuppressionRuleListApi,
     PaginatedErrorTrackingSymbolSetListApi,
+    PatchedErrorTrackingAlertUpdateRequestApi,
     PatchedErrorTrackingAssignmentRuleApi,
     PatchedErrorTrackingAssignmentRuleUpdateRequestApi,
     PatchedErrorTrackingBypassRuleApi,
     PatchedErrorTrackingBypassRuleUpdateRequestApi,
     PatchedErrorTrackingGroupingRuleApi,
     PatchedErrorTrackingGroupingRuleUpdateRequestApi,
-    PatchedErrorTrackingIssueReadApi,
+    PatchedErrorTrackingIssueAssignRequestApi,
     PatchedErrorTrackingIssueWriteApi,
     PatchedErrorTrackingReleaseUpdateRequestApi,
     PatchedErrorTrackingSettingsApi,
@@ -119,6 +128,116 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getErrorTrackingAlertsListUrl = (projectId: string, params?: ErrorTrackingAlertsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/alerts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/alerts/`
+}
+
+export const errorTrackingAlertsList = async (
+    projectId: string,
+    params?: ErrorTrackingAlertsListParams,
+    options?: RequestInit
+): Promise<PaginatedErrorTrackingAlertListApi> => {
+    return apiMutator<PaginatedErrorTrackingAlertListApi>(getErrorTrackingAlertsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingAlertsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/alerts/`
+}
+
+export const errorTrackingAlertsCreate = async (
+    projectId: string,
+    errorTrackingAlertCreateRequestApi: NonReadonly<ErrorTrackingAlertCreateRequestApi>,
+    options?: RequestInit
+): Promise<ErrorTrackingAlertApi> => {
+    return apiMutator<ErrorTrackingAlertApi>(getErrorTrackingAlertsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingAlertCreateRequestApi),
+    })
+}
+
+export const getErrorTrackingAlertsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/alerts/${id}/`
+}
+
+export const errorTrackingAlertsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingAlertApi> => {
+    return apiMutator<ErrorTrackingAlertApi>(getErrorTrackingAlertsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingAlertsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/alerts/${id}/`
+}
+
+export const errorTrackingAlertsUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingAlertPutRequestApi: NonReadonly<ErrorTrackingAlertPutRequestApi>,
+    options?: RequestInit
+): Promise<ErrorTrackingAlertApi> => {
+    return apiMutator<ErrorTrackingAlertApi>(getErrorTrackingAlertsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingAlertPutRequestApi),
+    })
+}
+
+export const getErrorTrackingAlertsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/alerts/${id}/`
+}
+
+export const errorTrackingAlertsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingAlertUpdateRequestApi?: NonReadonly<PatchedErrorTrackingAlertUpdateRequestApi>,
+    options?: RequestInit
+): Promise<ErrorTrackingAlertApi> => {
+    return apiMutator<ErrorTrackingAlertApi>(getErrorTrackingAlertsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingAlertUpdateRequestApi),
+    })
+}
+
+export const getErrorTrackingAlertsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/alerts/${id}/`
+}
+
+export const errorTrackingAlertsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingAlertsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
 
 export const getErrorTrackingAssignmentRulesListUrl = (
     projectId: string,
@@ -919,15 +1038,18 @@ export const getErrorTrackingIssuesAssignPartialUpdateUrl = (projectId: string, 
 export const errorTrackingIssuesAssignPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingIssueReadApi?: NonReadonly<PatchedErrorTrackingIssueReadApi>,
+    patchedErrorTrackingIssueAssignRequestApi?: PatchedErrorTrackingIssueAssignRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getErrorTrackingIssuesAssignPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedErrorTrackingIssueReadApi),
-    })
+): Promise<ErrorTrackingIssueAssignResponseApi> => {
+    return apiMutator<ErrorTrackingIssueAssignResponseApi>(
+        getErrorTrackingIssuesAssignPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedErrorTrackingIssueAssignRequestApi),
+        }
+    )
 }
 
 export const getErrorTrackingIssuesCohortUpdateUrl = (projectId: string, id: string) => {
@@ -1813,6 +1935,29 @@ export const errorTrackingSymbolSetsFinishUploadUpdate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(errorTrackingSymbolSetFinishUploadApi),
     })
+}
+
+export const getErrorTrackingSymbolSetsBulkCheckUploadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/bulk_check_upload/`
+}
+
+/**
+ * Report which of the given symbol sets still need `bulk_start_upload`. Symbol sets already uploaded with identical content are omitted and marked as still in use.
+ */
+export const errorTrackingSymbolSetsBulkCheckUploadCreate = async (
+    projectId: string,
+    errorTrackingSymbolSetBulkCheckUploadApi: ErrorTrackingSymbolSetBulkCheckUploadApi,
+    options?: RequestInit
+): Promise<ErrorTrackingSymbolSetBulkCheckUploadResponseApi> => {
+    return apiMutator<ErrorTrackingSymbolSetBulkCheckUploadResponseApi>(
+        getErrorTrackingSymbolSetsBulkCheckUploadCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingSymbolSetBulkCheckUploadApi),
+        }
+    )
 }
 
 export const getErrorTrackingSymbolSetsBulkDeleteCreateUrl = (projectId: string) => {

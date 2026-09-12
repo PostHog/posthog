@@ -36,6 +36,7 @@ export function SuiteRunsHistory(props: DataQualityChecksLogicProps): JSX.Elemen
                                     <CheckRunsTable
                                         runs={suiteRunCheckRunsBySuiteRunId[suiteRun.id] ?? []}
                                         loading={pendingCheckActions.loadingSuiteRunRuns[suiteRun.id]}
+                                        showCheck
                                     />
                                 ),
                             }}
