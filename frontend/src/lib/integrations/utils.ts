@@ -153,6 +153,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'email'
         case 'github':
             return 'GitHub'
+        case 'clickup':
+            return 'ClickUp'
         case 'helpscout':
             return 'Help Scout'
         case 'firebase':
