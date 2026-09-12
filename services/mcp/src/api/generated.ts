@@ -73839,6 +73839,18 @@ export namespace Schemas {
     }
 
     /**
+     * Response when the GitHub App cannot read pull request checks.
+     */
+    export interface PullRequestChecksPermissionError {
+      /** Stable code for a missing GitHub Checks permission. */
+      readonly code: string;
+      /** What the GitHub App permission prevents. */
+      readonly error: string;
+      /** Project integrations settings where a project admin can reconnect GitHub. */
+      readonly remediation_url: string;
+    }
+
+    /**
      * Response for the PR checks endpoint — the CI status of a report's implementation PR.
      */
     export interface PullRequestChecksResponse {

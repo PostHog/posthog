@@ -3503,6 +3503,35 @@ class TestSignalReportPrEndpoints(APIBaseTest):
 
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
 
+    def test_pr_checks_missing_permission_returns_remediation_for_selected_legacy_task_output(self):
+        report = self._create_report()
+        SignalReportAssignment.objects.for_team(self.team.id).filter(report=report).delete()
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(team=self.team, title="Implementation", description="Fix a bug")
+        TaskRun.objects.create(team=self.team, task=task, output={"pr_url": "https://github.com/example/legacy/pull/7"})
+        SignalReportTask.objects.create(team=self.team, report=report, task=task, relationship="implementation")
+        selected_pr_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"signals:{self.team.id}:example/legacy:7"))
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        github.return_value.get_pull_request_checks.return_value = {
+            "success": False,
+            "error_code": "github_checks_permission_missing",
+        }
+
+        response = self.client.get(f"{self._checks_url(str(report.id))}?pull_request_id={selected_pr_id}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == {
+            "code": "github_checks_permission_missing",
+            "error": (
+                "GitHub can't read pull request checks. A project admin must reconnect GitHub and grant the Checks "
+                "permission."
+            ),
+            "remediation_url": f"/project/{self.team.id}/settings/project-integrations",
+        }
+        github.return_value.get_pull_request_checks.assert_called_once_with("example/legacy", 7)
+
     def test_pr_comments_success_returns_comments(self):
         report = self._create_report()
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()

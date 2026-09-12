@@ -17,6 +17,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
 import type { PersonalGitHubIntegration } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -78,6 +79,24 @@ const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRun
 
 /** Why the report's one implementation slot is still claimed. Mirrors the server's `_ImplementationSlotClaim`. */
 export type ImplementationSlotClaim = 'in_flight' | 'shipped_pr'
+
+export type PrChecksError = {
+    message: string
+    remediationUrl: string | null
+}
+
+const GITHUB_CHECKS_PERMISSION_MISSING_CODE = 'github_checks_permission_missing'
+
+function prChecksErrorFrom(error: unknown): PrChecksError {
+    if (error instanceof ApiError && error.code === GITHUB_CHECKS_PERMISSION_MISSING_CODE) {
+        const remediationUrl = (error.data as { remediation_url?: unknown } | null)?.remediation_url
+        return {
+            message: error.message,
+            remediationUrl: typeof remediationUrl === 'string' ? remediationUrl : null,
+        }
+    }
+    return { message: "Couldn't load the PR checks from GitHub.", remediationUrl: null }
+}
 
 // The task↔report association is the `task_run` artefact log now (the legacy `/tasks/` endpoint is
 // gone), and the activity timeline renders the whole log. Pull a generous page so early entries
@@ -277,7 +296,7 @@ export interface inboxReportDetailLogicValues {
     prChecks: readonly PullRequestCheckApi[] | null
     prChecksBackedOff: boolean
     prChecksConsecutiveFailures: number
-    prChecksError: string | null
+    prChecksError: PrChecksError | null
     prChecksLoading: boolean
     prComments: readonly PullRequestCommentApi[] | null
     prCommentsError: string | null
@@ -926,10 +945,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Cleared only on success (not on load start), so the section keeps showing the error while
         // a backed-off retry is in flight instead of flashing back to the loading skeleton.
         prChecksError: [
-            null as string | null,
+            null as PrChecksError | null,
             {
                 loadPrChecksSuccess: () => null,
-                loadPrChecksFailure: () => "Couldn't load the PR checks from GitHub.",
+                loadPrChecksFailure: (_, { errorObject }) => prChecksErrorFrom(errorObject),
             },
         ],
         // Consecutive failed checks fetches — feeds `prChecksBackedOff`.

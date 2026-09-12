@@ -1248,6 +1248,15 @@ class GitHubIntegrationBase:
         head_sha = pr.get("head_sha")
         if not head_sha:
             return {"success": False, "error": "Pull request has no head commit"}
+
+        permissions = self.integration.config.get("permissions")
+        if isinstance(permissions, dict) and permissions and permissions.get("checks") not in {"read", "write"}:
+            return {
+                "success": False,
+                "error": "GitHub App is missing permission to read check runs",
+                "error_code": "github_checks_permission_missing",
+            }
+
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
         checks: list[dict[str, Any]] = []

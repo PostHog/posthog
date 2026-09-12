@@ -145,6 +145,7 @@ from products.signals.backend.reviewer_correction_notes import ReviewerCorrectio
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    PullRequestChecksPermissionErrorSerializer,
     PullRequestChecksResponseSerializer,
     PullRequestCiStatusesResponseSerializer,
     PullRequestCommentsResponseSerializer,
@@ -3154,6 +3155,10 @@ class SignalReportViewSet(
             404: OpenApiResponse(
                 description="Report has no implementation PR, or no GitHub integration can access it."
             ),
+            403: OpenApiResponse(
+                response=PullRequestChecksPermissionErrorSerializer,
+                description="GitHub is connected without permission to read pull request checks.",
+            ),
             502: OpenApiResponse(description="GitHub could not return the checks."),
             503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
         },
@@ -3752,6 +3757,24 @@ class SignalReportViewSet(
             return Response(
                 {"error": f"GitHub could not return the {noun} for this pull request."},
                 status=status.HTTP_502_BAD_GATEWAY,
+            )
+        if result.get("error_code") == "github_checks_permission_missing":
+            logger.info(
+                "signals pr checks missing GitHub Checks permission",
+                team_id=self.team.id,
+                repository=repository,
+                pr_number=pr_number,
+            )
+            return Response(
+                {
+                    "code": "github_checks_permission_missing",
+                    "error": (
+                        "GitHub can't read pull request checks. A project admin must reconnect GitHub and grant "
+                        "the Checks permission."
+                    ),
+                    "remediation_url": f"/project/{self.team.id}/settings/project-integrations",
+                },
+                status=status.HTTP_403_FORBIDDEN,
             )
         if not result.get("success"):
             return Response(
