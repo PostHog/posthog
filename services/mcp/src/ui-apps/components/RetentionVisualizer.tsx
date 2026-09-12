@@ -22,7 +22,8 @@ const CHART_MODE_OPTIONS = [
 
 const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 
-export function RetentionVisualizer({ query, results }: RetentionVisualizerProps): ReactElement {
+export function RetentionVisualizer({ query, results, title }: RetentionVisualizerProps): ReactElement {
+    const heading = title || TITLE
     const [chartMode, setChartMode] = useState<ChartMode>('line')
     const theme = useMcpChartTheme()
 
@@ -49,7 +50,7 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
     if (!results || results.length === 0 || series.length === 0 || labels.length === 0) {
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                <ChartHeader title={heading} />
                 <Empty>
                     <EmptyHeader>
                         <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
@@ -62,7 +63,7 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
 
     return (
         <div>
-            <ChartHeader title={TITLE}>
+            <ChartHeader title={heading}>
                 {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
             </ChartHeader>

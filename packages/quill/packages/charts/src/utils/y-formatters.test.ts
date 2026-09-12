@@ -28,6 +28,13 @@ describe('buildYTickFormatter', () => {
     })
 
     it.each([
+        ['drops a prefix the currency symbol already provides', '$', '$94.02'],
+        ['keeps a prefix that differs from the currency symbol', 'USD ', 'USD $94.02'],
+    ])('%s', (_, prefix, expected) => {
+        expect(buildYTickFormatter({ format: 'currency', currency: 'USD', prefix })(94.02)).toBe(expected)
+    })
+
+    it.each([
         ['no currency code', undefined],
         ['invalid currency code', 'NOT-A-CURRENCY'],
     ])('falls back to human friendly currency with %s', (_, currency) => {

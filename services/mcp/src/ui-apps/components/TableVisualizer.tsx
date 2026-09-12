@@ -133,7 +133,8 @@ const TIME_SERIES_CONFIG: TimeSeriesLineChartConfig = {
     legend: { show: false },
 }
 
-export function TableVisualizer({ results }: TableVisualizerProps): ReactElement {
+export function TableVisualizer({ results, title }: TableVisualizerProps): ReactElement {
+    const heading = title || TITLE
     const theme = useMcpChartTheme()
     const columns = results?.columns || []
     const rows = results?.results || []
@@ -143,7 +144,7 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
     if (format.type === 'single-number' && format.value !== undefined) {
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                <ChartHeader title={heading} />
                 <BigNumber value={format.value} label={format.label} />
             </div>
         )
@@ -158,7 +159,7 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
         const { series, labels } = transformToSeries(rows, format.timeColumnIndex, format.valueColumnIndex, valueLabel)
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                <ChartHeader title={heading} />
                 <div className="flex flex-col w-full h-[400px]">
                     <TimeSeriesLineChart
                         series={series}
@@ -175,7 +176,7 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
     if (rows.length === 0) {
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                <ChartHeader title={heading} />
                 <Empty>
                     <EmptyHeader>
                         <EmptyMedia>{emptyStateIllustration('table')}</EmptyMedia>
@@ -200,7 +201,7 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
 
     return (
         <div className="flex flex-col gap-2">
-            <ChartHeader title={TITLE} />
+            <ChartHeader title={heading} />
             <DataTable columns={tableColumns} data={displayRows} />
             {hasMore && (
                 <span className="text-center text-xs text-muted-foreground">

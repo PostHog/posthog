@@ -33,13 +33,14 @@ function parseNode(key: string): { step: number; path: string } {
     return { step: Number.isNaN(step) ? 0 : step, path: key.slice(sep + 1) }
 }
 
-export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement {
+export function PathsVisualizer({ results, title }: PathsVisualizerProps): ReactElement {
+    const heading = title || TITLE
     const edges = Array.isArray(results) ? results : []
 
     if (edges.length === 0) {
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                <ChartHeader title={heading} />
                 <Empty>
                     <EmptyHeader>
                         <EmptyMedia>{emptyStateIllustration('generic')}</EmptyMedia>
@@ -80,7 +81,7 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
 
     return (
         <div>
-            <ChartHeader title={TITLE} />
+            <ChartHeader title={heading} />
             <DataTable columns={tableColumns} data={displayRows} className="rounded-lg border" />
             {hasMore && (
                 <span className="mt-2 block text-center text-xs text-muted-foreground">

@@ -34,14 +34,15 @@ const renderStickinessTooltip = (ctx: TooltipContext): ReactElement => (
     <DefaultTooltip {...ctx} valueFormatter={(value) => formatPercent(value)} />
 )
 
-export function StickinessVisualizer({ query, results }: StickinessVisualizerProps): ReactElement {
+export function StickinessVisualizer({ query, results, title }: StickinessVisualizerProps): ReactElement {
+    const heading = title || TITLE
     const theme = useMcpChartTheme()
 
     const hasData = results?.some((item) => item.count !== 0 && (item.data?.length ?? 0) > 0)
     if (!results || results.length === 0 || !hasData) {
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                <ChartHeader title={heading} />
                 <Empty>
                     <EmptyHeader>
                         <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
@@ -75,7 +76,7 @@ export function StickinessVisualizer({ query, results }: StickinessVisualizerPro
 
     return (
         <div>
-            <ChartHeader title={TITLE} />
+            <ChartHeader title={heading} />
             <div className="flex flex-col w-full h-[400px]">
                 <TimeSeriesLineChart
                     series={series}

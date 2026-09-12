@@ -1,4 +1,4 @@
-import type { YAxisFormat } from '@posthog/quill-charts'
+import type { YAxisFormat, YFormatterConfig } from '@posthog/quill-charts'
 
 import type { ChartDisplayType, TrendsFilter } from './types'
 
@@ -43,6 +43,20 @@ export function chartConfigFromTrendsFilter(trendsFilter: TrendsFilter | undefin
         confidenceLevel: trendsFilter?.confidenceLevel ?? DEFAULT_CHART_CONFIG.confidenceLevel,
         percentStack: trendsFilter?.showPercentStackView ?? DEFAULT_CHART_CONFIG.percentStack,
         yUnit: trendsFilter?.aggregationAxisFormat ?? DEFAULT_CHART_CONFIG.yUnit,
+    }
+}
+
+/**
+ * Unit settings for a single value, taken from the insight and the current y-unit choice.
+ * The axis formatter reads the same fields, so a number and its axis round the same way.
+ */
+export function valueFormatFromTrendsFilter(trendsFilter: TrendsFilter | undefined, yUnit: YUnit): YFormatterConfig {
+    return {
+        format: yUnit,
+        prefix: trendsFilter?.aggregationAxisPrefix,
+        suffix: trendsFilter?.aggregationAxisPostfix,
+        decimalPlaces: trendsFilter?.decimalPlaces,
+        minDecimalPlaces: trendsFilter?.minDecimalPlaces,
     }
 }
 

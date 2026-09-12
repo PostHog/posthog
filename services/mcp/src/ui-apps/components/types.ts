@@ -44,6 +44,12 @@ export interface TrendsFilter {
     minDecimalPlaces?: number
 }
 
+/** The saved insight a payload came from. Absent on an ad-hoc query. */
+export interface InsightSummary {
+    name?: string | null
+    derived_name?: string | null
+}
+
 export interface TrendsQuery {
     kind: 'TrendsQuery'
     trendsFilter?: TrendsFilter
@@ -245,35 +251,40 @@ export interface RetentionPayload extends BasePayload {
 // Component props
 // ============================================================================
 
-export interface TrendsVisualizerProps {
+/** Heading for the chart. The saved insight's name when the payload carries one. */
+interface TitledVisualizerProps {
+    title?: string | undefined
+}
+
+export interface TrendsVisualizerProps extends TitledVisualizerProps {
     query: TrendsQuery | undefined
     results: TrendsResult
 }
 
-export interface FunnelVisualizerProps {
+export interface FunnelVisualizerProps extends TitledVisualizerProps {
     query: FunnelsQuery
     results: FunnelResult
 }
 
-export interface LifecycleVisualizerProps {
+export interface LifecycleVisualizerProps extends TitledVisualizerProps {
     query: LifecycleQuery | undefined
     results: LifecycleResult
 }
 
-export interface StickinessVisualizerProps {
+export interface StickinessVisualizerProps extends TitledVisualizerProps {
     query: StickinessQuery | undefined
     results: StickinessResult
 }
 
-export interface TableVisualizerProps {
+export interface TableVisualizerProps extends TitledVisualizerProps {
     results: HogQLResult
 }
 
-export interface RetentionVisualizerProps {
+export interface RetentionVisualizerProps extends TitledVisualizerProps {
     query: RetentionQuery | undefined
     results: RetentionResult
 }
 
-export interface PathsVisualizerProps {
+export interface PathsVisualizerProps extends TitledVisualizerProps {
     results: PathsResult
 }

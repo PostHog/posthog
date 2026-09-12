@@ -82,6 +82,9 @@ export function buildYTickFormatter(config: YFormatterConfig): (value: number) =
             default:
                 break
         }
-        return `${prefix ?? ''}${formatted}${suffix ?? ''}`
+        // A currency value already carries its symbol, so a prefix of that same symbol would double it
+        // ("$" + "$94.02"). A prefix that differs from the symbol, such as "USD ", is kept.
+        const effectivePrefix = format === 'currency' && prefix && formatted.startsWith(prefix) ? '' : (prefix ?? '')
+        return `${effectivePrefix}${formatted}${suffix ?? ''}`
     }
 }

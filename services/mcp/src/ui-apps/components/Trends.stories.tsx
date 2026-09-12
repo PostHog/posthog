@@ -18,6 +18,14 @@ const FixedWidth = (Story: StoryFn): ReactElement => (
     </div>
 )
 
+// A chat-side card is much narrower than the default, which is where a long insight name competes
+// with the chart controls for the header row.
+const NarrowWidth = (Story: StoryFn): ReactElement => (
+    <div className="w-[360px]">
+        <Story />
+    </div>
+)
+
 const meta: Meta = {
     title: 'MCP Apps/Trends',
     decorators: [McpThemeDecorator, FixedWidth],
@@ -31,8 +39,8 @@ export default meta
 
 type Story = StoryObj<{}>
 
-const renderTrends = (query: TrendsQuery, results: TrendsResult): ReactElement => (
-    <TrendsVisualizer query={query} results={results} />
+const renderTrends = (query: TrendsQuery, results: TrendsResult, title?: string): ReactElement => (
+    <TrendsVisualizer query={query} results={results} title={title} />
 )
 
 export const SingleSeries: Story = {
@@ -94,4 +102,32 @@ export const BarValueManyBreakdowns: Story = {
             { label: 'India', aggregated_value: 1640 },
         ]),
     name: 'Bar value — many breakdowns',
+}
+
+export const BoldNumberRate: Story = {
+    render: () =>
+        renderTrends(
+            {
+                kind: 'TrendsQuery',
+                trendsFilter: {
+                    display: 'BoldNumber',
+                    aggregationAxisFormat: 'percentage',
+                    decimalPlaces: 1,
+                },
+            },
+            [{ label: 'Signup conversion', aggregated_value: 37.4562 }],
+            'Signup conversion rate'
+        ),
+    name: 'Bold number — rate with the insight name',
+}
+
+export const LongInsightName: Story = {
+    decorators: [NarrowWidth],
+    render: () =>
+        renderTrends(
+            trendsQuery('ActionsLineGraph'),
+            [{ label: 'Pageviews', data: [420, 380, 510, 490, 630, 580, 720], days: DAYS }],
+            'weekly_active_users_by_utm_source_and_plan_tier'
+        ),
+    name: 'Long insight name in a narrow card',
 }
