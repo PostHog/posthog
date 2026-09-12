@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import timedelta
@@ -18,12 +19,17 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Team
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
 from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded, ExportCancelled
+from products.exports.backend.tasks.failure_handler import (
+    BrowserlessUnavailable,
+    ExcelColumnLimitExceeded,
+    ExportCancelled,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
@@ -146,6 +152,42 @@ async def test_export_asset_activity_timeout_errors_are_retryable(
         await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
 
     assert exc_info.value.non_retryable is expected_non_retryable
+
+
+@pytest.mark.parametrize(
+    "attempt,expect_reported",
+    [
+        (1, False),
+        (EXPORT_RETRY_POLICY.maximum_attempts, True),
+    ],
+)
+@patch("posthog.temporal.exports.activities.exporter")
+async def test_export_asset_activity_reports_renderer_outage_once(
+    mock_exporter: MagicMock,
+    activity_environment: ActivityEnvironment,
+    team: Team,
+    attempt: int,
+    expect_reported: bool,
+):
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        export_format=ExportedAsset.ExportFormat.PNG,
+    )
+
+    def fake_export(_exported_asset: ExportedAsset, **_kwargs: object) -> None:
+        raise BrowserlessUnavailable("Failed to connect to browserless")
+
+    mock_exporter.export_asset_direct = fake_export
+    activity_environment.info = dataclasses.replace(activity_environment.info, attempt=attempt)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
+
+    # The activity interceptor skips a NonReportableApplicationError, so only the attempt that
+    # ends the retry chain reaches error tracking.
+    assert isinstance(exc_info.value, NonReportableApplicationError) is not expect_reported
+    assert exc_info.value.type == "BrowserlessUnavailable"
+    assert exc_info.value.non_retryable is False
 
 
 @patch("posthog.temporal.exports.activities.exporter")
