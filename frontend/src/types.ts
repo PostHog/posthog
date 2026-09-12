@@ -908,6 +908,9 @@ export interface WorkflowsConfig {
     capture_workflows_engagement_events: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
+    // Null uses the product default.
+    workflow_task_rate_limit_per_day?: number | null
+    workflow_task_team_rate_limit_per_day?: number | null
 }
 
 export interface FeatureFlagPolicyConfig {

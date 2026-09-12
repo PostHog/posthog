@@ -7,7 +7,9 @@ Workflow-created AI tasks have two rolling 24-hour limits:
 
 These defaults prevent a broadly matching event trigger from sustaining unbounded agent runs. The project-wide limit also prevents multiple workflows from multiplying the per-workflow allowance.
 
-Staff can override either limit for a project in Django admin under **Team workflows configs**. Leave a value blank to use the default. Set it to zero to pause new workflow-created tasks at that scope.
+A project admin sets either limit in **Settings → Workflows → AI task limits**, up to 5x the default: 500 per workflow and 2,500 per project. Leave a value blank to use the default. Set it to zero to pause new workflow-created tasks at that scope.
+
+Staff raise a project past those ceilings in Django admin under **Team workflows configs**, which does not use the API serializer that holds them.
 
 When a limit blocks task creation, the Create AI task step records the API reason as an error. The workflow then follows the step's `on_error` configuration.
 
