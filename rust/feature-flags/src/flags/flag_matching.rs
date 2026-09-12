@@ -814,6 +814,23 @@ impl FeatureFlagMatcher {
         // Track cohort evaluations in canonical log
         with_canonical_log(|log| log.eval.cohorts_evaluated += cohort_property_filters.len());
 
+        let cohort_matches =
+            self.resolve_cohort_matches(cohort_property_filters, target_properties, cohorts)?;
+
+        // Apply cohort membership logic (IN|NOT_IN) to the cohort match results
+        apply_cohort_membership_logic(cohort_property_filters, &cohort_matches)
+    }
+
+    /// Resolves every cohort the given filters reference to a membership boolean.
+    ///
+    /// Starts from the memberships cached during `prepare_flag_evaluation_state` (static and
+    /// realtime) and evaluates any dynamic cohort that is not cached yet.
+    fn resolve_cohort_matches(
+        &self,
+        cohort_property_filters: &[&PropertyFilter],
+        target_properties: &HashMap<String, Value>,
+        cohorts: Arc<[Cohort]>,
+    ) -> Result<HashMap<CohortId, bool>, FlagError> {
         // Get cached cohort results (static + realtime, merged during prepare_flag_evaluation_state)
         let cached_matches = match self.flag_evaluation_state.get_cohort_matches() {
             Some(matches) => matches.clone(),
@@ -841,8 +858,96 @@ impl FeatureFlagMatcher {
             }
         }
 
-        // Apply cohort membership logic (IN|NOT_IN) to the cohort match results
-        apply_cohort_membership_logic(cohort_property_filters, &cohort_matches)
+        Ok(cohort_matches)
+    }
+
+    /// Resolves cohort memberships for every cohort filter on the flag, for detailed condition
+    /// analysis.
+    ///
+    /// `evaluate_cohort_filters` resolves dynamic cohorts into a map it then discards, so the
+    /// memberships cached on the evaluation state cover static and realtime cohorts only. Reading
+    /// that cache alone would report every dynamic cohort as a non-match and contradict the
+    /// condition outcome the matcher already computed.
+    fn cohort_matches_for_analysis(
+        &self,
+        flag: &FeatureFlag,
+        person_properties: Option<&HashMap<String, Value>>,
+    ) -> HashMap<CohortId, bool> {
+        let cohort_filters: Vec<&PropertyFilter> = flag
+            .filters
+            .groups
+            .iter()
+            .filter_map(|group| group.properties.as_ref())
+            .flatten()
+            .filter(|filter| filter.is_cohort())
+            .collect();
+
+        if cohort_filters.is_empty() {
+            return HashMap::new();
+        }
+
+        let Some(cohorts) = self.flag_evaluation_state.cohorts.clone() else {
+            return HashMap::new();
+        };
+
+        let target_properties = person_properties.unwrap_or(&EMPTY_PROPERTY_MAP);
+        let cached_matches = self
+            .flag_evaluation_state
+            .get_cohort_matches()
+            .cloned()
+            .unwrap_or_default();
+
+        Self::resolve_cohort_matches_best_effort(
+            &cohort_filters,
+            target_properties,
+            &cohorts,
+            cached_matches,
+            PropertyMatchingContext::new(self.timezone, self.use_explicit_exact_matching),
+        )
+    }
+
+    /// Resolves each cohort filter on its own, keeping every membership that resolves.
+    ///
+    /// Analysis explains every condition, including ones the matcher short-circuited past, so it
+    /// reaches cohorts the matcher never needed. A condition can name a cohort the flags payload
+    /// no longer carries, because Django omits deleted and cross-team cohorts while keeping the
+    /// filters that name them. Resolving the set as a unit would drop the memberships of every
+    /// other condition on the first such cohort. A cohort left out of the map reads as unknown,
+    /// not as a non-match.
+    fn resolve_cohort_matches_best_effort(
+        cohort_property_filters: &[&PropertyFilter],
+        target_properties: &HashMap<String, Value>,
+        cohorts: &[Cohort],
+        cached_matches: HashMap<CohortId, bool>,
+        matching_context: PropertyMatchingContext,
+    ) -> HashMap<CohortId, bool> {
+        let mut cohort_matches = cached_matches;
+
+        for filter in cohort_property_filters {
+            let Some(cohort_id) = filter.get_cohort_id() else {
+                continue;
+            };
+            if cohort_matches.contains_key(&cohort_id) {
+                continue;
+            }
+            let resolved = evaluate_dynamic_cohorts(
+                cohort_id,
+                target_properties,
+                cohorts,
+                &cohort_matches,
+                matching_context,
+            );
+            match resolved {
+                Ok(is_member) => {
+                    cohort_matches.insert(cohort_id, is_member);
+                }
+                Err(e) => {
+                    warn!("Cohort {cohort_id} left unresolved for condition analysis: {e:?}")
+                }
+            }
+        }
+
+        cohort_matches
     }
 
     /// Evaluates feature flags with property and hash key overrides.
@@ -1135,6 +1240,10 @@ impl FeatureFlagMatcher {
                     // filters resolve against the group rather than the person.
                     let merged_group_props =
                         self.merged_group_properties_for_flag(flag, group_property_overrides);
+                    // Cohort membership as the matcher resolved it, so cohort-typed condition
+                    // filters report the same outcome the flag actually evaluated to.
+                    let cohort_matches =
+                        self.cohort_matches_for_analysis(flag, merged_person_props.as_ref());
                     FlagDetails::create_with_analysis(
                         flag,
                         flag_match,
@@ -1142,6 +1251,7 @@ impl FeatureFlagMatcher {
                         merged_person_props.as_ref(),
                         Some(&merged_group_props),
                         Some(&self.flag_evaluation_state.flag_evaluation_results),
+                        Some(&cohort_matches),
                         PropertyMatchingContext::new(
                             self.timezone,
                             self.use_explicit_exact_matching,
@@ -2929,5 +3039,75 @@ mod tests {
             assert_eq!(result.get(*k), Some(&Value::String((*v).to_string())));
         }
         assert_eq!(result.len(), 1 + expected_extras.len());
+    }
+
+    #[test]
+    fn test_cohort_analysis_keeps_resolved_memberships_when_another_cohort_fails() {
+        // A flag can name a cohort the flags payload no longer carries, because Django omits
+        // deleted and cross-team cohorts while keeping the filters that name them. Condition
+        // analysis explains every condition, so it reaches that cohort even when the matcher won
+        // on an earlier one. Resolving the set as a unit dropped the winning condition's
+        // membership too, which then rendered as MATCHED above "did not match properties".
+        let cohort: Cohort = serde_json::from_value(serde_json::json!({
+            "id": 1,
+            "team_id": 1,
+            "deleted": false,
+            "is_calculating": false,
+            "is_static": false,
+            "errors_calculating": 0,
+            "groups": [],
+            "filters": {
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "OR",
+                        "values": [{
+                            "key": "plan",
+                            "type": "person",
+                            "value": "enterprise",
+                            "operator": "exact"
+                        }]
+                    }]
+                }
+            }
+        }))
+        .unwrap();
+
+        let filters: Vec<PropertyFilter> = [1, 999]
+            .into_iter()
+            .map(|id| {
+                serde_json::from_value(serde_json::json!({
+                    "key": "id",
+                    "value": id,
+                    "type": "cohort",
+                    "operator": "in"
+                }))
+                .unwrap()
+            })
+            .collect();
+        let filter_refs: Vec<&PropertyFilter> = filters.iter().collect();
+
+        let target_properties =
+            HashMap::from([("plan".to_string(), Value::String("enterprise".to_string()))]);
+
+        // Cohort 999 is absent from the loaded list, so resolving it fails.
+        let resolved = FeatureFlagMatcher::resolve_cohort_matches_best_effort(
+            &filter_refs,
+            &target_properties,
+            &[cohort],
+            HashMap::new(),
+            PropertyMatchingContext::new(Tz::UTC, false),
+        );
+
+        assert_eq!(
+            resolved.get(&1),
+            Some(&true),
+            "a resolved membership must survive another cohort failing"
+        );
+        assert_eq!(
+            resolved.get(&999),
+            None,
+            "an unresolvable cohort must be absent, so analysis reads it as unknown"
+        );
     }
 }
