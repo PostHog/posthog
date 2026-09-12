@@ -27,6 +27,10 @@ from posthog.slo.context import SloHandle, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async_pool
 
+from products.alerts.backend.alert_error_classifier import (
+    AlertErrorCode,
+    classify as classify_alert_error,
+)
 from products.alerts.backend.delivery_slo import alert_delivery_slo
 from products.alerts.backend.destinations import (
     alert_internal_event_delivered,
@@ -42,10 +46,6 @@ from products.logs.backend.alert_check_query import (
     is_projection_eligible,
     resolve_alert_date_to,
     rolling_check_lookback_minutes,
-)
-from products.logs.backend.alert_error_classifier import (
-    AlertErrorCode,
-    classify as classify_alert_error,
 )
 from products.logs.backend.alert_signal_emitter import (
     NotifiedAlert,
