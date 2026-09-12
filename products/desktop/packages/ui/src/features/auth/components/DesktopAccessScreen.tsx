@@ -301,16 +301,41 @@ export function DesktopAccessScreen({
                 </p>
               )}
 
-              <Button
-                variant="primary"
-                loading={isRetrying}
-                disabled={isRetrying || isSwitching}
-                onClick={onRetry}
-                data-attr="desktop-access-retry"
-              >
-                <ArrowClockwise />
-                {isTechnicalError ? "Try again" : "Check again"}
-              </Button>
+              {isTechnicalError ? (
+                <Button
+                  variant="primary"
+                  loading={isRetrying}
+                  disabled={isRetrying || isSwitching}
+                  onClick={onRetry}
+                  data-attr="desktop-access-retry"
+                >
+                  <ArrowClockwise />
+                  Try again
+                </Button>
+              ) : (
+                <div className="flex w-full flex-col gap-2">
+                  {/* A policy block never clears on a recheck, so the primary
+                      action guides the user to another organization instead. */}
+                  <Button
+                    variant="primary"
+                    disabled={isSwitching || isRetrying}
+                    onClick={() => setOrganizationOpen(true)}
+                    data-attr="desktop-access-select-organization"
+                  >
+                    Select another organization
+                  </Button>
+                  <Button
+                    variant="outline"
+                    loading={isRetrying}
+                    disabled={isRetrying || isSwitching}
+                    onClick={onRetry}
+                    data-attr="desktop-access-retry"
+                  >
+                    <ArrowClockwise />
+                    Check again
+                  </Button>
+                </div>
+              )}
             </EmptyContent>
           </Empty>
         </div>
