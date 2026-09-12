@@ -29,3 +29,5 @@ The new dashboard embeds the existing Attribution explorer as Conversion when `m
 The new dashboard shows undismissed ad-source connection suggestions from the existing Setup plan. The accordion remembers its expanded state in local storage. Connect opens the existing review in Setup; sources are never connected automatically. Dismissed suggestions can be restored in Setup.
 
 Each Setup section also lists its dismissed suggestions behind Show dismissed, with an individual Restore action. This remains available when all suggestions in that section are dismissed.
+
+The new dashboard also embeds the existing Retention explorer when `marketing-analytics-retention` is enabled. It shares the acquisition date range and keeps the explorer’s cohort controls, reload and empty state. Previous-period comparison and the traffic test-account filter do not apply to Retention.

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -11,9 +12,11 @@ import { SuggestionRow } from './SuggestionRow'
 /** One section's suggestions, above its manual controls. The same rows as "Suggested
  * setup" rather than a summary, so there's no second rendering to keep in sync. */
 export function SectionSuggestions({ section }: { section: SetupSection }): JSX.Element | null {
-    const { visibleSuggestions, dismissedSuggestions, showDismissed } = useValues(setupPlanLogic)
-    const { reviewSuggestion, toggleShowDismissed } = useActions(setupPlanLogic)
+    const { visibleSuggestions, dismissedSuggestions } = useValues(setupPlanLogic)
+    const { reviewSuggestion } = useActions(setupPlanLogic)
 
+    const [dismissedSection, setDismissedSection] = useState<SetupSection | null>(null)
+    const showDismissed = dismissedSection === section
     const forSection = suggestionsForSection(visibleSuggestions, section)
     const dismissedForSection = suggestionsForSection(dismissedSuggestions, section)
     if (!forSection.length && !dismissedForSection.length) {
@@ -32,7 +35,11 @@ export function SectionSuggestions({ section }: { section: SetupSection }): JSX.
             ))}
             {dismissedForSection.length > 0 && (
                 <>
-                    <LemonButton size="small" onClick={toggleShowDismissed} className="m-2">
+                    <LemonButton
+                        size="small"
+                        onClick={() => setDismissedSection(showDismissed ? null : section)}
+                        className="m-2"
+                    >
                         {showDismissed ? 'Hide dismissed' : 'Show dismissed'} ({dismissedForSection.length})
                     </LemonButton>
                     {showDismissed &&

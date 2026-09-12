@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconGear, IconSparkles } from '@posthog/icons'
@@ -413,7 +413,13 @@ const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNo
 }
 
 export function MarketingAnalyticsScene(): JSX.Element {
-    useMountedLogic(setupPlanLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newDashboardEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
+    useEffect(() => {
+        if (newDashboardEnabled) {
+            return setupPlanLogic.mount()
+        }
+    }, [newDashboardEnabled])
     const { activeTab } = useValues(marketingAnalyticsLogic)
 
     return (

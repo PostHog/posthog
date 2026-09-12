@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { LemonBanner, LemonButton, LemonCollapse, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
 import { AttributionTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTable'
+import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
 import {
     MarketingAnalyticsTab,
     SetupSection,
@@ -102,7 +103,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
     const { setRevenueGoalId, setBreakdownBy } = useActions(marketingAttributionLogic)
     const { dateFilter, compareFilter, shouldFilterTestAccounts } = useValues(marketingAnalyticsLogic)
     const { setDates, setCompareFilter, setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
-    const { visibleSuggestions } = useValues(setupPlanLogic)
+    const { setupPlan, setupPlanLoading, visibleSuggestions } = useValues(setupPlanLogic)
     const { loadSetupPlan, reviewSuggestion } = useActions(setupPlanLogic)
     const [sourcesExpanded, setSourcesExpanded] = useLocalStorage('marketing-source-suggestions-expanded', true)
     const sourceSuggestions = visibleSuggestions.filter((suggestion) => suggestion.kind === 'connect_source')
@@ -111,11 +112,13 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
         setActiveTab(MarketingAnalyticsTab.SETUP)
     }
 
+    const requestedSetupPlan = useRef(false)
     useEffect(() => {
-        if (!setupPlanLogic.values.setupPlan && !setupPlanLogic.values.setupPlanLoading) {
+        if (!setupPlan && !setupPlanLoading && !requestedSetupPlan.current) {
+            requestedSetupPlan.current = true
             loadSetupPlan()
         }
-    }, [loadSetupPlan])
+    }, [setupPlan, setupPlanLoading, loadSetupPlan])
 
     const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
     const query: WebOverviewQuery = {
@@ -203,6 +206,15 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                 <section aria-label="Conversion" className="flex flex-col gap-2">
                     <h2 className="mb-0">Conversion</h2>
                     <AttributionTab />
+                </section>
+            )}
+            {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION] && (
+                <section aria-label="Retention" className="flex flex-col gap-2">
+                    <h2 className="mb-0">Retention</h2>
+                    <p className="text-secondary mb-0">
+                        Follow visitors acquired in the selected date range across subsequent periods.
+                    </p>
+                    <RetentionTab />
                 </section>
             )}
             {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION] && (
