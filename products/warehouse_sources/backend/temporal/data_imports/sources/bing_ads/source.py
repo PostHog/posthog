@@ -170,6 +170,12 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             # next Temporal attempt normally clears it. Match the exception name plus urllib's fixed
             # message prefix, which together carry no request or account values.
             "URLError: <urlopen error",
+            # PostHog's own egress proxy answering the CONNECT tunnel with a 429 while the SDK downloads
+            # a finished report, surfaced by requests as a ProxyError. The proxy is throttling itself —
+            # neither Bing nor the customer is at fault — and it clears on its own, the same reasoning
+            # ClickHouse and Salesforce apply to a 502/503/504 tunnel gateway status. Match the status
+            # only; the message also carries a volatile report URL.
+            "Tunnel connection failed: 429",
         }
 
     @property
