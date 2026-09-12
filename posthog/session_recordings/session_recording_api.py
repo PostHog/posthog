@@ -76,6 +76,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.ai_training import queue_training_deletion
 from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.utils import hash_key_value
@@ -1622,6 +1623,8 @@ class SessionRecordingViewSet(
 
         Returns list of session IDs that failed to delete.
         """
+
+        queue_training_deletion(self.team.id, "session", session_ids)
 
         async def _delete_all() -> list[str]:
             async with recording_api_client() as storage:

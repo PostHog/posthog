@@ -1,12 +1,15 @@
 /** Sorts, encodes, and uploads a batch of block-metadata rows as one dt-partitioned Parquet object in the ML bucket. */
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { ParquetSchema } from '@dsnp/parquetjs'
 import { randomUUID } from 'crypto'
 
 import { logger } from '~/common/utils/logger'
+import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 import { MlBlockMetadataRow } from './block-metadata-row'
 import { MlParquetSinkMetrics } from './metrics'
 import { rowsToParquetBuffer } from './parquet-writer'
+import { MlEncryptedEnvelope } from './privacy/crypto'
 import { replayIndexPartitions, replayIndexToParquetBuffer } from './replay-index'
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
@@ -34,14 +37,42 @@ export class BlockMetadataParquetStore {
         if (rows.length === 0) {
             return
         }
-        const currentRows = rows.filter((row) => row.format_version === 2)
-        const legacyRows = rows.filter((row) => row.format_version !== 2)
-        if (currentRows.length > 0) {
-            await this.writeDataset(currentRows, `${this.prefix}/v2`, `${this.prefix}-replay-index/v2`)
+        if (rows.some((row) => row.format_version === 2)) {
+            throw new Error('ML v2 metadata must use encrypted storage')
         }
-        if (legacyRows.length > 0) {
-            await this.writeDataset(legacyRows, this.prefix, `${this.prefix}-replay-index/v1`)
+        await this.writeDataset(rows, this.prefix, `${this.prefix}-replay-index/v1`)
+    }
+
+    public async writeEncrypted(envelopes: MlEncryptedEnvelope[]): Promise<void> {
+        if (envelopes.length === 0) {
+            return
         }
+        const schema = new ParquetSchema({
+            format_version: { type: 'INT64' },
+            team_id: { type: 'UTF8' },
+            session_id: { type: 'UTF8' },
+            consent_granted_at: { type: 'INT64' },
+            payload: { type: 'BYTE_ARRAY' },
+        })
+        const body = await parquetRecordsToBuffer(
+            schema,
+            envelopes.map((envelope) => ({
+                format_version: 2n,
+                team_id: String(envelope.context.teamId),
+                session_id: envelope.context.sessionId,
+                consent_granted_at: BigInt(envelope.context.consentGrantedAt),
+                payload: Buffer.from(JSON.stringify(envelope)),
+            }))
+        )
+        await this.s3Client.send(
+            new PutObjectCommand({
+                Bucket: this.bucket,
+                Key: this.objectKey(`${this.prefix}/v2`, new Date().toISOString().slice(0, 10)),
+                Body: body,
+                ContentType: 'application/vnd.apache.parquet',
+            }),
+            { abortSignal: AbortSignal.timeout(30_000) }
+        )
     }
 
     private async writeDataset(rows: MlBlockMetadataRow[], prefix: string, indexPrefix: string): Promise<void> {

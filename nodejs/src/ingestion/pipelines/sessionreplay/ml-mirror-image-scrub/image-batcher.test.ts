@@ -103,8 +103,8 @@ describe('ImageBatcher', () => {
                 .sort()
         ).toEqual([pt(1), mixed ? '42' : pt(2)])
         if (mixed) {
-            expect(store.writes[0][0].teamId).toBe('42')
-            expect(store.writes[1][0].pseudoTeam).toBe(pt(1))
+            expect(store.writes.flat().find((image) => image.teamId === '42')).toBeDefined()
+            expect(store.writes.flat().find((image) => image.pseudoTeam === pt(1))).toBeDefined()
         }
         expect(offsets.stored).toBe(1)
         expect(observeCaptureToS3).toHaveBeenCalledTimes(2)

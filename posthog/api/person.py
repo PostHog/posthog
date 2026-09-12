@@ -51,6 +51,7 @@ from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.ai_training import queue_training_deletion
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.person.bulk_delete import (
@@ -890,6 +891,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("You need to specify either distinct_ids or ids")
 
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
+        if distinct_ids and (not keep_person or delete_recordings):
+            queue_training_deletion(self.team_id, "distinct", distinct_ids)
 
         persons_deleted = 0
         errors: builtins.list[dict[str, str]] = []

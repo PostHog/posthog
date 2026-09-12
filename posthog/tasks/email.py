@@ -17,7 +17,13 @@ from prometheus_client import Counter, Histogram
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
-from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, get_email_team_and_org_context, is_email_available
+from posthog.email import (
+    EMAIL_TASK_KWARGS,
+    EmailMessage,
+    get_email_team_and_org_context,
+    is_email_available,
+    single_line,
+)
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
@@ -806,6 +812,77 @@ def send_email_sending_suspended(team_id: int, reason: str, suspended_at: str) -
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @with_team_scope()
+def send_workflow_email_sending_paused(
+    team_id: int, hog_flow_id: str, hog_flow_name: str, reason: str, paused_at: str, resumable: bool = True
+) -> None:
+    """
+    Tell a project's admins that one workflow's email sending was paused automatically because its
+    spam complaint or hard bounce rate crossed a threshold. Not gated by notification settings:
+    that workflow's email stays paused until someone acts on it.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
+    if not memberships_to_email:
+        return
+    workflow_label = single_line(hog_flow_name or "an unnamed workflow")
+    message = EmailMessage(
+        campaign_key=f"workflow_email_sending_paused_{hog_flow_id}_{paused_at}",
+        # No urgency prefix in the subject, for the same deliverability reason as the project-wide
+        # suspension email above.
+        subject=f"Email sending is paused for '{workflow_label}' in project '{single_line(str(team))}'",
+        template_name="workflow_email_sending_paused",
+        template_context={
+            "team": team,
+            "hog_flow_name": workflow_label,
+            "reason": reason,
+            "resumable": resumable,
+            "workflow_path": f"/project/{team.id}/workflows/{hog_flow_id}/workflow",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
+def send_workflow_email_sending_warning(
+    team_id: int, hog_flow_id: str, hog_flow_name: str, reason: str, pause_rate: str, warned_at: str
+) -> None:
+    """
+    Warn a project's admins that one workflow's spam complaint or hard bounce rate is approaching
+    the pause threshold, while there is still time to act. Not gated by notification settings:
+    ignoring it leads to the pause email above.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
+    if not memberships_to_email:
+        return
+    workflow_label = single_line(hog_flow_name or "an unnamed workflow")
+    message = EmailMessage(
+        campaign_key=f"workflow_email_sending_warning_{hog_flow_id}_{warned_at}",
+        # No urgency prefix in the subject, for the same deliverability reason as the emails above.
+        subject=f"Email from '{workflow_label}' in project '{single_line(str(team))}' needs attention",
+        template_name="workflow_email_sending_warning",
+        template_context={
+            "team": team,
+            "hog_flow_name": workflow_label,
+            "reason": reason,
+            "pause_rate": pause_rate,
+            "workflow_path": f"/project/{team.id}/workflows/{hog_flow_id}/workflow",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
 def send_email_sending_reputation_finding(
     team_id: int, impact: str, found_at: str, findings: list[dict[str, str]] | None = None
 ) -> None:
@@ -1088,13 +1165,11 @@ def send_matview_failure_digest() -> None:
 
     cutoff = timezone.now() - datetime.timedelta(hours=24)
 
-    # Latest DataModelingJob is the failure source of truth — v2 MaterializeViewWorkflow doesn't update SavedQuery.status.
-    # The duckgres shadow shares saved_query_id and finalizes after ClickHouse, so it must not stand in for the serving job.
-    latest_job = (
-        DataModelingJob.objects.filter(saved_query_id=OuterRef("id"))
-        .exclude(engine=DataModelingJobEngine.DUCKGRES)
-        .order_by("-last_run_at")
-    )
+    # Latest DataModelingJob is the failure source of truth because v2 does not update SavedQuery.status.
+    # Managed warehouse shadow jobs share saved_query_id and finalize after ClickHouse, so they must not stand in for the serving job.
+    latest_job = DataModelingJob.objects.filter(
+        saved_query_id=OuterRef("id"), engine=DataModelingJobEngine.CLICKHOUSE
+    ).order_by("-last_run_at")
 
     failed_queries = (
         DataWarehouseSavedQuery.objects.exclude(deleted=True)
@@ -1106,11 +1181,14 @@ def send_matview_failure_digest() -> None:
             latest_job_status=DataModelingJob.Status.FAILED,
             latest_job_run_at__gte=cutoff,
         )
+        # Identifiers only: a full row also detoasts six JSON columns and the error text,
+        # for every saved query in every team.
+        .values("id", "team_id")
     )
 
     failed_ids_by_team: dict[int, list[str]] = {}
     for sq in failed_queries:
-        failed_ids_by_team.setdefault(sq.team_id, []).append(str(sq.id))
+        failed_ids_by_team.setdefault(sq["team_id"], []).append(str(sq["id"]))
 
     # A suspended view runs no jobs, so its last failure ages out of the 24h window above.
     suspended_ids_by_team = suspended_saved_query_ids_by_team(DataModelingJobEngine.CLICKHOUSE)
@@ -1169,8 +1247,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
 
     latest_jobs: dict[str, DataModelingJob] = {}
     for latest_job in (
-        DataModelingJob.objects.filter(saved_query_id__in=all_ids)
-        .exclude(engine=DataModelingJobEngine.DUCKGRES)
+        DataModelingJob.objects.filter(saved_query_id__in=all_ids, engine=DataModelingJobEngine.CLICKHOUSE)
         .order_by("saved_query_id", "-last_run_at")
         .distinct("saved_query_id")
     ):

@@ -41,7 +41,7 @@ export function productEmptyStateStory(
         // Empty states show a persistent "listening for data" spinner (and animated preview)
         // by design, so the snapshot runner must not wait for loaders to disappear here.
         parameters: { testOptions: { waitForLoadersToDisappear: false } },
-        args: { config: { ...emptyState.config, ...config }, mode },
+        args: { config: { ...emptyState.config, ...config }, mode, preview: true },
         decorators: [
             // The snapshot root is inline-block. Give the query container a width so
             // inline-size containment cannot collapse that root to zero.

@@ -32,9 +32,15 @@ class TestSavedQueryMaterializedAt(BaseTest):
                 120,
             ),
             (
-                "duckgres_shadow_job_ignored",
+                "legacy_duckgres_shadow_job_ignored",
                 3 * 24 * 60,
                 [("Completed", "clickhouse", 120), ("Completed", "duckgres", 5)],
+                120,
+            ),
+            (
+                "managed_warehouse_shadow_job_ignored",
+                3 * 24 * 60,
+                [("Completed", "clickhouse", 120), ("Completed", "managed_warehouse", 5)],
                 120,
             ),
             ("running_job_ignored", 30, [("Running", "clickhouse", 1)], 30),

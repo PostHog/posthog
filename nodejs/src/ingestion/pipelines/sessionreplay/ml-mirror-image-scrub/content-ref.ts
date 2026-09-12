@@ -41,9 +41,24 @@ export function isRawTeamId(value: unknown): boolean {
 }
 
 /** Parses either kind of ref. `source` says which promise the hash carries. */
-export function parseImageRef(
-    s: string
-): { teamId?: string; pseudoTeam?: string; hash: string; source: 'bytes' | 'url' } | null {
+export function parseImageRef(s: string): {
+    teamId?: string
+    pseudoTeam?: string
+    hash: string
+    source: 'bytes' | 'url'
+    version?: 2
+    consentGrantedAt?: number
+} | null {
+    const scoped = /^(image|imageurl):v2:([1-9][0-9]{0,15}):([1-9][0-9]{0,15}):([A-Za-z0-9_-]{22})$/.exec(s)
+    if (scoped && isRawTeamId(scoped[2]) && Number.isSafeInteger(Number(scoped[3]))) {
+        return {
+            teamId: scoped[2],
+            consentGrantedAt: Number(scoped[3]),
+            hash: scoped[4],
+            source: scoped[1] === 'image' ? 'bytes' : 'url',
+            version: 2,
+        }
+    }
     const content = CONTENT_REF_RE.exec(s)
     if (content) {
         if (isRawTeamId(content[1])) {

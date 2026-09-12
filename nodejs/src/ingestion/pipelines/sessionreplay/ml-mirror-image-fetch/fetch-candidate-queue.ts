@@ -1,3 +1,4 @@
+import { fetchCandidateHistoryKey } from './collected-urls-record'
 import { FetchCandidate } from './collected-urls-record'
 
 export interface FetchCandidateLease {
@@ -143,12 +144,15 @@ export function deduplicateFetchCandidates(candidates: FetchCandidate[]): Dedupl
     const candidatesByCanonicalRef = new Map<string, FetchCandidate>()
     let duplicateCount = 0
     for (const candidate of candidates) {
-        const existing = candidatesByCanonicalRef.get(candidate.originalRef)
+        const existing = candidatesByCanonicalRef.get(fetchCandidateHistoryKey(candidate))
         if (existing) {
             duplicateCount += 1
-            candidatesByCanonicalRef.set(candidate.originalRef, mergeDuplicateFetchCandidates(existing, candidate))
+            candidatesByCanonicalRef.set(
+                fetchCandidateHistoryKey(candidate),
+                mergeDuplicateFetchCandidates(existing, candidate)
+            )
         } else {
-            candidatesByCanonicalRef.set(candidate.originalRef, candidate)
+            candidatesByCanonicalRef.set(fetchCandidateHistoryKey(candidate), candidate)
         }
     }
     return { candidates: [...candidatesByCanonicalRef.values()], duplicateCount }

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.db import OperationalError
@@ -17,6 +17,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
+from posthog.team_notifications.slack import SlackChannel
 
 from products.stamphog.backend.facade.enums import AudienceReason, ChannelResolutionSource, DigestRunStatus
 from products.stamphog.backend.logic.audiences import REPO_AUDIENCE_PREFIX
@@ -24,7 +25,6 @@ from products.stamphog.backend.logic.channel_resolution import (
     Destination,
     RoutingContext,
     RoutingUnavailable,
-    SlackChannel,
     _candidate_repo_configs,
 )
 from products.stamphog.backend.logic.digest import (
@@ -610,7 +610,7 @@ def test_previous_run_slot(now: str, expected: str) -> None:
     ids=["first_digest_cadence_window", "established_audience_week_floor"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-@freeze_time("2026-07-15T08:00:00+00:00")  # a Wednesday; previous slot = Tue 07:00 UTC
+@time_machine.travel("2026-07-15T08:00:00+00:00", tick=False)  # a Wednesday; previous slot = Tue 07:00 UTC
 def test_digest_claim_floor(team, has_history: bool, claimed_offset: timedelta, unclaimed_offset: timedelta) -> None:
     # An audience's first digest must cover only the natural cadence window (what it would have
     # received had it been routable one run earlier), never an arbitrary backlog; an established

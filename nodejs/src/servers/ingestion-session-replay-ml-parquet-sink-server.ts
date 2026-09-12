@@ -5,6 +5,7 @@ import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/cons
 import { logger } from '~/common/utils/logger'
 import { BlockMetadataBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-batcher'
 import { BlockMetadataParquetStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-parquet-store'
+import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 
 import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
@@ -38,6 +39,7 @@ export function buildSinkConsumerConfig(config: IngestionSessionReplayMlMirrorSe
 /** Drains the ML block-metadata topic, rolling rows up into one Parquet object per flush interval in the ML bucket. */
 export class IngestionSessionReplayMlParquetSinkServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
+    private privacy?: MlPrivacyRuntime
     private config: IngestionSessionReplayMlMirrorServerConfig
 
     constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
@@ -59,6 +61,10 @@ export class IngestionSessionReplayMlParquetSinkServer implements NodeServer {
     private async startServices(): Promise<void> {
         initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
 
+        if (this.config.AI_RESEARCH_REPLAY_PRIVACY_TABLE) {
+            this.privacy = new MlPrivacyRuntime(this.config)
+            await this.privacy.start()
+        }
         const s3Client = requireS3Client(buildSessionRecordingS3Client(this.config))
         const store = new BlockMetadataParquetStore(
             s3Client,
@@ -74,7 +80,8 @@ export class IngestionSessionReplayMlParquetSinkServer implements NodeServer {
                 flushIntervalMs: this.config.SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS,
                 maxRows: this.config.SESSION_RECORDING_ML_PARQUET_MAX_ROWS,
             },
-            Date.now()
+            Date.now(),
+            this.privacy?.kafka
         )
         await consumer.connect((messages) => {
             consumer.heartbeat()
@@ -101,6 +108,10 @@ export class IngestionSessionReplayMlParquetSinkServer implements NodeServer {
         return {
             kafkaProducers: [],
             redisPools: [],
+            additionalCleanup: () => {
+                this.privacy?.stop()
+                return Promise.resolve()
+            },
         }
     }
 }

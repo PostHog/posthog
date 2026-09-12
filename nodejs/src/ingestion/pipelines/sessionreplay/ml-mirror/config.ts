@@ -1,21 +1,30 @@
 import os from 'node:os'
 
+import { overrideConfigWithEnv } from '~/common/config/config'
 import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ } from '~/common/config/kafka-topics'
 import { RedisConnectionConfig } from '~/common/utils/db/redis'
 
 export type MlMirrorConfig = {
+    AI_RESEARCH_REPLAY_PRIVACY_TABLE: string
+    AI_RESEARCH_REPLAY_KMS_KEY_ARN: string
+    AI_RESEARCH_REPLAY_AWS_REGION: string
+    AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: number
+    AI_RESEARCH_REPLAY_KEY_CACHE_MAX: number
+    AI_RESEARCH_REPLAY_KEY_CACHE_LIFETIME_MS: number
+    AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: string
+    AI_RESEARCH_REPLAY_S3_PREFIX: string
     /** S3 key prefix under the bucket for the block-metadata Parquet dataset (used by the sink). */
     SESSION_RECORDING_ML_METADATA_PREFIX: string
     /** Optional S3 key of the `{ text, url }` allow-list document; empty → in-binary defaults. */
     SESSION_RECORDING_ML_ALLOW_LIST_S3_KEY: string
-    /** Plaintext HMAC secret to pseudonymize ids; for local dev only — prod uses the KMS-wrapped key below. */
-    SESSION_RECORDING_ML_PSEUDONYM_SECRET: string
+    /** Plaintext root key for legacy identifiers and image hashes; local development only. Production uses the KMS-wrapped key below. */
+    AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: string
     /** Base64 KMS-encrypted pseudonym key (envelope); decrypted once at startup, never persisted. Preferred over the plaintext secret. */
     SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: string
     /** AWS region for the KMS Decrypt call; empty → the SDK default credential/region chain. */
-    SESSION_RECORDING_ML_PSEUDONYM_KMS_REGION: string
+    AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION: string
     /** Expected key fingerprint; if set, startup fails when the resolved key's fingerprint differs (enforces never-rotate). */
-    SESSION_RECORDING_ML_PSEUDONYM_KEY_FINGERPRINT: string
+    AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT: string
     /** Consumer group id for the Parquet-sink deployment that drains the metadata topic. */
     SESSION_RECORDING_ML_PARQUET_SINK_GROUP_ID: string
     /**
@@ -39,7 +48,7 @@ export type MlMirrorConfig = {
 
     /**
      * Produce collected original images to the scrub topic. Enabling changes the mirrored JSONL
-     * shape: image fields carry `image:<pseudoTeam>:<hash>` refs instead of blurred data URIs, so
+     * shape: image fields carry `image:<teamId>:<hash>` refs instead of blurred data URIs, so
      * both the scrub consumer lane AND ref-aware downstream readers must be live first.
      */
     SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: boolean
@@ -209,12 +218,20 @@ export type MlMirrorConfig = {
 
 export function getDefaultMlMirrorConfig(): MlMirrorConfig {
     return {
+        AI_RESEARCH_REPLAY_PRIVACY_TABLE: '',
+        AI_RESEARCH_REPLAY_KMS_KEY_ARN: '',
+        AI_RESEARCH_REPLAY_AWS_REGION: 'us-east-1',
+        AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: 100,
+        AI_RESEARCH_REPLAY_KEY_CACHE_MAX: 10_000,
+        AI_RESEARCH_REPLAY_KEY_CACHE_LIFETIME_MS: 60_000,
+        AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: '',
+        AI_RESEARCH_REPLAY_S3_PREFIX: 'rrweb_2',
         SESSION_RECORDING_ML_METADATA_PREFIX: 'block-metadata',
         SESSION_RECORDING_ML_ALLOW_LIST_S3_KEY: '',
-        SESSION_RECORDING_ML_PSEUDONYM_SECRET: '',
+        AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: '',
         SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: '',
-        SESSION_RECORDING_ML_PSEUDONYM_KMS_REGION: '',
-        SESSION_RECORDING_ML_PSEUDONYM_KEY_FINGERPRINT: '',
+        AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION: '',
+        AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT: '',
         SESSION_RECORDING_ML_PARQUET_SINK_GROUP_ID: 'session-replay-ml-parquet-sink',
         SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS: 60 * 1000,
         SESSION_RECORDING_ML_PARQUET_MAX_ROWS: 250_000,
@@ -268,6 +285,19 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
         SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: 0,
     }
+}
+
+export function getMlMirrorConfig(env: Record<string, string | undefined> = process.env): MlMirrorConfig {
+    return overrideConfigWithEnv(getDefaultMlMirrorConfig(), {
+        ...env,
+        AI_RESEARCH_REPLAY_S3_PREFIX: env.AI_RESEARCH_REPLAY_S3_PREFIX ?? env.SESSION_RECORDING_ML_S3_PREFIX,
+        AI_RESEARCH_REPLAY_PSEUDONYM_SECRET:
+            env.AI_RESEARCH_REPLAY_PSEUDONYM_SECRET ?? env.SESSION_RECORDING_ML_PSEUDONYM_SECRET,
+        AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION:
+            env.AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION ?? env.SESSION_RECORDING_ML_PSEUDONYM_KMS_REGION,
+        AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT:
+            env.AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT ?? env.SESSION_RECORDING_ML_PSEUDONYM_KEY_FINGERPRINT,
+    })
 }
 
 const DEFAULT_UV_THREADPOOL_SIZE = 4

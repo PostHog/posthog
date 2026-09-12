@@ -1,0 +1,22 @@
+{
+    "context": {
+        "teamId": 7,
+        "organizationId": "00000000-0000-4000-8000-000000000007",
+        "sessionId": "01994569-4380-7000-8000-000000000007",
+        "consentGrantedAt": 1789380000000
+    },
+    "key": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+    "data": "c3ludGhldGljIGludGVyb3BlcmFiaWxpdHkgcGF5bG9hZA==",
+    "envelope": {
+        "v": 2,
+        "context": {
+            "teamId": 7,
+            "organizationId": "00000000-0000-4000-8000-000000000007",
+            "sessionId": "01994569-4380-7000-8000-000000000007",
+            "consentGrantedAt": 1789380000000,
+            "kind": "rrweb"
+        },
+        "nonce": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD",
+        "ciphertext": "p8Uxxlbisgl0NyyfHlqGZpfw4/QVzp9N/3No4Dgm9UXAhHhhPlSHUhje4N1M+wfvm3HIwqQSip/rdTNqj3IwDjT8ieTFCgYXD88/tifQ3eLdUXtrYe8AwN71Edwh0YsCP8cJNWkpHENxK+37M/2rWne3CgwIZVc/8YOncIWJx/Ym74Mo9lbMqtZWMQnnvLwvH1i2sBN2IBrqL4o0HUqzlJrxUOlmaz0oNJnrc6hAnodZpKIP8RakU6R/yUBmKhldZyQuaN0m1nO21JFfa1lAl9XBPukpX3oruLXoSKdCJoFE+iPhZlQfT76dt1ftm3oU4B/gIooghRQM20VJmVEancBdmh+cNHMOQg=="
+    }
+}

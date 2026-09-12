@@ -51,6 +51,7 @@ pub const MAX_URLS_PER_MESSAGE: usize = 512;
 /// Enables URL collection for one anonymize call.
 #[derive(Debug, Clone)]
 pub struct UrlCollection {
+    pub reference_namespace: Option<String>,
     /// Global key for the URL HMAC. The caller derives it under a URL-specific domain separator.
     pub url_key: String,
 }
@@ -83,6 +84,7 @@ pub fn hash_url(url_key: &[u8], dedup_url: &str) -> String {
 
 /// Accumulates the remote image URLs of one message, deduplicated on the hash.
 pub struct UrlCollector {
+    reference_namespace: Option<String>,
     url_key: String,
     urls: Vec<CollectedUrl>,
     seen: HashSet<String>,
@@ -101,6 +103,7 @@ pub struct UrlCollector {
 impl UrlCollector {
     pub fn new(collection: UrlCollection) -> Self {
         Self {
+            reference_namespace: collection.reference_namespace,
             url_key: collection.url_key,
             urls: Vec::new(),
             seen: HashSet::new(),
@@ -155,6 +158,13 @@ impl UrlCollector {
         *self.declines.entry(reason).or_insert(0) += 1;
     }
 
+    fn reference(&self, hash: &str) -> String {
+        match &self.reference_namespace {
+            Some(namespace) => format!("imageurl:{namespace}:{hash}"),
+            None => crate::collect::url_ref(hash),
+        }
+    }
+
     fn collect_uncached(&mut self, raw: &str) -> Option<String> {
         let canonical = match try_canonicalize(raw) {
             Ok(c) => c,
@@ -165,7 +175,7 @@ impl UrlCollector {
         };
         let hash = hash_url(self.url_key.as_bytes(), &canonical.dedup);
         if self.seen.contains(&hash) {
-            return Some(crate::collect::url_ref(&hash));
+            return Some(self.reference(&hash));
         }
         self.seen.insert(hash.clone());
         self.urls.push(CollectedUrl {
@@ -174,7 +184,7 @@ impl UrlCollector {
             host: canonical.host,
             domain: canonical.domain,
         });
-        Some(crate::collect::url_ref(&hash))
+        Some(self.reference(&hash))
     }
 
     /// Counts by reason for the URLs this collector refused.
@@ -203,6 +213,7 @@ mod tests {
 
     fn collector() -> UrlCollector {
         UrlCollector::new(UrlCollection {
+            reference_namespace: None,
             url_key: String::from_utf8(TEST_KEY.to_vec()).unwrap(),
         })
     }

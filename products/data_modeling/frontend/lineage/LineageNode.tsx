@@ -2,17 +2,27 @@ import { Handle, Position } from '@xyflow/react'
 import clsx from 'clsx'
 import React, { useCallback, useState } from 'react'
 
-import { IconActivity, IconClockRewind, IconPencil, IconPlay, IconPlayFilled, IconTarget } from '@posthog/icons'
+import {
+    IconActivity,
+    IconClockRewind,
+    IconPauseFilled,
+    IconPencil,
+    IconPlay,
+    IconPlayFilled,
+    IconTarget,
+} from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { ElkDirection, NodeHandle } from 'scenes/data-warehouse/scene/modeling/types'
 
-import { DataModelingJobStatus, DataModelingNode } from '~/types'
+import { DataModelingNode } from '~/types'
 
+import { servingSuspension } from 'products/data_modeling/frontend/suspension'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
-import { NODE_TYPE_TAG_SETTINGS } from './nodeStyles'
+import { ElkDirection, NodeHandle } from './autolayout'
+import { NODE_TYPE_TAG_SETTINGS, statusBackgroundClass } from './nodeStyles'
+import { NodeTypeTag } from './NodeTypeTag'
 
 export type LineageVariant = 'full' | 'canvas'
 
@@ -28,6 +38,7 @@ export type LineageNodeShape = Pick<
     | 'upstream_count'
     | 'downstream_count'
     | 'user_tag'
+    | 'suspended'
 >
 
 export interface LineageNodeState {
@@ -56,35 +67,29 @@ export interface LineageNodeData extends Record<string, unknown> {
     handles: NodeHandle[]
 }
 
-function NodeTypeTag({ type }: { type: DataModelingNode['type'] }): JSX.Element {
-    const { label, color } = NODE_TYPE_TAG_SETTINGS[type]
+function StatusDot({ node }: { node: LineageNodeShape }): JSX.Element {
+    const suspension = servingSuspension(node.suspended)
+    if (suspension) {
+        return (
+            <Tooltip
+                title={
+                    <div className="flex flex-col gap-1">
+                        <div>Suspended after repeated failures</div>
+                        <div className="opacity-75">{suspension.reason}</div>
+                    </div>
+                }
+                interactive
+            >
+                <IconPauseFilled className="text-warning text-sm" />
+            </Tooltip>
+        )
+    }
     return (
-        <span
-            className="text-[10px] lowercase tracking-wide px-1 rounded border-1"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                color,
-                backgroundColor: `color-mix(in srgb, ${color} 20%, transparent)`,
-                borderColor: `color-mix(in srgb, ${color} 80%, transparent)`,
-            }}
-        >
-            {label}
-        </span>
-    )
-}
-
-function StatusDot({ status }: { status?: DataModelingJobStatus }): JSX.Element {
-    return (
-        <Tooltip title={status ?? 'Not run yet'}>
+        <Tooltip title={node.last_run_status ?? 'Not run yet'}>
             <div
                 className={clsx(
                     'rounded-full w-3 h-3 border-1 border-primary',
-                    status === 'Completed' && 'bg-success',
-                    status === 'Running' && 'bg-warning',
-                    status === 'Failed' && 'bg-danger',
-                    status === 'Cancelled' && 'bg-warning',
-                    status === 'Skipped' && 'bg-muted',
-                    !status && 'bg-surface-primary'
+                    node.last_run_status ? statusBackgroundClass(node.last_run_status) : 'bg-surface-primary'
                 )}
             />
         </Tooltip>
@@ -144,18 +149,20 @@ function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
                 </Tooltip>
                 <IconActivity />
                 {node.last_run_at ? (
-                    <TZLabel
-                        className="text-[10px]"
-                        time={node.last_run_at}
-                        formatDate="MMM D"
-                        formatTime="HH:mm"
-                        showPopover={false}
-                    />
+                    <Tooltip title="Last successful run. A failed run does not move this.">
+                        <TZLabel
+                            className="text-[10px]"
+                            time={node.last_run_at}
+                            formatDate="MMM D"
+                            formatTime="HH:mm"
+                            showPopover={false}
+                        />
+                    </Tooltip>
                 ) : (
-                    <Tooltip title="This node has not been run yet">Never</Tooltip>
+                    <Tooltip title="This model has never finished a run">Never succeeded</Tooltip>
                 )}
             </div>
-            <StatusDot status={node.last_run_status} />
+            <StatusDot node={node} />
         </div>
     )
 }

@@ -29,6 +29,7 @@ from django.utils.deprecation import MiddlewareMixin
 from django.utils.http import http_date, url_has_allowed_host_and_scheme
 
 import structlog
+import posthoganalytics
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
@@ -1161,6 +1162,66 @@ def csp_report_endpoint(**params: str) -> str:
 # prefix match would also hand the app document this policy and stop it from starting.
 REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
 
+# The app policy names only PostHog origins in `frame-ancestors`. Enforcing it on these paths stops
+# every embedded dashboard, shared link and survey from rendering on a customer's site.
+#
+# The list follows `posthog/urls.py`. The Contour ingress keeps a similar list in
+# `charts/argocd/contour-ingress/values/values.{dev,prod-us,prod-eu}.yaml`, which omits
+# `/interview/` and the bare `/exporter`. Sync to the URL patterns, not to that list.
+EMBEDDABLE_PATH_PREFIXES = (
+    "/shared_dashboard/",
+    "/shared/",
+    "/embedded/",
+    "/interview/",
+    "/exporter/",
+    "/external_surveys/",
+)
+EMBEDDABLE_PATHS = frozenset({"/render_query", "/exporter"})
+
+
+def is_embeddable_document(path: str) -> bool:
+    return path in EMBEDDABLE_PATHS or path.startswith(EMBEDDABLE_PATH_PREFIXES)
+
+
+CSP_ENFORCE_APP_POLICY_FLAG = "csp-enforce-app-policy"
+
+
+def csp_enforcement_enabled(request: HttpRequest) -> bool:
+    user = getattr(request, "user", None)
+    distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
+    if user is None or not distinct_id:
+        # An anonymous page has nobody to bucket, so login, signup and the OAuth pages keep the
+        # report-only header until enforcement covers everyone.
+        return False
+    try:
+        # Local evaluation only. A network call here would sit in the path of every HTML response,
+        # and an unevaluable flag returns None, which leaves the policy report-only.
+        #
+        # Local evaluation holds the flag's conditions but not the person's properties, so a
+        # condition on `email` cannot resolve unless the caller supplies it. Without this the
+        # staff-only rollout every other flag here uses would return None and enforce nothing.
+        return bool(
+            posthoganalytics.feature_enabled(
+                CSP_ENFORCE_APP_POLICY_FLAG,
+                distinct_id,
+                person_properties={"email": user.email} if user.email else {},
+                only_evaluate_locally=True,
+            )
+        )
+    except Exception:
+        # A failed lookup and a deliberate opt-out both leave the policy report-only. The rollout
+        # needs to tell them apart.
+        logger.warning("csp.enforcement_flag_check_failed_defaulting_off", exc_info=True)
+        return False
+
+
+def app_csp_header_name(request: HttpRequest) -> str:
+    if is_embeddable_document(request.path):
+        return "Content-Security-Policy-Report-Only"
+    if csp_enforcement_enabled(request):
+        return "Content-Security-Policy"
+    return "Content-Security-Policy-Report-Only"
+
 
 class CSPMiddleware:
     def __init__(self, get_response):
@@ -1240,7 +1301,12 @@ class CSPMiddleware:
                     f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
                 )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
-        elif getattr(response, "_posthog_canvas_artifact", False) and "Content-Security-Policy" in response.headers:
+        elif "Content-Security-Policy" in response.headers:
+            # The view picked this policy for this document: a canvas artifact runs untrusted code,
+            # and the workflow asset endpoint sandboxes captured email HTML. The app policy would
+            # drop that sandbox and impose a frame-ancestors list the app's own origin does not
+            # match. Adding it report-only is no better, because these documents never aim to
+            # satisfy it, so each load would report a violation of a policy we chose not to apply.
             return response
         else:
             resource_url = "https://*.posthog.com"
@@ -1260,11 +1326,34 @@ class CSPMiddleware:
                 # can. Session replay decompresses snapshots with snappy-wasm and the HogQL editor
                 # parses with a WebAssembly build, so both break without it.
                 f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com",
-                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com https://cdn.jsdelivr.net",
-                "worker-src 'self'",
+                # A data: font cannot execute script, and this directive governs font loading only,
+                # so the token widens nothing else. It also carries nothing out: a data: URL makes
+                # no request, which is what the CSS-injection attacks on this directive need. The
+                # `data:` refusal in the worker-src note below is a different case, because a
+                # worker body is code.
+                f"font-src 'self' data: {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com",
+                # `blob:` grants nothing to an attacker who cannot already run script, because only
+                # script can mint a blob URL, and a worker started from one inherits this policy
+                # rather than escaping it. The ServiceWorker spec rejects `blob:` on its own, so
+                # this cannot register a persistent worker either.
+                #
+                # The reasoning holds only while every blob worker body is a compile-time constant.
+                # `no-dynamic-worker-body` in .semgrep/rules/security checks first-party code for
+                # that. It follows an object URL or a `data:` URL into a worker constructor through
+                # the assignments in one function, so it catches the shapes we write rather than
+                # every possible one.
+                #
+                # posthog-js builds its rrweb recorder worker from a blob, and PixiJS builds two
+                # ImageBitmap workers the same way. Do not add `data:`: the recorder falls back to a
+                # data URL only when blob fails, so allowing blob stops those attempts.
+                "worker-src 'self' blob:",
                 "child-src 'none'",
                 "object-src 'none'",
-                "media-src https://res.cloudinary.com",
+                # `'self'` carries the PostHog AI onboarding videos under /static/. Max hands-free
+                # needs the other two: it primes playback with a silent `data:` clip, then plays
+                # the TTS response from a blob URL. None of the three can execute, because
+                # media-src governs <audio> and <video> only.
+                "media-src 'self' data: blob: https://res.cloudinary.com",
                 # `https:` is here for the OAuth authorize page, which renders an application's icon
                 # from a URL its registrant supplied. There is no allowlist that covers those, so
                 # until we serve them ourselves the directive has to accept any host.
@@ -1302,7 +1391,7 @@ class CSPMiddleware:
                 # Browsers only deliver crash reports to the endpoint named `default`; the CSP
                 # `report-to posthog` directive keeps routing violations to `posthog`.
                 response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
-            response.headers["Content-Security-Policy-Report-Only"] = "; ".join(csp_parts)
+            response.headers[app_csp_header_name(request)] = "; ".join(csp_parts)
 
         return response
 

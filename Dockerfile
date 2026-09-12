@@ -87,8 +87,8 @@ COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 # the processed frontend/dist ships in the final image, so the CLI must not be mutable remote code.
 # To upgrade, change POSTHOG_CLI_VERSION and recompute the hash:
 #   curl -LsSf "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv<X.Y.Z>/posthog-cli-installer.sh" | sha256sum
-ARG POSTHOG_CLI_VERSION=0.11.2
-ARG POSTHOG_CLI_INSTALLER_SHA256=69ace33b5e153bd7678bea4e1e565f6baa67ca76660e2aca653ed80ea7f6c725
+ARG POSTHOG_CLI_VERSION=0.18.2
+ARG POSTHOG_CLI_INSTALLER_SHA256=1ed5ff785ca33f38458efb1677ffd35ed99d935ac59d5e28bfd0d07a4f697f7a
 # The CLI stamps the release it creates with git metadata (branch, remote, repo name) read from the
 # GitHub Actions environment. Only frontend/dist is copied into this stage, so there is no .git
 # directory to fall back on: without these the release is created with no link back to the code it
@@ -166,7 +166,7 @@ RUN cd /code/common/plugin_transpiler && \
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/astral-sh/uv:0.11.14 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.5 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
 FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f AS posthog-build

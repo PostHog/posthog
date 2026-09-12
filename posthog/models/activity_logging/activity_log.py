@@ -111,6 +111,7 @@ ActivityScope = Literal[
     "Metric",
     "TableCertification",
     "DataQualityCheck",
+    "DataQualityCheckSchedule",
     "Billing",
     "Loop",
     "StamphogRepoConfig",
@@ -377,6 +378,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "autostart_base_branches": "base branch overrides",
         "issue_tracking_integration": "issue tracker",
         "issue_tracking_config": "issue tracker target",
+        "default_open_pull_request_ready": "PRs open as",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -399,6 +401,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
 
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
+    "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
     "AlertConfiguration": [
         "last_checked_at",
         "next_check_at",
@@ -520,6 +523,7 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     "StamphogRepoConfig": [
         # Reverse relation to the repo's review history. The diff would read every pull request row
         # on each settings toggle, and none of it is configuration.
@@ -543,6 +547,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "subject_name",
         "subject_status",
         # Subject FKs are immutable after create and not JSON-serializable for the change detail.
+        "metric",
         "saved_query",
         "table",
     ],
@@ -853,6 +858,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # schema save (even ones that don't touch this field) — the extra queries have
         # deadlocked with concurrent DDL in production.
         "table",
+        # Written by the model on the stop-syncing transition to record whether PostHog halted
+        # the schema itself, so it is derived state and not user intent. Diffing it also puts a
+        # second change on the entry that turns syncing on or off, which makes the schema
+        # activity feed read "updated schema" in place of "enabled schema".
+        "auto_disabled_at",
     ],
     "Evaluation": [
         # The fail-closed relation cannot be resolved outside a team scope; the handler diffs IDs instead.
