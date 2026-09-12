@@ -3,9 +3,10 @@ from datetime import timedelta
 import time_machine
 import unittest.mock
 
-from django.conf import settings
+from django.db import connection
 from django.db.models import Q
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import dagster
@@ -87,13 +88,7 @@ class TestBatchDeleteFunctionality(TestCase):
             algorithm="RS256",
         )
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "CLEAR_EXPIRED_TOKENS_BATCH_SIZE": 2,
-            "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL": 0,
-        }
-    )
+    @override_settings(CLEAR_EXPIRED_TOKENS_BATCH_SIZE=2, CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL=0.01)
     def test_batch_delete_model_with_small_batches(self):
         """Test batch deletion with small batch sizes."""
         # Create multiple expired tokens
@@ -114,14 +109,16 @@ class TestBatchDeleteFunctionality(TestCase):
         queryset = OAuthAccessToken.objects.filter(query)
         context = dagster.build_op_context()
 
-        # One pause per batch, so the call count shows the configured batch size is in force.
-        with unittest.mock.patch("products.growth.dags.oauth.time.sleep") as mock_sleep:
+        with CaptureQueriesContext(connection) as captured:
             deleted_count = batch_delete_model(queryset, context, "test_tokens")
 
         # Verify all tokens were deleted
         self.assertEqual(deleted_count, 5)
         self.assertEqual(OAuthAccessToken.objects.count(), 0)
-        self.assertEqual(mock_sleep.call_count, 3)
+
+        # The batch queries are unindexed anti-joins in production, so a count is a second scan
+        # of rows the loop has already read.
+        self.assertEqual([q["sql"] for q in captured.captured_queries if "COUNT(" in q["sql"].upper()], [])
 
     def test_batch_delete_model_with_no_tokens(self):
         """Test batch deletion when no tokens match the query."""
