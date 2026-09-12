@@ -37,7 +37,7 @@ DEFAULT_ENVIRONMENT = "services"
 _ENVIRONMENT_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class BabelforceResumeConfig:
     # Page index of the next unfetched page and the frozen request window; both are persisted
     # so a resumed run reissues the identical query (same date window, next page).
