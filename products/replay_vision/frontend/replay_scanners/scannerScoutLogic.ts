@@ -34,7 +34,7 @@ import {
 } from '../generated/api'
 import type { ScoutReportApi } from '../generated/api.schemas'
 import type { ScannerScoutTemplateKey } from './scannerScout'
-import { isScannerScoutConfig, scannerScoutCreatePayload, scoutNameToSkillName } from './scannerScout'
+import { isScannerScoutConfig, scannerScoutCreatePayload, scoutSkillName } from './scannerScout'
 import { isScoutDestination, scoutWebhookDestinationPayload } from './scannerScoutDelivery'
 
 /** Everything the scout form edits, in both create and settings mode. */
@@ -709,6 +709,24 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             }
         }
 
+        /** Records the name the person typed. Nothing else keeps it — the skill name is derived from
+         * the scanner and the template — so this runs for every scout rather than only the ones with
+         * a name too long to slug. Best-effort: the scout is already created by this point, so a
+         * failure here leaves it named after its skill rather than unsaved. */
+        const applyDisplayName = async (config: SignalScoutConfigApi, name: string): Promise<void> => {
+            const teamId = teamLogic.values.currentTeamId
+            const displayName = name.trim()
+            if (!teamId || !displayName) {
+                return
+            }
+            try {
+                await signalsScoutConfigUpdate(String(teamId), config.id, { display_name: displayName })
+            } catch {
+                // Nothing to tell the user: the scout exists and reads as its skill name, which the
+                // settings form can rename.
+            }
+        }
+
         /** Soft-deletes a scout's webhook destination without touching its config, for the delete
          * path where the config is already gone. */
         const clearScoutWebhook = async (
@@ -751,7 +769,10 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             [scoutFleetLogic.actionTypes.loadScoutRunsSuccess]: refetchReportsIfChanged,
             createScout: async ({ form }) => {
                 const teamId = teamLogic.values.currentTeamId
-                if (!teamId || !form.body.trim()) {
+                // The template the form was opened from, which the skill name is derived from
+                // instead of the typed name. Held until `createScoutFinished` clears it.
+                const templateKey = values.createTemplateKey
+                if (!teamId || !templateKey || !form.body.trim()) {
                     actions.createScoutFinished()
                     return
                 }
@@ -766,7 +787,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 // of asking the person to refresh.
                 const burnedNames: string[] = []
                 const create = async (): Promise<SignalScoutConfigApi> => {
-                    const skillName = scoutNameToSkillName(form.name, props.scannerName, [
+                    const skillName = scoutSkillName(props.scannerName, templateKey, [
                         ...(values.scoutConfigs ?? []).map((config) => config.skill_name),
                         ...burnedNames,
                     ])
@@ -795,6 +816,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         }
                     }
                     const created = { config: config! }
+                    await applyDisplayName(created.config, form.name)
                     const delivered = await reconcileDelivery(created.config, form)
                     lemonToast.success(
                         delivered

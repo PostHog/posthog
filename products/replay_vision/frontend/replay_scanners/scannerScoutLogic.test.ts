@@ -208,6 +208,56 @@ describe('scannerScoutLogic', () => {
         })
     })
 
+    it('records the typed name and gives the scout an id that does not depend on it', async () => {
+        // The name is no longer slugified into the skill name, so a name of any length survives
+        // whole — and the id stays the scanner's and the template's, which is what keeps it
+        // readable and unique per team.
+        await mountWithReports([])
+        const typed = 'Robot: Replay Vision intent and friction report, every weekday morning'
+        const config = makeConfig({ output_destinations: {} })
+        mockScoutsCreate.mockResolvedValueOnce({ created: true, config } as any)
+        jest.mocked(signalsScoutConfigUpdate).mockResolvedValue({ ...config, display_name: typed })
+
+        logic.actions.openCreateModal('daily-digest')
+        logic.actions.createScout({
+            name: typed,
+            body: 'Watch this scanner.',
+            cron: '0 9 * * *',
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((mockScoutsCreate.mock.calls[0][2] as any).name).toBe(
+            'signals-scout-rage-clicks-on-checkout-daily-digest'
+        )
+        expect(signalsScoutConfigUpdate).toHaveBeenCalledWith(expect.any(String), config.id, {
+            display_name: typed,
+        })
+    })
+
+    it('creates the scout even when its display name cannot be recorded', async () => {
+        // The scout is already created by then, so a failed rename must not read as a failed create.
+        await mountWithReports([])
+        mockScoutsCreate.mockResolvedValueOnce({
+            created: true,
+            config: makeConfig({ output_destinations: {} }),
+        } as any)
+        jest.mocked(signalsScoutConfigUpdate).mockRejectedValue(new Error('boom'))
+
+        logic.actions.openCreateModal('daily-digest')
+        logic.actions.createScout({
+            name: 'Robot: Replay Vision intent and friction report, every weekday morning',
+            body: 'Watch this scanner.',
+            cron: '0 9 * * *',
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockScoutsCreate).toHaveBeenCalledTimes(1)
+    })
+
     it('renames and retries when another tab already took the name', async () => {
         // Skill names are unique per team, so a scout created in one tab leaves this tab's roster
         // stale and its derived name already taken.
@@ -216,6 +266,7 @@ describe('scannerScoutLogic', () => {
             .mockRejectedValueOnce(Object.assign(new Error('conflict'), { status: 409 }))
             .mockResolvedValueOnce({ created: true, config: makeConfig() } as any)
 
+        logic.actions.openCreateModal('daily-digest')
         logic.actions.createScout({
             name: 'Daily digest',
             body: 'Watch this scanner.',
