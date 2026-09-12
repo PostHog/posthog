@@ -39,7 +39,7 @@ const STATUS_LABEL: Record<TicketPatternApi['status'], string> = {
 }
 
 export function SupportPatternsScene(): JSX.Element {
-    const { patterns, patternsLoading, statusFilter } = useValues(supportPatternsSceneLogic)
+    const { visiblePatterns, patternsLoading, statusFilter } = useValues(supportPatternsSceneLogic)
     const { setStatusFilter } = useActions(supportPatternsSceneLogic)
     const { inFlightIds } = useValues(ticketPatternsLogic)
     const { confirmPattern, dismissPattern } = useActions(ticketPatternsLogic)
@@ -120,7 +120,7 @@ export function SupportPatternsScene(): JSX.Element {
                     options={STATUS_OPTIONS}
                 />
             </div>
-            {!patternsLoading && patterns.length === 0 ? (
+            {!patternsLoading && visiblePatterns.length === 0 ? (
                 <ProductIntroduction
                     thingName="pattern"
                     titleOverride={
@@ -136,7 +136,7 @@ export function SupportPatternsScene(): JSX.Element {
                 />
             ) : (
                 <LemonTable
-                    dataSource={patterns}
+                    dataSource={visiblePatterns}
                     columns={columns}
                     loading={patternsLoading}
                     rowKey="id"
