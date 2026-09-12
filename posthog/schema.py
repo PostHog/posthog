@@ -5630,6 +5630,15 @@ class HogQLQueryModifiers(BaseModel):
     bounceRateDurationSeconds: float | None = None
     bounceRatePageViewMode: BounceRatePageViewMode | None = None
     convertToProjectTimezone: bool | None = None
+    cookielessTrafficIsRegular: bool | None = Field(
+        default=None,
+        description=(
+            "Classify cookieless-mode events as regular traffic instead of automation."
+            " Cookieless ingestion strips the user agent the bot classifier reads, so"
+            " without this every cookieless event is reported as a bot. Resolved"
+            " server-side; not intended to be set by clients."
+        ),
+    )
     customBotDefinitions: list[CustomBotRule] | None = None
     customChannelTypeRules: list[CustomChannelRule] | None = None
     dataWarehouseEventsModifiers: list[DataWarehouseEventsModifier] | None = None
