@@ -1,6 +1,10 @@
 import { FileTextIcon, PlusIcon } from "@phosphor-icons/react";
 import type { SpaceFileSummary } from "@posthog/api-client/posthog-client";
 import {
+  buildSpaceFileSections,
+  hasCustomizedSpaceFileList,
+} from "@posthog/core/canvas/spaceFileList";
+import {
   Autocomplete,
   AutocompleteItem,
   AutocompleteList,
@@ -14,10 +18,14 @@ import {
   EmptyTitle,
   MenuLabel,
 } from "@posthog/quill";
+import { formatAbsoluteDateTime, formatRelativeAge } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { buildCanvasSpaceOptions } from "@posthog/ui/features/canvas/components/canvasSpaceOptions";
 import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { NewSpaceFileDialog } from "@posthog/ui/features/space-files/NewSpaceFileDialog";
+import { SpaceFileFilterMenu } from "@posthog/ui/features/space-files/SpaceFileFilterMenu";
+import { useSpaceFileListStore } from "@posthog/ui/features/space-files/spaceFileListStore";
 import {
   useSpaceFileMutations,
   useSpaceFiles,
@@ -25,41 +33,7 @@ import {
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
-import { type ReactElement, useMemo, useState } from "react";
-
-interface FileSection {
-  channelId: string;
-  label: string;
-  files: SpaceFileSummary[];
-}
-
-function buildSections(
-  files: SpaceFileSummary[],
-  channelNames: Map<string, string>,
-  query: string,
-): FileSection[] {
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const grouped = new Map<string, SpaceFileSummary[]>();
-  for (const file of files) {
-    const channelName = channelNames.get(file.channel_id) ?? "Unknown space";
-    if (
-      !file.name.toLocaleLowerCase().includes(normalizedQuery) &&
-      !channelName.toLocaleLowerCase().includes(normalizedQuery)
-    ) {
-      continue;
-    }
-    const current = grouped.get(file.channel_id) ?? [];
-    current.push(file);
-    grouped.set(file.channel_id, current);
-  }
-  return [...grouped.entries()]
-    .map(([channelId, groupedFiles]) => ({
-      channelId,
-      label: channelNames.get(channelId) ?? "Unknown space",
-      files: groupedFiles.sort((a, b) => a.name.localeCompare(b.name)),
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label));
-}
+import { Fragment, type ReactElement, useMemo, useState } from "react";
 
 export function SpaceFilesPane({
   className,
@@ -72,17 +46,24 @@ export function SpaceFilesPane({
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [newFileOpen, setNewFileOpen] = useState(false);
-  const channelNames = useMemo(
+  const settings = useSpaceFileListStore((state) => state.settings);
+  const setSettings = useSpaceFileListStore((state) => state.setSettings);
+  const spaceNames = useMemo(
     () => new Map(channels.map((channel) => [channel.id, channel.name])),
     [channels],
   );
+  const spaceOptions = useMemo(
+    () => buildCanvasSpaceOptions(channels),
+    [channels],
+  );
   const sections = useMemo(
-    () => buildSections(files, channelNames, query),
-    [channelNames, files, query],
+    () => buildSpaceFileSections({ files, spaceNames, query, settings }),
+    [files, spaceNames, query, settings],
   );
   const fileIds = sections.flatMap((section) =>
     section.files.map((file) => file.id),
   );
+  const filtered = hasCustomizedSpaceFileList(settings);
 
   const open = (file: SpaceFileSummary): void => {
     void navigate({ to: "/files", search: { file: file.id } });
@@ -109,15 +90,22 @@ export function SpaceFilesPane({
           searchLabel="Search files"
           onClear={() => setQuery("")}
           actions={
-            <Button
-              size="sm"
-              variant="outline"
-              data-attr="new-space-file"
-              onClick={() => setNewFileOpen(true)}
-            >
-              <PlusIcon size={14} />
-              New file…
-            </Button>
+            <>
+              <SpaceFileFilterMenu
+                spaceOptions={spaceOptions}
+                settings={settings}
+                onChange={setSettings}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                data-attr="new-space-file"
+                onClick={() => setNewFileOpen(true)}
+              >
+                <PlusIcon size={14} />
+                New file…
+              </Button>
+            </>
           }
         />
         <AutocompleteList className="sidebar-autocomplete-tree scroll-mask-8 !max-h-none !p-1.5 min-h-0 flex-1 overflow-y-auto">
@@ -151,11 +139,11 @@ export function SpaceFilesPane({
                   <FileTextIcon />
                 </EmptyMedia>
                 <EmptyTitle>
-                  {query ? "No files match" : "No files yet"}
+                  {query || filtered ? "No files match" : "No files yet"}
                 </EmptyTitle>
                 <EmptyDescription>
-                  {query
-                    ? "Try another search."
+                  {query || filtered
+                    ? "Try another search, or clear the filters."
                     : "Create a Markdown file in a space."}
                 </EmptyDescription>
               </EmptyHeader>
@@ -163,21 +151,37 @@ export function SpaceFilesPane({
           ) : (
             <div className="flex flex-col gap-px">
               {sections.map((section) => (
-                <div key={section.channelId}>
-                  <MenuLabel>{section.label}</MenuLabel>
-                  {section.files.map((file) => (
-                    <AutocompleteItem
-                      key={file.id}
-                      value={file.id}
-                      nativeButton
-                      className="h-auto w-full py-1.5 text-left ring-offset-0 data-highlighted:border-transparent data-highlighted:bg-fill-hover data-highlighted:ring-0"
-                      onClick={() => open(file)}
-                    >
-                      <FileTextIcon size={14} />
-                      <span className="truncate text-[13px]">{file.name}</span>
-                    </AutocompleteItem>
-                  ))}
-                </div>
+                <Fragment key={section.key}>
+                  {section.label ? (
+                    <MenuLabel>{section.label}</MenuLabel>
+                  ) : null}
+                  {section.files.map((file) => {
+                    const spaceName =
+                      spaceNames.get(file.channel_id) ?? "Unknown space";
+                    return (
+                      <AutocompleteItem
+                        key={file.id}
+                        value={file.id}
+                        nativeButton
+                        className="h-auto w-full items-start py-1.5 text-left ring-offset-0 data-highlighted:border-transparent data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-start [&>span]:gap-2"
+                        onClick={() => open(file)}
+                      >
+                        <FileTextIcon size={14} />
+                        <span className="min-w-0">
+                          <span className="block truncate text-[13px]">
+                            {file.name}
+                          </span>
+                          <span
+                            className="block truncate text-muted-foreground text-xxs"
+                            title={formatAbsoluteDateTime(file.updated_at)}
+                          >
+                            {spaceName} · {formatRelativeAge(file.updated_at)}
+                          </span>
+                        </span>
+                      </AutocompleteItem>
+                    );
+                  })}
+                </Fragment>
               ))}
             </div>
           )}
