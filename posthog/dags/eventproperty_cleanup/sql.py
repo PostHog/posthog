@@ -1,0 +1,260 @@
+"""All SQL for the posthog_eventproperty cleanup job, in one place.
+
+Plans were verified on the production replicas. Every DELETE re-checks its own predicate, so a
+row that became legitimate between discovery and deletion is never removed.
+"""
+
+TABLE = "posthog_eventproperty"
+# Only the unique constraint's index. Every other index on this table is near-dead in at least one
+# region and has already lost siblings to bloat sweeps, so the job depends on nothing droppable.
+REQUIRED_INDEXES = ("posthog_event_property_unique_proj_event_property",)
+
+# statement_timeout is reported so the run record shows it: prod-EU inherits 30 minutes from the
+# cluster while prod-US overrides it to 0 at the database level, and only the vacuum session opts out.
+PREFLIGHT_PRIMARY = """
+SELECT pg_is_in_recovery(), current_database(), current_user, current_setting('statement_timeout')
+"""
+PREFLIGHT_INDEXES = "SELECT indexname FROM pg_indexes WHERE tablename = %(table)s"
+PREFLIGHT_REPLICATION_SLOTS = "SELECT slot_name, active FROM pg_replication_slots"
+# Without pg_read_all_stats, pg_stat_activity hides other sessions' wait events and the
+# blocked-propdefs pause signal silently reads zero.
+PREFLIGHT_ACTIVITY_VISIBILITY = """
+SELECT pg_has_role(current_user, 'pg_read_all_stats', 'member')
+       OR (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
+"""
+
+# Mode 2c. Mid-unit re-check: has any event for the tenant been seen inside the window? EXISTS stops
+# at the first hit; for a genuinely dormant tenant it still walks the team's definitions once per
+# re-check, which is why re-checks are spaced by rows deleted, not batches.
+DORMANT_RECHECK = """
+SELECT EXISTS (
+    SELECT 1 FROM posthog_eventdefinition
+    WHERE team_id = %(team_id)s AND last_seen_at >= now() - make_interval(days => %(days)s))
+"""
+
+TEAM_ORG_STATE = """
+SELECT t.id AS team_id,
+       t.project_id,
+       o.has_active_subscription
+FROM posthog_team t
+JOIN posthog_project p ON p.id = t.project_id
+JOIN posthog_organization o ON o.id = p.organization_id
+WHERE t.id = ANY(%(team_ids)s)
+ORDER BY o.has_active_subscription NULLS FIRST, t.id
+"""
+
+# Upper bound for the discovery range walk. Covers both scoping styles: pollution ranges over
+# coalesce(project_id, team_id), retention over team_id, and a team can sit in an older project.
+MAX_TEAM_ID = "SELECT greatest(coalesce(max(id), 0), coalesce(max(project_id), 0)) FROM posthog_team"
+
+# Mode 2a. Teams in a project_id range that own at least one non-event property definition. A
+# bounded range scan on posthog_pro_project_3583d2_idx (coalesce(project_id, team_id), type,
+# is_numerical), so discovery never issues one statement over the whole table. Scoped on the
+# coalesce expression rather than bare team_id so it does not depend on the team-scoped twin
+# posthog_pro_team_id_eac36d_idx, which is being dropped as unused.
+POLLUTION_TEAM_UNIVERSE = """
+SELECT DISTINCT team_id
+FROM posthog_propertydefinition
+WHERE coalesce(project_id, team_id) > %(lo)s
+  AND coalesce(project_id, team_id) <= %(hi)s
+  AND type <> 1
+ORDER BY team_id
+"""
+
+# Mode 2a. Does this project own any property that exists only as a non-event definition? One row,
+# so it costs nothing to ask before walking a project's events. Never fetch the names themselves:
+# the worst project on prod-US holds 1,383,919 non-event definitions, and binding them into a
+# statement would be unbounded in both memory and statement size. The DELETE does not need them --
+# a property with no EVENT-type definition is exactly what its re-check already selects for.
+POLLUTION_PROJECT_HAS_CANDIDATES = """
+SELECT EXISTS (
+    SELECT 1
+    FROM posthog_propertydefinition pd
+    WHERE coalesce(pd.project_id, pd.team_id) = %(project_id)s
+      AND pd.type <> 1
+      AND NOT EXISTS (
+          SELECT 1 FROM posthog_propertydefinition e
+          WHERE coalesce(e.project_id, e.team_id) = %(project_id)s
+            AND e.name = pd.name
+            AND e.type = 1))
+"""
+
+# Mode 2a. One page of a project's event names, read from the table being cleaned rather than from
+# posthog_eventdefinition: 0.1% of rows have no definition row, and driving from there would leave
+# them unreachable for good. Keyset-paginated on the unique index's second column, so a project with
+# millions of event names never lands in memory and is never counted.
+POLLUTION_EVENT_PAGE = """
+SELECT DISTINCT event
+FROM posthog_eventproperty
+WHERE coalesce(project_id, team_id) = %(project_id)s
+  AND event > %(after)s
+ORDER BY event
+LIMIT %(limit)s
+"""
+
+# Mode 2a. Deletes a page of events' polluted rows through the unique index, which covers the
+# project and event predicates; the re-check supplies the rest. It sits inside the ctid subquery on
+# purpose: a property that gained an EVENT-type definition since discovery is never selected, so
+# every returned ctid is deletable and a short batch still means the unit is exhausted. That
+# invariant is what lets the run record a resume point. Moving the re-check to the outer statement
+# would delete fewer rows than it selected and strand the rest.
+# Measured 16.9ms per batch on the largest project.
+POLLUTION_DELETE = """
+DELETE FROM posthog_eventproperty
+WHERE ctid = ANY(ARRAY(
+        SELECT ep.ctid FROM posthog_eventproperty ep
+        WHERE coalesce(ep.project_id, ep.team_id) = %(project_id)s
+          AND ep.event = ANY(%(events)s)
+          AND NOT EXISTS (
+              SELECT 1 FROM posthog_propertydefinition e
+              WHERE coalesce(e.project_id, e.team_id) = %(project_id)s
+                AND e.name = ep.property
+                AND e.type = 1)
+        LIMIT %(batch)s))
+"""
+
+# Mode 2b. Teams in a project_id range that own at least one stale event definition. Ranges over the
+# coalesce expression so it scans event_definition_proj_uniq, the index this table's readers use,
+# rather than the near-dead team-only one. Measured 15.9s against 22.2s per chunk on prod-US.
+RETENTION_TEAM_UNIVERSE = """
+SELECT DISTINCT team_id
+FROM posthog_eventdefinition
+WHERE coalesce(project_id, team_id) > %(lo)s
+  AND coalesce(project_id, team_id) <= %(hi)s
+  AND last_seen_at IS NOT NULL AND last_seen_at < now() - make_interval(days => %(days)s)
+ORDER BY team_id
+"""
+
+# Mode 2b. One page of event names not seen for N days, keyset-paginated by name so a tenant with
+# millions of stale names never lands in memory at once. NULL last_seen_at is unknown and never eligible.
+RETENTION_CANDIDATE_EVENTS = """
+SELECT name
+FROM posthog_eventdefinition
+WHERE coalesce(project_id, team_id) = %(project_id)s
+  AND name > %(after)s
+  AND last_seen_at IS NOT NULL
+  AND last_seen_at < now() - make_interval(days => %(days)s)
+ORDER BY name
+LIMIT %(limit)s
+"""
+
+RETENTION_ESTIMATE = """
+EXPLAIN (FORMAT JSON)
+SELECT 1 FROM posthog_eventproperty
+WHERE coalesce(project_id, team_id) = %(project_id)s AND event = ANY(%(names)s)
+"""
+
+RETENTION_DELETE = """
+DELETE FROM posthog_eventproperty
+WHERE ctid = ANY(ARRAY(
+        SELECT ctid FROM posthog_eventproperty
+        WHERE coalesce(project_id, team_id) = %(project_id)s AND event = ANY(%(names)s)
+        LIMIT %(batch)s))
+  AND NOT EXISTS (
+      SELECT 1 FROM posthog_eventdefinition ed
+      WHERE coalesce(ed.project_id, ed.team_id) = %(project_id)s
+        AND ed.name = posthog_eventproperty.event
+        AND (ed.last_seen_at IS NULL OR ed.last_seen_at >= now() - make_interval(days => %(days)s)))
+"""
+
+# Mode 2c. Whole-tenant delete. No predicate beyond the tenant: for a dormant tenant the EXISTS
+# below finds nothing and has to walk all of its event definitions, which measured ~8s per batch on
+# the largest tenant against a 60s statement_timeout. Revalidation is out of band instead, spaced by
+# `revalidate_every_rows`, and goes through `still_dormant` so ClickHouse gets a say too.
+DORMANT_DELETE = """
+DELETE FROM posthog_eventproperty
+WHERE ctid = ANY(ARRAY(
+        SELECT ctid FROM posthog_eventproperty WHERE team_id = %(team_id)s LIMIT %(batch)s))
+"""
+
+# Mode 2c. Largest owners of the table from planner statistics, without touching the table.
+DORMANT_TOP_TEAMS = """
+SELECT v.team_id::int AS team_id, (f.freq * c.reltuples)::bigint AS est_rows
+FROM pg_stats s
+JOIN pg_class c ON c.relname = s.tablename
+CROSS JOIN LATERAL unnest(s.most_common_vals::text::int[]) WITH ORDINALITY AS v(team_id, ord)
+JOIN LATERAL unnest(s.most_common_freqs) WITH ORDINALITY AS f(freq, ord) ON f.ord = v.ord
+WHERE s.tablename = 'posthog_eventproperty' AND s.attname = 'team_id'
+ORDER BY est_rows DESC
+LIMIT %(top_n)s
+"""
+
+# Mode 2c. One index scan that answers all three questions at once. Do not split it into three
+# EXISTS probes: measured on prod-US that costs 17.6s against this query's 8.7s, because the planner
+# reads a bare EXISTS as "a sequential scan will hit a match early" and picks a Seq Scan over a
+# 125M-row table for two of the three. Scoped on bare team_id deliberately -- for a point lookup the
+# team-leading index beats event_definition_proj_uniq, which carries `name` in every entry.
+# The remaining cost is inherent: no index carries last_seen_at.
+DORMANT_EVENTDEFS = """
+SELECT count(*) AS event_defs,
+       count(*) FILTER (WHERE last_seen_at IS NULL) AS null_last_seen,
+       max(last_seen_at) AS max_last_seen
+FROM posthog_eventdefinition
+WHERE team_id = %(team_id)s
+"""
+
+DORMANT_TEAM_ORG = """
+SELECT t.created_at AS team_created_at,
+       t.project_id,
+       o.id AS organization_id,
+       o.has_active_subscription,
+       o.customer_id IS NOT NULL AS has_customer_id,
+       o.is_pending_deletion,
+       (o.usage -> 'events' ->> 'usage')::bigint AS events_usage
+FROM posthog_team t
+JOIN posthog_project p ON p.id = t.project_id
+JOIN posthog_organization o ON o.id = p.organization_id
+WHERE t.id = %(team_id)s
+"""
+
+DORMANT_HUMAN_ACTIVITY = """
+SELECT (SELECT max(u.last_login)
+        FROM posthog_organizationmembership m
+        JOIN posthog_user u ON u.id = m.user_id
+        WHERE m.organization_id = %(organization_id)s) AS last_login,
+       (SELECT max(k.last_used_at)
+        FROM posthog_personalapikey k
+        JOIN posthog_organizationmembership m ON m.user_id = k.user_id
+        WHERE m.organization_id = %(organization_id)s) AS last_personal_key_use,
+       (SELECT max(last_viewed_at) FROM posthog_insightviewed WHERE team_id = %(team_id)s) AS last_insight_view,
+       (SELECT max(created_at) FROM posthog_activitylog WHERE team_id = %(team_id)s) AS last_activity_log,
+       (SELECT count(*) FROM posthog_batchexport WHERE team_id = %(team_id)s AND NOT paused) AS active_batch_exports,
+       (SELECT count(*) FROM posthog_survey
+        WHERE team_id = %(team_id)s AND start_date IS NOT NULL AND end_date IS NULL) AS live_surveys,
+       (SELECT count(*) FROM posthog_featureflag WHERE team_id = %(team_id)s AND active) AS active_flags
+"""
+
+# Persons DB (reader). posthog_person is hash-partitioned by team and has no created_at index, so the
+# probe is bounded by the tenant's person count and runs under a short statement_timeout.
+PERSONS_HAS_ROWS = "SELECT EXISTS (SELECT 1 FROM posthog_persondistinctid WHERE team_id = %(team_id)s)"
+PERSONS_CREATED_RECENTLY = """
+SELECT EXISTS (
+    SELECT 1 FROM posthog_person
+    WHERE team_id = %(team_id)s AND created_at > now() - make_interval(days => %(days)s))
+"""
+
+CLICKHOUSE_RECENT_EVENTS = """
+SELECT count() FROM events
+WHERE team_id = %(team_id)s AND timestamp > now() - INTERVAL %(days)s DAY
+SETTINGS max_execution_time = 30
+"""
+
+HEALTH_TABLE_STATS = """
+SELECT n_live_tup, n_dead_tup
+FROM pg_stat_user_tables
+WHERE relname = 'posthog_eventproperty'
+"""
+# Other sessions blocked on a lock over this table. Deliberately not filtered by role: the propdefs
+# service connects as the cluster's master user, which is also the role this job runs as, so a
+# username filter would either match nothing or match the job's own backend and pause it forever.
+HEALTH_BLOCKED_PROPDEFS = """
+SELECT count(*)
+FROM pg_stat_activity a
+WHERE a.pid <> pg_backend_pid()
+  AND a.wait_event_type = 'Lock'
+  AND EXISTS (
+      SELECT 1 FROM pg_locks l
+      WHERE l.pid = a.pid AND NOT l.granted AND l.relation = 'posthog_eventproperty'::regclass)
+"""
+
+VACUUM = "VACUUM (INDEX_CLEANUP ON, VERBOSE) posthog_eventproperty"
