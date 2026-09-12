@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.signals import user_login_failed
+from django.db import transaction
 from django.http.response import JsonResponse
 
 import structlog
@@ -18,6 +19,7 @@ from webauthn.helpers.decode_credential_public_key import decode_credential_publ
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
 from posthog.api.authentication import EmailVerificationPending, axes_locked_out, is_email_verified_for_login
+from posthog.api.email_verification import SIGNUP_EMAIL_PROOF_SESSION_KEY
 from posthog.auth import SessionAuthentication, WebAuthnAuthenticationResponse, WebauthnBackend
 from posthog.event_usage import report_user_logged_in
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
@@ -33,7 +35,7 @@ from posthog.passkey import (
     verify_passkey_registration_response,
 )
 from posthog.rate_limit import WebAuthnSignupRegistrationThrottle
-from posthog.session.activity import revoke_other_sessions_for_request
+from posthog.session.activity import request_session_is_live, revoke_other_sessions_for_request
 from posthog.tasks.email import send_passkey_added_email, send_passkey_removed_email
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
@@ -277,7 +279,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             )
             if not isinstance(verified_user, User):
                 return verified_user
-            if policy_response := self._enforce_login_policy(request, verified_user):
+            if policy_response := self._enforce_login_policy(request, verified_user, credential_id):
                 return policy_response
 
             # Login the user with the WebauthnBackend
@@ -372,7 +374,9 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
 
         return verified_user
 
-    def _enforce_login_policy(self, request: Request, verified_user: User) -> Response | JsonResponse | None:
+    def _enforce_login_policy(
+        self, request: Request, verified_user: User, credential_id: str
+    ) -> Response | JsonResponse | None:
         """Run the policy checks that gate a session, all against the verified user.
 
         Returns the response to send when a check refuses the login, or None when all of them
@@ -400,6 +404,15 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             return _login_error(VERIFIED_DOMAIN_REQUIRED_ERROR)
 
         if not is_email_verified_for_login(verified_user):
+            credential = WebauthnCredential.objects.only("id").get(
+                user=verified_user,
+                credential_id=base64url_to_bytes(credential_id),
+            )
+            request.session[SIGNUP_EMAIL_PROOF_SESSION_KEY] = {
+                "user_uuid": str(verified_user.uuid),
+                "credential_type": "passkey",
+                "credential_id": str(credential.id),
+            }
             # The passkey assertion is verified at this point, so the uuid is safe to return:
             # the password path returns the same uuid after a correct password. The frontend
             # uses the uuid to route to /verify_email/<uuid>.
@@ -769,10 +782,19 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
                 credential_current_sign_count=credential.counter,
             )
 
-            # Mark credential as verified
-            credential.verified = True
-            credential.counter = verification.new_sign_count
-            credential.save()
+            # Mark credential as verified, serialized with email-claim reconciliation: the claim
+            # revokes this request's session row inside its transaction, so a verification that
+            # lands after it would re-add a login credential on the reconciled account.
+            with transaction.atomic():
+                User.objects.select_for_update().get(pk=user.pk)
+                if not request_session_is_live(request, user):
+                    return Response(
+                        {"error": "Your session ended. Please log in and try again."},
+                        status=status.HTTP_401_UNAUTHORIZED,
+                    )
+                credential.verified = True
+                credential.counter = verification.new_sign_count
+                credential.save()
 
             send_passkey_added_email.delay(user.id)
 

@@ -15,6 +15,7 @@ import string
 import secrets
 
 from django.core.cache import cache
+from django.db import transaction
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
@@ -28,6 +29,7 @@ from posthog.auth import SessionAuthentication
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.scopes import UNPRIVILEGED_SCOPES
+from posthog.session.activity import request_session_is_live
 
 # Device code lives for 10 minutes
 DEVICE_CODE_EXPIRY_SECONDS = 600
@@ -267,36 +269,47 @@ class CLIAuthViewSet(viewsets.ViewSet):
         team_name_truncated = team.name[:max_team_name_len] if len(team.name) > max_team_name_len else team.name
         label = f"CLI - {team_name_truncated} - {timestamp}"
 
-        had_prior_pat = PersonalAPIKey.objects.filter(user=user).exists()
+        # Same protocol as PersonalAPIKeySerializer.create: serialize with email-claim
+        # reconciliation and refuse when the claim revoked this request's session mid-flight, so
+        # a stale session cannot mint a key or stamp credentials_reviewed_at from its stale
+        # in-memory user.
+        with transaction.atomic():
+            user = User.objects.select_for_update().get(pk=user.pk)
+            if not request_session_is_live(request, user):
+                return Response(
+                    {"error": "session_revoked", "error_description": "Your session ended. Start the CLI login again."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            had_prior_pat = PersonalAPIKey.objects.filter(user=user).exists()
 
-        PersonalAPIKey.objects.create(
-            user=user,
-            label=label,
-            secure_value=secure_value,
-            mask_value=mask_value,
-            scopes=scopes,
-            scoped_teams=[team.id],
-            scoped_organizations=[],
-        )
+            PersonalAPIKey.objects.create(
+                user=user,
+                label=label,
+                secure_value=secure_value,
+                mask_value=mask_value,
+                scopes=scopes,
+                scoped_teams=[team.id],
+                scoped_organizations=[],
+            )
 
-        # User explicitly authorized this CLI via SessionAuthentication (see
-        # CLIAuthViewSet.get_authenticators - authorize is session-only). If they
-        # had no prior PATs, treat the CLI key as already-acknowledged so the
-        # review interstitial doesn't fire for the key they just minted. Skip
-        # when prior PATs exist - those may be partner-issued and still warrant
-        # the review.
-        if not had_prior_pat and user.credentials_reviewed_at is None:
-            user.credentials_reviewed_at = timezone.now()
-            user.save(update_fields=["credentials_reviewed_at"])
+            # User explicitly authorized this CLI via SessionAuthentication (see
+            # CLIAuthViewSet.get_authenticators - authorize is session-only). If they
+            # had no prior PATs, treat the CLI key as already-acknowledged so the
+            # review interstitial doesn't fire for the key they just minted. Skip
+            # when prior PATs exist - those may be partner-issued and still warrant
+            # the review.
+            if not had_prior_pat and user.credentials_reviewed_at is None:
+                user.credentials_reviewed_at = timezone.now()
+                user.save(update_fields=["credentials_reviewed_at"])
 
-        # Mark device as authorized and store the API key
-        device_data["status"] = "authorized"
-        device_data["personal_api_key"] = api_key_value
-        device_data["label"] = label
-        device_data["project_id"] = str(project_id)
-        device_data["scopes"] = scopes
-        device_data["authorized_at"] = timezone.now().isoformat()
-        device_data["user_id"] = user.id
+            # Mark device as authorized and store the API key
+            device_data["status"] = "authorized"
+            device_data["personal_api_key"] = api_key_value
+            device_data["label"] = label
+            device_data["project_id"] = str(project_id)
+            device_data["scopes"] = scopes
+            device_data["authorized_at"] = timezone.now().isoformat()
+            device_data["user_id"] = user.id
 
         # Update cache with longer TTL to ensure CLI can poll
         cache.set(device_cache_key, device_data, timeout=60)  # 1 minute to retrieve

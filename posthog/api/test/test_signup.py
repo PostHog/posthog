@@ -12,14 +12,25 @@ from unittest.mock import ANY, patch
 from django.contrib.sessions.backends.base import UpdateError
 from django.core import mail
 from django.core.cache import cache
-from django.test import override_settings
+from django.test import Client, override_settings
 from django.urls.base import reverse
 from django.utils import timezone
 
+from django_otp.plugins.otp_static.models import StaticDevice
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
+from social_django.models import UserSocialAuth
+from webauthn.helpers import bytes_to_base64url
 
+from posthog.api.email_verification import SIGNUP_EMAIL_PROOF_SESSION_KEY, email_verification_code_verifier
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
+from posthog.api.webauthn import (
+    WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
+    WEBAUTHN_SIGNUP_EMAIL_KEY,
+    WEBAUTHN_SIGNUP_USER_UUID_KEY,
+)
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
 from posthog.helpers.oauth_pending_connection import PENDING_OAUTH_CONNECTION_COOKIE, PendingOAuthConnection
@@ -30,7 +41,11 @@ from posthog.models.linked_identity_provider_config import LinkedIdentityProvide
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY, OrganizationInvite
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.session.backend import SessionStore
+from posthog.session.models import Session
 from posthog.utils import get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -195,6 +210,30 @@ class TestSignupAPI(APIBaseTest):
         mock_is_email_available.assert_called()
         # Assert the email was sent.
         mock_email_verifier.assert_called_once_with(user)
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.api.signup.email_verification_code_verifier.send_code")
+    def test_api_sign_up_without_csrf_does_not_record_the_credential_proof(
+        self, mock_email_verifier, mock_is_email_available
+    ):
+        # A cross-site form POST cannot read the CSRF cookie, so it cannot plant the proof that
+        # decides which credential survives the email claim.
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        client = Client(enforce_csrf_checks=True)
+        response = client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "csrf-squatter@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Squatters United, LLC",
+                "role_at_organization": "product",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertNotIn(SIGNUP_EMAIL_PROOF_SESSION_KEY, client.session)
+        mock_email_verifier.assert_not_called()
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")
@@ -1155,6 +1194,7 @@ class TestSignupAPI(APIBaseTest):
                 algorithm=-7,
                 verified=True,
             )
+            stale_social_auth = UserSocialAuth.objects.create(user=squatter, provider="github", uid="stale-github")
             self._setup_jit_domain_for_email(email)
 
             response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
@@ -1164,6 +1204,27 @@ class TestSignupAPI(APIBaseTest):
             self.assertTrue(squatter.is_email_verified)
             self.assertFalse(squatter.passkeys_enabled_for_2fa)
             self.assertFalse(WebauthnCredential.objects.filter(user=squatter).exists())
+            self.assertFalse(UserSocialAuth.objects.filter(id=stale_social_auth.id).exists())
+            self.assertTrue(UserSocialAuth.objects.filter(user=squatter, provider="google-oauth2", uid="123").exists())
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_reverification_preserves_only_current_social_auth(self, mock_sso_providers, mock_request):
+        with self.is_cloud(True):
+            email = "victim@posthog.net"
+            existing = User.objects.create(email=email, distinct_id=str(uuid.uuid4()), is_email_verified=False)
+            current_social_auth = UserSocialAuth.objects.create(user=existing, provider="google-oauth2", uid="123")
+            stale_social_auth = UserSocialAuth.objects.create(user=existing, provider="github", uid="stale-github")
+            self._setup_jit_domain_for_email(email)
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            existing.refresh_from_db()
+            self.assertTrue(existing.is_email_verified)
+            self.assertTrue(UserSocialAuth.objects.filter(id=current_social_auth.id).exists())
+            self.assertFalse(UserSocialAuth.objects.filter(id=stale_social_auth.id).exists())
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -1210,6 +1271,36 @@ class TestSignupAPI(APIBaseTest):
             existing.refresh_from_db()
             self.assertTrue(existing.has_usable_password())
             self.assertTrue(WebauthnCredential.objects.filter(user=existing).exists())
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_merge_into_legacy_account_claims_the_address(self, mock_sso_providers, mock_request):
+        # Legacy NULL accounts predate the is_email_verified column and were never verified.
+        # The SSO login proves the address, so local credentials set before the claim must not
+        # survive it — otherwise a squatter's password keeps working after the owner links SSO.
+        with self.is_cloud(True):
+            email = "legacy@posthog.net"
+            existing = User.objects.create(email=email, distinct_id=str(uuid.uuid4()), is_email_verified=None)
+            existing.set_password(VALID_TEST_PASSWORD)
+            existing.save()
+            passkey = WebauthnCredential.objects.create(
+                user=existing,
+                credential_id=b"legacy-credential",
+                label="Legacy passkey",
+                public_key=b"legacy-public-key",
+                algorithm=-7,
+                verified=True,
+            )
+            self._setup_jit_domain_for_email(email)
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            existing.refresh_from_db()
+            self.assertFalse(existing.has_usable_password())
+            self.assertFalse(WebauthnCredential.objects.filter(id=passkey.id).exists())
+            self.assertTrue(existing.is_email_verified)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -1764,6 +1855,7 @@ class TestPasskeySignupAPI(APIBaseTest):
     def setUpTestData(cls):
         TEST_clear_instance_license_cache()
 
+    @override_instance_config("EMAIL_HOST", "localhost")
     @pytest.mark.skip_on_multitenancy
     def test_passkey_signup_assigns_temporary_uuid_to_user(self):
         """
@@ -1820,7 +1912,9 @@ class TestPasskeySignupAPI(APIBaseTest):
 
         credential = WebauthnCredential.objects.get(user=user)
         self.assertEqual(credential.credential_id, b"test-credential-id-12345")
-        self.assertTrue(credential.verified)
+        # The email is unproven at signup, so the credential stays unverified (unusable for
+        # login) until the signup session enters the emailed verification code.
+        self.assertFalse(credential.verified)
 
         # The user handle used during registration (user.uuid.bytes) matches the user's UUID
         self.assertEqual(user.uuid.bytes, expected_uuid.bytes)
@@ -1921,6 +2015,113 @@ class TestPasskeySignupAPI(APIBaseTest):
         me_response = self.client.get("/api/users/@me/")
         self.assertEqual(me_response.status_code, status.HTTP_200_OK)
         self.assertFalse(me_response.json()["requires_credential_review"])
+
+    def _passkey_signup_capturing_code(self, email: str) -> User:
+        session = SessionStore()
+        session[WEBAUTHN_SIGNUP_EMAIL_KEY] = email
+        session[WEBAUTHN_SIGNUP_USER_UUID_KEY] = str(uuid.uuid4())
+        session[WEBAUTHN_SIGNUP_CREDENTIAL_KEY] = {
+            "credential_id": bytes_to_base64url(b"signup-credential-id"),
+            "public_key": bytes_to_base64url(b"signup-public-key"),
+            "algorithm": -7,
+            "sign_count": 0,
+            "transports": ["internal"],
+        }
+        session.create()
+        self.client.cookies["sessionid"] = session.session_key or ""
+
+        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+            response = self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": "Passkey",
+                    "email": email,
+                    "organization_name": "Passkey Org",
+                    "role_at_organization": "engineering",
+                },
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.verification_code = mock_send.call_args[0][1]
+        return User.objects.get(email=email)
+
+    @override_instance_config("EMAIL_HOST", "localhost")
+    @pytest.mark.skip_on_multitenancy
+    def test_verify_email_from_signup_session_releases_only_its_passkey(self):
+        user = self._passkey_signup_capturing_code("passkey_proof@posthog.com")
+        credential = WebauthnCredential.objects.get(user=user)
+        self.assertFalse(credential.verified)
+        unrelated_passkey = WebauthnCredential.objects.create(
+            user=user,
+            credential_id=b"unrelated-credential-id",
+            label="Unrelated passkey",
+            public_key=b"unrelated-public-key",
+            algorithm=-7,
+            verified=False,
+        )
+        stale_social_auth = UserSocialAuth.objects.create(user=user, provider="github", uid="stale-github")
+        totp_device = TOTPDevice.objects.create(user=user, name="default", confirmed=True)
+        static_device = StaticDevice.objects.create(user=user, name="backup", confirmed=True)
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": user.uuid, "code": self.verification_code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["requires_2fa"])
+
+        credential.refresh_from_db()
+        self.assertTrue(credential.verified)
+        self.assertFalse(WebauthnCredential.objects.filter(id=unrelated_passkey.id).exists())
+        self.assertFalse(UserSocialAuth.objects.filter(id=stale_social_auth.id).exists())
+        self.assertTrue(TOTPDevice.objects.filter(id=totp_device.id).exists())
+        self.assertTrue(StaticDevice.objects.filter(id=static_device.id).exists())
+        user.refresh_from_db()
+        self.assertTrue(user.is_email_verified)
+
+    @override_instance_config("EMAIL_HOST", "localhost")
+    @pytest.mark.skip_on_multitenancy
+    def test_verify_email_from_other_session_deletes_pre_registered_passkey(self):
+        user = self._passkey_signup_capturing_code("passkey_squat@posthog.com")
+        stale_client = APIClient()
+        stale_client.force_login(user)
+        stale_session_key = stale_client.session.session_key
+        assert stale_session_key is not None
+        # The same squat works when the squatter signed up with a password instead of a passkey.
+        user.set_password(VALID_TEST_PASSWORD)
+        user.save()
+        stale_social_auth = UserSocialAuth.objects.create(user=user, provider="github", uid="stale-github")
+        totp_device = TOTPDevice.objects.create(user=user, name="default", confirmed=True)
+        static_device = StaticDevice.objects.create(user=user, name="backup", confirmed=True)
+        personal_api_key = PersonalAPIKey.objects.create(
+            label="Existing API key",
+            user=user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
+        )
+        self.assertTrue(user.has_usable_password())
+
+        # A password change rotates the code derivation, so the address holder requests a
+        # fresh code the way request_email_verification allows, then proves the address from
+        # a different browser (without the signup session).
+        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+            email_verification_code_verifier.send_code(user)
+        code = mock_send.call_args[0][1]
+
+        other_session = SessionStore()
+        other_session.create()
+        self.client.cookies["sessionid"] = other_session.session_key or ""
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["requires_login"])
+
+        user.refresh_from_db()
+        self.assertTrue(user.is_email_verified)
+        self.assertIsNone(user.credentials_reviewed_at)
+        self.assertFalse(user.has_usable_password())
+        self.assertFalse(WebauthnCredential.objects.filter(user=user).exists())
+        self.assertFalse(UserSocialAuth.objects.filter(id=stale_social_auth.id).exists())
+        self.assertTrue(TOTPDevice.objects.filter(id=totp_device.id).exists())
+        self.assertTrue(StaticDevice.objects.filter(id=static_device.id).exists())
+        self.assertTrue(PersonalAPIKey.objects.filter(id=personal_api_key.id).exists())
+        self.assertFalse(Session.objects.filter(session_key=stale_session_key).exists())
 
     @pytest.mark.skip_on_multitenancy
     def test_password_signup_generates_random_uuid(self):
@@ -3142,6 +3343,7 @@ class TestInviteSignupAPI(APIBaseTest):
             ("org_does_not_enforce_2fa", False, False),
         ]
     )
+    @override_instance_config("EMAIL_HOST", None)
     def test_passkey_invite_signup_passkeys_enabled_for_2fa(
         self, _name: str, org_enforce_2fa: bool, expected_passkeys_enabled_for_2fa: bool
     ):
@@ -3164,6 +3366,10 @@ class TestInviteSignupAPI(APIBaseTest):
         self.organization.enforce_2fa = org_enforce_2fa
         self.organization.save(update_fields=["enforce_2fa"])
 
+        # EMAIL_HOST is pinned to None on this test: with no email the invite signup logs the
+        # invitee straight in and mints the passkey verified; the email-available variant
+        # (credential unverified until the code is entered) is covered by the
+        # TestPasskeySignupAPI verification tests.
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email=target_email, organization=self.organization
         )

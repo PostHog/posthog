@@ -23,9 +23,10 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
 from social_django.models import UserSocialAuth
 
-from posthog.api.email_verification import email_verification_code_verifier
+from posthog.api.email_verification import EMAIL_CHANGE_PROOF_SESSION_KEY, email_verification_code_verifier
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
 from posthog.api.user import MAX_PRODUCT_INTROS_SEEN, UserSerializer
 from posthog.constants import AvailableFeature
@@ -59,6 +60,15 @@ def issue_verification_code(user: User, target_email: str | None = None) -> str:
     with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
         email_verification_code_verifier.send_code(user, target_email=target_email)
     return mock_send.call_args[0][1]
+
+
+def set_email_change_proof(client: APIClient, user: User, target_email: str) -> None:
+    session = client.session
+    session[EMAIL_CHANGE_PROOF_SESSION_KEY] = {
+        "user_uuid": str(user.uuid),
+        "target_email": target_email,
+    }
+    session.save()
 
 
 class TestUserAPI(APIBaseTest):
@@ -485,6 +495,17 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == 204
         assert User.objects.get(pk=self.user.pk).credentials_reviewed_at == first_ts
 
+    @patch("posthog.api.user.request_session_is_live", return_value=False)
+    def test_credentials_review_complete_refused_when_the_session_was_revoked_mid_request(self, _mock_live):
+        # An email claim revokes the request's session while the acknowledgement runs. The stale
+        # session must not dismiss the review the claim just raised.
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+
+        response = self.client.post("/api/users/@me/credentials_review_complete/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert User.objects.get(pk=self.user.pk).credentials_reviewed_at is None
+
     def test_credentials_review_complete_requires_auth(self):
         self.client.logout()
         response = self.client.post("/api/users/@me/credentials_review_complete/")
@@ -902,10 +923,9 @@ class TestUserAPI(APIBaseTest):
         assert response_data["scene_personalisation"] == expected_choices
 
     @patch("posthog.api.user.is_email_available", return_value=False)
-    @patch("posthog.tasks.email.send_email_change_emails.delay")
-    def test_no_notifications_when_user_email_is_changed_and_email_not_available(
-        self, mock_send_email_change_emails, mock_is_email_available
-    ):
+    def test_email_change_refused_when_email_is_not_configured(self, mock_is_email_available):
+        # Without email there is no way to verify the new address, so the change must never fall
+        # back to a direct write of the login identity.
         self.user.email = "alpha@example.com"
         self.user.save()
 
@@ -915,14 +935,12 @@ class TestUserAPI(APIBaseTest):
                 "email": "beta@example.com",
             },
         )
-        response_data = response.json()
-        self.user.refresh_from_db()
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response_data["email"] == "beta@example.com"
-        assert self.user.email == "beta@example.com"
-        mock_is_email_available.assert_called_once()
-        mock_send_email_change_emails.assert_not_called()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "email_not_available"
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email is None
 
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
@@ -1012,8 +1030,12 @@ class TestUserAPI(APIBaseTest):
         assert self.user.email == "alpha@example.com"
         assert self.user.pending_email is None
 
-    @patch("posthog.api.user.is_email_available", return_value=False)
-    def test_email_change_allowed_when_dropping_own_plus_alias(self, _mock_is_email_available):
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    def test_email_change_allowed_when_dropping_own_plus_alias(
+        self, mock_send_code, _mock_send_email_change_emails, _mock_is_email_available
+    ):
         # The collision check must skip the editor's own row, or a legacy alias holder can never clean it up.
         self.user.email = "alpha+legacy@example.com"
         self.user.save()
@@ -1022,7 +1044,16 @@ class TestUserAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
+        assert self.user.pending_email == "alpha@example.com"
+
+        response = self.client.post(
+            "/api/users/verify_email/",
+            {"uuid": self.user.uuid, "code": mock_send_code.call_args[0][1]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
         assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email is None
 
     @parameterized.expand(
         [
@@ -1047,6 +1078,14 @@ class TestUserAPI(APIBaseTest):
             UserSocialAuth.objects.create(user=self.user, provider=provider, uid=uid).id
             for provider, uid in social_auths
         ]
+        passkey = WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"same-session-email-change",
+            label="Existing passkey",
+            public_key=b"same-session-public-key",
+            algorithm=-7,
+            verified=True,
+        )
         other_user = User.objects.create_user("other@example.com", "pwd1234*", "Other")
         other_user_social_auth_id = UserSocialAuth.objects.create(
             user=other_user, provider="google-oauth2", uid="other-google-sub"
@@ -1078,6 +1117,8 @@ class TestUserAPI(APIBaseTest):
             self.user.refresh_from_db()
             assert self.user.email == "beta@example.com"
             assert self.user.pending_email is None
+            assert self.user.has_usable_password()
+            assert WebauthnCredential.objects.filter(id=passkey.id).exists()
             for social_auth_id in social_auth_ids:
                 assert not UserSocialAuth.objects.filter(id=social_auth_id).exists()
             assert UserSocialAuth.objects.filter(id=other_user_social_auth_id).exists()
@@ -1087,6 +1128,99 @@ class TestUserAPI(APIBaseTest):
                 "alpha@example.com",
                 "beta@example.com",
             )
+
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    def test_email_change_requires_the_initiating_browser_session(
+        self,
+        mock_send_code,
+        _mock_send_email_change_emails,
+        _mock_is_email_available,
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.is_email_verified = True
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
+        passkey = WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"email-change-credential",
+            label="Existing passkey",
+            public_key=b"email-change-public-key",
+            algorithm=-7,
+            verified=True,
+        )
+        social_auth = UserSocialAuth.objects.create(user=self.user, provider="github", uid="existing-github")
+        api_key_value = generate_random_token_personal()
+        personal_api_key = PersonalAPIKey.objects.create(
+            label="Existing API key",
+            user=self.user,
+            secure_value=hash_key_value(api_key_value),
+            scopes=["*"],
+        )
+        oauth_app = OAuthApplication.objects.create(
+            name="Existing OAuth app",
+            client_id="email-change-client",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        oauth_access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="email-change-access-token",
+            scope="user:read",
+            expires=timezone.now() + timedelta(hours=1),
+        )
+        oauth_refresh_token = OAuthRefreshToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="email-change-refresh-token",
+        )
+        oauth_grant = OAuthGrant.objects.create(
+            application=oauth_app,
+            user=self.user,
+            code="email-change-grant",
+            expires=timezone.now() + timedelta(minutes=10),
+            redirect_uri="https://example.com/callback",
+            scope="user:read",
+            code_challenge="email-change-challenge",
+            code_challenge_method="S256",
+        )
+
+        with self.is_cloud(True):
+            response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
+        assert response.status_code == status.HTTP_200_OK
+
+        self.client.logout()
+        response = self.client.post(
+            "/api/users/verify_email/",
+            {"uuid": self.user.uuid, "code": mock_send_code.call_args[0][1]},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email == "beta@example.com"
+        assert self.user.has_usable_password()
+        assert self.user.passkeys_enabled_for_2fa
+        assert WebauthnCredential.objects.filter(id=passkey.id).exists()
+        assert UserSocialAuth.objects.filter(id=social_auth.id).exists()
+        assert PersonalAPIKey.objects.filter(id=personal_api_key.id).exists()
+        assert OAuthAccessToken.objects.filter(id=oauth_access_token.id).exists()
+        assert OAuthRefreshToken.objects.filter(id=oauth_refresh_token.id).exists()
+        assert OAuthGrant.objects.filter(id=oauth_grant.id).exists()
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+        response = self.client.patch("/api/users/@me/", {"email": "gamma@example.com"})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        response = self.client.post(
+            "/api/users/verify_email/",
+            {"uuid": self.user.uuid, "code": mock_send_code.call_args[0][1]},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [
@@ -1212,6 +1346,7 @@ class TestUserAPI(APIBaseTest):
         self.user.is_email_verified = True
         self.user.pending_email = "alice@example.com"
         self.user.save()
+        set_email_change_proof(self.client, self.user, "alice@example.com")
         code = issue_verification_code(self.user)
 
         with patch(
@@ -1681,6 +1816,23 @@ class TestUserAPI(APIBaseTest):
         # Password was successfully changed
         user.refresh_from_db()
         self.assertTrue(user.check_password("a_new_password"))
+
+    @patch("posthog.api.user.request_session_is_live", return_value=False)
+    def test_password_change_refused_when_the_session_was_revoked_mid_request(self, _mock_live):
+        # An email claim revokes the request's session while an in-flight password change runs.
+        # The write must refuse instead of re-arming a login credential the claim just removed.
+        # The mock stands in for the race window: the session is live at authentication time and
+        # gone by write time, which a test client cannot produce within one request. The profile
+        # field proves super().update() never saved the stale instance either.
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"current_password": self.CONFIG_PASSWORD, "password": "a_new_password", "first_name": "Sneaky"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+        self.assertNotEqual(self.user.first_name, "Sneaky")
 
     @patch("posthoganalytics.capture")
     def test_cannot_update_to_insecure_password(self, mock_capture):
@@ -3271,9 +3423,11 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
 
     @parameterized.expand([("verified", True), ("legacy_never_verified", None)])
     def test_email_change_code_goes_to_the_pending_address_and_completes_the_swap(self, _name, is_email_verified):
+        self.client.force_login(self.user)
         self.user.is_email_verified = is_email_verified
         self.user.pending_email = "new-address@posthog.com"
         self.user.save()
+        set_email_change_proof(self.client, self.user, "new-address@posthog.com")
 
         with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
             with self.settings(CELERY_TASK_ALWAYS_EAGER=True):

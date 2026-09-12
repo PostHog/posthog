@@ -46,7 +46,12 @@ from two_factor.utils import default_device
 
 from posthog.schema import UserUIConfiguration
 
-from posthog.api.email_verification import email_verification_code_verifier
+from posthog.api.credential_reconciliation import reconcile_email_claim_credentials
+from posthog.api.email_verification import (
+    EMAIL_CHANGE_PROOF_SESSION_KEY,
+    SIGNUP_EMAIL_PROOF_SESSION_KEY,
+    email_verification_code_verifier,
+)
 from posthog.api.notification_settings import validate_notification_settings
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
@@ -124,6 +129,7 @@ from posthog.rate_limit import (
 )
 from posthog.session.activity import (
     list_user_sessions,
+    request_session_is_live,
     revoke_other_sessions,
     revoke_other_sessions_for_request,
     revoke_user_auth_session,
@@ -698,11 +704,15 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
 
-        if (
-            "email" in validated_data
-            and validated_data["email"].lower() != instance.email.lower()
-            and is_email_available()
-        ):
+        if "email" in validated_data and validated_data["email"].lower() != instance.email.lower():
+            request = self.context["request"]
+            if not isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
+                raise exceptions.PermissionDenied("Email changes require a browser session.")
+            if not is_email_available():
+                raise serializers.ValidationError(
+                    "Email changes can't be verified because email is not configured for this instance.",
+                    code="email_not_available",
+                )
             new_email = validated_data["email"]
             # Moving between two SSO-enforced domains of the same org is a domain migration, not an SSO bypass.
             # SSO enforcement can only be set on a verified domain, so an enforced domain is always verified.
@@ -733,6 +743,10 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data.pop("email", None)  # staged as pending_email below, not written to `email` directly
             instance.pending_email = new_email
             instance.save(update_fields=["pending_email"])
+            request.session[EMAIL_CHANGE_PROOF_SESSION_KEY] = {
+                "user_uuid": str(instance.uuid),
+                "target_email": new_email,
+            }
             # The code is bound to the captured address, so a concurrent email change cannot
             # redirect this code: once a different address is staged, the code stops verifying.
             email_verification_code_verifier.send_code(instance, target_email=new_email)
@@ -748,15 +762,27 @@ class UserSerializer(serializers.ModelSerializer):
 
         old_passkeys_enabled_for_2fa = instance.passkeys_enabled_for_2fa
         updated_attrs = list(validated_data.keys())
-        instance = cast(User, super().update(instance, validated_data))
 
         if password:
-            # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validated in validate_password_change above)
-            instance.set_password(password)
-            instance.save()
+            with transaction.atomic():
+                # Lock before any write and re-check the session. super().update() saves the whole
+                # instance, so a claim committing between validation and that save would otherwise
+                # be undone by the stale password hash written back here.
+                instance = cast(User, User.objects.select_for_update().get(pk=instance.pk))
+                if not request_session_is_live(self.context["request"], instance):
+                    raise exceptions.PermissionDenied("Your session ended. Log in again to change your password.")
+                # Re-check the current password against the locked row: the claim may have wiped it
+                # while this request ran.
+                self.validate_password_change(instance, current_password, password)
+                instance = cast(User, super().update(instance, validated_data))
+                # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validated in validate_password_change above)
+                instance.set_password(password)
+                instance.save()
             update_session_auth_hash(self.context["request"], instance)
             updated_attrs.append("password")
             send_password_changed_email.delay(instance.id)
+        else:
+            instance = cast(User, super().update(instance, validated_data))
 
         # Only the upgrade (enabling) counts as a credential change — disabling is a downgrade and
         # deliberately does not revoke other sessions.
@@ -1127,25 +1153,66 @@ class UserViewSet(
                 {"code": ["This code is invalid or has expired."]},
                 code="invalid_code",
             )
+        email_changed = bool(user.pending_email and user.is_email_verified is not False)
+        authenticator = getattr(request, "successful_authenticator", None)
+        if authenticator is not None and not isinstance(authenticator, SessionAuthentication):
+            raise exceptions.PermissionDenied("Email verification does not accept token authentication.")
+
+        email_change_proof = request.session.get(EMAIL_CHANGE_PROOF_SESSION_KEY)
+        email_change_proof_matches = (
+            isinstance(email_change_proof, dict)
+            and email_change_proof.get("user_uuid") == str(user.uuid)
+            and email_change_proof.get("target_email") == user.pending_email
+        )
+        same_user_session = bool(
+            isinstance(authenticator, SessionAuthentication)
+            and request.user.pk == user.pk
+            and email_change_proof_matches
+        )
+        if email_changed and not same_user_session:
+            raise exceptions.PermissionDenied("Complete this email change in the browser where it started.")
+
         email_verification_code_verifier.invalidate(user)
 
-        # An unverified user's code proves the account address, not the staged one, so their
-        # staged change stays pending until they verify it with a code sent to the new address.
-        # A legacy account (is_email_verified None) counts as verified, like in the login flow
-        # and in the verifier.
-        if user.pending_email and user.is_email_verified is not False:
+        if email_changed:
             old_email = user.email
             with transaction.atomic():
-                user.email = user.pending_email
+                user.email = cast(str, user.pending_email)
                 user.pending_email = None
                 user.save(update_fields=["email", "pending_email"])
-                # Delete social auth so the old external identity can't keep logging in.
                 UserSocialAuth.objects.filter(user=user).delete()
+            request.session.pop(EMAIL_CHANGE_PROOF_SESSION_KEY, None)
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
             revoke_other_sessions_for_request(request, user)
 
-        user.is_email_verified = True
-        user.save()
+        if user.is_email_verified is False:
+            signup_proof = request.session.get(SIGNUP_EMAIL_PROOF_SESSION_KEY)
+            proof_matches_user = isinstance(signup_proof, dict) and signup_proof.get("user_uuid") == str(user.uuid)
+            trusted_password = proof_matches_user and signup_proof.get("credential_type") == "password"
+            proof_passkey_id = signup_proof.get("credential_id") if proof_matches_user else None
+            trusted_passkey_id = (
+                proof_passkey_id
+                if proof_matches_user
+                and signup_proof.get("credential_type") == "passkey"
+                and isinstance(proof_passkey_id, str)
+                else None
+            )
+            with transaction.atomic():
+                reconcile_email_claim_credentials(
+                    user,
+                    trusted_password=trusted_password,
+                    trusted_passkey_id=trusted_passkey_id,
+                )
+                user.is_email_verified = True
+                user.save(update_fields=["is_email_verified"])
+            if proof_matches_user:
+                request.session.pop(SIGNUP_EMAIL_PROOF_SESSION_KEY, None)
+            if not trusted_password and trusted_passkey_id is None:
+                revoke_other_sessions(user, keep_session_key=None)
+                return Response({"success": True, "requires_login": True})
+        else:
+            user.is_email_verified = True
+            user.save(update_fields=["is_email_verified"])
         report_user_verified_email(user)
 
         user_has_passkeys = has_passkeys(user)
@@ -1561,9 +1628,16 @@ class UserViewSet(
         # review screen, so accepting PersonalAPIKeyAuthentication here would let
         # the attacker who minted the PAK silently dismiss their own surfacing.
         user = self.get_object()
-        if user.credentials_reviewed_at is None:
-            user.credentials_reviewed_at = django_timezone.now()
-            user.save(update_fields=["credentials_reviewed_at"])
+        with transaction.atomic():
+            # Same protocol as the other credential writers: refuse when an email claim
+            # revoked this request's session mid-flight, so the stale session cannot
+            # dismiss the review the claim just raised.
+            locked = User.objects.select_for_update().get(pk=user.pk)
+            if not request_session_is_live(request, locked):
+                raise exceptions.PermissionDenied("Your session ended. Log in again to review your credentials.")
+            if locked.credentials_reviewed_at is None:
+                locked.credentials_reviewed_at = django_timezone.now()
+                locked.save(update_fields=["credentials_reviewed_at"])
         return Response(status=204)
 
 

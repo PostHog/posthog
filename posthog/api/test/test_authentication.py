@@ -17,13 +17,14 @@ from django.core.asgi import get_asgi_application
 from django.core.cache import cache
 from django.db import connection
 from django.http import HttpResponse
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import Client, RequestFactory, SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from django_otp.oath import totp
 from django_otp.plugins.otp_static.models import StaticDevice
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
 from httpx import ASGITransport, AsyncClient
 from parameterized import parameterized
@@ -36,7 +37,7 @@ from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
 from posthog.api.authentication import password_reset_token_generator, social_login_notification
-from posthog.api.email_verification import is_email_verification_disabled
+from posthog.api.email_verification import SIGNUP_EMAIL_PROOF_SESSION_KEY, is_email_verification_disabled
 from posthog.auth import (
     InternalAPIUser,
     OAuthAccessTokenAuthentication,
@@ -63,6 +64,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models.webauthn_credential import WebauthnCredential
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -586,8 +588,33 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.json()["detail"], str(self.user.uuid))
         mock_send_code.assert_called_once()
 
+        proof = self.client.session[SIGNUP_EMAIL_PROOF_SESSION_KEY]
+        self.assertEqual(proof["credential_type"], "password")
+        response = self.client.post(
+            "/api/users/verify_email/",
+            {"uuid": self.user.uuid, "code": mock_send_code.call_args[0][1]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.has_usable_password())
+
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    def test_email_unverified_login_without_csrf_does_not_record_the_credential_proof(
+        self, mock_send_code, mock_is_email_available
+    ):
+        # A cross-site form POST cannot read the CSRF cookie, so it cannot plant the proof that
+        # decides which credential survives the email claim.
+        self.user.is_email_verified = False
+        self.user.save()
+        client = Client(enforce_csrf_checks=True)
+        response = client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertNotEqual(response.json().get("code"), "verify_email_pending")
+        self.assertNotIn(SIGNUP_EMAIL_PROOF_SESSION_KEY, client.session)
 
     @patch("posthog.ph_client.posthoganalytics.get_feature_flag", side_effect=RuntimeError("flags down"))
     @patch("posthog.ph_client.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags down"))
@@ -2026,6 +2053,49 @@ class TestPasswordResetAPI(APIBaseTest):
 
         self.user.refresh_from_db()
         self.assertEqual(self.user.is_email_verified, True)
+
+    def test_password_reset_clears_untrusted_credentials_for_unverified_account(self):
+        self.user.is_email_verified = False
+        self.user.requested_password_reset_at = datetime.now()
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.credentials_reviewed_at = timezone.now()
+        self.user.save()
+        WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"reset-credential-id",
+            label="Test passkey",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+        social_auth = UserSocialAuth.objects.create(user=self.user, provider="github", uid="stale-github")
+        totp_device = TOTPDevice.objects.create(user=self.user, name="default", confirmed=True)
+        static_device = StaticDevice.objects.create(user=self.user, name="backup", confirmed=True)
+        personal_api_key = PersonalAPIKey.objects.create(
+            label="Existing API key",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
+        )
+
+        token = password_reset_token_generator.make_token(self.user)
+        response = self.client.post(
+            f"/api/reset/{self.user.uuid}/",
+            {"token": token, "password": VALID_TEST_PASSWORD},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.is_email_verified, True)
+        self.assertFalse(WebauthnCredential.objects.filter(user=self.user).exists())
+        self.assertFalse(UserSocialAuth.objects.filter(id=social_auth.id).exists())
+        self.assertFalse(self.user.passkeys_enabled_for_2fa)
+        self.assertTrue(TOTPDevice.objects.filter(id=totp_device.id).exists())
+        self.assertTrue(StaticDevice.objects.filter(id=static_device.id).exists())
+        self.assertTrue(PersonalAPIKey.objects.filter(id=personal_api_key.id).exists())
+        self.assertIsNone(self.user.credentials_reviewed_at)
 
     def test_password_reset_does_not_clear_pending_email(self):
         self.user.is_email_verified = False

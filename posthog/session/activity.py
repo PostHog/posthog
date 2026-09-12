@@ -112,6 +112,29 @@ def revoke_other_sessions(user: User, keep_session_key: Optional[str]) -> int:
     return count
 
 
+def request_session_is_live(request: HttpRequest, user: User) -> bool:
+    """Return True when the request's login session is still a live session row for `user`.
+
+    Email-claim reconciliation deletes every session row inside the claim transaction, so a missing
+    row means a claim committed while this request was in flight. Credential writes then must not
+    land: they would re-arm a login credential the claim just removed. Non-session authenticators
+    and impersonation sessions own no row the claim can revoke, so they pass.
+    """
+    if is_impersonated_session(request):
+        return True
+    session = getattr(request, "session", None)
+    if session is None:
+        return True
+    session_key = session.session_key
+    if not session_key:
+        return True
+    return Session.objects.filter(
+        session_key=session_key,
+        user_id=user.pk,
+        expire_date__gt=timezone.now(),
+    ).exists()
+
+
 def revoke_other_sessions_for_request(request: HttpRequest, user: User) -> int:
     """Revoke the user's other login sessions on a credential change, keeping the request's own
     session. No-op while impersonating so staff support never mass-logs-out a customer. Returns the

@@ -67,6 +67,24 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
 
+    @patch("posthog.api.personal_api_key.request_session_is_live", return_value=False)
+    def test_create_personal_api_key_refused_when_the_session_was_revoked_mid_request(self, _mock_live):
+        # An email claim revokes the request's session while the creation runs. The write must
+        # refuse instead of minting a key that survives the claim, or stamping the review from
+        # the stale in-memory user. The mock stands in for the race window: the session is live
+        # at authentication time and gone by write time, which a test client cannot produce
+        # within one request.
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {"label": "claim-race", "scopes": ["*"], "scoped_organizations": [], "scoped_teams": []},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not PersonalAPIKey.objects.filter(user=self.user).exists()
+        assert User.objects.get(pk=self.user.pk).credentials_reviewed_at is None
+
     @parameterized.expand(
         [
             ("no_oauth_access", False, True),
