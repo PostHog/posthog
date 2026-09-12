@@ -1,3 +1,4 @@
+import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import {
   INBOX_REPORT_DETAIL_STALE_TIME_MS,
   inboxReportKeys,
@@ -194,6 +195,24 @@ export function useInboxReportById(
   );
 }
 
+/** Matches the web inbox's report-detail fetch, which reads the same full log. */
+const FULL_ARTEFACT_LOG_LIMIT = 1000;
+
+/**
+ * Every reader of a report's artefacts shares `reportKeys.artefacts(reportId)`, so the
+ * log is fetched once per report and once in one shape: the whole log, not the default
+ * page. The rows written when the report is created (repo selection, the scout run) are
+ * the first ones a default page drops.
+ */
+export function fetchReportArtefacts(
+  client: Pick<PostHogAPIClient, "getSignalReportArtefacts">,
+  reportId: string,
+): Promise<SignalReportArtefactsResponse> {
+  return client.getSignalReportArtefacts(reportId, {
+    limit: FULL_ARTEFACT_LOG_LIMIT,
+  });
+}
+
 export function useInboxReportArtefacts(
   reportId: string,
   options?: {
@@ -206,7 +225,7 @@ export function useInboxReportArtefacts(
   const { enabled, ...queryOptions } = options ?? {};
   return useAuthenticatedQuery<SignalReportArtefactsResponse>(
     reportKeys.artefacts(reportId),
-    (client) => client.getSignalReportArtefacts(reportId),
+    (client) => fetchReportArtefacts(client, reportId),
     {
       enabled: !!reportId && (enabled ?? true),
       ...queryOptions,
