@@ -12,6 +12,12 @@ class PromptSuggestionStatus(models.TextChoices):
     NO_CHANGE = "no_change", "No change"
 
 
+# The former name of PromptSuggestionStatus. A tree that mixes files from before and after the rename
+# raises ImportError on this name, and posthog.products.load_product_modules lets that propagate, so the
+# whole Django URL conf fails and no process boots. Remove once no branch predating the rename is open.
+SuggestionStatus = PromptSuggestionStatus
+
+
 class ReplayScannerPromptSuggestion(UUIDModel):
     """An AI-suggested rewrite of a scanner's prompt, generated from the team's thumbs up/down ratings.
 
