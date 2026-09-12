@@ -5,6 +5,8 @@ import { Box, Flex, ScrollArea, Text, Tooltip } from "@radix-ui/themes";
 
 interface ChannelContextPanelProps {
   channelName?: string;
+  /** Context-wiki page this body came from, when the space has one. */
+  contextPath?: string;
   body: string;
   onClose: () => void;
 }
@@ -14,10 +16,13 @@ interface ChannelContextPanelProps {
 // + close button since it lives in a ResizableSidebar rather than a task tab.
 export function ChannelContextPanel({
   channelName,
+  contextPath,
   body,
   onClose,
 }: ChannelContextPanelProps) {
   const spacesLayout = useChannelsLayout();
+  const title =
+    contextPath ?? `${channelName ? `${channelName} ` : ""}CONTEXT.md`;
   return (
     <Flex direction="column" className="h-full min-w-0">
       <Flex
@@ -31,13 +36,13 @@ export function ChannelContextPanel({
           weight="medium"
           className="min-w-0 truncate text-gray-12"
         >
-          {channelName ? `${channelName} ` : ""}CONTEXT.md
+          {title}
         </Text>
         <Tooltip content="Close">
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close CONTEXT.md panel"
+            aria-label="Close context panel"
             className="flex size-6 shrink-0 items-center justify-center rounded text-gray-10 hover:bg-gray-4 hover:text-gray-12"
           >
             <X size={14} />

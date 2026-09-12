@@ -132,7 +132,7 @@ import { useTaskCreation } from "../hooks/useTaskCreation";
 import { useWarmTask } from "../hooks/useWarmTask";
 import { ChannelContextChip } from "./ChannelContextChip";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
-import { shouldShowChannelContextChip } from "./channelContext";
+import { channelContextChipProps } from "./channelContext";
 import {
   type SuggestedPrompt,
   SuggestedPromptCard,
@@ -375,6 +375,7 @@ export function TaskInput({
   }, [channelContextSource]);
   const includeChannelContext =
     !!channelContextPath || (!!channelContext && !channelContextDismissed);
+  const contextChip = channelContextChipProps(channelContextPath);
 
   const adapter = lastUsedAdapter;
   const codexSubscription = useAdapterSubscription("codex");
@@ -1612,14 +1613,16 @@ export function TaskInput({
                           </button>
                         ) : null}
                       </span>
-                    ) : shouldShowChannelContextChip(
-                        includeChannelContext,
-                        channelContextPath,
-                      ) ? (
+                    ) : includeChannelContext ? (
                       <ChannelContextChip
+                        label={contextChip.label}
                         channelName={channelName}
                         onView={onContextChipClick}
-                        onRemove={() => setChannelContextDismissed(true)}
+                        onRemove={
+                          contextChip.removable
+                            ? () => setChannelContextDismissed(true)
+                            : undefined
+                        }
                       />
                     ) : undefined
                   }
