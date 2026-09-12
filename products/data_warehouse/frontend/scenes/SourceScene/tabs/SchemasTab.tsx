@@ -136,7 +136,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
         }
     }, [loadJobs, source])
 
-    const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
     const warehouseAccessControlEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL]
     // `id` is the cleaned source id; URLs use the `managed-` prefix
     const prefixedSourceId = `managed-${id}`
@@ -289,7 +288,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                                     cancelSchema={cancelSchema}
                                     deleteTable={deleteTable}
                                     openAccessControl={openAccessControl}
-                                    showMetrics={showMetrics}
                                 />
                             ),
                         }))}
@@ -308,7 +306,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                     cancelSchema={cancelSchema}
                     deleteTable={deleteTable}
                     openAccessControl={openAccessControl}
-                    showMetrics={showMetrics}
                 />
             )}
             {accessControlSchema?.table && (
@@ -338,7 +335,6 @@ interface ManagedSchemaTableProps {
     deleteTable: (schema: ExternalDataSourceSchema) => void
     /** Undefined when the warehouse access control feature is off. */
     openAccessControl?: (schema: ExternalDataSourceSchema) => void
-    showMetrics: boolean
     /** Rendered inside a namespace group — the group header already shows the namespace, so strip it from row names. */
     inSchemaGroup?: boolean
 }
@@ -355,7 +351,6 @@ function ManagedSchemaTable({
     cancelSchema,
     deleteTable,
     openAccessControl,
-    showMetrics,
     inSchemaGroup = false,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
@@ -504,41 +499,36 @@ function ManagedSchemaTable({
                         return <span className="text-muted">—</span>
                     },
                 },
-                ...(showMetrics
-                    ? [
-                          {
-                              title: 'Rows synced (7d)',
-                              key: 'rows_synced_sparkline',
-                              render: function RenderSparkline(_: unknown, schema: ExternalDataSourceSchema) {
-                                  const lastSyncedAt = schema.last_synced_at ? dayjs(schema.last_synced_at) : null
-                                  const syncedWithin7Days =
-                                      lastSyncedAt?.isSameOrAfter(dayjs().subtract(7, 'day')) ?? false
+                {
+                    title: 'Rows synced (7d)',
+                    key: 'rows_synced_sparkline',
+                    render: function RenderSparkline(_, schema) {
+                        const lastSyncedAt = schema.last_synced_at ? dayjs(schema.last_synced_at) : null
+                        const syncedWithin7Days = lastSyncedAt?.isSameOrAfter(dayjs().subtract(7, 'day')) ?? false
 
-                                  if (!syncedWithin7Days) {
-                                      return <span className="text-muted">—</span>
-                                  }
+                        if (!syncedWithin7Days) {
+                            return <span className="text-muted">—</span>
+                        }
 
-                                  return (
-                                      <AppMetricsSparkline
-                                          logicKey={`dwh-schema-sparkline-${schema.id}`}
-                                          loadOnChanges
-                                          successMetricNames={['rows_synced']}
-                                          metricLabels={{ rows_synced: 'Rows synced' }}
-                                          forceParams={{
-                                              appSource: DATA_WAREHOUSE_APP_SOURCE,
-                                              appSourceId: sourceId,
-                                              instanceId: schema.id,
-                                              metricName: ['rows_synced'],
-                                              breakdownBy: 'metric_name',
-                                              interval: 'day',
-                                              dateFrom: '-7d',
-                                          }}
-                                      />
-                                  )
-                              },
-                          },
-                      ]
-                    : []),
+                        return (
+                            <AppMetricsSparkline
+                                logicKey={`dwh-schema-sparkline-${schema.id}`}
+                                loadOnChanges
+                                successMetricNames={['rows_synced']}
+                                metricLabels={{ rows_synced: 'Rows synced' }}
+                                forceParams={{
+                                    appSource: DATA_WAREHOUSE_APP_SOURCE,
+                                    appSourceId: sourceId,
+                                    instanceId: schema.id,
+                                    metricName: ['rows_synced'],
+                                    breakdownBy: 'metric_name',
+                                    interval: 'day',
+                                    dateFrom: '-7d',
+                                }}
+                            />
+                        )
+                    },
+                },
                 {
                     title: 'Enabled',
                     key: 'should_sync',
