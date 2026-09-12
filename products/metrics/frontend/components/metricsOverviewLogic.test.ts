@@ -72,7 +72,7 @@ describe('metricsOverviewLogic', () => {
         ['a named service', 'api', { key: 'service_name', op: 'eq', value: 'api' }, ['api']],
         ['the unknown service', '', { key: 'service_name', op: 'regex', value: '^$' }, ['']],
     ])(
-        'viewService sends a service filter for %s, scopes the picker, and switches tab',
+        'viewService sends a service filter for %s, scopes the picker, and opens the viewer',
         async (_name, serviceName, expected, pickerServices) => {
             logic = metricsOverviewLogic()
             logic.mount()
@@ -86,8 +86,8 @@ describe('metricsOverviewLogic', () => {
 
             expect(metricsSceneLogic.values.activeTab).toBe('viewer')
             expect(metricsViewerLogic.values.queryFilters).toEqual([expected])
-            // The landing promise: the viewer the user arrives at offers only the
-            // metrics that service reports, not every metric in the project.
+            // The viewer's metric picker offers only the metrics that this service
+            // reports, not every metric in the project.
             expect(metricNamePickerLogic.values.services).toEqual(pickerServices)
         }
     )

@@ -10,7 +10,7 @@ import {
     IconSidebarClose,
     IconSidebarOpen,
 } from '@posthog/icons'
-import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, LemonSelect } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
@@ -30,6 +30,7 @@ import {
     parsePrUrlParts,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
+import { reportPullRequests } from '../../utils/reportPullRequests'
 import { parseReportSummary } from '../../utils/reportSummary'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
@@ -51,6 +52,7 @@ import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
+import { TrackerIssueNote } from './TrackerIssueNote'
 
 /**
  * Status / priority / actionability badges for a report's detail header. Mirrors desktop `InboxDetailFrame`.
@@ -83,7 +85,7 @@ export function ReportDetailBadges({
 
 /** Placeholder finding rows shown while the signals query is in flight, sized to the known count. */
 function EvidenceSkeleton({ count }: { count: number }): JSX.Element {
-    const rows = Math.max(1, Math.min(count, 4))
+    const rows = Math.max(1, Math.min(count, 2))
     return (
         <div className="flex flex-col gap-3" aria-hidden>
             {Array.from({ length: rows }).map((_, i) => (
@@ -214,9 +216,16 @@ export function InboxDetailFrame({
             : 'Back'
         : 'Self-driving inbox'
     const logicProps = { reportId: report.id, report }
-    const { reportSignals, reportSignalsLoading, priorityExplanation, chartPlacements, trailingCharts, detailTab } =
-        useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab } = useActions(inboxReportDetailLogic(logicProps))
+    const {
+        reportSignals,
+        reportSignalsLoading,
+        evidenceExpanded,
+        priorityExplanation,
+        chartPlacements,
+        trailingCharts,
+        detailTab,
+    } = useValues(inboxReportDetailLogic(logicProps))
+    const { setDetailTab, expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     // The API returns evidence oldest-first, but a reader wants the most recent signal at the top of
@@ -317,9 +326,12 @@ export function InboxDetailFrame({
                         pullRequestNote={pullRequestNote}
                     />
                 ) : (
-                    <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                        No summary yet. An agent is still investigating.
-                    </p>
+                    <>
+                        <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
+                            No summary yet. An agent is still investigating.
+                        </p>
+                        {pullRequestNote}
+                    </>
                 )}
                 {trailingCharts.length > 0 && (
                     <div className="flex flex-col gap-4 mt-5">
@@ -392,9 +404,20 @@ export function InboxDetailFrame({
                                     <EvidenceSkeleton count={evidenceCount} />
                                 ) : (
                                     <div className="flex flex-col gap-3">
-                                        {signals.map((signal: SignalNode) => (
-                                            <SignalCard key={signal.signal_id} signal={signal} />
-                                        ))}
+                                        {(evidenceExpanded ? signals : signals.slice(0, 2)).map(
+                                            (signal: SignalNode) => (
+                                                <SignalCard key={signal.signal_id} signal={signal} />
+                                            )
+                                        )}
+                                        {signals.length > 2 && (
+                                            <LemonButton
+                                                type="tertiary"
+                                                size="small"
+                                                onClick={evidenceExpanded ? collapseEvidence : expandEvidence}
+                                            >
+                                                {evidenceExpanded ? 'Show less' : 'Show more'}
+                                            </LemonButton>
+                                        )}
                                     </div>
                                 )}
                             </DetailSection>
@@ -555,17 +578,33 @@ function OpenPullRequestButton({
  * report. Runs keep their own `AgentRunDetail`.
  */
 export function ReportDetail({ report }: { report: SignalReport }): JSX.Element {
-    const { latestCommitArtefact, reportArtefacts } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const logic = inboxReportDetailLogic({ reportId: report.id, report })
+    const { latestCommitArtefact, reportArtefacts, selectedPullRequest } = useValues(logic)
+    const { selectPullRequest } = useActions(logic)
 
-    const prUrl = safeHttpUrl(report.implementation_pr_url)
+    const prUrl = safeHttpUrl(selectedPullRequest.url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
     const hasPr = !!(prRef && prUrl)
+    // A tracker-issue failure has to show even on a report whose run never reached a pull request:
+    // that is exactly the case an audit has to find.
+    const hasTrackerNote = !!(report.tracker_issue_url || report.tracker_issue_error)
 
     // The branch to diff comes from the latest "Commit pushed" artefact; the diff needs the repo + branch
     // it carries. A PR-bearing report gets the tab bar right away off `hasPr` (immediate) rather than the
     // artefact (a beat later), with skeletons in the tab label and body until the artefact loads.
     const commit = latestCommitArtefact ? (latestCommitArtefact.content as CommitContent) : null
-    const canDiff = !!(commit?.repository && commit?.branch)
+    const linkedPr = report.pull_requests?.find((pr) => pr.url === prUrl)
+    const canDiff =
+        !!(commit?.repository && commit?.branch) &&
+        (!linkedPr ||
+            (linkedPr.attached_by?.task_id != null &&
+                linkedPr.attached_by.task_id === latestCommitArtefact?.task_id &&
+                commit.repository.toLowerCase() === prRef?.repoSlug.toLowerCase() &&
+                report.pull_requests?.filter(
+                    (pr) =>
+                        pr.attached_by?.task_id === linkedPr.attached_by?.task_id &&
+                        parsePrUrlParts(pr.url)?.repoSlug.toLowerCase() === prRef?.repoSlug.toLowerCase()
+                ).length === 1))
     const artefactsLoaded = reportArtefacts !== null
 
     return (
@@ -576,7 +615,13 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                 canDiff && commit ? (
                     <PullRequestFilesChanged report={report} commit={commit} />
                 ) : hasPr ? (
-                    <PullRequestDiffPending artefactsLoaded={artefactsLoaded} />
+                    artefactsLoaded && prUrl ? (
+                        <LemonButton to={prFilesUrl(prUrl)} targetBlank>
+                            View this PR's files in GitHub
+                        </LemonButton>
+                    ) : (
+                        <PullRequestDiffPending artefactsLoaded={artefactsLoaded} />
+                    )
                 ) : undefined
             }
             diffStat={
@@ -593,12 +638,17 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                 prRef && prUrl ? (
                     <div className="flex flex-wrap items-center gap-3" data-attr="inbox-report-solution-pr-note">
                         <span className="text-sm text-secondary">
-                            A pull request with this fix is open:{' '}
+                            Linked pull request:{' '}
                             <span className="font-mono">
                                 {prRef.repoSlug}#{prRef.number}
                             </span>
                         </span>
                         <OpenPullRequestButton report={report} prUrl={prUrl} prRef={prRef} />
+                        <TrackerIssueNote report={report} />
+                    </div>
+                ) : hasTrackerNote ? (
+                    <div className="flex flex-wrap items-center gap-3" data-attr="inbox-report-solution-pr-note">
+                        <TrackerIssueNote report={report} />
                     </div>
                 ) : undefined
             }
@@ -606,6 +656,17 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
             // the same rail. Both drop themselves when there's nothing to show.
             asideFooter={hasPr ? <PrCommentsSection report={report} /> : undefined}
         >
+            {reportPullRequests(report).length > 1 && (
+                <LemonSelect
+                    value={selectedPullRequest.url}
+                    onChange={selectPullRequest}
+                    options={reportPullRequests(report).map((pr) => ({
+                        value: pr.url,
+                        label: `${parsePrUrlParts(pr.url)?.repoSlug}#${parsePrUrlParts(pr.url)?.number} (${pr.state})`,
+                    }))}
+                    data-attr="inbox-report-select-pull-request"
+                />
+            )}
             {hasPr && <PrChecksSection report={report} />}
         </InboxDetailFrame>
     )

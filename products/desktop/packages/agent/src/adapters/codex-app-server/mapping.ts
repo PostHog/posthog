@@ -196,7 +196,11 @@ export type AppServerItem = {
   arguments?: unknown;
   aggregatedOutput?: string | null;
   changes?: Array<{ path?: string; diff?: string; kind?: unknown }>;
-  result?: { content?: unknown } | null;
+  result?: {
+    content?: unknown;
+    structuredContent?: unknown;
+    _meta?: unknown;
+  } | null;
   error?: { message?: string } | null;
   // Present on message/reasoning items replayed from thread history.
   text?: string;
@@ -308,6 +312,9 @@ export function mapHistoryItem(
             kind: tool.kind,
             status: mapStatus(item.status),
             ...(tool.rawInput !== undefined ? { rawInput: tool.rawInput } : {}),
+            ...(tool.rawOutput !== undefined
+              ? { rawOutput: tool.rawOutput }
+              : {}),
             ...(tool.locations?.length ? { locations: tool.locations } : {}),
             ...(item.type === "collabAgentToolCall"
               ? {
@@ -363,6 +370,7 @@ type ToolDescriptor = {
   title: string;
   kind: "execute" | "edit" | "fetch" | "other" | "read" | "search";
   rawInput?: unknown;
+  rawOutput?: unknown;
   output?: string | null;
   locations?: ToolCallLocation[];
   /** Originating MCP server + tool, surfaced on `_meta.posthog` so the renderer routes MCP rendering. */
@@ -403,6 +411,12 @@ function describeTool(item: AppServerItem): ToolDescriptor | null {
         kind: "other",
         rawInput: item.arguments,
         output: mcpResultText(item.result, item.error),
+        // rawOutput lets the desktop MCP Apps host render UI resources, not just text.
+        // The strip is source hygiene, not app validity: `toCallToolResult` owns
+        // the schema-valid result an app receives. Stripping here keeps the nulls
+        // out of stored transcripts and McpAppsService events, so a delivery path
+        // that skips `toCallToolResult` cannot carry them either.
+        rawOutput: omitNullCallToolResultFields(item.result),
         mcp: { server: item.server ?? "mcp", tool: item.tool ?? "tool" },
       };
     case "dynamicToolCall":
@@ -559,16 +573,9 @@ function mapItem(
       sessionUpdate: "tool_call_update",
       toolCallId: item.id,
       status: mapStatus(item.status),
+      ...(tool.rawOutput !== undefined ? { rawOutput: tool.rawOutput } : {}),
       ...(content ? { content } : {}),
       ...(meta ? { _meta: meta } : {}),
-      // rawOutput lets the desktop MCP Apps host render UI resources, not just text.
-      // The strip is source hygiene, not app validity: `toCallToolResult` owns
-      // the schema-valid result an app receives. Stripping here keeps the nulls
-      // out of stored transcripts and McpAppsService events, so a delivery path
-      // that skips `toCallToolResult` cannot carry them either.
-      ...(item.type === "mcpToolCall" && item.result !== undefined
-        ? { rawOutput: omitNullCallToolResultFields(item.result) }
-        : {}),
     },
   };
 }

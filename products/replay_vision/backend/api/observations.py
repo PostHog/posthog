@@ -1067,7 +1067,29 @@ class ReplayObservationViewSet(
         self.check_object_permissions(self.request, scanner)
         user = cast(User, request.user)
         if request.method == "DELETE":
-            ReplayObservationLabel.objects.filter(observation=observation, team_id=observation.team_id).delete()
+            # Same parent lock the write path takes, so a concurrent re-rate cannot interleave. Unlocked,
+            # the re-rate reads the old label, this delete reports the removal, and the re-rate then
+            # rewrites identical values and reports nothing: a label that exists, counted as removed.
+            with transaction.atomic():
+                ReplayObservation.objects.select_for_update().only("pk").filter(
+                    pk=observation.pk, team_id=observation.team_id
+                ).first()
+                deleted, _ = ReplayObservationLabel.objects.filter(
+                    observation=observation, team_id=observation.team_id
+                ).delete()
+            # Without this the rated-session count only ever grows, because un-rating leaves no trace.
+            # Reported after the commit, since it leaves the process and cannot be rolled back.
+            if deleted:
+                report_user_action(
+                    user,
+                    "replay_vision_observation_rating_removed",
+                    {
+                        "observation_id": str(observation.id),
+                        "scanner_id": str(observation.scanner_id),
+                    },
+                    team=self.team,
+                    request=request,
+                )
             return Response(status=204)
         input_serializer = ReplayObservationLabelSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
@@ -1078,8 +1100,15 @@ class ReplayObservationViewSet(
             ReplayObservation.objects.select_for_update().only("pk").filter(
                 pk=observation.pk, team_id=observation.team_id
             ).first()
+            # Read under the same lock as the write, so the before/after comparison can't miss a
+            # concurrent edit and report a change as a no-op.
+            previous = (
+                ReplayObservationLabel.objects.filter(observation=observation, team_id=observation.team_id)
+                .values("is_correct", "feedback")
+                .first()
+            )
             # team_id in the lookup keeps the query team-scoped.
-            label, _ = ReplayObservationLabel.objects.update_or_create(
+            label, is_new = ReplayObservationLabel.objects.update_or_create(
                 observation=observation,
                 team_id=observation.team_id,
                 defaults={
@@ -1088,19 +1117,27 @@ class ReplayObservationViewSet(
                     "created_by": user,
                 },
             )
+        verdict_changed = previous is None or previous["is_correct"] != label.is_correct
+        feedback_changed = previous is None or previous["feedback"] != label.feedback
         # The core calibration signal: thumbs up/down on whether the scanner got the session right.
-        report_user_action(
-            user,
-            "replay_vision_observation_rated",
-            {
-                "observation_id": str(observation.id),
-                "scanner_id": str(observation.scanner_id),
-                "is_correct": label.is_correct,
-                "has_feedback": bool(label.feedback),
-            },
-            team=self.team,
-            request=request,
-        )
+        # The feedback box autosaves while the user types and resends the whole label each time, so a save
+        # that changes nothing reaches here often. Reporting those counts one rated session many times over.
+        if verdict_changed or feedback_changed:
+            report_user_action(
+                user,
+                "replay_vision_observation_rated",
+                {
+                    "observation_id": str(observation.id),
+                    "scanner_id": str(observation.scanner_id),
+                    "is_correct": label.is_correct,
+                    "has_feedback": bool(label.feedback),
+                    # Count `is_new` for rated sessions; count the event itself for rating activity.
+                    "is_new": is_new,
+                    "verdict_changed": verdict_changed,
+                },
+                team=self.team,
+                request=request,
+            )
         return Response(ReplayObservationLabelSerializer(label).data)
 
 

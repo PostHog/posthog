@@ -29,6 +29,7 @@ import {
     parsePrUrlParts,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
+import { primaryReportPullRequest } from '../../utils/reportPullRequests'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
@@ -39,6 +40,7 @@ import {
     sourceProductsTooltipTitle,
 } from '../badges/sourceProductIcons'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
+import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
 
 // ── Shared card sub-components ────────────────────────────────────────────────
@@ -118,6 +120,7 @@ export function ReportCard({
     onRestore,
     backUrl,
     preview = false,
+    selectable = false,
 }: {
     report: SignalReport
     sectionKey?: InboxReportSectionKey
@@ -130,6 +133,8 @@ export function ReportCard({
     /** Onboarding sample: render as a static card with no detail link and no focusable actions, so its
      * placeholder report id can never be opened (it 404s). */
     preview?: boolean
+    /** Offer multi-select on this row: press and hold and modifier clicks. */
+    selectable?: boolean
 }): JSX.Element {
     // Keyed on status, not the section: the legacy Archive tab lists dismissed and resolved rows
     // through one section key, and the two need different affordances.
@@ -137,7 +142,7 @@ export function ReportCard({
     // Resolved reports are terminal (a merged PR or a resolve) – shown for reference in the Resolved
     // section. They can't be restored or dismissed; refunding their PR lives in the detail pane.
     const isResolved = report.status === SignalReportStatus.RESOLVED
-    const prUrl = safeHttpUrl(report.implementation_pr_url)
+    const prUrl = safeHttpUrl(primaryReportPullRequest(report).url)
     const prUrlParts = prUrl ? parsePrUrlParts(prUrl) : null
     const hasPr = prUrlParts != null
     const prNumber = prUrlParts?.number ?? null
@@ -155,6 +160,11 @@ export function ReportCard({
         redesign ? 'reports' : INBOX_SECTION_LEGACY_TAB[sectionKey]
     )
 
+    const { isSelected, isHolding, cardHandlers } = useReportCardSelection(
+        report.id,
+        selectable && !preview && !isResolved
+    )
+
     const { isDismissing, onDismissClick } = useReportDismiss({
         reportId: report.id,
         cardTitle,
@@ -168,8 +178,8 @@ export function ReportCard({
     const ciStatus = preview ? null : ciStatusByReportId[report.id]
     const prState = derivePrState(
         report.status,
-        report.implementation_pr_merged === true,
-        report.implementation_pr_state
+        primaryReportPullRequest(report).merged === true,
+        primaryReportPullRequest(report).state
     )
     const glyphStatus = prCiGlyphStatus(prState, ciStatus)
 
@@ -278,7 +288,10 @@ export function ReportCard({
                 inboxCardRowClassName(attached, { dashed: !hasPr }),
                 // Closed rows recede so open work stands out in the mixed flat list; hover restores
                 // full opacity for reading. Matches the disabled-scout treatment in ScoutRosterCard.
-                (isDismissed || isResolved) && 'opacity-55 hover:opacity-100'
+                (isDismissed || isResolved) && 'opacity-55 hover:opacity-100',
+                isSelected && 'ring-1 ring-accent',
+                // A long press must not paint the title as selected text under the finger.
+                isHolding && 'select-none'
             )}
         >
             <div className="relative flex min-w-0 flex-1">
@@ -298,9 +311,13 @@ export function ReportCard({
                 {preview ? (
                     <div className={cardBodyClassName}>{cardBody}</div>
                 ) : (
-                    <Link to={detailUrl} className={cardBodyClassName}>
-                        {cardBody}
-                    </Link>
+                    // The gestures sit on this wrapper, not on the link: a selecting click has to
+                    // be caught before the link acts on it.
+                    <div className="flex min-w-0 flex-1" {...cardHandlers}>
+                        <Link to={detailUrl} className={cardBodyClassName}>
+                            {cardBody}
+                        </Link>
+                    </div>
                 )}
             </div>
 

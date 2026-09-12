@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Optional
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -30,6 +31,7 @@ _DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pip
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
 _REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 _JOB_CREATED_AT = datetime(2026, 8, 19, 11, 0, tzinfo=UTC)
+_A_LINKED_TABLE_ID = uuid.uuid4()
 
 
 def _make_schema(
@@ -192,6 +194,8 @@ class TestZeroRowSkip:
         [
             ("steady_state_zero_rows_skips", 0, "incremental", True, {}, True, True),
             ("synced_rows_run_full_path", 5, "incremental", True, {}, True, False),
+            # An unlinked schema has nothing queryable, and a skip here strands it forever.
+            ("unlinked_schema_runs_full_path", 0, "incremental", True, {}, True, False, None),
             ("caller_without_opt_in_runs_full_path", 0, "incremental", True, {}, False, False),
             ("incomplete_initial_sync_runs_full_path", 0, "incremental", False, {}, True, False),
             ("cdc_schema_runs_full_path", 0, "cdc", True, {}, True, False),
@@ -253,6 +257,7 @@ class TestZeroRowSkip:
         sync_type_config: dict,
         allow_zero_row_skip: bool,
         expect_skip: bool,
+        table_id: Optional[uuid.UUID] = _A_LINKED_TABLE_ID,
     ):
         schema = ExternalDataSchema(
             id=uuid.uuid4(),
@@ -260,6 +265,7 @@ class TestZeroRowSkip:
             sync_type=sync_type,
             initial_sync_complete=initial_sync_complete,
             sync_type_config=sync_type_config,
+            table_id=table_id,
         )
         job = MagicMock()
         job.id = uuid.uuid4()

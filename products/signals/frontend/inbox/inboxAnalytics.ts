@@ -10,6 +10,7 @@ import {
     SignalReportPriority,
     SignalRunKind,
 } from './types'
+import { reportPullRequests } from './utils/reportPullRequests'
 
 /**
  * Inbox telemetry. Mirrors the desktop "Code" app's inbox analytics (event names + property
@@ -34,6 +35,7 @@ export const INBOX_EVENTS = {
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_SCROLLED: 'Inbox report scrolled',
     REPORT_ACTION: 'Inbox report action',
+    SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
     REPORT_FEEDBACK: 'Inbox report feedback',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
@@ -71,6 +73,12 @@ export type InboxReportActionSurface =
     | 'bulk_bar'
     | 'triage_mode'
     | 'context_menu'
+
+/**
+ * Affordance that put the first report into a multi-select. Tells us which ones people find, so
+ * the ones nobody uses can go.
+ */
+export type InboxSelectionEntryMethod = 'long_press' | 'meta_click' | 'shift_click' | 'checkbox' | 'context_menu'
 
 /** How a report detail was opened. `triage` is the open-report shortcut in triage mode. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
@@ -227,7 +235,7 @@ function baseReportProperties(report: SignalReport): BaseReportProperties {
         report_age_hours: reportAgeHours(report),
         priority: report.priority ?? null,
         actionability: report.actionability ?? null,
-        has_pr: !!report.implementation_pr_url,
+        has_pr: reportPullRequests(report).length > 0,
     }
 }
 
@@ -472,6 +480,11 @@ export function captureInboxReportAction(params: {
  * ranking work trains against, so it carries the same report classification as the impression and
  * open events. `note` is optional — the thumbs submit on one click, with no note.
  */
+/** Fired once per selection, when an empty selection gains its first report. */
+export function captureInboxSelectionModeEntered(params: { method: InboxSelectionEntryMethod }): void {
+    captureInboxEvent(INBOX_EVENTS.SELECTION_MODE_ENTERED, { entry_method: params.method })
+}
+
 export function captureInboxReportFeedback(params: {
     report: SignalReport
     sentiment: InboxReportFeedbackSentiment
@@ -481,7 +494,7 @@ export function captureInboxReportFeedback(params: {
     captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK, {
         ...baseReportProperties(params.report),
         sentiment: params.sentiment,
-        has_pr: !!params.report.implementation_pr_url,
+        has_pr: reportPullRequests(params.report).length > 0,
         ...(params.note ? { note: params.note } : {}),
         surface: params.surface,
     })
@@ -502,7 +515,7 @@ export function captureInboxReportFeedbackNote(params: {
     captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK_NOTE, {
         ...baseReportProperties(params.report),
         sentiment: params.sentiment,
-        has_pr: !!params.report.implementation_pr_url,
+        has_pr: reportPullRequests(params.report).length > 0,
         note: params.note,
         surface: params.surface,
     })

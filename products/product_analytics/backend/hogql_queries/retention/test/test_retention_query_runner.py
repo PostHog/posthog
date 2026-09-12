@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -6581,7 +6581,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_retention_with_virtual_person_property_breakdown(self):
-        with freeze_time("2020-01-12T12:00:00Z"):
+        with time_machine.travel("2020-01-12T12:00:00Z", tick=False):
             # Create person with initial referring domain
             _create_person(
                 team_id=self.team.pk,

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Field as KeaField } from 'kea-forms'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
@@ -75,8 +75,6 @@ const AI_REFERRAL_PATTERNS = [
 const AI_REFERRAL_PATTERN = new RegExp(`\\b(${AI_REFERRAL_PATTERNS.join('|')})\\b`, 'i')
 
 export default function SignupReferralSource({ disabled }: { disabled: boolean }): JSX.Element {
-    const [showAIPrompt, setShowAIPrompt] = useState(false)
-
     return (
         <>
             <LemonField name="referral_source" label="Where did you hear about us?" showOptional>
@@ -87,28 +85,31 @@ export default function SignupReferralSource({ disabled }: { disabled: boolean }
                         placeholder=""
                         disabled={disabled}
                         value={value ?? ''}
-                        onChange={(val: string) => {
-                            onChange(val)
-                            setShowAIPrompt(AI_REFERRAL_PATTERN.test(val))
-                        }}
+                        onChange={onChange}
                     />
                 )}
             </LemonField>
-            <AnimatedCollapsible collapsed={!showAIPrompt}>
-                <LemonField
-                    name="referral_source_ai_prompt"
-                    label="What prompt or search led you to PostHog?"
-                    help="Paste the prompt or search queries if you remember, even roughly"
-                    showOptional
-                >
-                    <LemonInput
-                        className="ph-ignore-input"
-                        data-attr="signup-referral-source-ai-prompt"
-                        placeholder="e.g. Product analytics tool with error tracking"
-                        disabled={disabled}
-                    />
-                </LemonField>
-            </AnimatedCollapsible>
+            {/* Subscribing here rather than in the parent keeps a keystroke from re-rendering the
+                whole signup panel. */}
+            <KeaField name="referral_source" noStyle>
+                {({ value }) => (
+                    <AnimatedCollapsible collapsed={!AI_REFERRAL_PATTERN.test(value ?? '')}>
+                        <LemonField
+                            name="referral_source_ai_prompt"
+                            label="What prompt or search led you to PostHog?"
+                            help="Paste the prompt or search queries if you remember, even roughly"
+                            showOptional
+                        >
+                            <LemonInput
+                                className="ph-ignore-input"
+                                data-attr="signup-referral-source-ai-prompt"
+                                placeholder="e.g. Product analytics tool with error tracking"
+                                disabled={disabled}
+                            />
+                        </LemonField>
+                    </AnimatedCollapsible>
+                )}
+            </KeaField>
         </>
     )
 }

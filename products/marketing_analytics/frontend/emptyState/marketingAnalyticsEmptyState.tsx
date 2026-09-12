@@ -17,6 +17,7 @@ export const marketingAnalyticsEmptyState: SceneProductEmptyState = {
     statusLogic: marketingAnalyticsSetupLogic,
     // The whole product is behind this flag; its in-scene banner handles the flag-off case.
     featureFlag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
+    bypassFeatureFlag: FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD,
     config: {
         productKey: ProductKey.MARKETING_ANALYTICS,
         productName: 'Marketing analytics',

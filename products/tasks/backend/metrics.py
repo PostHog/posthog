@@ -141,8 +141,9 @@ RUN_LOG_MIRROR_OTLP_BATCHES_TOTAL = Counter(
 
 LOG_APPEND_UNSERIALIZED_TOTAL = Counter(
     "posthog_tasks_log_append_unserialized_total",
-    "Task-run log appends that ran without the per-object lock (redis unavailable, or contention "
-    "past the blocking timeout), where a concurrent append can still drop entries.",
+    "Task-run log appends that did not hold the per-object lock: refused on contention past the wait "
+    "(the agent retries them) or run unserialized while redis is unavailable.",
+    labelnames=["reason"],
 )
 
 PREWARMED_ACTIVATED_TOTAL = Counter(
@@ -428,24 +429,6 @@ def observe_compute_quota_check(outcome: ComputeQuotaOutcome) -> None:
     COMPUTE_QUOTA_CHECK_TOTAL.labels(outcome=outcome).inc()
 
 
-# analytics_event: pr_created | pr_merged | pr_closed | pr_reviewed (bounded, code-defined).
-# reason: unresolved_installation (no Integration matched the delivery's installation id) or
-#         capture_exception (posthoganalytics.capture raised). Both paths were silent before,
-#         so a webhook-side event loss only showed up as a capture-rate dip in analytics.
-GITHUB_WEBHOOK_PR_EVENT_DROPPED_TOTAL = Counter(
-    "posthog_tasks_github_webhook_pr_event_dropped_total",
-    "GitHub PR webhook events that never reached PostHog capture, labeled by event and drop reason",
-    labelnames=["analytics_event", "reason"],
-)
-
-# outcome: resolved | unresolved | timeout | error. timeout means the bounded org-member
-# lookup hit statement_timeout and was skipped so the delivery survives without attribution.
-GITHUB_WEBHOOK_ATTRIBUTION_TOTAL = Counter(
-    "posthog_tasks_github_webhook_attribution_total",
-    "Outcome of the org-member lookup that attributes a GitHub login on the pr_merged/pr_reviewed webhook path",
-    labelnames=["outcome"],
-)
-
 # scoped: "true" when the delivery's installation resolved to at least one team, so the
 # TaskRun lookup could ride the team_id index. "false" means it fell back to the legacy
 # unscoped lookup, which walks posthog_task_run once per leg — the thing we want to watch
@@ -455,20 +438,6 @@ GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL = Counter(
     "GitHub webhook TaskRun lookups, labeled by whether they were scoped to the installation's teams",
     labelnames=["scoped"],
 )
-
-GitHubWebhookAnalyticsEvent = Literal["pr_created", "pr_merged", "pr_closed", "pr_reviewed"]
-GitHubWebhookDropReason = Literal["unresolved_installation", "capture_exception"]
-GitHubWebhookAttributionOutcome = Literal["resolved", "unresolved", "timeout", "error"]
-
-
-def observe_github_webhook_pr_event_dropped(
-    *, analytics_event: GitHubWebhookAnalyticsEvent, reason: GitHubWebhookDropReason
-) -> None:
-    GITHUB_WEBHOOK_PR_EVENT_DROPPED_TOTAL.labels(analytics_event=analytics_event, reason=reason).inc()
-
-
-def observe_github_webhook_attribution(*, outcome: GitHubWebhookAttributionOutcome) -> None:
-    GITHUB_WEBHOOK_ATTRIBUTION_TOTAL.labels(outcome=outcome).inc()
 
 
 def observe_github_webhook_task_run_lookup(*, scoped: bool) -> None:

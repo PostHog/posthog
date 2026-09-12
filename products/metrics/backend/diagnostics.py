@@ -41,7 +41,9 @@ from products.metrics.backend.metric_query_runner import (
     MetricQueryRunner,
     _interval_step,
     counter_lookback,
-    filters_expr,
+    series_labels_query,
+    series_scope_expr,
+    time_range_expr,
     type_filter_expr,
 )
 
@@ -70,32 +72,46 @@ def _raw_samples_query(
     filters: Sequence[MetricFilter],
     metric_type: str | None,
 ) -> ast.SelectQuery:
+    # The labels are joined on after the LIMIT so the row bound applies to the
+    # data points read, not to the join output. A series without a row yet
+    # keeps its samples and shows empty labels.
     query = parse_select(
         """
             SELECT
-                service_name,
-                attributes,
-                resource_attributes,
-                metric_type,
-                aggregation_temporality,
-                timestamp,
-                value
-            FROM posthog.metrics
-            WHERE metric_name = {metric_name}
-              AND timestamp >= {date_from}
-              AND timestamp < {date_to}
-              AND {filters}
-              AND {type_filter}
-            ORDER BY timestamp ASC
-            LIMIT {row_limit}
+                s.series_fingerprint,
+                s.service_name,
+                ser.attributes,
+                ser.resource_attributes,
+                s.metric_type,
+                s.aggregation_temporality,
+                s.timestamp,
+                s.value
+            FROM (
+                SELECT
+                    series_fingerprint,
+                    service_name,
+                    metric_type,
+                    aggregation_temporality,
+                    timestamp,
+                    value
+                FROM posthog.metrics
+                WHERE metric_name = {metric_name}
+                  AND {time_range}
+                  AND {series_scope}
+                  AND {type_filter}
+                ORDER BY timestamp ASC
+                LIMIT {row_limit}
+            ) AS s
+            LEFT JOIN {series_labels} AS ser ON s.series_fingerprint = ser.series_fingerprint
+            ORDER BY s.timestamp ASC
         """,
         placeholders={
             "metric_name": ast.Constant(value=metric_name),
-            "date_from": ast.Constant(value=date_from),
-            "date_to": ast.Constant(value=bucket_end),
-            "filters": filters_expr(filters),
+            "time_range": time_range_expr(date_from, bucket_end),
+            "series_scope": series_scope_expr(metric_name, filters),
             "type_filter": type_filter_expr(metric_type),
             "row_limit": ast.Constant(value=_MAX_ROWS_READ),
+            "series_labels": series_labels_query(metric_name),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -177,20 +193,23 @@ def decompose_bucket(
     rows = response.results or []
     rows_truncated = len(rows) >= _MAX_ROWS_READ
 
-    # Group the raw rows into series, keyed the way a series is actually
-    # identified: everything that isn't the timestamp or the value.
-    grouped: dict[tuple, list[Sample]] = {}
-    predecessors: dict[tuple, Sample] = {}
-    identities: dict[tuple, tuple[str, dict[str, str], dict[str, str]]] = {}
+    # Group the raw rows into series by the fingerprint ingest assigned, which
+    # is the same identity the chart's window functions partition on.
+    grouped: dict[int, list[Sample]] = {}
+    predecessors: dict[int, Sample] = {}
+    identities: dict[int, tuple[str, dict[str, str], dict[str, str]]] = {}
     resolved_type = metric_type or ""
     temporality = ""
-    for service_name, attributes, resource_attributes, row_metric_type, row_temporality, timestamp, value in rows:
-        key = (
-            service_name,
-            tuple(sorted(dict(attributes).items())),
-            tuple(sorted(dict(resource_attributes).items())),
-            row_metric_type,
-        )
+    for (
+        key,
+        service_name,
+        attributes,
+        resource_attributes,
+        row_metric_type,
+        row_temporality,
+        timestamp,
+        value,
+    ) in rows:
         sample = Sample(timestamp=_as_utc(timestamp), value=float(value))
         if sample.timestamp < bucket_start:
             # Only a series' newest pre-bucket reading matters: it is the
@@ -200,7 +219,7 @@ def decompose_bucket(
                 predecessors[key] = sample
         else:
             grouped.setdefault(key, []).append(sample)
-        identities.setdefault(key, (service_name, dict(attributes), dict(resource_attributes)))
+        identities.setdefault(key, (service_name, dict(attributes or {}), dict(resource_attributes or {})))
         # A bucket normally holds one type and one temporality; when a name has
         # been ingested as several, the first is enough to plan a reduction and
         # the type check reports the blend separately.

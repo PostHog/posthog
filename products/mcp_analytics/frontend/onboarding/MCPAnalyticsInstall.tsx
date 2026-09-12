@@ -27,7 +27,7 @@ export function MCPListeningIndicator(): JSX.Element {
         return (
             <div className="flex items-center gap-2 text-success">
                 <IconCheckCircle className="text-lg" />
-                <span>Tool calls are flowing — you're all set.</span>
+                <span>Tool calls are flowing. You're all set.</span>
             </div>
         )
     }
@@ -35,14 +35,14 @@ export function MCPListeningIndicator(): JSX.Element {
         return (
             <div className="flex items-center gap-2 text-secondary">
                 <IconCheckCircle className="text-lg text-success" />
-                <span>Server connected — waiting for the first tool call…</span>
+                <span>Server connected. Call an existing tool from your agent to verify event delivery.</span>
             </div>
         )
     }
     return (
         <div className="flex items-center gap-2 text-secondary">
             <Spinner />
-            <span>Listening for your first MCP event…</span>
+            <span>Waiting for a tool call. After setup, call an existing tool from your agent.</span>
         </div>
     )
 }
