@@ -21,7 +21,7 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
         client = MagicMock()
         cursor = item_key("month:2026-09:shard:0", "key:cursor")
         targets = [session_key(7, "01a09f92-e780-7000-8000-000000000001"), item_key("team:7", "image:1:2026-09")]
-        pages = [
+        pages: list[DynamoResponse] = [
             {
                 "Items": [{"key_pk": target["pk"], "key_sk": target["sk"]}],
                 **({"LastEvaluatedKey": cursor} if index == 0 else {}),
