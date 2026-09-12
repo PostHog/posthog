@@ -253,7 +253,7 @@ class AgentServerLaunchMixin(SandboxBase):
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
-            unset_bedrock=self.disable_direct_bedrock,
+            should_unset_bedrock_env=self.should_unset_bedrock_env,
         )
         subscription_flag = " --claudeSubscription" if claude_model_access == "own-subscription" else ""
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
