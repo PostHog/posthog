@@ -1,6 +1,14 @@
 import { KEY_READ_LEASE_MS, MlDataKey, MlKeyEncryption } from './crypto'
 import { MlPrivacyDynamoDB } from './dynamodb'
-import { MlKeyIdentity, TableKey, consentKeyId, tableKeyString, teamBlockId } from './schema'
+import {
+    MlKeyIdentity,
+    TableKey,
+    consentKeyId,
+    keySessionMonth,
+    monthBlockId,
+    tableKeyString,
+    teamBlockId,
+} from './schema'
 
 export class MlKeyReader {
     constructor(
@@ -23,10 +31,16 @@ export class MlKeyReader {
                 throw new Error('Invalid ML key record')
             }
             const sessionId = item.sk.S?.startsWith('session:') ? item.sk.S.slice('session:'.length) : undefined
-            identities.set(id, { teamId, organizationId, consentGrantedAt, ...(sessionId ? { sessionId } : {}) })
+            identities.set(id, {
+                teamId,
+                organizationId,
+                consentGrantedAt,
+                ...(sessionId ? { sessionId } : { sessionMonth: item.session_month?.S }),
+            })
         }
         const state = await this.db.read(
             [...identities.values()].flatMap((identity) => [
+                monthBlockId(keySessionMonth(identity)),
                 consentKeyId(identity.organizationId),
                 teamBlockId(identity.teamId),
             ])
@@ -36,6 +50,7 @@ export class MlKeyReader {
             [...identities].map(async ([id, identity]) => {
                 const consent = state.get(tableKeyString(consentKeyId(identity.organizationId)))
                 if (
+                    state.has(tableKeyString(monthBlockId(keySessionMonth(identity)))) ||
                     state.has(tableKeyString(teamBlockId(identity.teamId))) ||
                     consent?.allowed?.BOOL !== true ||
                     Number(consent.granted_at?.N) !== identity.consentGrantedAt

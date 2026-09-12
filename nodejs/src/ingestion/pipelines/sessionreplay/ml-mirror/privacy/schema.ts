@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 
+import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
+
 export const ML_KEY_SHARDS = 32
 export const INGESTION_VERSION_HEADER = 'ai_research_ingestion_version'
 export const CONSENT_GRANTED_AT_HEADER = 'ai_research_consent_granted_at'
@@ -15,6 +17,7 @@ export interface MlKeyIdentity {
     teamId: number
     organizationId: string
     sessionId?: string
+    sessionMonth?: string
     consentGrantedAt: number
 }
 
@@ -35,8 +38,27 @@ export function sessionKeyId(teamId: number, sessionId: string): TableKey {
     return { pk: `team:${teamId}:shard:${sessionShard(sessionId)}`, sk: `session:${sessionId}` }
 }
 
-export function imageKeyId(teamId: number, consentGrantedAt: number): TableKey {
-    return { pk: `team:${teamId}`, sk: `image:${consentGrantedAt}` }
+export function imageKeyId(teamId: number, consentGrantedAt: number, sessionMonth: string): TableKey {
+    return { pk: `team:${teamId}`, sk: `image:${consentGrantedAt}:${sessionMonth}` }
+}
+
+export function keySessionMonth(identity: MlKeyIdentity): string {
+    if (identity.sessionId) {
+        return sessionStartMonth(identity.sessionId)
+    }
+    if (!identity.sessionMonth || !/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(identity.sessionMonth)) {
+        throw new Error('ML image key requires a session month')
+    }
+    return identity.sessionMonth
+}
+
+export function monthBlockId(month: string): TableKey {
+    return { pk: `month:${month}`, sk: 'deleted' }
+}
+
+export function monthKeyIndexId(identity: MlKeyIdentity, key: TableKey): TableKey {
+    const id = tableKeyString(key)
+    return { pk: `month:${keySessionMonth(identity)}:shard:${sessionShard(id)}`, sk: `key:${id}` }
 }
 
 export function consentKeyId(organizationId: string): TableKey {
@@ -73,5 +95,6 @@ export function wrappingContext(identity: MlKeyIdentity): Record<string, string>
         organization_id: identity.organizationId,
         consent_granted_at: String(identity.consentGrantedAt),
         ...(identity.sessionId ? { session_id: identity.sessionId } : {}),
+        ...(identity.sessionMonth ? { session_month: identity.sessionMonth } : {}),
     }
 }

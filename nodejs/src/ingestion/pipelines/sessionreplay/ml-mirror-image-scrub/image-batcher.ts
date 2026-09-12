@@ -659,14 +659,16 @@ export class ImageBatcher {
                       this.buffer.flatMap(({ image }) =>
                           image.consentGrantedAt === undefined
                               ? []
-                              : [imageKeyId(Number(image.teamId), image.consentGrantedAt)]
+                              : [imageKeyId(Number(image.teamId), image.consentGrantedAt, image.sessionMonth!)]
                       )
                   )
                 : new Map()
             this.buffer = this.buffer.filter(
                 ({ image }) =>
                     image.consentGrantedAt === undefined ||
-                    imageKeys.has(tableKeyString(imageKeyId(Number(image.teamId), image.consentGrantedAt)))
+                    imageKeys.has(
+                        tableKeyString(imageKeyId(Number(image.teamId), image.consentGrantedAt, image.sessionMonth!))
+                    )
             )
             const inlineItems = this.buffer.filter(
                 (item): item is ScrubbedRef & { image: ScrubbedImage } => item.source === 'bytes'
@@ -685,7 +687,11 @@ export class ImageBatcher {
                                     ? undefined
                                     : imageKeys.get(
                                           tableKeyString(
-                                              imageKeyId(Number(item.image.teamId), item.image.consentGrantedAt)
+                                              imageKeyId(
+                                                  Number(item.image.teamId),
+                                                  item.image.consentGrantedAt,
+                                                  item.image.sessionMonth!
+                                              )
                                           )
                                       )
                             ),
@@ -714,7 +720,13 @@ export class ImageBatcher {
                     items[0].image.consentGrantedAt === undefined
                         ? undefined
                         : imageKeys.get(
-                              tableKeyString(imageKeyId(Number(items[0].image.teamId), items[0].image.consentGrantedAt))
+                              tableKeyString(
+                                  imageKeyId(
+                                      Number(items[0].image.teamId),
+                                      items[0].image.consentGrantedAt,
+                                      items[0].image.sessionMonth!
+                                  )
+                              )
                           )
                 )
                 const storedAtMs = Date.now()

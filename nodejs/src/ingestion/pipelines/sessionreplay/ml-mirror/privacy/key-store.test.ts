@@ -13,7 +13,16 @@ import { MlKeyEncryption } from './crypto'
 import { DynamoItem, MlPrivacyDynamoDB, encodeKey } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
-import { MlSessionIdentity, consentKeyId, distinctBlockId, imageKeyId, sessionKeyId, tableKeyString } from './schema'
+import {
+    MlSessionIdentity,
+    consentKeyId,
+    distinctBlockId,
+    imageKeyId,
+    monthBlockId,
+    monthKeyIndexId,
+    sessionKeyId,
+    tableKeyString,
+} from './schema'
 import { MlKafkaEncryption, encryptedKafkaValue } from './transport'
 
 const session: MlSessionIdentity = {
@@ -127,6 +136,39 @@ describe('ML session key batches', () => {
         expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(1)
     })
 
+    it('indexes monthly keys atomically and blocks a month during a competing batch', async () => {
+        const october = { ...session, sessionId: '0199a13b-c000-7000-8000-000000000007' }
+        const first = await store.prepare([session, october])
+        await first.commit()
+        const septemberKeys = first.get(session.teamId, session.sessionId)!
+        const octoberKeys = first.get(october.teamId, october.sessionId)!
+        expect(septemberKeys.image.plaintext).not.toEqual(octoberKeys.image.plaintext)
+        for (const key of [septemberKeys.session, septemberKeys.image, octoberKeys.session, octoberKeys.image]) {
+            const location = key.identity.sessionId
+                ? sessionKeyId(key.identity.teamId, key.identity.sessionId)
+                : imageKeyId(key.identity.teamId, key.identity.consentGrantedAt, key.identity.sessionMonth!)
+            expect(boundary.items.get(tableKeyString(monthKeyIndexId(key.identity, location)))).toMatchObject({
+                key_pk: { S: location.pk },
+                key_sk: { S: location.sk },
+            })
+        }
+        const inFlight = await store.prepare([session])
+        const blocked = monthBlockId('2025-09')
+        boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
+        jest.useFakeTimers()
+        const committing = inFlight.commit()
+        await jest.runAllTimersAsync()
+        await committing
+        expect(inFlight.get(session.teamId, session.sessionId)).toBeUndefined()
+        const locations = [
+            sessionKeyId(session.teamId, session.sessionId),
+            imageKeyId(session.teamId, startedAt - 100, '2025-09'),
+            sessionKeyId(october.teamId, october.sessionId),
+            imageKeyId(session.teamId, startedAt - 100, '2025-10'),
+        ]
+        expect([...(await reader.read(locations))].map(([id]) => id)).toEqual(locations.slice(2).map(tableKeyString))
+    })
+
     it('adopts a competing writer key after the conditional write fails', async () => {
         const first = await store.prepare([session])
         const second = await store.prepare([session])
@@ -151,7 +193,7 @@ describe('ML session key batches', () => {
         expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
         await next.commit()
         expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(0)
-        expect((await reader.read([imageKeyId(session.teamId, startedAt - 100)])).size).toBe(1)
+        expect((await reader.read([imageKeyId(session.teamId, startedAt - 100, '2025-09')])).size).toBe(1)
     })
 
     it('rejects old sessions after re-consent and does not trust cached keys after withdrawal', async () => {
