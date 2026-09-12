@@ -7,6 +7,7 @@ from posthog.schema import (
     SourceFieldInputConfig,
 )
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cursor import KEY_REJECTED_MESSAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.source import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cursor import CursorSourceConfig
 
@@ -68,10 +69,10 @@ class TestCursorSource:
         assert [t["name"] for t in tables] == ["members", "daily_usage", "usage_events", "spend"]
         assert all(t["description"] for t in tables)
 
-    @parameterized.expand([(True, (True, None)), (False, (False, "Invalid Cursor Admin API key"))])
-    def test_validate_credentials(self, valid, expected):
+    @parameterized.expand([((True, None),), ((False, KEY_REJECTED_MESSAGE),)])
+    def test_validate_credentials(self, probe_result):
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.cursor.source.validate_cursor_credentials",
-            return_value=valid,
+            return_value=probe_result,
         ):
-            assert self.source.validate_credentials(self.config, self.team_id) == expected
+            assert self.source.validate_credentials(self.config, self.team_id) == probe_result
