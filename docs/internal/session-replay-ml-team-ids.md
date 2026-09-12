@@ -100,15 +100,16 @@ Legacy dataset retirement needs a separate storage operation before claiming del
 
 ## Data layout and readers
 
-| Dataset                   | Default path                                   | Encryption key                          |
-| ------------------------- | ---------------------------------------------- | --------------------------------------- |
-| Replay blocks             | `rrweb_2/`                                     | Session                                 |
-| Metadata catalog          | `block-metadata/v2/dt=<arrival-date>/`         | Each row's payload uses its session key |
-| Inline image shards       | `scrubbed-images/v2/<team>/<grant>/shards/`    | Team and consent period                 |
-| Inline image indexes      | `scrubbed-images/v2/<team>/<grant>/index/`     | Team and consent period                 |
-| URL images                | `scrubbed-images/v2/<team>/<grant>/url/<hash>` | Team and consent period                 |
-| Score pages               | `score/v2/dt=<session-date>/`                  | Each row's payload uses its session key |
-| Completed score manifests | `score/v2-manifests/dt=<session-date>/`        | No payload data or keys                 |
+| Dataset                   | Default path                                                | Encryption key                          |
+| ------------------------- | ----------------------------------------------------------- | --------------------------------------- |
+| Replay blocks             | `rrweb_2/`                                                  | Session                                 |
+| Metadata catalog          | `block-metadata/v2/dt=<arrival-date>/`                      | Each row's payload uses its session key |
+| Inline image shards       | `scrubbed-images/v2/<team>/<grant>/shards/`                 | Team and consent period                 |
+| Inline image lookups      | `scrubbed-images/v2/<team>/<grant>/lookup/<hash>.encrypted` | Team and consent period                 |
+| Inline image indexes      | `scrubbed-images/v2/<team>/<grant>/index/`                  | Team and consent period                 |
+| URL images                | `scrubbed-images/v2/<team>/<grant>/url/<hash>`              | Team and consent period                 |
+| Score pages               | `score/v2/dt=<session-date>/`                               | Each row's payload uses its session key |
+| Completed score manifests | `score/v2-manifests/dt=<session-date>/`                     | No payload data or keys                 |
 
 Metadata catalogs expose raw `team_id`, `session_id`, `consent_granted_at`, `format_version`, and an encrypted `payload`.
 Distinct IDs, URLs, block locations, and replay indexes are inside that payload.
@@ -118,6 +119,7 @@ Only sessions with live, eligible ML keys receive encrypted score rows.
 
 Athena can select catalog rows but cannot decrypt replay fields or scores.
 Training readers must bulk-read live keys and consent before decrypting.
+If a download exceeds the key read lifetime, readers must check live eligibility again before decryption.
 Cross-account readers use the full DynamoDB table ARN and the prod-us KMS key ARN.
 Both accounts must authorize the reader role.
 Readers have key-read and decrypt permissions; they cannot create keys or change deletion state.
@@ -136,6 +138,8 @@ Resolve image references before training because they contain team IDs.
 V2 references are `image:v2:<team>:<grant>:<hash>` and `imageurl:v2:<team>:<grant>:<hash>`.
 Images do not deduplicate across teams or consent periods.
 Source messages use session keys; stored scrubbed images use team image keys.
+Inline images have an encrypted lookup for each reference, published after the shard and its index.
+Readers fetch that lookup directly; a missing image does not require a scan of the team's image history.
 Source deduplication includes the session, so deleting one source session cannot suppress another session's copy.
 The v2 image-fetch frontier uses a separate, initially empty DynamoDB history table.
 It does not inherit v1 seen flags or successful fetch results.

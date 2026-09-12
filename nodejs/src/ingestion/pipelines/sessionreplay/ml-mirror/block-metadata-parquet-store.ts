@@ -47,32 +47,39 @@ export class BlockMetadataParquetStore {
         if (envelopes.length === 0) {
             return
         }
-        const schema = new ParquetSchema({
-            format_version: { type: 'INT64' },
-            team_id: { type: 'UTF8' },
-            session_id: { type: 'UTF8' },
-            consent_granted_at: { type: 'INT64' },
-            payload: { type: 'BYTE_ARRAY' },
-        })
-        const body = await parquetRecordsToBuffer(
-            schema,
-            envelopes.map((envelope) => ({
-                format_version: 2n,
-                team_id: String(envelope.context.teamId),
-                session_id: envelope.context.sessionId,
-                consent_granted_at: BigInt(envelope.context.consentGrantedAt),
-                payload: Buffer.from(JSON.stringify(envelope)),
-            }))
-        )
-        await this.s3Client.send(
-            new PutObjectCommand({
-                Bucket: this.bucket,
-                Key: this.objectKey(`${this.prefix}/v2`, new Date().toISOString().slice(0, 10)),
-                Body: body,
-                ContentType: 'application/vnd.apache.parquet',
-            }),
-            { abortSignal: AbortSignal.timeout(30_000) }
-        )
+        let body: Buffer
+        try {
+            const schema = new ParquetSchema({
+                format_version: { type: 'INT64' },
+                team_id: { type: 'UTF8' },
+                session_id: { type: 'UTF8' },
+                consent_granted_at: { type: 'INT64' },
+                payload: { type: 'BYTE_ARRAY' },
+            })
+            body = await parquetRecordsToBuffer(
+                schema,
+                envelopes.map((envelope) => ({
+                    format_version: 2n,
+                    team_id: String(envelope.context.teamId),
+                    session_id: envelope.context.sessionId,
+                    consent_granted_at: BigInt(envelope.context.consentGrantedAt),
+                    payload: Buffer.from(JSON.stringify(envelope)),
+                }))
+            )
+            await this.s3Client.send(
+                new PutObjectCommand({
+                    Bucket: this.bucket,
+                    Key: this.objectKey(`${this.prefix}/v2`, new Date().toISOString().slice(0, 10)),
+                    Body: body,
+                    ContentType: 'application/vnd.apache.parquet',
+                }),
+                { abortSignal: AbortSignal.timeout(30_000) }
+            )
+        } catch (error) {
+            MlParquetSinkMetrics.incWriteError()
+            throw error
+        }
+        MlParquetSinkMetrics.observeWrite(envelopes.length, body.length)
     }
 
     private async writeDataset(rows: MlBlockMetadataRow[], prefix: string, indexPrefix: string): Promise<void> {

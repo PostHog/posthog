@@ -1,8 +1,10 @@
 import { PutObjectCommandInput, S3Client } from '@aws-sdk/client-s3'
 import { ParquetReader } from '@dsnp/parquetjs'
+import { register } from 'prom-client'
 
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
+import { TrainingEncryptionVector } from './privacy/test-vectors'
 import { replayIndexPartitions } from './replay-index'
 
 const row = (sessionId: string, teamId: string): MlBlockMetadataRow => ({
@@ -50,6 +52,7 @@ describe('BlockMetadataParquetStore', () => {
     let s3: S3Client
 
     beforeEach(() => {
+        register.resetMetrics()
         puts = []
         s3 = {
             send: jest.fn((cmd: { input: PutObjectCommandInput }) => {
@@ -57,6 +60,28 @@ describe('BlockMetadataParquetStore', () => {
                 return Promise.resolve({})
             }),
         } as unknown as S3Client
+    })
+
+    it.each([false, true])('counts encrypted uploads and failures: %s', async (failed) => {
+        if (failed) {
+            jest.mocked(s3.send).mockImplementationOnce(() => Promise.reject(new Error('upload failed')))
+        }
+        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const write = store.writeEncrypted([TrainingEncryptionVector.envelope])
+        if (failed) {
+            await expect(write).rejects.toThrow('upload failed')
+        } else {
+            await write
+        }
+        const rows = await register.getSingleMetric('ml_mirror_parquet_sink_rows_written_total')!.get()
+        const failures = await register.getSingleMetric('ml_mirror_parquet_sink_write_errors_total')!.get()
+        expect(rows.values[0].value).toBe(failed ? 0 : 1)
+        expect(failures.values[0].value).toBe(failed ? 1 : 0)
+        if (!failed) {
+            expect((await readRows(puts[0].Body))[0].payload).toEqual(
+                Buffer.from(JSON.stringify(TrainingEncryptionVector.envelope))
+            )
+        }
     })
 
     it.each([

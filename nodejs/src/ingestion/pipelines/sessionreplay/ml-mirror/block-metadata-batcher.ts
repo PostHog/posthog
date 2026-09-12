@@ -1,8 +1,8 @@
-import { parseJSON } from '~/common/utils/json-parse'
 /** Accumulates block-metadata across Kafka batches and flushes one Parquet object per time/row threshold. */
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
 
 import { findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { parseBlockMetadataMessages } from './block-metadata-message'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
@@ -52,11 +52,18 @@ export class BlockMetadataBatcher {
                   }
                   return { message, original: message, key: undefined, invalid: undefined }
               })
-        for (const { original, key } of decoded) {
+        MlParquetSinkMetrics.incRowsRejected('privacy', messages.length - decoded.length)
+        let encryptedRows = 0
+        for (const { original, key, invalid } of decoded) {
+            if (invalid) {
+                MlParquetSinkMetrics.incRowsRejected('invalid_envelope')
+            }
             if (key) {
                 this.encrypted.push(parseJSON(original.value!.toString()) as MlEncryptedEnvelope)
+                encryptedRows++
             }
         }
+        MlParquetSinkMetrics.incRowsParsed(encryptedRows)
         for (const row of parseBlockMetadataMessages(
             decoded.filter(({ key, invalid }) => !key && !invalid).map(({ message }) => message)
         )) {
