@@ -75,7 +75,11 @@ from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
 from posthog.utils import get_crontab, get_instance_region
 
-from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
+from products.approvals.backend.tasks import (
+    expire_old_change_requests,
+    sync_experiment_approval_policies,
+    validate_pending_change_requests,
+)
 from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
@@ -990,6 +994,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="5"),
         expire_old_change_requests.s(),
         name="expire old change requests",
+    )
+
+    # TODO(experiment-approval-policies): temporary. See products/approvals/backend/experiment_policy_sync.py.
+    sender.add_periodic_task(
+        crontab(minute="15"),
+        sync_experiment_approval_policies.s(),
+        name="sync experiment approval policies",
     )
 
     # Deactivate endpoint materializations that haven't been used in 30+ days
