@@ -44,6 +44,12 @@
       "captureProduced": false
     },
     {
+      "type": "cookieless_team_disabled",
+      "category": "event",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
       "type": "cookieless_timestamp_out_of_range",
       "category": "event",
       "severity": "error",

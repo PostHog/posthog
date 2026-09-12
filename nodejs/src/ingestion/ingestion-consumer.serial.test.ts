@@ -239,7 +239,16 @@ describe('IngestionConsumer', () => {
             )
             await ingester.handleKafkaBatch(createKafkaMessages([createCookielessEvent()]))
 
-            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
+            expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+            const warningMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                'clickhouse_ingestion_warnings_test'
+            )
+            expect(warningMessages).toHaveLength(1)
+            expect(warningMessages[0].value).toMatchObject({
+                team_id: team.id,
+                type: 'cookieless_team_disabled',
+            })
+            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(1)
         })
 
         it('should not blend person properties from 2 different cookieless users', async () => {
