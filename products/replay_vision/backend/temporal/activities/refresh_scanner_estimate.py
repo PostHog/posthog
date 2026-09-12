@@ -9,7 +9,7 @@ from temporalio import activity
 from posthog.clickhouse.client.connection import ClickHouseUser
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
-from products.replay_vision.backend.queries import (
+from products.replay_vision.backend.queries.scanner_volume_estimate import (
     ESTIMATE_STALE_AFTER,
     is_experiment_linkage_unresolved,
     refresh_scanner_estimate,

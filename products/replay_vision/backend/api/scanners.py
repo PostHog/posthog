@@ -91,9 +91,9 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
     apply_experiment_targeting,
 )
-from products.replay_vision.backend.queries import (
+from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE
+from products.replay_vision.backend.queries.scanner_volume_estimate import (
     ESTIMATE_STALE_AFTER,
-    MIN_SAMPLING_RATE,
     PREVIEW_ESTIMATE_BUDGET,
     SAVE_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,

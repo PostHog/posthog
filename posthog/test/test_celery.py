@@ -1,5 +1,7 @@
 import os
+import sys
 import threading
+import subprocess
 
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
@@ -113,3 +115,24 @@ class TestCeleryMetrics(TestCase):
                 labels={"name": "NO_ZOOKEEPER", "replica": "ch1", "shard": "1"},
             ),
         )
+
+
+class TestWorkerStartupImports(TestCase):
+    def test_task_discovery_does_not_resolve_the_urlconf(self) -> None:
+        # The URLconf imports every product's API module graph, so resolving it here makes an import
+        # error in code the worker never runs crash-loop the worker and beat.
+        probe = (
+            "import django, sys;"
+            "django.setup();"
+            "from posthog.celery import app;"
+            "app.loader.import_default_modules();"
+            "print('posthog.urls' in sys.modules)"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", probe],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "DJANGO_SETTINGS_MODULE": "posthog.settings"},
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip().splitlines()[-1] == "False", result.stdout

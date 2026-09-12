@@ -39,6 +39,13 @@ logger = structlog.get_logger(__name__)
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 
+# Celery's Django fixup runs the full system check suite before it imports task modules, and the URL
+# checks resolve the whole URLconf. That drags every product's API module graph into the worker and
+# beat, so an import error in code neither of them runs crash-loops both. The deploy gate in
+# container-images-cd.yml already runs `manage.py check` on the built image. Set the variable to an
+# empty string to get the checks back.
+os.environ.setdefault("CELERY_SKIP_CHECKS", "1")
+
 
 app = Celery("posthog")
 
