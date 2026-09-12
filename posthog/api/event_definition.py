@@ -26,6 +26,7 @@ from posthog.api.event_definition_generators.typescript import TypeScriptGenerat
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.statement_timeout import statement_timeout
 from posthog.api.tagged_item import (
     BULK_UPDATE_TAGS_MAX_IDS,
     BulkTagActivityContext,
@@ -48,8 +49,8 @@ from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import (
+    DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
     DefinitionListTimedOut,
-    bounded_definition_list,
     definition_read_db_alias,
 )
 from posthog.taxonomy.definition_search import search_plan
@@ -586,7 +587,12 @@ class EventDefinitionViewSet(
         extensions={"x-product": "event_definitions"},
     )
     def list(self, request, *args, **kwargs):
-        with bounded_definition_list(read_db_alias(), EventDefinitionsTimedOut, EVENT_DEFINITIONS_TIMED_OUT_COUNTER):
+        with statement_timeout(
+            read_db_alias(),
+            DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
+            EventDefinitionsTimedOut,
+            EVENT_DEFINITIONS_TIMED_OUT_COUNTER,
+        ):
             queryset = self.filter_queryset(self.get_queryset())
             page = self.paginate_queryset(queryset)
             objects = page if page is not None else list(queryset)

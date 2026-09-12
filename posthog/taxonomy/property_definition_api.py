@@ -17,6 +17,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.documentation import extend_schema
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.statement_timeout import statement_timeout
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.constants import GROUP_TYPES_LIMIT
@@ -28,8 +29,8 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import (
+    DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
     DefinitionListTimedOut,
-    bounded_definition_list,
     definition_read_db_alias,
 )
 from posthog.taxonomy.definition_search import search_plan
@@ -796,8 +797,9 @@ class PropertyDefinitionViewSet(
         # `event_type` is raw query input, so clamp it to the known set rather than letting a
         # caller mint unbounded Prometheus label values.
         property_type = event_type if event_type in PROPERTY_DEFINITION_TYPES else "unknown"
-        with bounded_definition_list(
+        with statement_timeout(
             read_db_alias(),
+            DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
             PropertyDefinitionsTimedOut,
             PROPERTY_DEFINITIONS_TIMED_OUT_COUNTER.labels(property_type=property_type),
         ):

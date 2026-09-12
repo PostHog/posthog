@@ -762,7 +762,7 @@ class TestEventDefinitionListStatementTimeout(APIBaseTest):
 
         with (
             patch("posthog.api.event_definition.create_event_definitions_count_sql", return_value=slow_count_sql),
-            patch("posthog.taxonomy.definition_listing.DEFINITION_LIST_STATEMENT_TIMEOUT_MS", 250),
+            patch("posthog.api.event_definition.DEFINITION_LIST_STATEMENT_TIMEOUT_MS", 250),
         ):
             response = self.client.get(f"/api/projects/{self.team.pk}/event_definitions/")
 

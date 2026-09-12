@@ -3,7 +3,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.taxonomy.definition_listing import is_query_canceled
+from posthog.api.statement_timeout import is_query_canceled
 
 
 class TestIsQueryCanceled(SimpleTestCase):

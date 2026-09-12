@@ -1061,7 +1061,7 @@ class TestPropertyDefinitionListStatementTimeout(APIBaseTest):
 
         with (
             patch.object(QueryContext, "as_count_sql", return_value=slow_count_sql),
-            patch("posthog.taxonomy.definition_listing.DEFINITION_LIST_STATEMENT_TIMEOUT_MS", 250),
+            patch("posthog.taxonomy.property_definition_api.DEFINITION_LIST_STATEMENT_TIMEOUT_MS", 250),
         ):
             response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
 
