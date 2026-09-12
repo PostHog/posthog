@@ -1308,7 +1308,7 @@ export const getSignalsScoutEditReportUrl = (projectId: string, runId: string) =
 }
 
 /**
- * Rewrite a report's title/summary, append a note or fresh evidence, and/or set its suggested reviewers. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them.
+ * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them.
  * @summary Edit an existing report for a run
  */
 export const signalsScoutEditReport = async (
