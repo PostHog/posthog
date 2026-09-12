@@ -1,1 +1,1 @@
-1352_sharingconfiguration_canvas
+1354_sharingconfiguration_task_artifact
