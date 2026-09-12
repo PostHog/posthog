@@ -516,6 +516,9 @@ class OAuthAccessToken(AbstractAccessToken):
             # via an index scan instead of a sequential scan. These lookups account for a
             # large share of the server's CPU time; the index removes that hot-path scan.
             models.Index(fields=["token"], name="oauthaccesstoken_token_idx"),
+            # The nightly cleanup job selects expired tokens that have no refresh token. Without
+            # this index that anti-join reads the whole table on every batch it deletes.
+            models.Index(fields=["expires"], name="oauthaccesstoken_expires_idx"),
         ]
 
     @classmethod
