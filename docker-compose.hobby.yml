@@ -503,6 +503,14 @@ services:
             service: capture
         logging: *default-logging
 
+    capture-ai:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: capture-ai
+        logging: *default-logging
+
     capture-logs:
         build:
             context: ./posthog/rust
