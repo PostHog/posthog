@@ -36,6 +36,8 @@ function mockBrowse(scrollRef?: React.MutableRefObject<HTMLDivElement | null>): 
 jest.mock('./tabs/NavTabBrowse', () => ({ NavTabBrowse: ({ scrollRef }: any) => mockBrowse(scrollRef) }))
 jest.mock('./tabs/flat-nav/FlatNavBrowse', () => ({ FlatNavBrowse: ({ scrollRef }: any) => mockBrowse(scrollRef) }))
 
+const defaultMatchMedia = window.matchMedia
+
 describe('NavBar', () => {
     beforeEach(() => {
         initKeaTests()
@@ -45,6 +47,7 @@ describe('NavBar', () => {
 
     afterEach(() => {
         cleanup()
+        window.matchMedia = defaultMatchMedia
     })
 
     // Both branches thread the same scroll ref, so the reselect behavior must hold for each.
@@ -61,6 +64,18 @@ describe('NavBar', () => {
         expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
         expect(panelLayoutLogic.values.activePanelIdentifier).toBe('')
         expect(panelLayoutLogic.values.isLayoutPanelVisible).toBe(false)
+    })
+
+    it('drops the scroll animation for a person who prefers reduced motion', () => {
+        ;(useFeatureFlag as jest.Mock).mockReturnValue(false)
+        window.matchMedia = jest.fn(
+            (query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)', media: query }) as any
+        )
+        const { getByTestId } = render(<NavBar />)
+
+        fireEvent.click(getByTestId('nav-tab-home'))
+
+        expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'auto' })
     })
 
     it('leaves an open panel alone when the click actually switches tabs', () => {

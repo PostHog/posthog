@@ -164,7 +164,9 @@ export function NavBar(): JSX.Element {
             clearActivePanelIdentifier()
             showLayoutPanel(false)
         }
-        browseScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+        const reduceMotion =
+            typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+        browseScrollRef.current?.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
     }
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
