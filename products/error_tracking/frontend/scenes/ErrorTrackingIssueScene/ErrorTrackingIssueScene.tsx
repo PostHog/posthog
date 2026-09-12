@@ -14,7 +14,7 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { Button, ButtonGroup } from 'lib/ui/quill'
+import { Button, ButtonGroup, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -55,8 +55,16 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, issueIdValid, lastSeen, initialEventTimestamp, selectedEvent, mobileDetailOpen } =
-        useValues(errorTrackingIssueSceneLogic)
+    const {
+        issue,
+        issueId,
+        issueIdValid,
+        lastSeen,
+        initialEventTimestamp,
+        selectedEvent,
+        mobileDetailOpen,
+        aggregations,
+    } = useValues(errorTrackingIssueSceneLogic)
     const { updateAssignee, updateSeverity, updateStatus, updateName, setMobileDetailOpen } =
         useActions(errorTrackingIssueSceneLogic)
     const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
@@ -64,6 +72,14 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const isMobile = isWindowLessThan('md')
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+
+    // Recordings match on the exception's $session_id, so the flow dead-ends when no exception in
+    // the issue carried one. Gate the action instead of sending the user to an empty replay list.
+    // While the summary loads aggregations is undefined, so keep the action enabled until we know.
+    const hasSessionRecordings = aggregations ? aggregations.sessions > 0 : true
+    const noRecordingsReason = hasSessionRecordings
+        ? undefined
+        : 'No exception in this issue has a session ID, so there are no recordings to show'
 
     useAttachedContext(
         issueIdValid ? [{ type: 'error_tracking_issue', key: issueId, label: issue?.name ?? undefined }] : null
@@ -111,6 +127,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                         </SceneMenuBarMenu>
                                         <SceneMenuBarMenu label="View" dataAttr="issue-menubar-view">
                                             <SceneMenuBarItem
+                                                disabled={!hasSessionRecordings}
+                                                tooltip={noRecordingsReason}
                                                 onClick={() => {
                                                     const url = urls.replay(ReplayTabs.Home, {
                                                         ...getIssueReplayDateRange(
@@ -163,24 +181,37 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         disabled={issue.status != 'active'}
                                                     />
                                                 </ButtonGroup>
-                                                <Button
-                                                    variant="outline"
-                                                    onClick={() => {
-                                                        const url = urls.replay(ReplayTabs.Home, {
-                                                            ...getIssueReplayDateRange(
-                                                                issue.first_seen,
-                                                                lastSeen,
-                                                                selectedEvent?.timestamp ?? initialEventTimestamp
-                                                            ),
-                                                            filter_group: getIssueReplayFilterGroup(issue.id),
-                                                        })
-                                                        newInternalTab(url)
-                                                    }}
-                                                    data-attr="error-tracking-issue-view-recordings"
-                                                >
-                                                    View recordings
-                                                    <IconRewindPlay />
-                                                </Button>
+                                                <Tooltip>
+                                                    <TooltipTrigger
+                                                        render={
+                                                            <Button
+                                                                variant="outline"
+                                                                disabled={!hasSessionRecordings}
+                                                                onClick={() => {
+                                                                    const url = urls.replay(ReplayTabs.Home, {
+                                                                        ...getIssueReplayDateRange(
+                                                                            issue.first_seen,
+                                                                            lastSeen,
+                                                                            selectedEvent?.timestamp ??
+                                                                                initialEventTimestamp
+                                                                        ),
+                                                                        filter_group: getIssueReplayFilterGroup(
+                                                                            issue.id
+                                                                        ),
+                                                                    })
+                                                                    newInternalTab(url)
+                                                                }}
+                                                                data-attr="error-tracking-issue-view-recordings"
+                                                            >
+                                                                View recordings
+                                                                <IconRewindPlay />
+                                                            </Button>
+                                                        }
+                                                    />
+                                                    {noRecordingsReason && (
+                                                        <TooltipContent>{noRecordingsReason}</TooltipContent>
+                                                    )}
+                                                </Tooltip>
                                                 <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                             </div>
                                         )
