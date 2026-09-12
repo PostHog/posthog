@@ -8,6 +8,7 @@ import { Link } from 'lib/lemon-ui/Link/Link'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
+import { useClickSubmenu } from 'lib/ui/Menus/useClickSubmenu'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -17,15 +18,16 @@ export function ThemeMenu(): JSX.Element {
     const { themeMode } = useValues(userLogic)
     const { updateUser } = useActions(userLogic)
     const { customCssEnabled } = useValues(themeLogic)
+    const themeSubmenu = useClickSubmenu()
 
     function handleThemeChange(theme: UserTheme): void {
         updateUser({ theme_mode: theme })
     }
 
     return (
-        <Menu.SubmenuRoot>
+        <Menu.SubmenuRoot {...themeSubmenu.rootProps}>
             <Menu.SubmenuTrigger
-                openOnHover={false}
+                {...themeSubmenu.triggerProps}
                 render={
                     <ButtonPrimitive menuItem data-attr="more-menu-theme-button">
                         <IconPalette />
@@ -39,7 +41,7 @@ export function ThemeMenu(): JSX.Element {
             />
             <Menu.Portal>
                 <Menu.Positioner className="z-[var(--z-popover)]" collisionPadding={{ top: 50, bottom: 50 }}>
-                    <Menu.Popup className="primitive-menu-content">
+                    <Menu.Popup {...themeSubmenu.popupProps} className="primitive-menu-content">
                         <div className="primitive-menu-content-inner flex flex-col gap-px p-1">
                             <Menu.Item
                                 onClick={() => handleThemeChange('light')}
