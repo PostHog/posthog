@@ -30,8 +30,9 @@ const shouldTrackFramerate = (loadedInstance: PostHogInterface): boolean => {
 export interface LoadPostHogJSOptions {
     /**
      * Hook posthog-js's `before_send` so the caller can mutate or drop events before they leave
-     * the browser. Used by the exporter app to redact the SharingConfiguration access token from
-     * URL-shaped properties on the interview share page — see `frontend/src/exporter/index.tsx`.
+     * the browser. Used to redact the SharingConfiguration access token from URL-shaped properties:
+     * the interview share page in `frontend/src/exporter/index.tsx`, and the canvas fork scene in
+     * `frontend/src/scenes/bootApp.ts`.
      */
     beforeSend?: BeforeSendFn | BeforeSendFn[]
     /**
