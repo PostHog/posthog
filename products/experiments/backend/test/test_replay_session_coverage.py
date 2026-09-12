@@ -64,10 +64,39 @@ class TestReplaySessionCoverage(ClickhouseTestMixin, APIBaseTest):
         assert resolve_flag_session_coverage(self.team, client_side).exposure_event is True
         assert resolve_flag_session_coverage(self.team, server_side).exposure_event is False
 
-    def test_the_stamped_property_is_only_scanned_once_the_exposure_event_has_no_coverage(self) -> None:
+    @parameterized.expand(
+        [
+            ("the exposure event has no coverage", None, None, False, True),
+            ("the exposure event can match", None, "0198f2e4-0000-7000-8000-000000000002", True, None),
+            (
+                "the criteria name their own event, which the stamped property can't stand in for",
+                {
+                    "exposure_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "backend_exposure",
+                        "properties": [],
+                    }
+                },
+                None,
+                False,
+                None,
+            ),
+        ]
+    )
+    def test_the_stamped_property_is_only_scanned_where_a_surface_would_use_it(
+        self,
+        _name: str,
+        exposure_criteria: dict | None,
+        flag_call_session_id: str | None,
+        expected_exposure: bool,
+        expected_property: bool | None,
+    ) -> None:
         _create_person(team_id=self.team.pk, distinct_ids=["someone"])
         experiment = self._experiment("server-side-flag")
-        self._flag_call("someone", "server-side-flag", session_id=None)
+        if exposure_criteria is not None:
+            experiment.exposure_criteria = exposure_criteria
+            experiment.save()
+        self._flag_call("someone", "server-side-flag", session_id=flag_call_session_id)
         _create_event(
             team=self.team,
             event="$pageview",
@@ -78,8 +107,8 @@ class TestReplaySessionCoverage(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         coverage = resolve_flag_session_coverage(self.team, experiment)
-        assert coverage.exposure_event is False
-        assert coverage.flag_property is True
+        assert coverage.exposure_event is expected_exposure
+        assert coverage.flag_property is expected_property
 
     def test_a_flag_with_no_stamped_property_either_reports_neither(self) -> None:
         _create_person(team_id=self.team.pk, distinct_ids=["someone"])

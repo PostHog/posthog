@@ -36563,7 +36563,7 @@ export namespace Schemas {
          */
       exposure_event_linkable: boolean | null;
       /**
-         * Whether the `$feature/<flag_key>` stand-in the recordings surfaces fall back to was seen carrying a `$session_id` inside the same scan window. Only scanned when `exposure_event_linkable` is false, so it is null whenever the exposure event itself can match; treat null as linkable.
+         * Whether the `$feature/<flag_key>` stand-in the recordings surfaces fall back to was seen carrying a `$session_id` inside the same scan window. Only scanned when `exposure_event_linkable` is false and the experiment uses a default exposure event, the only case where a surface stands in for the exposure at all, so it is null otherwise; treat null as linkable.
          * @nullable
          */
       flag_property_linkable: boolean | null;

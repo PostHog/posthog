@@ -14,9 +14,10 @@ This module asks the narrower question the surfaces actually need: over a recent
 live events, because `posthog_eventproperty` has no flag dimension to scope on.
 
 The flag-property scan has no event name to prune on, so it only runs when the exposure scan has
-already reported no coverage — the minority case, and the only one where the answer changes what
-a surface does. Both scans stop at the first matching row and are capped, so an unbounded window
-can't turn a tab's mount into a long query. An unknown answer (a refused or failed scan, an
+already reported no coverage, and only for the default exposure events, the only ones a surface
+stands in for — the minority case, and the only one where the answer changes what a surface does.
+Both scans stop at the first matching row and are capped, so an unbounded window can't turn a
+tab's mount into a long query. An unknown answer (a refused or failed scan, an
 action-based exposure criteria, an experiment that never launched) is reported as `None`, and
 every caller treats that as "assume it matches", the fail-open posture the rest of the
 linkability seam takes.
@@ -38,6 +39,8 @@ from posthog.models.team.team import Team
 from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    DEFAULT_EXPOSURE_EVENT,
+    EXPERIMENT_EXPOSURE_EVENT,
     build_exposure_event_conditions,
     get_exposure_event_and_property,
     resolve_default_exposure_event,
@@ -176,7 +179,11 @@ def resolve_flag_session_coverage(team: Team, experiment: Experiment) -> FlagSes
         ],
     )
     flag_property_covered: Optional[bool] = None
-    if exposure_covered is False:
+    # Only the default exposure events have a stand-in, the same restriction
+    # `SessionExposure.used_fallback` and `getExposureFallbackFilter` apply: custom criteria assert
+    # that something specific happened, which the stamped flag property doesn't imply. Scanning it
+    # there would answer a question no surface can act on, and read as a usable fallback.
+    if exposure_covered is False and exposure_event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT):
         flag_property_covered = _has_session_linked_row(
             team,
             [
