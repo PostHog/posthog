@@ -2801,6 +2801,84 @@ describe('dashboardLogic', () => {
                 }
             })
 
+            it('cancelling a refresh stops queued tiles from enrolling and settles the counter', async () => {
+                // Six tiles against a concurrency limit of four, so two tiles are still queued when
+                // the user clicks Cancel.
+                const sixTileDashboard = {
+                    ...dashboards[5],
+                    tiles: Array.from({ length: 6 }, (_, index) => ({
+                        ...dashboards[5].tiles[0],
+                        id: index + 200,
+                        layouts: {},
+                        insight: {
+                            ...dashboards[5].tiles[0].insight!,
+                            id: index + 200,
+                            short_id: `cancel-${index}` as InsightShortId,
+                        },
+                    })),
+                }
+
+                let releaseBarrier!: () => void
+                const barrier = new Promise<void>((resolve): void => {
+                    releaseBarrier = resolve
+                })
+                let holdFetches = false
+
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(async (_teamId, insight) => {
+                        if (holdFetches) {
+                            await barrier
+                        }
+                        return insight
+                    })
+
+                const poll = async (cond: () => boolean, message: string): Promise<void> => {
+                    const deadline = Date.now() + 5000
+                    while (!cond()) {
+                        if (Date.now() > deadline) {
+                            throw new Error(message)
+                        }
+                        await new Promise((r) => setTimeout(r, 0))
+                    }
+                }
+
+                try {
+                    logic.unmount()
+                    logic = dashboardLogic({ id: 5, dashboard: sixTileDashboard })
+                    logic.mount()
+                    await expectLogic(logic).toFinishAllListeners()
+
+                    holdFetches = true
+                    getInsightWithRetrySpy.mockClear()
+
+                    const refreshDone = expectLogic(logic, () => {
+                        logic.actions.triggerDashboardRefresh()
+                    }).toFinishAllListeners()
+
+                    await poll(
+                        () => getInsightWithRetrySpy.mock.calls.length >= 4,
+                        'Timed out waiting for the first batch of insight fetches to start'
+                    )
+                    expect(logic.values.refreshMetrics).toEqual({ completed: 0, total: 6 })
+
+                    logic.actions.cancelDashboardRefresh()
+                    expect(logic.values.itemsLoading).toBe(false)
+
+                    releaseBarrier()
+                    await refreshDone
+
+                    // The two queued tiles never started, so nothing re-enrolled into the status map
+                    // and the spinner stayed down.
+                    expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(4)
+                    expect(logic.values.itemsLoading).toBe(false)
+                    expect(logic.values.refreshMetrics).toEqual({ completed: 6, total: 6 })
+                } finally {
+                    releaseBarrier()
+                    getInsightWithRetrySpy.mockRestore()
+                }
+            })
+
             it('save during in-flight dashboard refresh does not abort insight fetches', async () => {
                 const dashboard = dashboards[5]
                 const insight1 = dashboard.tiles[0].insight!
