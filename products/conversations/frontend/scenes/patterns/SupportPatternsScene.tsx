@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSegmentedButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -41,8 +42,12 @@ const STATUS_LABEL: Record<TicketPatternApi['status'], string> = {
 export function SupportPatternsScene(): JSX.Element {
     const { visiblePatterns, patternsLoading, statusFilter } = useValues(supportPatternsSceneLogic)
     const { setStatusFilter } = useActions(supportPatternsSceneLogic)
-    const { inFlightIds } = useValues(ticketPatternsLogic)
+    const { patternsEnabled, inFlightIds } = useValues(ticketPatternsLogic)
     const { confirmPattern, dismissPattern } = useActions(ticketPatternsLogic)
+
+    if (!patternsEnabled) {
+        return <NotFound object="page" />
+    }
 
     const columns: LemonTableColumns<TicketPatternApi> = [
         {

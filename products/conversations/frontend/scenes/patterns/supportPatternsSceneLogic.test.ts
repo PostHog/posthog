@@ -1,5 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -52,6 +55,10 @@ describe('supportPatternsSceneLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_PATTERNS], {
+            [FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_PATTERNS]: true,
+        })
         logic = supportPatternsSceneLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
@@ -75,6 +82,15 @@ describe('supportPatternsSceneLogic', () => {
         await expectLogic(ticketPatternsLogic).toDispatchActions(['decisionSucceeded'])
 
         expect(logic.values.visiblePatterns.map((p) => p.id)).toEqual(visible)
+    })
+
+    it('loads nothing when the feature flag is off', async () => {
+        logic.unmount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        logic = supportPatternsSceneLogic()
+        logic.mount()
+
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadPatterns'])
     })
 
     it('puts the row back when the decision fails', async () => {
