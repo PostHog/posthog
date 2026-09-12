@@ -474,7 +474,7 @@ describe('updateFeatureFlag 409 handling', () => {
 
         expect(showApprovalRequiredToast).not.toHaveBeenCalled()
         // A non-approval 409 stays visible to error tracking; only approval-shaped ones are suppressed
-        expect(posthog.captureException).toHaveBeenCalledWith(error)
+        expect(posthog.captureException).toHaveBeenCalledWith(error, expect.any(Object))
     })
 })
 
