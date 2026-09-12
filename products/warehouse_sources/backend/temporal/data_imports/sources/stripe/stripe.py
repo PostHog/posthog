@@ -1110,7 +1110,11 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
 
         ts = event_created if isinstance(event_created, int) else 0
         existing = best_by_id.get(obj_id)
-        if existing is None or ts > existing[0]:
+        # Later rows win ties. `created` is a whole second and one Stripe operation emits several
+        # events for an object inside it, so the only finer order the batch holds is the row order,
+        # a best-effort proxy for arrival order. Keeping the first row let a pre-payment snapshot
+        # outrank the payment event that followed it in the same second.
+        if existing is None or ts >= existing[0]:
             best_by_id[obj_id] = (ts, obj)
 
     rows = [_scrub_client_secrets(obj) for _, obj in best_by_id.values()]
@@ -1717,6 +1721,7 @@ def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webho
                     status=endpoint.status,
                     description=endpoint.description,
                     created_at=str(endpoint.created) if endpoint.created else None,
+                    api_version=endpoint.api_version,
                 )
 
         return ExternalWebhookInfo(exists=False)
@@ -1728,3 +1733,119 @@ def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webho
                 error="Your Stripe API key doesn't have permission to read webhooks. Add the 'Read' permission for 'Webhook endpoints' to your API key.",
             )
         return ExternalWebhookInfo(exists=False, error=f"Failed to check webhook status: {error_str}")
+
+
+@frozen
+class WebhookRepin:
+    """Outcome of repinning a webhook endpoint's API version by replacement."""
+
+    status: Literal["replaced", "already_pinned", "no_endpoint", "failed"]
+    previous_api_version: str | None = None
+    signing_secret: str | None = dataclasses.field(default=None, repr=False)
+    replaced_endpoint_id: str | None = None
+    # Set as soon as Stripe creates the replacement, including on the failure that follows it.
+    # Stripe returns the signing secret once, at create, so a caller that loses this id can no
+    # longer identify the endpoint it must delete, and the endpoint keeps failing signature checks.
+    created_endpoint_id: str | None = None
+    error: str | None = None
+
+
+def create_pinned_webhook_replacement(
+    api_key: str,
+    stripe_account_id: str | None,
+    webhook_url: str,
+    *,
+    api_version: str,
+) -> WebhookRepin:
+    """Add a second endpoint on `webhook_url` that is pinned to `api_version`, and return its secret.
+
+    Stripe accepts `api_version` on create only. `POST /v1/webhook_endpoints/{id}` has no such
+    parameter, so an endpoint created before we pinned the version can only be moved onto a
+    version by replacement.
+
+    This leaves the old endpoint in place on purpose. Stripe delivers every event to both
+    endpoints while both exist, and the receiving hog function verifies against the one signing
+    secret it stores, so the caller must store the new secret first and delete the old endpoint
+    after (`delete_webhook_endpoint`). Each event in that window still has one copy that
+    verifies. Deleting first would drop every event until the replacement exists, and Stripe
+    only replays a dropped event on a manual resend.
+    """
+    try:
+        client = StripeClient(
+            api_key,
+            stripe_account=stripe_account_id,
+            stripe_version=api_version,
+            max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(),
+        )
+
+        endpoints = client.webhook_endpoints.list(params={"limit": 100})
+        endpoint = next((e for e in endpoints.auto_paging_iter() if e.url == webhook_url), None)
+
+        if endpoint is None:
+            return WebhookRepin(status="no_endpoint")
+
+        if endpoint.api_version == api_version:
+            return WebhookRepin(status="already_pinned", previous_api_version=endpoint.api_version)
+
+        # Carry the live subscription over, including any event the user added by hand. Only a
+        # missing list falls back, because an empty one that fell back would subscribe the
+        # replacement to every event the user had turned off.
+        enabled_events = endpoint.enabled_events if endpoint.enabled_events is not None else _all_known_webhook_events()
+
+        replacement = client.webhook_endpoints.create(
+            params={
+                "url": webhook_url,
+                "enabled_events": enabled_events,  # type: ignore[typeddict-item]
+                "description": endpoint.description or "PostHog data warehouse webhook",
+                "api_version": api_version,  # type: ignore[typeddict-item]
+            }
+        )
+
+        if not replacement.secret:
+            return WebhookRepin(
+                status="failed",
+                created_endpoint_id=replacement.id,
+                error=(
+                    f"Stripe created endpoint {replacement.id} without returning a signing secret. "
+                    "Delete it in Stripe, because nothing can verify its deliveries."
+                ),
+            )
+
+        return WebhookRepin(
+            status="replaced",
+            previous_api_version=endpoint.api_version,
+            signing_secret=replacement.secret,
+            replaced_endpoint_id=endpoint.id,
+            created_endpoint_id=replacement.id,
+        )
+    except Exception as e:
+        error_str = _clean_stripe_error_message(str(e))
+        if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
+            error_str = (
+                f"{error_str} (the API key needs the 'Write' permission for 'Webhook endpoints'; "
+                "an app-connected source can never have it)"
+            )
+        return WebhookRepin(status="failed", error=error_str)
+
+
+def delete_webhook_endpoint(api_key: str, stripe_account_id: str | None, endpoint_id: str) -> WebhookDeletionResult:
+    """Delete one endpoint by id.
+
+    `delete_webhook` matches on URL, which is ambiguous while a replacement shares the URL with
+    the endpoint it replaces.
+    """
+    try:
+        client = StripeClient(
+            api_key,
+            stripe_account=stripe_account_id,
+            stripe_version="2024-09-30.acacia",
+            max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(),
+        )
+        client.webhook_endpoints.delete(endpoint_id)
+        return WebhookDeletionResult(success=True)
+    except Exception as e:
+        return WebhookDeletionResult(success=False, error=_clean_stripe_error_message(str(e)))
