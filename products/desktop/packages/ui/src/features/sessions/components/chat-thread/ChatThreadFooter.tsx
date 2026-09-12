@@ -7,7 +7,7 @@ import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useCon
 import {
   usePendingPermissionsForTask,
   useQueuedMessagesForTask,
-  useSessionForTask,
+  useSessionSelector,
 } from "@posthog/ui/features/sessions/sessionStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { resolvePendingPermissionVisibility } from "./pendingPermissionVisibility";
@@ -65,8 +65,10 @@ export function ChatThreadFooter({
     pendingPermissions.size,
   );
   const queuedCount = useQueuedMessagesForTask(taskId).length;
-  const session = useSessionForTask(taskId);
-  const pausedDurationMs = session?.pausedDurationMs ?? 0;
+  const pausedDurationMs = useSessionSelector(
+    taskId,
+    (session) => session?.pausedDurationMs ?? 0,
+  );
 
   return (
     <div className="pt-1">
