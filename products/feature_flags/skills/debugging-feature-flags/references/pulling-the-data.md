@@ -180,24 +180,41 @@ twice against the customer's region, changing only the `User-Agent`, and compare
 is **present** in the response — its value is beside the point, since an absent key is what a
 server-side SDK reports as `false`.
 
+**Keep the ticket's values out of the command text.** The `distinct_id` is whatever the SDK sent and
+it reaches you through the ticket, so a `'` in it closes a quoted shell string and the rest runs as
+commands. Single quotes don't save you, and neither does assigning first: `DID='<paste>'` and a
+heredoc both still put the value in text a shell (or a Python parser) lexes. **Prefer a structured
+HTTP client** — a request tool, or `urllib`/`requests` with the body passed as a `dict` — where the
+value is an argument and there is no shell to escape for.
+
+When `curl` is all you have, put the body in a **file** and let `curl` read it as data. Write that
+file with your file-writing tool rather than a shell redirect, and let a JSON serializer escape the
+value instead of quoting it by hand:
+
+`/tmp/flags-body.json`
+
+```json
+{ "token": "<project_api_key>", "distinct_id": "<distinct_id>" }
+```
+
+The command then carries nothing from the ticket — `<region>` is `us` or `eu`, and the user agent is
+one you pick:
+
 ```bash
-BODY='{"token":"<project_api_key>","distinct_id":"<distinct_id>"}'
 URL='https://<region>.i.posthog.com/flags/?v=2'
 
 # A: as the customer's caller. `-A ''` sends no user agent, like older SDK builds and
 #    hand-rolled callers. B: as a recognized SDK (posthog-js/<version> to model a browser).
-curl -s -X POST "$URL" -A '' -H 'Content-Type: application/json' -d "$BODY"
-curl -s -X POST "$URL" -H 'User-Agent: posthog-node/<version>' -H 'Content-Type: application/json' -d "$BODY"
+curl -s -X POST "$URL" -A '' -H 'Content-Type: application/json' --data-binary @/tmp/flags-body.json
+curl -s -X POST "$URL" -H 'User-Agent: posthog-node/<version>' -H 'Content-Type: application/json' --data-binary @/tmp/flags-body.json
 ```
 
 A flag present in B and missing from A confirms runtime scoping.
 
 **Set the header deliberately.** Bare `curl` sends `curl/<version>`, which is recognized as
 server-side, so an unadorned request reproduces arm B and passes while the customer's caller still
-fails. `<region>` is `us` or `eu`; `<project_api_key>` is their public key, the one already in their
-client bundle. Older SDKs post to `/decide`, which runs the same classification. The `distinct_id`
-lands in a **shell** command here, not a SQL literal, so put it in a variable rather than pasting it
-inline — a quote in it runs the rest as commands.
+fails. `<project_api_key>` is their public key, the one already in their client bundle. Older SDKs
+post to `/decide`, which runs the same classification.
 
 ## Handing off
 

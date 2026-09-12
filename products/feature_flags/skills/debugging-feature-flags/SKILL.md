@@ -295,14 +295,18 @@ user's client actually received). PostHog's own product telemetry, which both re
 US project, carries org-level flag activity but no flag keys, so it won't reconstruct a specific
 flag's history. If you query it, scope to the requester's own group — it holds every organization's
 data, and a flag-key filter on its own matches other tenants' rows. PostHog tags its internal events
-with an `organization` group (the organization's ID) and a `project` group (the team's **UUID**, not its
-numeric ID), so resolve the group-type index for that project first and filter on both the group and the
-flag key, never the flag key alone. The organization filter on its own still spans every project in
-that organization, so a requester who lacks access to a sibling project using the same flag key would
-otherwise get its activity back:
+with an `organization` group holding the organization's ID, so resolve that group-type index first and
+filter on the group as well as the flag key, never the flag key alone:
 
 ```sql
 WHERE properties.$group_<organization_index> = '<organization_id>'
-  AND properties.$group_<project_index> = '<project_uuid>'
   AND properties.$feature_flag = '<flag-key>'
 ```
+
+**That filter is the tightest one available, not a project boundary.** It still spans every project in
+the organization, and you can't narrow it with a project predicate: the feature-flag captures in
+PostHog's own backend set an `organization` group and no project group, and the events that do carry a
+`project` group hold the team's **numeric ID**, not a UUID. Adding a project condition to these rows
+matches nothing and silently empties the result rather than tightening it. So narrow the rest by
+judgment — drop any row you can't attribute to the ticket's own project before it reaches the reply,
+rather than handing back a sibling project's activity the requester may have no access to.
