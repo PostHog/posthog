@@ -1,5 +1,6 @@
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
+import { trackFileTask } from "@posthog/ui/features/canvas/trackFileTask";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCallback } from "react";
 
@@ -25,7 +26,9 @@ export function useFileTaskToChannel(): (
           (channel) => channel.id === channelId,
         )?.name;
         toast.success(channelName ? `Filed to ${channelName}` : "Task filed");
+        trackFileTask(channelId, taskId, true);
       } catch (error) {
+        trackFileTask(channelId, taskId, false);
         toast.error("Couldn't file task", {
           description: error instanceof Error ? error.message : String(error),
         });
