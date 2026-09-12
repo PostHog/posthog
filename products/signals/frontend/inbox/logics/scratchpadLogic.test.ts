@@ -251,6 +251,24 @@ describe('scratchpadLogic', () => {
         expect(logic.values.filteredEntries).toHaveLength(4)
     })
 
+    // Older pages walk the unfiltered window with a cursor, and a search is a separate one-shot
+    // read they never reach. A control offered during a search spends a page of up to a thousand
+    // rows the table cannot show, and moves the header counts while the listed rows stay put.
+    it('offers no older pages while a search is active', async () => {
+        logic.actions.loadEntriesSuccess(
+            Array.from({ length: SCRATCHPAD_FETCH_LIMIT }, (_, i) => entry(`pattern:${i}`, 'note'))
+        )
+        expect(logic.values.canLoadOlderEntries).toBe(true)
+
+        logic.actions.setSearchText('redis')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.canLoadOlderEntries).toBe(false)
+
+        logic.actions.setSearchText('')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.canLoadOlderEntries).toBe(true)
+    })
+
     // Nothing older than the first page was reachable before: the endpoint caps at 1,000 rows and
     // the panel only ever asked once. The `date_to` bound is exclusive, but rows can share a
     // timestamp, so a page may still repeat a key already on screen.
