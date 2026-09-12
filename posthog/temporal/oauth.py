@@ -228,16 +228,13 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          recoverable soft-delete that refuses a table a source owns. Deleting
 #                          a data quality check is the one PERMANENT delete in this set, and a
 #                          check is cheap to recreate.
-#   replay_scanner:write   Every Replay vision scanner in the scout's project: its prompt, query,
-#                          sampling, model, credit limit, and enabled state, plus the prompt
+#   replay_scanner:write   Every Replay vision scanner in the scout's project, plus the prompt
 #                          suggestion loop and the shared rating on observations. Scanning spends
-#                          the organization's Replay vision credits, and delete is PERMANENT (it
-#                          takes the scanner's observations with it), so this scope alone would
-#                          miss the bar the others meet. The scope object covers the whole scanner
-#                          surface, so neither exclusion can be expressed in the token: the
-#                          scanner viewset refuses a delete from a scout caller, and holds a scout
-#                          to a credit limit on any scanner it creates or enables. See
-#                          `products/replay_vision/backend/scout_writes.py`.
+#                          the organization's credits, and delete is PERMANENT (it takes the
+#                          scanner's observations with it), so this scope alone misses the bar the
+#                          others meet. One scope object covers the whole surface, so the two
+#                          exclusions live in `products/replay_vision/backend/scout_writes.py`
+#                          instead: a scout cannot delete, and must cap what it creates or enables.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is

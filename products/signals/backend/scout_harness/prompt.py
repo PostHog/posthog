@@ -810,8 +810,7 @@ def _write_access_section(write_scopes: Sequence[str]) -> str:
         else ""
     )
     # The only grant whose objects spend money as they run, and the only one whose delete the API
-    # refuses rather than the token. Stated only when it applies, for the same reason as the two
-    # notes above.
+    # refuses rather than the token.
     scanner_reach = (
         "\n- **Scanners spend credits, and you cannot delete one.** A scanner costs the organization credits on every session it observes, so set a `credit_limit` on any scanner you create or enable, and check `vision-quota-retrieve` and `vision-scanners-estimate-create` before you create one or widen an existing one's query. Retune a scanner that already exists rather than adding another. `vision-scanners-delete` comes back forbidden: set `enabled: false` to stop a scanner instead, which also keeps its past observations."
         if "replay_scanner:write" in write_scopes

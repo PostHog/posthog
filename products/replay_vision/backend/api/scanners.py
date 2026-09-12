@@ -1712,15 +1712,14 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        # Carries the caller kind into the serializer, which is where the scout-only credit limit
-        # rule runs: only a serializer error keys the message to the `credit_limit` field.
+        # The credit limit rule runs in the serializer, because only a serializer error keys its
+        # message to the `credit_limit` field.
         context["scout_sandbox_caller"] = is_scout_sandbox_request(self.request)
         return context
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # The per-scout grant excludes deletion, and one scope object covers the whole scanner
-        # surface, so this is where the exclusion lives. Refused before the object is fetched:
-        # nothing about the scanner changes the answer.
+        # surface, so this is where that exclusion lives.
         refuse_scout_scanner_delete(is_scout_sandbox_request(request))
         return super().destroy(request, *args, **kwargs)
 

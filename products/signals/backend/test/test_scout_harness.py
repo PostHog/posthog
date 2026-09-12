@@ -774,9 +774,8 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         # scout bodies it was never granted.
         assert "Skills include the scouts themselves" not in granted
         assert "Skills include the scouts themselves" in _prompt(write_scopes=["llm_skill:write"])
-        # Scanners are the only granted objects that spend the organization's credits as they run,
-        # and the only ones whose delete the API refuses rather than the token, so a scout that
-        # holds the grant has to be told both before it spends a call finding out.
+        # A scout holding the scanner grant has to learn the credit cost and the delete refusal
+        # from the prompt, not from a refused call.
         assert "Scanners spend credits" not in granted
         assert "Scanners spend credits" in _prompt(write_scopes=["replay_scanner:write"])
 
