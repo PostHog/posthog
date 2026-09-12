@@ -1,15 +1,18 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@frozen
 class AppsignalEndpointConfig:
     name: str
     # "rest" endpoints page through time windows on AppSignal's legacy JSON API;
-    # "graphql" endpoints walk the incident lists with limit/offset paging.
-    api: Literal["rest", "graphql"]
+    # "graphql" endpoints walk the incident lists with limit/offset paging;
+    # "custom" endpoints name a walker in `appsignal.py` (see `walker`).
+    api: Literal["rest", "graphql", "custom"]
     # REST-only: path template under appsignal.com with an {app_id} placeholder.
     path: Optional[str] = None
     # REST-only: key the list of rows is nested under in the response body.
@@ -23,7 +26,11 @@ class AppsignalEndpointConfig:
     # selection set to request for each row.
     graphql_field: Optional[str] = None
     graphql_selection: Optional[str] = None
-    primary_key: str = "id"
+    # Name of the walker that builds the rows for a "custom" endpoint. The Public API V2
+    # surface and the app list each need their own request and fan-out shape, so they cannot
+    # share the declarative "rest" and "graphql" paths.
+    walker: Optional[str] = None
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Field the time windows filter on (REST) — also the sort key within a yielded window.
     cursor_field: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -135,6 +142,99 @@ APPSIGNAL_ENDPOINTS: dict[str, AppsignalEndpointConfig] = {
                 "type": IncrementalFieldType.DateTime,
                 "field": "time",
                 "field_type": IncrementalFieldType.Integer,
+            },
+        ],
+    ),
+    # Every table below is keyed by an app ID, so the app list is the lookup that resolves
+    # those IDs to a name, environment and organization. `viewer` is used rather than
+    # `organization(slug:)` because the source form asks for an app ID, never an org slug.
+    "apps": AppsignalEndpointConfig(
+        name="apps",
+        api="custom",
+        walker="apps",
+        partition_key="createdAt",
+    ),
+    # Log lines live only on the Public API V2: the GraphQL API exposes no log line field.
+    "log_lines": AppsignalEndpointConfig(
+        name="log_lines",
+        api="custom",
+        walker="log_lines",
+        # A log line ID is unique within its source, not across the sources of an app.
+        primary_keys=["source_id", "id"],
+        cursor_field="timestamp",
+        partition_key="timestamp",
+        immutable_rows=True,
+        incremental_fields=[
+            {
+                "label": "timestamp",
+                "type": IncrementalFieldType.DateTime,
+                "field": "timestamp",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # The metric catalog: one row per metric name, with its type and the tag keys it carries.
+    # This is what makes `metric_timeseries` readable, and it is the only way to discover
+    # which custom metrics an app reports.
+    "metric_names": AppsignalEndpointConfig(
+        name="metric_names",
+        api="custom",
+        walker="metric_names",
+        primary_keys=["name"],
+    ),
+    # All custom and platform metric data. The GraphQL metrics API is deprecated, so V2 is
+    # the only supported source for it.
+    "metric_timeseries": AppsignalEndpointConfig(
+        name="metric_timeseries",
+        api="custom",
+        walker="metric_timeseries",
+        # A series ID is composed of the metric name, its sorted tags and the field, so it is
+        # unique table-wide and a bucket is identified by the series plus its timestamp.
+        primary_keys=["series_id", "timestamp"],
+        cursor_field="timestamp",
+        partition_key="timestamp",
+        incremental_fields=[
+            {
+                "label": "timestamp",
+                "type": IncrementalFieldType.DateTime,
+                "field": "timestamp",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "performance_traces": AppsignalEndpointConfig(
+        name="performance_traces",
+        api="custom",
+        walker="performance_traces",
+        primary_keys=["site_id", "trace_id"],
+        cursor_field="time",
+        partition_key="time",
+        immutable_rows=True,
+        incremental_fields=[
+            {
+                "label": "time",
+                "type": IncrementalFieldType.DateTime,
+                "field": "time",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # Spans are fanned out per trace, so each row carries the parent trace's `time`. The
+    # sweep is driven by that field, and a span's own `start_time` can precede it.
+    "trace_spans": AppsignalEndpointConfig(
+        name="trace_spans",
+        api="custom",
+        walker="trace_spans",
+        primary_keys=["trace_id", "span_id"],
+        cursor_field="trace_time",
+        partition_key="trace_time",
+        immutable_rows=True,
+        incremental_fields=[
+            {
+                "label": "trace_time",
+                "type": IncrementalFieldType.DateTime,
+                "field": "trace_time",
+                "field_type": IncrementalFieldType.DateTime,
             },
         ],
     ),
