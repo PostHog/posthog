@@ -255,10 +255,14 @@ impl AggregateFunnelRow {
             let mut in_match_window = previous_timestamp != 0.0
                 && event.timestamp - previous_timestamp <= args.conversion_window_limit as f64;
 
-            // Go backwards until you hit a match or you get to the previous mandatory step
+            // Go backwards until you hit a match or you get to the previous mandatory step.
+            // Do not skip over an optional step that this same event matches. The event belongs
+            // to that step, so a later step must not consume it. Without this guard one event
+            // fills two steps, and the earlier step reports no conversions at all.
             while previous_step_index > 0
                 && (previous_timestamp == 0.0 || !in_match_window)
                 && args.optional_steps.contains(&(previous_step_index as i8))
+                && !event.steps.contains(&(previous_step_index as i8))
             {
                 previous_step_index -= 1;
                 previous_timestamp = vars.entered_timestamp[previous_step_index].timestamp;
@@ -335,5 +339,46 @@ impl AggregateFunnelRow {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    fn steps_bitfield(num_steps: usize, optional_steps: &[i8], events: &[(f64, &[i8])]) -> u32 {
+        let value: Vec<String> = events
+            .iter()
+            .enumerate()
+            .map(|(i, (timestamp, steps))| {
+                format!(
+                    r#"{{"timestamp":{timestamp},"uuid":"00000000-0000-0000-0000-{:012}","breakdown":"","steps":{steps:?}}}"#,
+                    i + 1
+                )
+            })
+            .collect();
+        let line = format!(
+            r#"{{"num_steps":{num_steps},"conversion_window_limit":3600,"breakdown_attribution_type":"first_touch","funnel_order_type":"ordered","prop_vals":[""],"optional_steps":{optional_steps:?},"value":[{}]}}"#,
+            value.join(",")
+        );
+        run(&parse_args(&line).unwrap())[0].4
+    }
+
+    // Steps 2, 3 and 4 are optional and step 1 is required, so step 4 may skip back to step 1.
+    #[rstest]
+    // The events at t=2 and t=4 match both step 2 and step 4. Step 4 must leave the first one
+    // for step 2, otherwise step 2 converts nobody.
+    #[case(
+        &[(1.0, &[1][..]), (2.0, &[2, 4][..]), (3.0, &[3][..]), (4.0, &[2, 4][..])],
+        0b1111
+    )]
+    // Nothing matches step 2 or step 3, so step 4 still skips back to step 1.
+    #[case(&[(1.0, &[1][..]), (2.0, &[4][..])], 0b1001)]
+    fn skipping_optional_steps_leaves_events_that_match_them(
+        #[case] events: &[(f64, &[i8])],
+        #[case] expected_bitfield: u32,
+    ) {
+        assert_eq!(steps_bitfield(4, &[2, 3, 4], events), expected_bitfield);
     }
 }
