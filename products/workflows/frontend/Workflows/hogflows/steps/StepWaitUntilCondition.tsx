@@ -23,7 +23,9 @@ export function StepWaitUntilConditionConfiguration({
 
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
-    const clockConditionError = actionValidationErrorsById[action.id]?.errors?.condition
+    const validationResult = actionValidationErrorsById[action.id]
+    const conditionError = validationResult?.errors?.condition
+    const conditionWarning = validationResult?.warnings?.condition
 
     const { localName: localConditionName, handleNameChange } = useDebouncedNameInput(condition, (updatedCondition) =>
         partialSetWorkflowActionConfig(action.id, { condition: updatedCondition })
@@ -86,7 +88,11 @@ export function StepWaitUntilConditionConfiguration({
                     typeKey="workflow-wait-until-condition"
                     excludeGroupProperties
                 />
-                {clockConditionError && <LemonBanner type="error">{clockConditionError}</LemonBanner>}
+                {(conditionError || conditionWarning) && (
+                    <LemonBanner type={conditionError ? 'error' : 'warning'}>
+                        {conditionError ?? conditionWarning}
+                    </LemonBanner>
+                )}
             </div>
 
             <LemonDivider />

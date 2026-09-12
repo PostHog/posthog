@@ -42,7 +42,7 @@ import {
     isFunctionAction,
     isTriggerFunction,
 } from './hogflows/steps/types'
-import { clockConditionError, findClockFunction } from './hogflows/steps/waitClockConditions'
+import { authoredCondition, clockConditionMessage, findClockFunction } from './hogflows/steps/waitClockConditions'
 import {
     type HogFlow,
     type HogFlowAction,
@@ -3625,18 +3625,28 @@ export const workflowLogic = kea<workflowLogicType>([
                             }
                         } else if (action.type === 'wait_until_condition') {
                             const clockFunction = findClockFunction(action.config.condition?.filters)
-                            // Grandfathered per condition, as the API is: a clock condition saved
-                            // before the rule existed must not make its workflow un-editable, but
-                            // any edit to that condition has to meet the rule.
-                            const stored = originalWorkflow?.actions.find((a) => a.id === action.id)
-                            const conditionAlreadyStored =
-                                stored?.type === 'wait_until_condition' &&
-                                objectsEqual(stored.config.condition, action.config.condition)
-                            if (clockFunction && !conditionAlreadyStored) {
-                                result.valid = false
-                                result.errors = {
-                                    ...result.errors,
-                                    condition: clockConditionError(clockFunction),
+                            if (clockFunction) {
+                                // Grandfathered per condition, as the API is: a clock condition
+                                // saved before the rule existed must not make its workflow
+                                // un-editable, but any edit to it has to meet the rule. The
+                                // comparison drops compiler output, which a save rewrites without
+                                // the author touching the condition.
+                                const stored = originalWorkflow?.actions.find((a) => a.id === action.id)
+                                const conditionAlreadyStored =
+                                    stored?.type === 'wait_until_condition' &&
+                                    objectsEqual(
+                                        authoredCondition(stored.config.condition),
+                                        authoredCondition(action.config.condition)
+                                    )
+                                const message = clockConditionMessage(clockFunction)
+                                if (conditionAlreadyStored) {
+                                    // The guidance still holds for a stored condition, and it keeps
+                                    // holding once a save makes a new one look stored. It reads as a
+                                    // warning there, because the API takes this payload.
+                                    result.warnings = { ...result.warnings, condition: message }
+                                } else {
+                                    result.valid = false
+                                    result.errors = { ...result.errors, condition: message }
                                 }
                             }
                         } else if (isFunctionAction(action) && action.config.template_id === 'template-native-push') {

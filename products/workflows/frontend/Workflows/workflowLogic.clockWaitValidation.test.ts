@@ -107,17 +107,38 @@ describe('workflowLogic clock-based wait validation', () => {
         expect(logic.values.actionValidationErrorsById[WAIT_NODE_ID]?.valid).toBe(true)
     })
 
-    it('accepts a stored clock condition, and flags it once edited', async () => {
+    it('accepts a stored clock condition, warns about it, and flags it once edited', async () => {
         // Grandfathered per condition, as the API is: a workflow saved before the rule existed
-        // stays editable, but the condition itself has to meet the rule when it changes.
+        // stays editable, but the condition itself has to meet the rule when it changes. The
+        // guidance stays on screen as a warning, so it does not vanish when a save rebaselines
+        // a condition the author just wrote.
         await mountWith('now() >= toDateTime(person.properties.expires_at)')
 
-        expect(logic.values.actionValidationErrorsById[WAIT_NODE_ID]?.valid).toBe(true)
+        const stored = logic.values.actionValidationErrorsById[WAIT_NODE_ID]
+        expect(stored?.valid).toBe(true)
+        expect(stored?.warnings.condition).toContain('now()')
 
         logic.actions.partialSetWorkflowActionConfig(WAIT_NODE_ID, {
             condition: conditionOn('now() >= toDateTime(person.properties.other_at)'),
         })
 
         expect(logic.values.actionValidationErrorsById[WAIT_NODE_ID]?.valid).toBe(false)
+    })
+
+    it('keeps grandfathering a stored condition the API recompiled', async () => {
+        // A save writes bytecode back into the stored condition. Comparing that against the
+        // author's copy would flag a legacy workflow and lock it out of the editor.
+        await mountWith('now() >= toDateTime(person.properties.expires_at)')
+
+        logic.actions.partialSetWorkflowActionConfig(WAIT_NODE_ID, {
+            condition: {
+                filters: {
+                    ...conditionOn('now() >= toDateTime(person.properties.expires_at)').filters,
+                    bytecode: ['_H', 1],
+                },
+            },
+        })
+
+        expect(logic.values.actionValidationErrorsById[WAIT_NODE_ID]?.valid).toBe(true)
     })
 })
