@@ -136,7 +136,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 SELECT
                     count as total,
                     breakdown_value as breakdown_value,
-                    row_number() OVER (ORDER BY total DESC) as row_number
+                    -- The tiebreak keeps this rank equal to the one `build_top_breakdown_values_query` derives,
+                    -- so the chart and the "Other" drill-down fold away the same values.
+                    row_number() OVER (ORDER BY total DESC, breakdown_value ASC) as row_number
                 FROM {inner_query}
                 ORDER BY
                     total DESC,

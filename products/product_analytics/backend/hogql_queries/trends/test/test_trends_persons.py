@@ -46,6 +46,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
 
 def get_actors(
@@ -420,6 +421,43 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(result), 1)
             self.assertEqual(get_distinct_id(result[0]), "person1")
             self.assertEqual(get_event_count(result[0]), 1)
+
+    def test_trends_total_value_breakdown_others_persons(self):
+        # A total-value chart and its "Other" drill-down must break ties in the breakdown totals the
+        # same way, or the chart draws a bar for one tied value while the drill-down folds the other.
+        for distinct_id, browser, event_count in [
+            ("person_top", "Chrome", 3),
+            ("person_a", "Edge", 1),
+            ("person_b", "Firefox", 1),
+        ]:
+            _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], properties={})
+            for hour in range(event_count):
+                _create_event(
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=f"2023-05-01 1{hour}:00",
+                    properties={"$browser": browser},
+                    team=self.team,
+                )
+
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="-7d"),
+            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_PIE),
+            breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_limit=2),
+        )
+
+        with time_machine.travel("2023-05-06T20:00:00.000Z", tick=False):
+            response = TrendsQueryRunner(team=self.team, query=source_query).calculate()
+            self.assertEqual(
+                [result["breakdown_value"] for result in response.results],
+                ["Chrome", "Edge", BREAKDOWN_OTHER_STRING_LABEL],
+            )
+
+            result = self._get_actors(trends_query=source_query, breakdown=BREAKDOWN_OTHER_STRING_LABEL)
+
+            self.assertEqual(len(result), 1)
+            self.assertEqual(get_distinct_id(result[0]), "person_b")
 
     def test_trends_breakdown_null_persons(self):
         self._create_events()
