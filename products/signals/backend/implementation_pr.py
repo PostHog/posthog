@@ -20,8 +20,14 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportAssignment,
     SignalReportPullRequest,
+    SignalReportTask,
 )
-from products.signals.backend.task_run_artefacts import NON_PR_BEARING_TASK_RUN_TYPES, SIGNALS_PRODUCT
+from products.signals.backend.task_run_artefacts import (
+    NON_PR_BEARING_TASK_RUN_TYPES,
+    SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_DISCUSSION,
+    TASK_RUN_TYPE_IMPLEMENTATION,
+)
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -34,6 +40,68 @@ if TYPE_CHECKING:
 _FINISHED_REPORT_STATUSES = frozenset(
     {SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED, SignalReport.Status.DELETED}
 )
+
+_PULL_REQUEST_URL_BODY = (
+    r"[A-Za-z][A-Za-z0-9+.-]*://(www\.)?github\.com/+[^/?#]+/+[^/?#]+/+pull/+[+-]?[ \t\r\n\f\v]*[0-9]+"
+)
+_PULL_REQUEST_URL_PATTERN = rf"^{_PULL_REQUEST_URL_BODY}([/?#].*)?$"
+_PULL_REQUEST_URL_ARRAY_PATTERN = rf'"{_PULL_REQUEST_URL_BODY}([/?#][^"]*)?"'
+_PR_BEARING_LEGACY_TASK_RELATIONSHIPS = (TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_DISCUSSION)
+
+
+def implementation_pr_report_filter(*, team_id: int, active_only: bool = False) -> Q:
+    assignment_pr = Q(assignment__team_id=team_id, assignment__pr_url__regex=_PULL_REQUEST_URL_PATTERN)
+    pull_request_links = SignalReportArtefact.objects.filter(
+        team_id=team_id,
+        type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+        pull_request__team_id=team_id,
+        pull_request__url__regex=_PULL_REQUEST_URL_PATTERN,
+    )
+    task_ids = tasks_facade.task_ids_with_pr_url_subquery(
+        team_id,
+        pr_bearing_task_run_filter(),
+        Q(output__pr_url__regex=_PULL_REQUEST_URL_PATTERN) | Q(output__pr_urls__regex=_PULL_REQUEST_URL_ARRAY_PATTERN),
+    )
+    task_run_artefacts = (
+        SignalReportArtefact.objects.filter(
+            team_id=team_id,
+            type=SignalReportArtefact.ArtefactType.TASK_RUN,
+            task_id__in=task_ids,
+            content__regex=rf'"product"\s*:\s*"{SIGNALS_PRODUCT}"',
+        )
+        .exclude(content__regex=rf'"type"\s*:\s*"({"|".join(sorted(NON_PR_BEARING_TASK_RUN_TYPES))})"')
+        .values("report_id")
+    )
+    legacy_tasks = SignalReportTask.objects.filter(
+        team_id=team_id,
+        task_id__in=task_ids,
+        relationship__in=_PR_BEARING_LEGACY_TASK_RELATIONSHIPS,
+    ).values("report_id")
+    assignment_tasks = SignalReportAssignment.all_teams.filter(
+        team_id=team_id,
+        actor_task_id__in=task_ids,
+    ).values("report_id")
+
+    if active_only:
+        active_states = [
+            SignalReportAssignment.PrState.UNKNOWN,
+            SignalReportAssignment.PrState.DRAFT,
+            SignalReportAssignment.PrState.OPEN,
+        ]
+        assignment_pr &= Q(assignment__pr_merged=False) & (
+            Q(assignment__pr_state__isnull=True)
+            | Q(assignment__pr_state="")
+            | Q(assignment__pr_state__in=active_states)
+        )
+        pull_request_links = pull_request_links.filter(pull_request__state__in=active_states)
+
+    return (
+        assignment_pr
+        | Q(id__in=pull_request_links.values("report_id"))
+        | Q(id__in=task_run_artefacts)
+        | Q(id__in=legacy_tasks)
+        | Q(id__in=assignment_tasks)
+    )
 
 
 @frozen
