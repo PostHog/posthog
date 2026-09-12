@@ -36,7 +36,7 @@ class SummarizerSummaryResponse(BaseModel, frozen=True):
         ),
     )
     summary: str = Field(description="Body text whose length follows the scanner's configured length.")
-    confidence: float = confidence_field()
+    confidence: float | None = confidence_field()
 
 
 class SummarizerOutput(BaseScannerOutput, frozen=True):
