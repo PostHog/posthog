@@ -29,6 +29,7 @@ class TestSalesforceSourceNonRetryableErrors:
             "Tunnel connection failed: 502 Bad gateway",
             "Tunnel connection failed: 503 Service Unavailable",
             "Tunnel connection failed: 504 Gateway Timeout",
+            "Tunnel connection failed: 429 Too Many Requests",
             "HTTPSConnectionPool(host='example.my.salesforce.com', port=443): Max retries exceeded "
             "with url: /services/oauth2/token (Caused by ProxyError('Cannot connect to proxy.', "
             "OSError('Tunnel connection failed: 502 Bad gateway')))",

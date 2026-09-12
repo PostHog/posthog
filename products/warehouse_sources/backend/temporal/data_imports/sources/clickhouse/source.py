@@ -354,6 +354,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "EOF occurred in violation of protocol",
             "Connection reset by peer",
             "Connection aborted",
+            "Tunnel connection failed: 429",
             "Tunnel connection failed: 502",
             "Tunnel connection failed: 503",
             "Tunnel connection failed: 504",

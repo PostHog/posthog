@@ -345,6 +345,31 @@ class TestGoogleAdsRetryableErrors:
         # retry still recovers once the quota clears.
         assert any(pattern in error_msg for pattern in self.retryable)
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # The wrapped shapes a proxy CONNECT refusal takes on the token-refresh hop
+            # `GoogleAdsClient` runs at construction, once `_load_client_with_transient_retry`
+            # exhausts its few seconds of backoff.
+            "Tunnel connection failed: 429 Too Many Requests",
+            "HTTPSConnectionPool(host='oauth2.googleapis.com', port=443): Max retries exceeded with "
+            "url: /token (Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel "
+            "connection failed: 429 Too Many Requests')))",
+            "Tunnel connection failed: 502 Bad gateway",
+            "Tunnel connection failed: 503 Service Unavailable",
+            "Tunnel connection failed: 504 Gateway Timeout",
+        ],
+    )
+    def test_egress_proxy_tunnel_failure_is_retryable(self, error_msg):
+        # An egress-proxy blip recovers on Temporal's activity retry, so it must not mint a fresh
+        # error tracking issue.
+        assert any(pattern in error_msg for pattern in self.retryable)
+
+    def test_proxy_auth_failure_is_not_retryable(self):
+        # A 407 shares the CONNECT wording but is a deterministic proxy-auth misconfiguration.
+        error_msg = "Tunnel connection failed: 407 Proxy Authentication Required"
+        assert not any(pattern in error_msg for pattern in self.retryable)
+
     def test_receive_limit_exhausted_is_not_retryable(self):
         # The client-side "Received message larger than max" abort is deterministic (see
         # `_is_transient_grpc_error`) — it must not be swallowed as benign noise here.

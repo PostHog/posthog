@@ -726,6 +726,8 @@ class TestClickHouseSourceRetryableErrors:
             "Tunnel connection failed: 502 Bad gateway",
             "Tunnel connection failed: 503 Service Unavailable",
             "Tunnel connection failed: 504 Gateway Timeout",
+            # The egress proxy rate-limited our CONNECT. The limit window clears on its own.
+            "Tunnel connection failed: 429 Too Many Requests",
             "EOF occurred in violation of protocol",
             "Connection reset by peer",
             # The source dropped the connection mid-stream while reading Arrow batches

@@ -266,6 +266,9 @@ Transient_Error_Messages: dict[str, str] = {
     # PostHog's own egress proxy refusing the CONNECT. Nothing on the customer's side is wrong, so
     # this message asks nothing of them.
     "Cannot connect to proxy": TRANSIENT_EGRESS_MESSAGE,
+    # 429 is the proxy rate-limiting our CONNECT. The limit window passes on its own, so it belongs
+    # with the gateway statuses below and not with a deterministic refusal such as 407.
+    "Tunnel connection failed: 429": TRANSIENT_EGRESS_MESSAGE,
     "Tunnel connection failed: 502": TRANSIENT_EGRESS_MESSAGE,
     "Tunnel connection failed: 503": TRANSIENT_EGRESS_MESSAGE,
     "Tunnel connection failed: 504": TRANSIENT_EGRESS_MESSAGE,
