@@ -29,6 +29,7 @@ import {
     parsePrUrlParts,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
+import { primaryReportPullRequest } from '../../utils/reportPullRequests'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
@@ -141,7 +142,7 @@ export function ReportCard({
     // Resolved reports are terminal (a merged PR or a resolve) – shown for reference in the Resolved
     // section. They can't be restored or dismissed; refunding their PR lives in the detail pane.
     const isResolved = report.status === SignalReportStatus.RESOLVED
-    const prUrl = safeHttpUrl(report.implementation_pr_url)
+    const prUrl = safeHttpUrl(primaryReportPullRequest(report).url)
     const prUrlParts = prUrl ? parsePrUrlParts(prUrl) : null
     const hasPr = prUrlParts != null
     const prNumber = prUrlParts?.number ?? null
@@ -177,8 +178,8 @@ export function ReportCard({
     const ciStatus = preview ? null : ciStatusByReportId[report.id]
     const prState = derivePrState(
         report.status,
-        report.implementation_pr_merged === true,
-        report.implementation_pr_state
+        primaryReportPullRequest(report).merged === true,
+        primaryReportPullRequest(report).state
     )
     const glyphStatus = prCiGlyphStatus(prState, ciStatus)
 

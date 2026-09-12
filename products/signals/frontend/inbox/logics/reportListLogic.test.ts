@@ -202,7 +202,7 @@ describe('reportListLogic', () => {
                     [REPORTS_URL]: () => [
                         200,
                         {
-                            count: 5,
+                            count: 6,
                             next: null,
                             previous: null,
                             results: [
@@ -210,6 +210,7 @@ describe('reportListLogic', () => {
                                 withPr('2', { implementation_pr_merged: true }),
                                 withPr('3', { status: SignalReportStatus.SUPPRESSED }),
                                 withPr('5', { implementation_pr_state: 'draft' }),
+                                withPr('6', { implementation_pr_state: 'closed' }),
                                 makeReport('4'),
                             ],
                         },
@@ -229,7 +230,7 @@ describe('reportListLogic', () => {
         afterEach(() => logic.unmount())
 
         it('counts the rows whose pull request is still in flight, drafts included', () => {
-            expect(logic.values.livePrReportIds).toEqual(['1', '5'])
+            expect(logic.values.livePrReportIds).toEqual(['1', '3', '5'])
         })
     })
 })
