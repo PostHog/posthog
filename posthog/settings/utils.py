@@ -33,19 +33,34 @@ def assert_debug_not_in_production(*, debug: bool, cloud_deployment: Optional[st
         )
 
 
+def _is_command_option(argument: str) -> bool:
+    """Report whether an argv entry gives `shell` the code it must run with `-c`/`--command`.
+
+    argparse also accepts the value attached to the short option (`-cprint(1)`) and any
+    unambiguous prefix of the long option (`--comm`), and Django's CommandParser leaves
+    both forms enabled. A test for the separated spellings alone reads those runs as a
+    prompt, which would drop their error reports.
+    """
+    if argument.startswith("--"):
+        name = argument.partition("=")[0]
+        return len(name) > len("--") and "--command".startswith(name)
+    return argument.startswith("-c")
+
+
 def is_interactive_shell(argv: Sequence[str], stdin: IO[str]) -> bool:
     """Report whether this process opens a REPL a person types into.
 
     Matches Django's own subcommand resolution (argv[1]; global options come after the
     subcommand, not before). `shell -c` and `shell < script.py` run a script and exit, so
-    they are scripted invocations rather than prompts, and the tty check excludes both.
-    `shell_plus` is intentionally excluded: it has no command override to restore the log
-    level once the REPL opens, so forcing ERROR would silence its whole session. For
-    `dbshell` there is no Python REPL (it execs the DB client), so nothing to restore.
+    they are scripted invocations rather than prompts: the command check excludes the
+    first and the tty check the second. `shell_plus` is intentionally excluded: it has no
+    command override to restore the log level once the REPL opens, so forcing ERROR would
+    silence its whole session. For `dbshell` there is no Python REPL (it execs the DB
+    client), so nothing to restore.
     """
     if len(argv) < 2 or argv[1] not in ("shell", "dbshell"):
         return False
-    if any(argument in ("-c", "--command") or argument.startswith("--command=") for argument in argv[2:]):
+    if any(_is_command_option(argument) for argument in argv[2:]):
         return False
     try:
         return stdin.isatty()
