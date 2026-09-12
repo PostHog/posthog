@@ -379,6 +379,13 @@ class TestBingAdsSource:
             # customer-configured, so a refused connection is a network blip the next attempt clears —
             # it must stay retryable rather than report as a bug or disable the schema.
             "Failed to fetch customer ID: URLError: <urlopen error [Errno 111] Connection refused>",
+            # PostHog's egress proxy throttling the CONNECT tunnel while the SDK downloads a report Bing
+            # has already built. Nothing is wrong with the account or the request, so it must stay
+            # retryable rather than report as a bug or disable the schema.
+            "Failed to generate keyword_performance_report report: ProxyError: "
+            "HTTPSConnectionPool(host='bingadsappsstorageprod.blob.core.windows.net', port=443): "
+            "Max retries exceeded with url: <redacted> (Caused by ProxyError('Cannot connect to proxy.', "
+            "OSError('Tunnel connection failed: 429 Too Many Requests')))",
         ],
     )
     def test_transient_failures_are_retryable_not_disabling(self, error_message):
