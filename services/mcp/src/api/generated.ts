@@ -87313,6 +87313,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly latest_artifact_id: string | null;
+      /** Whether the reader may turn this link on or off. Reading the state needs task visibility; changing it needs control of the task, which in a shared space is the task's creator alone. */
+      readonly user_can_change_sharing: boolean;
     }
 
     /**
