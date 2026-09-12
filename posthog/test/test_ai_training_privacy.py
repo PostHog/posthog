@@ -21,13 +21,13 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
         client = MagicMock()
         cursor = item_key("month:2026-09:shard:0", "key:cursor")
         targets = [session_key(7, "01a09f92-e780-7000-8000-000000000001"), item_key("team:7", "image:1:2026-09")]
-        pages: list[DynamoResponse] = [
-            {
-                "Items": [{"key_pk": target["pk"], "key_sk": target["sk"]}],
-                **({"LastEvaluatedKey": cursor} if index == 0 else {}),
-            }
-            for index, target in enumerate(targets)
-        ] + [{"Items": []}] * 31
+        pages: list[DynamoResponse] = []
+        for index, target in enumerate(targets):
+            page: DynamoResponse = {"Items": [{"key_pk": target["pk"], "key_sk": target["sk"]}]}
+            if index == 0:
+                page["LastEvaluatedKey"] = cursor
+            pages.append(page)
+        pages.extend({"Items": []} for _ in range(31))
 
         def query(**kwargs: object) -> DynamoResponse:
             self.assertEqual(client.put_item.call_args.kwargs["Item"]["pk"]["S"], "month:2026-09")
