@@ -185,7 +185,9 @@ The `cache_hit_rate` uses the provider-aware formula from
 exclusive and inclusive providers without hardcoding any provider or model
 names. If a single model mixes both reporting styles across events
 (unusual), split by `$ai_cache_reporting_exclusive` in the GROUP BY
-instead of `any()`.
+instead of `any()`. A rate above 1 means the flag is unset on those
+events, so the inclusive branch ran over exclusive data. That number is
+unusable: read the token columns directly.
 
 Rank and roll up on `total_cost` — summing only the input/output components
 drops request and web-search fees and can diverge from the `/ai-observability`
