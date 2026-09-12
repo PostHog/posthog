@@ -20,7 +20,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Q
 from django.utils import timezone as django_timezone
 
 import numpy as np
@@ -46,9 +46,10 @@ from products.autoresearch.backend.query import HogQLResult, run_hogql
 
 logger = structlog.get_logger(__name__)
 
-# A validation run does two bounded queries, so a RUNNING row older than this belongs to
-# a worker that died mid-run. It must not keep the date claimed forever.
-STALE_CLAIM_AFTER = timedelta(hours=6)
+# A validation run does two bounded queries and a scoring run is bounded by its sandbox
+# timeouts, so a RUNNING row older than this belongs to a worker that died mid-run and the
+# exception handler never ran. Neither kind may hold a date forever.
+STALE_RUN_AFTER = timedelta(hours=6)
 
 # An outcome event timestamped just before the window closes can still be in the ingestion
 # queue when the window closes. Maturity waits this long past the window end so it lands
@@ -93,6 +94,10 @@ class PendingValidationDate:
     @property
     def expected_rows(self) -> int:
         return sum(self.expected_rows_by_model.values())
+
+    @property
+    def key(self) -> tuple[date, int]:
+        return (self.prediction_date, self.horizon_days)
 
 
 @frozen
@@ -149,25 +154,29 @@ def _acting_user(*, team: Team, pipeline: AutoresearchPipeline, user: User | Non
 
 def find_pending_validation_dates(pipeline: AutoresearchPipeline) -> list[PendingValidationDate]:
     """
-    Matured prediction dates with no COMPLETED validation run and no live claim, oldest first.
+    Matured (date, horizon) groups whose validation does not match their inference runs, oldest first.
 
-    Candidates come from the completed inference runs, which record the prediction date
-    and the horizon they scored against. A date waits while an inference run for it is
-    still scoring, and for ``OUTCOME_INGESTION_GRACE`` after its window closes. A FAILED
-    validation run does not count, so its date is retried; a RUNNING one counts only while
-    it is younger than ``STALE_CLAIM_AFTER``.
+    Candidates come from the completed inference runs, which record the prediction date and
+    the horizon they scored against; models scored on one date under different horizons form
+    separate groups with their own outcome windows. A group waits while an inference run for
+    it is still scoring, and for ``OUTCOME_INGESTION_GRACE`` after its window closes. It is
+    done once a COMPLETED validation run holds the same per-model counts as its inference
+    runs, so a later rescore or a new model on the date makes it pending again. A FAILED
+    validation run does not count; a RUNNING one, like a RUNNING inference run, counts only
+    while it is younger than ``STALE_RUN_AFTER``.
     """
     now = django_timezone.now()
-    blocked = _blocked_dates(pipeline, now=now) | _dates_still_scoring(pipeline)
+    scoring = _groups_still_scoring(pipeline, now=now)
+    state = _validation_state(pipeline, now=now)
     return [
         item
-        for item in _dates_scored(pipeline)
-        if item.prediction_date not in blocked and item.window_end + OUTCOME_INGESTION_GRACE <= now
+        for item in _scored_groups(pipeline)
+        if item.key not in scoring and not _is_blocked(item, state) and item.window_end + OUTCOME_INGESTION_GRACE <= now
     ]
 
 
-def _dates_scored(pipeline: AutoresearchPipeline) -> list[PendingValidationDate]:
-    """Every date with a completed inference run, oldest first, with the rows each model's latest run emitted."""
+def _scored_groups(pipeline: AutoresearchPipeline) -> list[PendingValidationDate]:
+    """Every (date, horizon) with a completed inference run, oldest first, with the rows each model's latest run emitted."""
     runs = (
         AutoresearchRun.objects.filter(
             pipeline=pipeline,
@@ -176,73 +185,89 @@ def _dates_scored(pipeline: AutoresearchPipeline) -> list[PendingValidationDate]
             model__isnull=False,
             rows_scored__gt=0,
         )
-        # Ascending, so the latest run for a (date, model) is the one whose counts survive.
+        # Ascending, so the latest run for a (group, model) is the one whose counts survive.
         .order_by("completed_at", "created_at")
         .values_list("model_id", "rows_scored", "metrics")
     )
-    horizon_by_date: dict[date, int] = {}
-    expected_by_date: dict[date, dict[str, int]] = {}
+    expected_by_group: dict[tuple[date, int], dict[str, int]] = {}
     for model_id, rows_scored, metrics in runs:
-        stamp = metrics.get("prediction_date")
-        horizon_days = metrics.get("horizon_days")
-        if rows_scored is None or not isinstance(stamp, str) or not isinstance(horizon_days, int):
+        key = _group_key(metrics)
+        if key is None or rows_scored is None:
             continue
-        prediction_date = date.fromisoformat(stamp)
-        horizon_by_date[prediction_date] = horizon_days
-        expected_by_date.setdefault(prediction_date, {})[str(model_id)] = int(rows_scored)
-
+        expected_by_group.setdefault(key, {})[str(model_id)] = int(rows_scored)
     return [
         PendingValidationDate(
-            prediction_date=prediction_date,
-            horizon_days=horizon_by_date[prediction_date],
-            expected_rows_by_model=expected,
+            prediction_date=prediction_date, horizon_days=horizon_days, expected_rows_by_model=expected
         )
-        for prediction_date, expected in sorted(expected_by_date.items())
+        for (prediction_date, horizon_days), expected in sorted(expected_by_group.items())
     ]
 
 
-def _dates_still_scoring(pipeline: AutoresearchPipeline) -> set[date]:
+def _group_key(metrics: dict[str, Any]) -> tuple[date, int] | None:
+    stamp = metrics.get("prediction_date")
+    horizon_days = metrics.get("horizon_days")
+    if not isinstance(stamp, str) or not isinstance(horizon_days, int):
+        return None
+    return (date.fromisoformat(stamp), horizon_days)
+
+
+def _groups_still_scoring(pipeline: AutoresearchPipeline, *, now: datetime) -> set[tuple[date, int]]:
     in_flight = AutoresearchRun.objects.filter(
         pipeline=pipeline,
         run_type=AutoresearchRun.RunType.INFERENCE,
         status__in=(AutoresearchRun.Status.PENDING, AutoresearchRun.Status.RUNNING),
+        created_at__gte=now - STALE_RUN_AFTER,
     ).values_list("metrics", flat=True)
-    return {date.fromisoformat(m["prediction_date"]) for m in in_flight if isinstance(m.get("prediction_date"), str)}
+    return {key for key in (_group_key(m) for m in in_flight) if key is not None}
 
 
-def _blocking_validation_runs(pipeline: AutoresearchPipeline, *, now: datetime) -> QuerySet[AutoresearchRun]:
-    return AutoresearchRun.objects.filter(pipeline=pipeline, run_type=AutoresearchRun.RunType.VALIDATION).filter(
-        Q(status=AutoresearchRun.Status.COMPLETED)
-        | Q(status=AutoresearchRun.Status.RUNNING, started_at__gte=now - STALE_CLAIM_AFTER)
+def _validation_state(
+    pipeline: AutoresearchPipeline, *, now: datetime
+) -> dict[tuple[date, int], list[dict[str, int] | None]]:
+    """Per group: the per-model counts each COMPLETED validation run scored, and None for each live claim."""
+    runs = (
+        AutoresearchRun.objects.filter(pipeline=pipeline, run_type=AutoresearchRun.RunType.VALIDATION)
+        .filter(
+            Q(status=AutoresearchRun.Status.COMPLETED)
+            | Q(status=AutoresearchRun.Status.RUNNING, started_at__gte=now - STALE_RUN_AFTER)
+        )
+        .values_list("status", "metrics")
     )
+    state: dict[tuple[date, int], list[dict[str, int] | None]] = {}
+    for status, metrics in runs:
+        key = _group_key(metrics)
+        if key is None:
+            continue
+        if status == AutoresearchRun.Status.RUNNING:
+            state.setdefault(key, []).append(None)
+            continue
+        per_model = metrics.get("per_model") or {}
+        state.setdefault(key, []).append(
+            {
+                model_id: int(m["n_scored"])
+                for model_id, m in per_model.items()
+                if isinstance(m, dict) and "n_scored" in m
+            }
+        )
+    return state
 
 
-def _blocked_dates(pipeline: AutoresearchPipeline, *, now: datetime) -> set[date]:
-    blocked: set[date] = set()
-    for metrics in _blocking_validation_runs(pipeline, now=now).values_list("metrics", flat=True):
-        stamp = metrics.get("prediction_date")
-        if isinstance(stamp, str):
-            blocked.add(date.fromisoformat(stamp))
-    return blocked
+def _is_blocked(item: PendingValidationDate, state: dict[tuple[date, int], list[dict[str, int] | None]]) -> bool:
+    return any(counts is None or counts == item.expected_rows_by_model for counts in state.get(item.key, []))
 
 
 def _claim_date(pipeline: AutoresearchPipeline, pending: PendingValidationDate) -> AutoresearchRun | None:
     """
-    Record a RUNNING validation run for the date, or return None when another validator
-    already holds it. The check and the insert happen under the pipeline row's lock, so
-    the scheduled activity and a manual command cannot both score the same date. FOR NO
-    KEY UPDATE leaves the KEY SHARE locks an inference run's insert takes on the same row
-    unblocked.
+    Record a RUNNING validation run for the group, or return None when another validator
+    already holds it or has validated these exact runs. The check and the insert happen
+    under the pipeline row's lock, so the scheduled activity and a manual command cannot
+    both score the same group. FOR NO KEY UPDATE leaves the KEY SHARE locks an inference
+    run's insert takes on the same row unblocked.
     """
     now = django_timezone.now()
     with transaction.atomic():
         AutoresearchPipeline.objects.select_for_update(no_key=True).get(pk=pipeline.pk, team_id=pipeline.team_id)
-        already_claimed = (
-            _blocking_validation_runs(pipeline, now=now)
-            .filter(metrics__prediction_date=pending.prediction_date.isoformat())
-            .exists()
-        )
-        if already_claimed:
+        if _is_blocked(pending, _validation_state(pipeline, now=now)):
             return None
         return AutoresearchRun.objects.create(
             pipeline=pipeline,
@@ -318,10 +343,13 @@ def _persist_completed(
     run_metrics: dict[str, Any] = {}
     total_rows = 0
     with transaction.atomic():
-        # A run that completed for this date while the queries ran is missing from the counts
-        # the fetch was checked against; completing now would leave its model unvalidated.
-        current = {item.prediction_date: item.expected_rows_by_model for item in _dates_scored(pipeline)}
-        if current.get(pending.prediction_date) != pending.expected_rows_by_model:
+        # A run that completed or started for this group while the queries ran is missing from
+        # the counts the fetch was checked against.
+        now = django_timezone.now()
+        current = {item.key: item.expected_rows_by_model for item in _scored_groups(pipeline)}
+        if current.get(pending.key) != pending.expected_rows_by_model or pending.key in _groups_still_scoring(
+            pipeline, now=now
+        ):
             raise OnlineValidationError(
                 f"The inference runs for {pending.prediction_date.isoformat()} changed while it was being validated; "
                 "retrying on the next pass"

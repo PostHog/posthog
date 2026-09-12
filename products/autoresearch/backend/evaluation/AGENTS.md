@@ -31,7 +31,7 @@ completed inference run for day D  (metrics: prediction_date, horizon_days, rows
         │
  D + horizon 00:00 UTC + grace <= now  →  the outcome window has closed and its last events have landed
         │
- find_pending_validation_dates  →  matured dates with no completed validation and no live claim
+ find_pending_validation_dates  →  matured (date, horizon) groups whose validation does not match their inference runs
         │
  _claim_date (RUNNING run, under the pipeline row lock)
         │
@@ -40,9 +40,9 @@ completed inference run for day D  (metrics: prediction_date, horizon_days, rows
 
 Candidate dates come from Postgres, not from a scan of the events table: the inference runs record the prediction date and the horizon they scored against, so a daily pass costs nothing for the dates it does not validate, and the horizon used is the one the predictions were made under.
 
-`find_pending_validation_dates()` is what keeps this idempotent: it skips dates with a `COMPLETED` validation run, dates with a `RUNNING` one younger than `STALE_CLAIM_AFTER`, and dates an inference run is still scoring, so the workflow can run daily without recomputing history. A `FAILED` run does not count, so its date is retried. Maturity waits `OUTCOME_INGESTION_GRACE` past the window end so the last outcome events have reached ClickHouse.
+`find_pending_validation_dates()` is what keeps this idempotent. A group is done once a `COMPLETED` validation run holds the same per-model counts as the group's inference runs, so the workflow can run daily without recomputing history, and a later rescore or a new model on the date makes the group pending again and replaces its evidence. A `FAILED` run does not count, so its group is retried. A `RUNNING` validation claim, and a `RUNNING` inference run, hold the group only while younger than `STALE_RUN_AFTER`, so a worker killed mid-run cannot block it forever. Models scored on one date under different horizons are separate groups with their own outcome windows. Maturity waits `OUTCOME_INGESTION_GRACE` past the window end so the last outcome events have reached ClickHouse.
 
-Both ClickHouse queries are bounded by what the inference runs say was emitted. The prediction fetch must return exactly `rows_scored` persons per model; fewer means ingestion has not caught up with a backfill, more means events the run did not emit, and either fails the date so it is retried instead of completing with wrong numbers. The realized-label scan is restricted to the predicted persons, and its window is the UTC one scoring bound the run to (`[D 00:00, D + horizon 00:00)`). Before the date is marked complete, the completed inference runs are read again inside the transaction: a run that finished while the queries ran changes the expected counts and fails the date, so the model it scored is not left unvalidated behind a completed date. The model rows are locked for the write, so two validators on different dates cannot race the newest-date guard.
+Both ClickHouse queries are bounded by what the inference runs say was emitted. The prediction fetch must return exactly `rows_scored` persons per model; fewer means ingestion has not caught up with a backfill, more means events the run did not emit, and either fails the date so it is retried instead of completing with wrong numbers. The realized-label scan is restricted to the predicted persons, and its window is the UTC one scoring bound the run to (`[D 00:00, D + horizon 00:00)`). Before the group is marked complete, its inference runs are read again inside the transaction: a run that finished or started while the queries ran fails the group, and a run that slips in after that check changes the counts and makes the group pending again on the next pass. The model rows are locked for the write, so two validators on different dates cannot race the newest-date guard.
 
 All the heavy work — the HogQL queries and the sklearn metrics — happens inside a single Temporal activity. Nothing large crosses a workflow boundary, which is deliberate: activity payloads are capped, and prediction sets are big.
 
@@ -67,7 +67,7 @@ All the heavy work — the HogQL queries and the sklearn metrics — happens ins
 ## When editing this flow
 
 - **Reuse `build_target_condition()` from `../dataset/labeling.py`.** If realized outcomes were defined differently from training labels, every realized metric would be measuring a different question than the model was trained on.
-- Keep `find_pending_validation_dates()` the only date selector, and keep the claim under the pipeline row lock, so validation stays idempotent and safe to run from the schedule and the command at once.
+- Keep `find_pending_validation_dates()` the only date selector, and keep the claim under the pipeline row lock, so validation stays idempotent and safe to run from the schedule and the command at once. A validation run's `per_model` entry carries each model's `n_scored`, which is what marks a group validated; keep writing it.
 - Keep every query bounded by the inference runs' counts. A bare HogQL SELECT is capped at 100 rows without an error.
 - Keep the model updates and the run write in one transaction, so a failure part-way leaves no model with a score its run does not record.
 - Keep the heavy work inside one activity. Returning prediction sets through the workflow would hit the Temporal payload limit as soon as a pipeline scores a real population.

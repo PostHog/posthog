@@ -15,7 +15,7 @@ from posthog.models.user import User
 from products.autoresearch.backend.evaluation import online_validation
 from products.autoresearch.backend.evaluation.online_validation import (
     OUTCOME_INGESTION_GRACE,
-    STALE_CLAIM_AFTER,
+    STALE_RUN_AFTER,
     OnlineValidationError,
     _compute_validation_metrics,
     _expected_calibration_error,
@@ -145,14 +145,23 @@ def _inference_run(
 
 
 def _validation_run(
-    pipeline: AutoresearchPipeline, prediction_date: date, status: str, *, started_at: datetime | None = None
+    pipeline: AutoresearchPipeline,
+    prediction_date: date,
+    status: str,
+    *,
+    started_at: datetime | None = None,
+    horizon_days: int = 7,
+    counts: dict[str, int] | None = None,
 ) -> AutoresearchRun:
+    metrics: dict = {"prediction_date": prediction_date.isoformat(), "horizon_days": horizon_days}
+    if counts is not None:
+        metrics["per_model"] = {model_id: {"n_scored": n} for model_id, n in counts.items()}
     return AutoresearchRun.objects.create(
         pipeline=pipeline,
         run_type=AutoresearchRun.RunType.VALIDATION,
         status=status,
         started_at=started_at or django_timezone.now(),
-        metrics={"prediction_date": prediction_date.isoformat()},
+        metrics=metrics,
     )
 
 
@@ -228,25 +237,63 @@ class TestFindPendingValidationDates(TeamScopedTestMixin, BaseTest):
         with time_machine.travel(window_end + OUTCOME_INGESTION_GRACE, tick=False):
             assert [p.prediction_date for p in find_pending_validation_dates(self.pipeline)] == [date(2026, 9, 4)]
 
-    def test_a_date_still_being_scored_waits(self):
+    @parameterized.expand(
+        [
+            ("fresh_run_waits", timedelta(hours=1), False),
+            ("abandoned_run_is_ignored", STALE_RUN_AFTER + timedelta(minutes=1), True),
+        ]
+    )
+    def test_a_date_still_being_scored_waits(self, _name, age, expect_pending):
         matured = date(2026, 9, 1)
         _inference_run(self.pipeline, self.model, matured, rows_scored=5)
-        _inference_run(self.pipeline, self.model, matured, rows_scored=0, status=AutoresearchRun.Status.RUNNING)
+        in_flight = _inference_run(
+            self.pipeline, self.model, matured, rows_scored=0, status=AutoresearchRun.Status.RUNNING
+        )
+        AutoresearchRun.objects.filter(pk=in_flight.pk).update(created_at=django_timezone.now() - age)
 
+        assert [p.prediction_date for p in find_pending_validation_dates(self.pipeline)] == (
+            [matured] if expect_pending else []
+        )
+
+    def test_models_scored_under_different_horizons_validate_as_separate_groups(self):
+        # A 14-day replacement scored the same date as the 7-day champion: only the 7-day
+        # window has closed by the frozen 2026-09-11, and each group carries its own models.
+        other = AutoresearchModel.objects.create(
+            pipeline=self.pipeline, role=AutoresearchModel.Role.CHALLENGER, model_recipe={"stub": True}, recipe_hash="x"
+        )
+        _inference_run(self.pipeline, self.model, date(2026, 9, 1), rows_scored=5, horizon_days=7)
+        _inference_run(self.pipeline, other, date(2026, 9, 1), rows_scored=3, horizon_days=14)
+
+        pending = find_pending_validation_dates(self.pipeline)
+
+        assert [(p.horizon_days, p.expected_rows_by_model) for p in pending] == [(7, {str(self.model.pk): 5})]
+
+    def test_a_validated_date_becomes_pending_again_when_its_inference_runs_change(self):
+        matured = date(2026, 9, 1)
+        _inference_run(self.pipeline, self.model, matured, rows_scored=5)
+        _validation_run(self.pipeline, matured, AutoresearchRun.Status.COMPLETED, counts={str(self.model.pk): 5})
         assert find_pending_validation_dates(self.pipeline) == []
+
+        _inference_run(self.pipeline, self.model, matured, rows_scored=6)
+
+        assert [p.expected_rows_by_model for p in find_pending_validation_dates(self.pipeline)] == [
+            {str(self.model.pk): 6}
+        ]
 
     @parameterized.expand(
         [
             ("completed_blocks", AutoresearchRun.Status.COMPLETED, timedelta(0), False),
             ("failed_is_retried", AutoresearchRun.Status.FAILED, timedelta(0), True),
             ("fresh_claim_blocks", AutoresearchRun.Status.RUNNING, timedelta(hours=1), False),
-            ("stale_claim_is_retried", AutoresearchRun.Status.RUNNING, STALE_CLAIM_AFTER + timedelta(minutes=1), True),
+            ("stale_claim_is_retried", AutoresearchRun.Status.RUNNING, STALE_RUN_AFTER + timedelta(minutes=1), True),
         ]
     )
     def test_existing_validation_runs(self, _name, status, age, expect_pending):
         matured = date(2026, 9, 1)
         _inference_run(self.pipeline, self.model, matured, rows_scored=5)
-        _validation_run(self.pipeline, matured, status, started_at=django_timezone.now() - age)
+        _validation_run(
+            self.pipeline, matured, status, started_at=django_timezone.now() - age, counts={str(self.model.pk): 5}
+        )
 
         pending = find_pending_validation_dates(self.pipeline)
 
@@ -350,7 +397,13 @@ class TestRunOnlineValidationForPipeline(TeamScopedTestMixin, BaseTest):
         ]
         assert "Realized labels query failed" in runs[0].error
 
-    def test_an_inference_run_completing_mid_validation_fails_the_date(self):
+    @parameterized.expand(
+        [
+            ("completed", AutoresearchRun.Status.COMPLETED),
+            ("still_running", AutoresearchRun.Status.RUNNING),
+        ]
+    )
+    def test_an_inference_run_appearing_mid_validation_fails_the_date(self, _name, status):
         challenger = AutoresearchModel.objects.create(
             pipeline=self.pipeline,
             role=AutoresearchModel.Role.CHALLENGER,
@@ -362,7 +415,7 @@ class TestRunOnlineValidationForPipeline(TeamScopedTestMixin, BaseTest):
 
         def complete_a_rescore_then_answer(**kwargs):
             if "argMax" not in kwargs["query"].query:
-                _inference_run(self.pipeline, challenger, self.prediction_date, rows_scored=4)
+                _inference_run(self.pipeline, challenger, self.prediction_date, rows_scored=4, status=status)
             return inner(**kwargs)
 
         with patch.object(online_validation, "run_hogql", MagicMock(side_effect=complete_a_rescore_then_answer)):
@@ -372,8 +425,9 @@ class TestRunOnlineValidationForPipeline(TeamScopedTestMixin, BaseTest):
         assert "changed while it was being validated" in runs[0].error
         self.champion.refresh_from_db()
         assert self.champion.realized_score is None
-        pending = find_pending_validation_dates(self.pipeline)
-        assert [set(p.expected_rows_by_model) for p in pending] == [{str(self.champion.pk), str(challenger.pk)}]
+        if status == AutoresearchRun.Status.COMPLETED:
+            pending = find_pending_validation_dates(self.pipeline)
+            assert [set(p.expected_rows_by_model) for p in pending] == [{str(self.champion.pk), str(challenger.pk)}]
 
     def test_a_pipeline_without_a_creator_fails_before_any_query(self):
         self.pipeline.created_by = None
