@@ -30,6 +30,7 @@ from rest_framework import status
 from posthog.api.oauth import OAuthAuthorizationSerializer
 from posthog.api.oauth.cimd import CIMD_SUPPORTED_AUTH_METHODS
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
+from posthog.api.oauth.metadata import authorization_server_metadata, openid_provider_metadata
 from posthog.api.oauth.views import OAuthTokenView, OAuthValidator, _token_error_code
 from posthog.helpers.oauth_pending_connection import (
     PENDING_OAUTH_CONNECTION_COOKIE,
@@ -48,6 +49,7 @@ from posthog.models.oauth import (
 from posthog.models.team.team import Team
 from posthog.scopes import get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
+from posthog.utils import absolute_uri
 
 
 def jwks_entry_to_public_key(key_data: dict):
@@ -1298,7 +1300,7 @@ class TestOAuthAPI(APIBaseTest):
         # Verify the response matches the decoded token
         self.assertEqual(userinfo_data["sub"], str(self.user.uuid))
         self.assertEqual(userinfo_data["email"], self.user.email)
-        self.assertEqual(userinfo_data["email_verified"], self.user.is_email_verified or False)
+        self.assertEqual(userinfo_data["email_verified"], self.user.is_email_verified is True)
         self.assertEqual(userinfo_data["given_name"], self.user.first_name)
         self.assertEqual(userinfo_data["family_name"], self.user.last_name)
 
@@ -5543,6 +5545,53 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         # The device-claim and revocation-receiver endpoints do not exist yet.
         self.assertNotIn("claim_endpoint", metadata["agent_auth"])
         self.assertNotIn("events_endpoint", metadata["agent_auth"])
+
+
+class TestOpenIDProviderMetadata(SimpleTestCase):
+    """Tests for the OpenID Provider Metadata document (OIDC Discovery 1.0)."""
+
+    def test_advertises_the_claims_the_userinfo_endpoint_returns(self):
+        # Adding a request argument back to `get_additional_claims` silently narrows this to `sub`.
+        metadata = openid_provider_metadata("https://us.posthog.com")
+
+        self.assertEqual(metadata["claims_supported"], ["email", "email_verified", "family_name", "given_name", "sub"])
+
+    def test_does_not_advertise_scopes_an_oauth_client_cannot_obtain(self):
+        scopes = openid_provider_metadata("https://us.posthog.com")["scopes_supported"]
+        assert isinstance(scopes, list)
+
+        self.assertNotIn("*", scopes)
+        self.assertNotIn("llm_gateway:read", scopes)
+        self.assertIn("openid", scopes)
+        self.assertIn("email", scopes)
+
+    def test_advertises_only_the_flows_the_server_accepts(self):
+        # Advertising an alternative sends a client into a flow the DB constraints reject.
+        metadata = openid_provider_metadata("https://us.posthog.com")
+
+        self.assertEqual(metadata["response_types_supported"], ["code"])
+        self.assertEqual(metadata["code_challenge_methods_supported"], ["S256"])
+        self.assertEqual(metadata["id_token_signing_alg_values_supported"], ["RS256"])
+
+    def test_agrees_with_the_authorization_server_document(self):
+        oidc = openid_provider_metadata("https://us.posthog.com")
+        authorization_server = authorization_server_metadata("https://us.posthog.com")
+
+        shared = set(oidc) & set(authorization_server)
+        self.assertIn("scopes_supported", shared)
+        for field in shared:
+            self.assertEqual(oidc[field], authorization_server[field], f"{field} differs between the two documents")
+
+
+class TestOpenIDProviderMetadataEndpoint(APIBaseTest):
+    def test_discovery_document_is_served_without_authentication(self):
+        self.client.logout()
+
+        response = self.client.get("/.well-known/openid-configuration")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["issuer"], openid_provider_metadata(absolute_uri().rstrip("/"))["issuer"])
+        self.assertEqual(response["Access-Control-Allow-Origin"], "*")
 
 
 class TestOAuthClientManifest(APIBaseTest):

@@ -19,6 +19,9 @@
         "test:watch": "vitest watch",
         "typecheck": "tsgo --noEmit"
     },
+    "dependencies": {
+        "jose": "^6.2.3"
+    },
     "devDependencies": {
         "@cloudflare/workers-types": "^4.20260120.0",
         "typescript": "catalog:",
