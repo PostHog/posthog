@@ -733,6 +733,9 @@ class TestClickHouseSourceRetryableErrors:
             "('Connection broken: IncompleteRead(0 bytes read)', IncompleteRead(0 bytes read))",
             "('Connection broken: IncompleteRead(12345 bytes read, 67 more expected)', "
             "IncompleteRead(12345 bytes read, 67 more expected))",
+            # pyarrow's own IPC reader detects the same kind of mid-stream connection drop,
+            # one layer above urllib3, and raises OSError instead. Byte counts vary.
+            "Expected to be able to read 5226856 bytes for message body, got 5056408",
             # The server accepted the connection but never answered within our timeout —
             # typically ClickHouse Cloud still cold-resuming past our allowance.
             "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Read timed out. "
