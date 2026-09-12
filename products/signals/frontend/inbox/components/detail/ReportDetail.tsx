@@ -10,7 +10,7 @@ import {
     IconSidebarClose,
     IconSidebarOpen,
 } from '@posthog/icons'
-import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, LemonSelect } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
@@ -30,6 +30,7 @@ import {
     parsePrUrlParts,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
+import { reportPullRequests } from '../../utils/reportPullRequests'
 import { parseReportSummary } from '../../utils/reportSummary'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
@@ -577,9 +578,11 @@ function OpenPullRequestButton({
  * report. Runs keep their own `AgentRunDetail`.
  */
 export function ReportDetail({ report }: { report: SignalReport }): JSX.Element {
-    const { latestCommitArtefact, reportArtefacts } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const logic = inboxReportDetailLogic({ reportId: report.id, report })
+    const { latestCommitArtefact, reportArtefacts, selectedPullRequest } = useValues(logic)
+    const { selectPullRequest } = useActions(logic)
 
-    const prUrl = safeHttpUrl(report.implementation_pr_url)
+    const prUrl = safeHttpUrl(selectedPullRequest.url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
     const hasPr = !!(prRef && prUrl)
     // A tracker-issue failure has to show even on a report whose run never reached a pull request:
@@ -590,7 +593,18 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
     // it carries. A PR-bearing report gets the tab bar right away off `hasPr` (immediate) rather than the
     // artefact (a beat later), with skeletons in the tab label and body until the artefact loads.
     const commit = latestCommitArtefact ? (latestCommitArtefact.content as CommitContent) : null
-    const canDiff = !!(commit?.repository && commit?.branch)
+    const linkedPr = report.pull_requests?.find((pr) => pr.url === prUrl)
+    const canDiff =
+        !!(commit?.repository && commit?.branch) &&
+        (!linkedPr ||
+            (linkedPr.attached_by?.task_id != null &&
+                linkedPr.attached_by.task_id === latestCommitArtefact?.task_id &&
+                commit.repository.toLowerCase() === prRef?.repoSlug.toLowerCase() &&
+                report.pull_requests?.filter(
+                    (pr) =>
+                        pr.attached_by?.task_id === linkedPr.attached_by?.task_id &&
+                        parsePrUrlParts(pr.url)?.repoSlug.toLowerCase() === prRef?.repoSlug.toLowerCase()
+                ).length === 1))
     const artefactsLoaded = reportArtefacts !== null
 
     return (
@@ -601,7 +615,13 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                 canDiff && commit ? (
                     <PullRequestFilesChanged report={report} commit={commit} />
                 ) : hasPr ? (
-                    <PullRequestDiffPending artefactsLoaded={artefactsLoaded} />
+                    artefactsLoaded && prUrl ? (
+                        <LemonButton to={prFilesUrl(prUrl)} targetBlank>
+                            View this PR's files in GitHub
+                        </LemonButton>
+                    ) : (
+                        <PullRequestDiffPending artefactsLoaded={artefactsLoaded} />
+                    )
                 ) : undefined
             }
             diffStat={
@@ -618,7 +638,7 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                 prRef && prUrl ? (
                     <div className="flex flex-wrap items-center gap-3" data-attr="inbox-report-solution-pr-note">
                         <span className="text-sm text-secondary">
-                            A pull request with this fix is open:{' '}
+                            Linked pull request:{' '}
                             <span className="font-mono">
                                 {prRef.repoSlug}#{prRef.number}
                             </span>
@@ -636,6 +656,17 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
             // the same rail. Both drop themselves when there's nothing to show.
             asideFooter={hasPr ? <PrCommentsSection report={report} /> : undefined}
         >
+            {reportPullRequests(report).length > 1 && (
+                <LemonSelect
+                    value={selectedPullRequest.url}
+                    onChange={selectPullRequest}
+                    options={reportPullRequests(report).map((pr) => ({
+                        value: pr.url,
+                        label: `${parsePrUrlParts(pr.url)?.repoSlug}#${parsePrUrlParts(pr.url)?.number} (${pr.state})`,
+                    }))}
+                    data-attr="inbox-report-select-pull-request"
+                />
+            )}
             {hasPr && <PrChecksSection report={report} />}
         </InboxDetailFrame>
     )

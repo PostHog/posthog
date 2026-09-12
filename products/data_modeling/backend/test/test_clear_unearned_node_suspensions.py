@@ -92,16 +92,20 @@ class TestClearUnearnedNodeSuspensions(BaseTest):
         saved_query = node.saved_query
         assert saved_query is not None
         self._record_failures(
-            saved_query, [CUSTOMER_ERROR, ABORT_ERROR, CUSTOMER_ERROR], engine=DataModelingJobEngine.DUCKGRES
+            saved_query,
+            [CUSTOMER_ERROR, ABORT_ERROR, CUSTOMER_ERROR],
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
         )
-        mark_node_suspended(node, engine=DataModelingJobEngine.DUCKGRES, reason=CUSTOMER_ERROR, job_id=str(uuid4()))
+        mark_node_suspended(
+            node, engine=DataModelingJobEngine.MANAGED_WAREHOUSE, reason=CUSTOMER_ERROR, job_id=str(uuid4())
+        )
         node.save()
 
         call_command("clear_unearned_node_suspensions", "--apply", stdout=StringIO())
 
         node.refresh_from_db()
         assert is_node_suspended(node, DataModelingJobEngine.CLICKHOUSE)
-        assert not is_node_suspended(node, DataModelingJobEngine.DUCKGRES)
+        assert not is_node_suspended(node, DataModelingJobEngine.MANAGED_WAREHOUSE)
 
     def test_keeps_a_marker_the_model_earns_while_the_sweep_runs(self):
         node = self._suspended_node(

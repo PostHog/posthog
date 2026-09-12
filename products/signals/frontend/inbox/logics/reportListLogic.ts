@@ -27,6 +27,7 @@ import {
 import type { SignalReportPriority } from '../types'
 import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
 import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
+import { reportPullRequests, primaryReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
 import type { InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
@@ -553,13 +554,13 @@ export const reportListLogic = kea<reportListLogicType>([
             (reports: SignalReport[]): string[] =>
                 reports
                     .filter((report) => {
-                        if (!report.implementation_pr_url) {
+                        if (reportPullRequests(report).length === 0) {
                             return false
                         }
                         const prState = derivePrState(
                             report.status,
-                            report.implementation_pr_merged === true,
-                            report.implementation_pr_state
+                            primaryReportPullRequest(report).merged === true,
+                            primaryReportPullRequest(report).state
                         )
                         return prState === 'open' || prState === 'draft'
                     })
