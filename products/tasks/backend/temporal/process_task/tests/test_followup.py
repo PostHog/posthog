@@ -505,6 +505,13 @@ class TestCIFollowUpLoop:
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=timedelta(hours=4),
                 )
+                # Let setup activities complete before signaling
+                await asyncio.sleep(2)
+                # The agent ends the turn that boot and each CI nudge opened; a run that idles out
+                # with a turn still open is recorded as failed.
+                for _ in range(MAX_CI_REPETITIONS + 1):
+                    await handle.signal(ProcessTaskWorkflow.agent_state_changed, False)
+                    await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() + 60)
                 result = await handle.result()
 
         assert result.success is True

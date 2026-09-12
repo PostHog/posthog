@@ -204,9 +204,10 @@ export class HogFunctionHandler implements ActionHandler {
             )
         }
 
+        // A failed step keeps its variable untouched: execResult may still hold an earlier fetch response.
         return {
             nextAction: findContinueAction(invocation),
-            result: functionResult.execResult,
+            result: functionResult.error ? undefined : functionResult.execResult,
             error: functionResult.error,
         }
     }
@@ -265,7 +266,7 @@ export class HogFunctionHandler implements ActionHandler {
             if (resume.status !== 'completed') {
                 const detail = typeof payload.error_message === 'string' ? `: ${payload.error_message}` : ''
                 const outcome = resume.status === 'cancelled' ? 'was cancelled' : 'failed'
-                throw new Error(`The ${label} ${outcome}${detail}`)
+                return { error: new Error(`The ${label} ${outcome}${detail}`), result: payload }
             }
             result.logs.push({
                 level: 'info',

@@ -18,7 +18,7 @@ Keep both limits enabled when raising capacity. Set the per-workflow limit for t
 A workflow run pauses at an AI task step or a scout step until the run it started reaches a terminal status.
 After success, the next step sees the dispatch IDs, `status: completed`, and a capped `final_message` (tasks) or `summary` (scouts). The result also includes `pr_urls` when present.
 A failed or cancelled run fails the step. The step's `on_error` setting decides whether the workflow continues.
-With `on_error: continue`, the dispatch IDs remain available. The failed step does not store the terminal status, message, or `error_message` in its result.
+With `on_error: continue`, the next step sees the dispatch IDs, the terminal `status`, and `error_message`, so a condition step can route a failed run to a notification.
 
 ### Fields the agent returns
 
