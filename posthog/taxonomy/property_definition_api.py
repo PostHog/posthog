@@ -19,6 +19,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
@@ -26,7 +27,7 @@ from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
-from posthog.taxonomy.definition_search import search_plan
+from posthog.taxonomy.definition_search import LARGE_PROJECT_COUNT_CAP, bounded_count_sql, is_large_project
 from posthog.taxonomy.statement_timeout import (
     DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
     DefinitionListTimedOut,
@@ -177,7 +178,7 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         return super().validate(attrs)
 
 
-@dataclasses.dataclass
+@frozen
 class QueryContext:
     """
     The raw query is used to both query and count these results
@@ -195,26 +196,24 @@ class QueryContext:
     name_filter: str = ""
     numerical_filter: str = ""
     search_query: str = ""
-    event_property_filter: str = ""
-    event_name_filter: str = ""
+    seen_on_events_filter: str = ""
+    seen_on_events_join: str = ""
     is_feature_flag_filter: str = ""
     excluded_properties_filter: str = ""
 
     order_by_search_relevance: bool = False
+    order_by_seen_on_events: bool = False
+    large_project: bool = False
 
-    event_property_join_type: str = ""
     event_property_field: str = "NULL"
 
-    # the event name filter is used with and without a posthog_eventproperty_table_join_alias qualifier
-    event_name_join_filter: str = ""
-
-    posthog_eventproperty_table_join_alias = "check_for_matching_event_property"
+    seen_on_events_join_alias = "seen_on_events"
 
     params: dict = dataclasses.field(default_factory=dict)
 
     def __post_init__(self):
         # Add limit and offset to params for parameterized query execution
-        self.params = {**self.params, "limit": self.limit, "offset": self.offset}
+        object.__setattr__(self, "params", {**self.params, "limit": self.limit, "offset": self.offset})
 
     def with_properties_to_filter(self, properties_to_filter: Optional[str]) -> Self:
         if properties_to_filter:
@@ -296,27 +295,38 @@ class QueryContext:
             )
 
     def with_event_property_filter(self, event_names: Optional[str], filter_by_event_names: Optional[bool]) -> Self:
-        event_property_filter = ""
-        event_name_filter = ""
-        event_property_field = "NULL"
-        event_name_join_filter = ""
-
         # Passed as JSON instead of duplicate properties like event_names[] to work with frontend's combineUrl
-        if event_names:
-            event_names = json.loads(event_names)
+        parsed_event_names = list(map(str, json.loads(event_names) if event_names else []))
 
-        if event_names and len(event_names) > 0 and self.should_join_event_property:
-            event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property IS NOT NULL"
-            event_name_join_filter = "AND event = ANY(%(event_names)s)"
+        seen_on_events_filter = ""
+        seen_on_events_join = ""
+        event_property_field = "NULL"
+        order_by_seen_on_events = False
+
+        if self.should_join_event_property:
+            if filter_by_event_names:
+                seen_property_names = self._seen_property_names(bool(parsed_event_names))
+                seen_on_events_filter = f"AND {self.property_definition_table}.name IN ({seen_property_names})"
+                if parsed_event_names:
+                    # With the filter above applied, every returned row is seen on the events.
+                    event_property_field = "true"
+            elif parsed_event_names:
+                seen_on_events_join = self._seen_on_events_join()
+                event_property_field = f"{self.seen_on_events_join_alias}.property IS NOT NULL"
+                order_by_seen_on_events = True
 
         return dataclasses.replace(
             self,
-            event_property_filter=event_property_filter,
+            seen_on_events_filter=seen_on_events_filter,
+            seen_on_events_join=seen_on_events_join,
             event_property_field=event_property_field,
-            event_name_join_filter=event_name_join_filter,
-            event_name_filter=event_name_filter,
-            event_property_join_type="INNER JOIN" if filter_by_event_names else "LEFT JOIN",
-            params={**self.params, "event_names": list(map(str, event_names or []))},
+            order_by_seen_on_events=order_by_seen_on_events,
+            params={**self.params, "event_names": parsed_event_names},
+        )
+
+    def with_large_project(self, large_project: bool) -> Self:
+        return dataclasses.replace(
+            self, large_project=large_project, params={**self.params, "count_cap": LARGE_PROJECT_COUNT_CAP}
         )
 
     def with_search(self, search_query: str, search_kwargs: dict, order_by_search_relevance: bool = False) -> Self:
@@ -418,53 +428,103 @@ class QueryContext:
         )
 
     def as_sql(self, order_by_verified: bool):
+        if (
+            order_by_verified
+            and self.large_project
+            and not self.order_by_search_relevance
+            and not self.order_by_seen_on_events
+        ):
+            return self._as_verified_first_sql()
+
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
         length_ordering = (
             f"length({self.property_definition_table}.name) ASC," if self.order_by_search_relevance else ""
         )
+        # A flag that is the same for every row adds nothing to the sort, and leading with it stops
+        # Postgres from pushing the LIMIT into the index scan on name.
+        seen_ordering = "is_seen_on_filtered_events DESC," if self.order_by_seen_on_events else ""
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
-            {self._join_on_event_property()}
-            WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
-              AND type = %(type)s
-              AND coalesce(group_type_index, -1) = %(group_type_index)s
-              {self.excluded_properties_filter}
-             {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
-             {self.event_name_filter}
-            ORDER BY is_seen_on_filtered_events DESC, {length_ordering} {verified_ordering} {self.property_definition_table}.name ASC
+            {self.seen_on_events_join}
+            {self._where_sql()}
+            ORDER BY {seen_ordering} {length_ordering} {verified_ordering} {self.property_definition_table}.name ASC
             LIMIT %(limit)s OFFSET %(offset)s
             """
 
         return query
 
+    def _as_verified_first_sql(self) -> str:
+        # `verified` lives on the enterprise child table, so sorting on it makes Postgres sort every
+        # definition of the project for each page. A large project instead reads its few verified rows
+        # through `ee_property_def_verified`, then takes the rest in name order from
+        # `index_propdef_proj_type_name`, so a page costs limit + offset rows. Unverified rows with and
+        # without an enterprise row interleave by name here; the single statement lists the ones with a
+        # row first, an order nothing depends on. The first branch says `verified = true` because Postgres
+        # simplifies that to the index predicate `verified`; it cannot prove that from `verified IS TRUE`.
+        table = self.property_definition_table
+        columns = f"{self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events"
+        return f"""
+            SELECT * FROM (
+                (
+                    SELECT {columns}, 0 AS verified_rank
+                    FROM {self.table}
+                    {self._where_sql()}
+                      AND verified = true
+                    ORDER BY {table}.name ASC
+                )
+                UNION ALL
+                (
+                    SELECT {columns}, 1 AS verified_rank
+                    FROM {self.table}
+                    {self._where_sql()}
+                      AND verified IS NOT TRUE
+                    ORDER BY {table}.name ASC
+                    LIMIT %(limit)s + %(offset)s
+                )
+            ) ranked
+            ORDER BY verified_rank, name ASC
+            LIMIT %(limit)s OFFSET %(offset)s
+            """
+
     def as_count_sql(self):
-        query = f"""
-            SELECT count(*) as full_count
-            FROM {self.table}
-            {self._join_on_event_property()}
+        source_sql = f"FROM {self.table}\n            {self._where_sql()}"
+        if self.large_project:
+            return bounded_count_sql(source_sql, f"{self.property_definition_table}.name")
+        return f"SELECT count(*) as full_count {source_sql}"
+
+    def _where_sql(self) -> str:
+        return f"""
             WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
               AND type = %(type)s
               AND coalesce(group_type_index, -1) = %(group_type_index)s
-             {self.excluded_properties_filter} {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
-             {self.event_name_filter}
+              {self.excluded_properties_filter}
+             {self.name_filter} {self.numerical_filter} {self.search_query} {self.seen_on_events_filter} {self.is_feature_flag_filter}
+        """
+
+    def _seen_property_names(self, scoped_to_event_names: bool) -> str:
+        # Only for the WHERE clause, where Postgres pulls the subquery up into a semi-join. It
+        # removes the duplicate property names itself and reads posthog_eventproperty once.
+        event_filter = "AND event = ANY(%(event_names)s)" if scoped_to_event_names else ""
+        return f"""
+                SELECT property
+                FROM posthog_eventproperty
+                WHERE coalesce(project_id, team_id) = %(project_id)s {event_filter}
             """
 
-        return query
-
-    def _join_on_event_property(self):
-        return (
-            f"""
-            {self.event_property_join_type} (
+    def _seen_on_events_join(self) -> str:
+        # A join, because the flag is read in the SELECT list. Postgres runs a SELECT-list IN as a
+        # SubPlan that hashes the event properties and cannot spill that hash, so it scans them
+        # again for each definition row as soon as the hash is too large for memory. A join can
+        # spill. DISTINCT keeps the join from repeating a definition seen on several events.
+        return f"""
+            LEFT JOIN (
                 SELECT DISTINCT property
                 FROM posthog_eventproperty
-                WHERE coalesce(project_id, team_id) = %(project_id)s {self.event_name_join_filter}
-            ) {self.posthog_eventproperty_table_join_alias}
-            ON {self.posthog_eventproperty_table_join_alias}.property = name
+                WHERE coalesce(project_id, team_id) = %(project_id)s AND event = ANY(%(event_names)s)
+            ) {self.seen_on_events_join_alias}
+            ON {self.seen_on_events_join_alias}.property = {self.property_definition_table}.name
             """
-            if self.should_join_event_property
-            else ""
-        )
 
 
 def add_name_alias_to_search_query(search_term: str, prop_type: str = "event"):
@@ -663,10 +723,12 @@ class PropertyDefinitionViewSet(
             span.set_attribute("limit", limit or 0)
             span.set_attribute("offset", offset or 0)
 
-            plan = search_plan("posthog_propertydefinition", self.project_id, read_db_alias()) if search else None
+            large_project = is_large_project("posthog_propertydefinition", self.project_id, read_db_alias())
+            span.set_attribute("large_project", large_project)
             search_extra = add_name_alias_to_search_query(search, prop_type)
+            # A small project is cheaper to search through its own index than through the global trigram index.
             search_query, search_kwargs = term_search_filter_sql(
-                self.search_fields, search, search_extra, avoid_trigram_index=plan == "project_scan"
+                self.search_fields, search, search_extra, avoid_trigram_index=not large_project
             )
 
             query_context = (
@@ -712,6 +774,7 @@ class PropertyDefinitionViewSet(
                     else set()
                 )
                 .with_verified_filter(query.validated_data.get("verified"), use_enterprise_taxonomy=EE_AVAILABLE)
+                .with_large_project(large_project)
             )
 
             span.set_attribute("joins_event_property", query_context.should_join_event_property)
@@ -723,6 +786,8 @@ class PropertyDefinitionViewSet(
                 count_span.set_attribute("full_count", full_count)
 
             self.paginator.set_count(full_count)
+            # A capped count is a lower bound already, so `list()` must not add the virtual rows to it.
+            self._count_is_lower_bound = large_project and full_count >= LARGE_PROJECT_COUNT_CAP
             span.set_attribute("full_count", full_count)
 
             # nosemgrep: python.django.security.audit.custom-expression-as-sql.custom-expression-as-sql (all user input goes through query_context.params)
@@ -839,7 +904,10 @@ class PropertyDefinitionViewSet(
             if is_last_page:
                 response.data["results"].extend(matching_virtual_props)
 
-            response.data["count"] = db_count + len(matching_virtual_props)
+            if getattr(self, "_count_is_lower_bound", False):
+                response.data["count"] = db_count
+            else:
+                response.data["count"] = db_count + len(matching_virtual_props)
 
         return response
 
