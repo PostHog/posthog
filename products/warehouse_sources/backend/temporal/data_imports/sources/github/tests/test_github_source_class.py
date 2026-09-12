@@ -148,6 +148,31 @@ class TestGithubSource:
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
+    def test_proxy_tunnel_429_error_is_retryable_not_non_retryable(self):
+        # A `requests.ProxyError` from PostHog's own egress proxy throttling the CONNECT tunnel,
+        # surfaced once _fetch_page's tenacity retry (which already covers ConnectionError) is
+        # exhausted. Not GitHub's or the customer's fault, so it must stay retryable rather than
+        # disabling the source.
+        observed_error = (
+            "HTTPSConnectionPool(host='api.github.com', port=443): Max retries exceeded with url: "
+            "/repos/o/r/issues?per_page=100 (Caused by ProxyError('Cannot connect to proxy.', "
+            "OSError('Tunnel connection failed: 429 Too Many Requests')))"
+        )
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
+    def test_proxy_tunnel_407_error_is_not_retryable(self):
+        # A deterministic proxy-auth rejection, not a transient tunnel gateway status — must stay
+        # reportable rather than being swallowed by the 429 tunnel pattern.
+        observed_error = (
+            "Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: "
+            "407 Proxy Authentication Required'))"
+        )
+        retryable_errors = self.source.get_retryable_errors()
+        assert not error_message_matches(observed_error, retryable_errors)
+
     @pytest.mark.parametrize(
         "raised_message,expected_key",
         [
