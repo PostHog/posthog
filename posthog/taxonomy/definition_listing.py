@@ -8,7 +8,7 @@ load at a point we choose and returns a 503 the caller can retry.
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from django.db import DEFAULT_DB_ALIAS, OperationalError, connections, router, transaction
+from django.db import OperationalError, connections, router, transaction
 from django.db.models import Model
 
 from prometheus_client import Counter
@@ -31,7 +31,7 @@ def definition_read_db_alias(model: type[Model]) -> str:
     # or they describe a different session than the one doing the work. ReplicaRouter matches on
     # the model's class name, so pass the model the page query itself runs through — the
     # enterprise child, wherever EE is available — not its parent.
-    return router.db_for_read(model) or DEFAULT_DB_ALIAS
+    return router.db_for_read(model)
 
 
 def is_query_canceled(error: BaseException) -> bool:
