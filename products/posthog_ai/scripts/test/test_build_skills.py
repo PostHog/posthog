@@ -336,6 +336,21 @@ def test_build_skill_entry_point_first(tmp_path: Path) -> None:
     assert len(result.files) == 3
 
 
+@pytest.mark.parametrize("filename", ["my-skill.md", "my-skill.md.j2"], ids=["static", "template"])
+def test_build_all_ships_a_loose_skill_as_skill_md(tmp_path: Path, filename: str) -> None:
+    # Every consumer reads <skill>/SKILL.md, so a loose source file named anything
+    # else would build and publish but never load.
+    skills_dir = tmp_path / "products" / "alpha" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / filename).write_text("---\nname: my-skill\ndescription: Loose\n---\n# Body\n")
+
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    manifest = builder.build_all()
+
+    assert [f.path for f in manifest.resources[0].files] == ["SKILL.md"]
+    assert (tmp_path / "output" / "dist" / "skills" / "my-skill" / "SKILL.md").exists()
+
+
 def test_build_manifest_produces_valid_structure(tmp_path: Path) -> None:
     products = tmp_path / "products"
     for skill_name in ("skill-a", "skill-b"):

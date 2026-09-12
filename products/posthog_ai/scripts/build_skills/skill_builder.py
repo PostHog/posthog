@@ -71,10 +71,9 @@ class SkillBuilder:
         else:
             rendered_entry_content = renderer.render(skill.source_file)
             metadata, _body = frontmatter.parse_frontmatter(rendered_entry_content)
-            out_name = skill.source_file.name
-            if out_name.endswith(".j2"):
-                out_name = out_name.removesuffix(".j2")
-            skill_files = [skill_manifest.SkillFile(path=out_name, content=rendered_entry_content.strip())]
+            # Consumers read <skill>/SKILL.md, so a loose source file must ship under that
+            # name however it is called at the source.
+            skill_files = [skill_manifest.SkillFile(path="SKILL.md", content=rendered_entry_content.strip())]
             source = str(skill.source_file.relative_to(self.repo_root))
 
         if metadata:
