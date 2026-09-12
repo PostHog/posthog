@@ -239,7 +239,7 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
         if s["stalls"]:
             flags.append(f" * {s['name']}: {s['stalls']} cadence stall(s) (gap >{int(STALL_FACTOR)}x interval) — coordinator skipped it (paused / drained / capped).")
         if has_mem and s["settled"] >= 5 and s["mem_count"] == 0:
-            flags.append(f" * {s['name']}: {s['settled']} settled runs but an EMPTY scratchpad — not learning.")
+            flags.append(f" * {s['name']}: {s['settled']} settled runs but an EMPTY scratchpad: not learning.")
         # Dispatching but not running: the coordinator's last_run_at has marched a full interval+
         # past the newest run that actually materialized — children are queuing without executing
         # (workers backed up / down, or runs stranded). Distinct from a cadence stall (gap between
