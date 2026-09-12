@@ -69,9 +69,12 @@ describe('Conversations', { concurrent: false }, () => {
             const listResult = await listTool.handler(context, { limit: 1 })
             const listData = parseToolResponse(listResult)
 
-            if (listData.results.length === 0) {
-                return
-            }
+            // Not a skip: every assertion below, including the identity_verified one the
+            // authorization gate depends on, silently stops running on an empty project.
+            expect(
+                listData.results.length,
+                'the integration test project needs at least one ticket for this test to assert anything'
+            ).toBeGreaterThan(0)
 
             const ticketId = listData.results[0].id
             const result = await getTool.handler(context, { id: ticketId })

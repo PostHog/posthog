@@ -10,7 +10,7 @@ clear, no jargon.
 - **Bold the problem and each action** so they're scannable.
 - **Show the evaluation you reproduced.** The customer is looking at a value they didn't expect; cite
   the reproduced value and the reason in plain terms ("for that user the flag evaluates to `false`
-  with reason _out of rollout bound_ — they're outside the 20% you've rolled out to").
+  with reason _out of rollout bound_, so they're outside the 20% you've rolled out to").
 - **Use the labels the customer sees in the UI, never internal field names or reason enums.** Common
   mappings:
 

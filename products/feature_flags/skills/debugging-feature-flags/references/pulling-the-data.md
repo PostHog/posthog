@@ -115,8 +115,12 @@ LIMIT 100
 
 **The discriminator for runtime scoping** is a variant of the first query: drop the `$feature_flag`
 predicate, filter on the caller's `$lib` instead, and group by flag key. Then read each returned key's
-`evaluation_runtime`. If the flags that work are all `all` and the failing one isn't, the cause is
-runtime scoping rather than targeting.
+`evaluation_runtime` — but don't fetch it one flag at a time. That query returns up to 50 keys, and
+`posthog:feature-flag-get-all` filters on the field directly: one call with
+`evaluation_runtime: "client"` and one with `"server"` name every runtime-scoped flag in the project, so
+intersect those keys with the ones the query returned. (The list response omits the field itself, so
+being in one of those two results is the signal.) If the flags that work are in neither list and the
+failing one is, the cause is runtime scoping rather than targeting.
 
 **Escape every value you substitute into a placeholder.** `<flag-key>`, `<lib>`, and `<distinct_id>` land
 inside single-quoted SQL literals, and `posthog:execute-sql` takes no bound parameters — so a value
@@ -202,13 +206,12 @@ own, readable only by you, and delete it when you are done** — including when 
 `/tmp` name is world-readable by default and collides with whatever other investigation is running on
 the same box:
 
-```bash
-BODY="$(mktemp -t flags-body-XXXXXX.json)"   # unique path
-chmod 600 "$BODY"                            # yours only
-trap 'rm -f "$BODY"' EXIT                    # gone even if curl fails
-```
+Pick a unique literal path of your own — `/tmp/flags-body-<something-random>.json` — and use that same
+literal everywhere below. Don't hold it in a shell variable and don't use `mktemp`: the file write is a
+separate tool call, so nothing set in one shell survives to the next, and an `EXIT` trap would delete
+the file the moment the shell that armed it returned.
 
-Then write this into `$BODY`:
+Write this into that path with your file-writing tool:
 
 ```json
 { "token": "<project_api_key>", "distinct_id": "<distinct_id>" }
@@ -219,6 +222,8 @@ one you pick:
 
 ```bash
 URL='https://<region>.i.posthog.com/flags/?v=2'
+BODY=/tmp/flags-body-<something-random>.json   # the literal path you wrote above
+chmod 600 "$BODY"                              # readable only by you
 
 # Every arm has to come back 200, and you have to check. The whole comparison below reads
 # a flag key being *absent* as the finding — and a request that failed returns no flags at
@@ -234,6 +239,8 @@ flags -A ''
 flags -H 'User-Agent: posthog-js/<version>'
 # C — server: posthog-node classifies as server-side.
 flags -H 'User-Agent: posthog-node/<version>'
+
+rm -f "$BODY"   # delete it whether or not the arms succeeded
 ```
 
 **A non-zero exit from any arm invalidates the comparison** — fix the request before you read
