@@ -56,7 +56,7 @@ _PERMANENT_BODY_CODES = (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class AviationstackResumeConfig:
     # Offset of the next page to fetch — aviationstack uses limit/offset pagination.
     next_offset: int
@@ -83,12 +83,17 @@ def parse_iata_codes(raw: str | None) -> list[str]:
         return []
 
     codes: list[str] = []
+    seen: set[str] = set()
     for token in raw.replace("\n", ",").replace(" ", ",").split(","):
         code = token.strip().upper()
-        if not code or len(code) != IATA_CODE_LENGTH or not code.isalpha() or code in codes:
+        if len(code) != IATA_CODE_LENGTH or not code.isascii() or not code.isalpha() or code in seen:
             continue
+        seen.add(code)
         codes.append(code)
-    return codes[:MAX_AIRPORTS]
+        # Stop at the cap rather than walking a list of any length just to truncate it after.
+        if len(codes) == MAX_AIRPORTS:
+            break
+    return codes
 
 
 def _future_dates(days: int | None, today: datetime.date | None = None) -> list[str]:
