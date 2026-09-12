@@ -322,6 +322,13 @@ describe('logsViewerDataLogic', () => {
                 error_type: 'unknown',
                 status_code: null,
                 error_message: 'Some server error',
+                date_from: '-1h',
+                date_to: null,
+                order_by: 'latest',
+                search_term_length: 0,
+                filter_count: 0,
+                is_person_scoped: false,
+                is_session_scoped: false,
             })
         })
 
