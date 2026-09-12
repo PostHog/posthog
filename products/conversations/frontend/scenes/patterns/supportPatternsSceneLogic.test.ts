@@ -125,6 +125,16 @@ describe('supportPatternsSceneLogic', () => {
         expect(logic.values.statusFilter).toEqual('confirmed')
     })
 
+    it('goes back to the default filter when the URL drops the status', async () => {
+        logic.actions.setStatusFilter('confirmed')
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+
+        router.actions.push(urls.supportPatterns())
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.statusFilter).toEqual('open')
+    })
+
     it('loads nothing when the feature flag is off', async () => {
         logic.unmount()
         featureFlagLogic.actions.setFeatureFlags([], {})
