@@ -149,6 +149,32 @@ describe('notebook markdown stream reconnect', () => {
         expect(collabStream).toHaveBeenCalledTimes(2)
     })
 
+    // A close that delivered nothing left no cursor, so the server resumed from its newest entry
+    // and a save that landed during the backoff never reached this viewer.
+    it('resumes from the loaded version when no message set a cursor', async () => {
+        jest.useFakeTimers()
+
+        expect(collabStream.mock.calls[0][1].lastEventId).toBe(`${notebookFixture.version}-1`)
+
+        options.onClose?.()
+        jest.advanceTimersByTime(INITIAL_RETRY_DELAY_MS)
+        await Promise.resolve()
+
+        expect(collabStream).toHaveBeenCalledTimes(2)
+        expect(collabStream.mock.calls[1][1].lastEventId).toBe(`${notebookFixture.version}-1`)
+    })
+
+    it('resumes from the last delivered message instead of the loaded version', async () => {
+        jest.useFakeTimers()
+
+        options.onMessage(updateMessage)
+        options.onClose?.()
+        jest.advanceTimersByTime(0)
+        await Promise.resolve()
+
+        expect(collabStream.mock.calls[1][1].lastEventId).toBe(updateMessage.id)
+    })
+
     it('reopens the stream once when a failure reaches both the close callback and the promise', async () => {
         jest.useFakeTimers()
 

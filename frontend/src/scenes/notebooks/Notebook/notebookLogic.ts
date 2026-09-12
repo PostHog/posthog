@@ -1782,6 +1782,14 @@ export const notebookLogic = kea<notebookLogicType>([
                     // the body.
                     const onClose = (): void => scheduleReconnect(deliveredSinceOpen ? 0 : nextReconnectDelayMs())
 
+                    // An idle stream sends only keepalive comments, which the parser drops, so a
+                    // reopen can still carry no cursor. Without one the server resumes from its
+                    // newest entry and never sends what landed while we were away. `{N}-1` is the
+                    // last id the server writes for version N, so the loaded version resumes here.
+                    if (cache.markdownUpdateStreamLastEventId === undefined && values.notebook) {
+                        cache.markdownUpdateStreamLastEventId = `${values.notebook.version}-1`
+                    }
+
                     void api.notebooks
                         .collabStream(values.shortId, {
                             onMessage,
