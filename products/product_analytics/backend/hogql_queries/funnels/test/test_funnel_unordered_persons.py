@@ -5,6 +5,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from posthog.schema import FunnelsQuery
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Team
@@ -77,10 +79,10 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaisesMessage(ValueError, "Input should be a valid integer"):
             get_actors_legacy_filters(filters, self.team, funnel_step="blah")  # type: ignore
 
-        with self.assertRaisesMessage(ValueError, "Funnel steps are 1-indexed, so step 0 doesn't exist"):
+        with self.assertRaisesMessage(ExposedHogQLError, "Funnel steps are 1-indexed, so step 0 doesn't exist"):
             get_actors_legacy_filters(filters, self.team, funnel_step=0)
 
-        with self.assertRaisesMessage(ValueError, "The first valid drop-off argument for funnelStep is -2"):
+        with self.assertRaisesMessage(ExposedHogQLError, "The first valid drop-off argument for funnelStep is -2"):
             get_actors_legacy_filters(filters, self.team, funnel_step=-1)
 
     def test_first_step(self):
