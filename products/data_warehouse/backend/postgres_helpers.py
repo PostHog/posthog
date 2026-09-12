@@ -185,6 +185,7 @@ def reconcile_postgres_schemas(
         )
         schema_models_by_location.setdefault(location, schema_model)
 
+    resolved_pairs: list[tuple[SourceSchema, ExternalDataSchema]] = []
     for source_schema in source_schemas:
         matched: ExternalDataSchema | None = schema_models.get(source_schema.name)
         if matched is None:
@@ -198,9 +199,16 @@ def reconcile_postgres_schemas(
                 default_schema=default_schema,
             )
             matched = schema_models_by_location.get(location)
-        if matched is None:
-            continue
+        if matched is not None:
+            resolved_pairs.append((source_schema, matched))
 
+    # Process in a stable row-id order rather than `source_schemas`' order, which follows the
+    # source database's own (unordered) catalog query. Two concurrent refreshes updating an
+    # overlapping set of these rows could otherwise take their row locks in different sequences
+    # and deadlock; a consistent order makes one call simply wait behind the other.
+    resolved_pairs.sort(key=lambda pair: pair[1].id)
+
+    for source_schema, matched in resolved_pairs:
         resolved_catalog, resolved_schema, resolved_table = get_postgres_source_location(
             schema_name=source_schema.name,
             schema_metadata={
