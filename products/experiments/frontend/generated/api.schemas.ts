@@ -1393,14 +1393,13 @@ export const FunnelConversionWindowTimeUnitApi = {
     Month: 'month',
 } as const
 
-export type ExperimentExposureMetricSourceApiResponse = { [key: string]: unknown } | null
-
-export interface ExperimentExposureMetricSourceApi {
-    kind?: 'ExperimentExposureMetricSource'
-    response?: ExperimentExposureMetricSourceApiResponse
-    /** version of the node, used for schema migrations */
-    version?: number | null
-}
+/**
+ * Write-side exposure source with a required discriminator.
+ */
+export const ExperimentApiExposureMetricSourceApiValue = {
+    kind: 'ExperimentExposureMetricSource',
+} as const
+export type ExperimentApiExposureMetricSourceApi = typeof ExperimentApiExposureMetricSourceApiValue
 
 export type StartHandlingApi = (typeof StartHandlingApi)[keyof typeof StartHandlingApi]
 
@@ -1409,6 +1408,9 @@ export const StartHandlingApi = {
     LastSeen: 'last_seen',
 } as const
 
+/**
+ * Write-side metric schema used by OpenAPI and MCP clients.
+ */
 export interface ExperimentApiMetricApi {
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSourceApi | null
@@ -1439,8 +1441,7 @@ export interface ExperimentApiMetricApi {
     series?: ExperimentApiEventSourceApi[] | null
     /** For mean metrics: event source. */
     source?: ExperimentApiEventSourceApi | null
-    /** For retention metrics: start event or the experiment's resolved exposure event. */
-    start_event?: ExperimentApiEventSourceApi | ExperimentExposureMetricSourceApi | null
+    start_event?: ExperimentApiEventSourceApi | ExperimentApiExposureMetricSourceApi | null
     start_handling?: StartHandlingApi | null
     /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
     threshold?: number | null

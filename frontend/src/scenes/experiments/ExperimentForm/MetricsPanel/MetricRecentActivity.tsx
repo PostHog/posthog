@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { Spinner } from '@posthog/lemon-ui'
 
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import { NodeKind, isExperimentRetentionMetric, type ExperimentMetric } from '~/queries/schema/schema-general'
 
 import { metricRecentActivityLogic } from './metricRecentActivityLogic'
 
@@ -23,12 +23,17 @@ export const MetricRecentActivity = ({ metric, filterTestAccounts }: MetricRecen
         )
     }
 
-    const count = eventCount ?? 0
+    if (
+        (isExperimentRetentionMetric(metric) && metric.start_event.kind === NodeKind.ExperimentExposureMetricSource) ||
+        eventCount === null
+    ) {
+        return <div className="text-xs text-muted">Activity preview unavailable</div>
+    }
 
     return (
         <div className="flex flex-col gap-1">
             <span className="text-muted">events in the past 14 days</span>
-            <span className="text-2xl font-semibold text-right">{count.toLocaleString()}</span>
+            <span className="text-2xl font-semibold text-right">{eventCount.toLocaleString()}</span>
         </div>
     )
 }

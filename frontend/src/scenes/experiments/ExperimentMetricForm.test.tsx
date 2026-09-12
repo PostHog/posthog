@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery } from '~/queries/query'
@@ -13,7 +13,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { FunnelConversionWindowTimeUnit } from '~/types'
+import { FunnelConversionWindowTimeUnit, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { ExperimentMetricForm } from './ExperimentMetricForm'
 
@@ -154,6 +154,19 @@ describe('ExperimentMetricForm', () => {
         expect(screen.queryAllByText('No recent activity')).toHaveLength(count === 0 ? 1 : 0)
     })
 
+    it('shows loading before the first specific-event preview resolves', () => {
+        jest.mocked(performQuery).mockReturnValueOnce(new Promise(() => {}))
+        const specificMetric: ExperimentRetentionMetric = {
+            ...metric,
+            start_event: { kind: NodeKind.EventsNode, event: '$pageview' },
+        }
+
+        render(<ExperimentMetricForm metric={specificMetric} handleSetMetric={jest.fn()} filterTestAccounts={false} />)
+
+        expect(screen.getByText('Loading recent activity...')).toBeInTheDocument()
+        expect(screen.queryByText(/Preview unavailable/)).not.toBeInTheDocument()
+    })
+
     it('keeps the completion source when changing an exposure metric to a mean metric', () => {
         const handleSetMetric = jest.fn()
         render(<ExperimentMetricForm metric={metric} handleSetMetric={handleSetMetric} filterTestAccounts={false} />)
@@ -162,6 +175,48 @@ describe('ExperimentMetricForm', () => {
 
         expect(handleSetMetric).toHaveBeenCalledWith(
             expect.objectContaining({ metric_type: ExperimentMetricType.MEAN, source: metric.completion_event })
+        )
+    })
+
+    it('restores specific start settings after an exposure toggle', async () => {
+        const original: ExperimentRetentionMetric = {
+            ...metric,
+            start_event: {
+                kind: NodeKind.EventsNode,
+                event: 'signed_up',
+                properties: [
+                    {
+                        key: 'plan',
+                        type: PropertyFilterType.Event,
+                        value: 'paid',
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+            start_handling: 'last_seen',
+        }
+        const updates = jest.fn()
+
+        function Harness(): JSX.Element {
+            const [value, setValue] = useState<ExperimentRetentionMetric>(original)
+            return (
+                <ExperimentMetricForm
+                    metric={value}
+                    handleSetMetric={(newMetric) => {
+                        updates(newMetric)
+                        setValue(newMetric as ExperimentRetentionMetric)
+                    }}
+                    filterTestAccounts={false}
+                />
+            )
+        }
+
+        render(<Harness />)
+        await userEvent.click(screen.getByText('Exposure event'))
+        await userEvent.click(screen.getByText('Specific event'))
+
+        expect(updates).toHaveBeenLastCalledWith(
+            expect.objectContaining({ start_event: original.start_event, start_handling: 'last_seen' })
         )
     })
 })

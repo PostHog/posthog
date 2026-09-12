@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
@@ -26,6 +26,7 @@ import {
     ExperimentMetric,
     ExperimentMetricSource,
     ExperimentMetricType,
+    ExperimentRetentionMetric,
     NodeKind,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
@@ -148,6 +149,13 @@ export function ExperimentMetricForm({
     const [eventCount, setEventCount] = useState<number | null>(null)
     // The preview query only starts after the first render, so the preview is loading until it settles.
     const [isLoading, setIsLoading] = useState(true)
+    const lastSpecificRetentionStart = useRef<
+        Pick<ExperimentRetentionMetric, 'start_event' | 'start_handling'> | undefined
+    >(
+        isExperimentRetentionMetric(metric) && metric.start_event.kind !== NodeKind.ExperimentExposureMetricSource
+            ? { start_event: metric.start_event, start_handling: metric.start_handling }
+            : undefined
+    )
 
     const getEventTypeLabel = (): string => {
         if (isExperimentMeanMetric(metric)) {
@@ -508,18 +516,35 @@ export function ExperimentMetricForm({
                                 </Tooltip>
                             </LemonLabel>
                             <LemonRadio
+                                aria-label="Start event"
                                 value={retentionStartsAtExposure ? 'exposure' : 'event'}
                                 onChange={(value) => {
                                     if (value === 'exposure') {
+                                        if (metric.start_event.kind !== NodeKind.ExperimentExposureMetricSource) {
+                                            lastSpecificRetentionStart.current = {
+                                                start_event: metric.start_event,
+                                                start_handling: metric.start_handling,
+                                            }
+                                        }
                                         handleSetMetric({
                                             ...metric,
                                             start_event: { kind: NodeKind.ExperimentExposureMetricSource },
                                             start_handling: 'first_seen',
                                         })
                                     } else {
+                                        setEventCount(null)
+                                        setIsLoading(true)
+                                        if (lastSpecificRetentionStart.current) {
+                                            handleSetMetric({ ...metric, ...lastSpecificRetentionStart.current })
+                                            return
+                                        }
                                         const defaultMetric = getDefaultExperimentMetric(ExperimentMetricType.RETENTION)
                                         if (isExperimentRetentionMetric(defaultMetric)) {
-                                            handleSetMetric({ ...metric, start_event: defaultMetric.start_event })
+                                            handleSetMetric({
+                                                ...metric,
+                                                start_event: defaultMetric.start_event,
+                                                start_handling: defaultMetric.start_handling,
+                                            })
                                         }
                                     }
                                 }}

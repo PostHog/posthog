@@ -35876,6 +35876,17 @@ export namespace Schemas {
       Retention: 'retention',
     } as const;
 
+    /**
+     * Write-side exposure source with a required discriminator.
+     */
+    export const ExperimentApiExposureMetricSourceValue = {
+      kind: 'ExperimentExposureMetricSource',
+    } as const;
+    export type ExperimentApiExposureMetricSource = typeof ExperimentApiExposureMetricSourceValue;
+
+    /**
+     * Write-side metric schema used by OpenAPI and MCP clients.
+     */
     export interface ExperimentApiMetric {
       /** For retention metrics: completion event. */
       completion_event?: ExperimentApiEventSource | null;
@@ -35906,8 +35917,7 @@ export namespace Schemas {
       series?: ExperimentApiEventSource[] | null;
       /** For mean metrics: event source. */
       source?: ExperimentApiEventSource | null;
-      /** For retention metrics: start event or the experiment's resolved exposure event. */
-      start_event?: ExperimentApiEventSource | ExperimentExposureMetricSource | null;
+      start_event?: ExperimentApiEventSource | ExperimentApiExposureMetricSource | null;
       start_handling?: StartHandling | null;
       /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
       threshold?: number | null;

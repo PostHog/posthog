@@ -1,13 +1,17 @@
 import { formatUnitByQuantity } from 'scenes/experiments/utils'
 
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import { NodeKind, isExperimentRetentionMetric, type ExperimentMetric } from '~/queries/schema/schema-general'
 import { FunnelConversionWindowTimeUnit } from '~/types'
 
 export type MetricConversionWindowProps = {
     metric: ExperimentMetric
 }
 
-export const MetricConversionWindow = ({ metric }: MetricConversionWindowProps): JSX.Element => {
+export const MetricConversionWindow = ({ metric }: MetricConversionWindowProps): JSX.Element | null => {
+    if (isExperimentRetentionMetric(metric) && metric.start_event.kind === NodeKind.ExperimentExposureMetricSource) {
+        return null
+    }
+
     if (metric.conversion_window != null && metric.conversion_window_unit) {
         const unit = metric.conversion_window_unit || FunnelConversionWindowTimeUnit.Day
         return (

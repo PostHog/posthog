@@ -5883,6 +5883,7 @@
                 {
                     "description": "List wrapper for OpenAPI schema generation — the field stores an array of metrics.",
                     "items": {
+                        "description": "Write-side metric schema used by OpenAPI and MCP clients.",
                         "properties": {
                             "completion_event": {
                                 "anyOf": [
@@ -7488,45 +7489,20 @@
                                         "type": "object"
                                     },
                                     {
+                                        "description": "Write-side exposure source with a required discriminator.",
                                         "properties": {
                                             "kind": {
                                                 "const": "ExperimentExposureMetricSource",
-                                                "default": "ExperimentExposureMetricSource",
                                                 "type": "string"
-                                            },
-                                            "response": {
-                                                "anyOf": [
-                                                    {
-                                                        "additionalProperties": {},
-                                                        "propertyNames": {
-                                                            "type": "string"
-                                                        },
-                                                        "type": "object"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ]
-                                            },
-                                            "version": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
-                                                "description": "version of the node, used for schema migrations"
                                             }
                                         },
+                                        "required": ["kind"],
                                         "type": "object"
                                     },
                                     {
                                         "type": "null"
                                     }
-                                ],
-                                "description": "For retention metrics: start event or the experiment's resolved exposure event."
+                                ]
                             },
                             "start_handling": {
                                 "anyOf": [
@@ -7591,6 +7567,7 @@
                 {
                     "description": "List wrapper for OpenAPI schema generation — the field stores an array of metrics.",
                     "items": {
+                        "description": "Write-side metric schema used by OpenAPI and MCP clients.",
                         "properties": {
                             "completion_event": {
                                 "anyOf": [
@@ -9196,45 +9173,20 @@
                                         "type": "object"
                                     },
                                     {
+                                        "description": "Write-side exposure source with a required discriminator.",
                                         "properties": {
                                             "kind": {
                                                 "const": "ExperimentExposureMetricSource",
-                                                "default": "ExperimentExposureMetricSource",
                                                 "type": "string"
-                                            },
-                                            "response": {
-                                                "anyOf": [
-                                                    {
-                                                        "additionalProperties": {},
-                                                        "propertyNames": {
-                                                            "type": "string"
-                                                        },
-                                                        "type": "object"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ]
-                                            },
-                                            "version": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
-                                                "description": "version of the node, used for schema migrations"
                                             }
                                         },
+                                        "required": ["kind"],
                                         "type": "object"
                                     },
                                     {
                                         "type": "null"
                                     }
-                                ],
-                                "description": "For retention metrics: start event or the experiment's resolved exposure event."
+                                ]
                             },
                             "start_handling": {
                                 "anyOf": [

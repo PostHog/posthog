@@ -190,6 +190,23 @@ and completion events may be the same:
   so in-experiment repeats fall after the anchor — `last_seen` anchors on the user's
   final occurrence, which has no in-experiment activity after it.
 
+Use the experiment exposure as the start when each experiment can have a different exposure event.
+This source supports only `first_seen` and day or hour windows:
+
+```json
+{
+  "kind": "ExperimentMetric",
+  "metric_type": "retention",
+  "name": "7-day exposure retention",
+  "start_event": { "kind": "ExperimentExposureMetricSource" },
+  "completion_event": { "kind": "EventsNode", "event": "returned" },
+  "retention_window_start": 1,
+  "retention_window_end": 7,
+  "retention_window_unit": "day",
+  "start_handling": "first_seen"
+}
+```
+
 ### Right — conversion retention (different events)
 
 ```json

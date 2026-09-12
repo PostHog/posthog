@@ -178,15 +178,13 @@ the activity log (`advanced-activity-logs-list { scopes: ["Experiment"], item_id
 metric data during that window mixes test-variant users with control-like behavior. If the pause
 was long relative to the run, consider reset + relaunch over interpreting the contaminated data.
 
-## E10 — Retention metric: start event must occur after exposure [HIGH]
+## E10 — Retention metric: start event and exposure source [HIGH]
 
-This case covers a retention metric whose `start_event` is an event or action. For a metric that
-starts at the exposure itself, read the exposure-start note at the end of this case first.
+Retention can use an explicit start event or the experiment exposure as its start.
 
-PostHog's retention metric for experiments requires the **start event to occur after the user's
-first exposure**. This
-is the same design as all other metric types — the analysis question is "what is the effect of this
-feature _after_ a user sees it?"
+For an explicit start, the start event must occur after the user's first exposure. This is the same
+design as other metric types. The analysis question is "what is the effect after a user sees the
+feature?"
 
 **`start_handling` (`FIRST_SEEN` vs `LAST_SEEN`) does _not_ relax this.** It only picks _which_
 post-exposure start event anchors the retention window when a user has multiple: `FIRST_SEEN` uses
@@ -198,21 +196,18 @@ min/max ever runs.
 _build_start_event_timestamp_expr in posthog/hogql_queries/experiments/experiment_query_builder.py. The CTE INNER JOINs on start_events, so users with
 only pre-exposure start events are excluded entirely. -->
 
+For an exposure start, the first exposure time anchors the retention window. There is no separate
+start event to inspect. Exposure starts require `first_seen` and a day or hour retention unit.
+
 An alternate question — "does this feature change the standard _pre-anchored_ retention metric?",
 where the start event can be before exposure — isn't supported on experiments. The workaround is to
 track that metric separately in product analytics.
 
-**If retention undercounts unexpectedly:** confirm that the start event has post-exposure
-occurrences for the affected users. Users whose only start events are pre-exposure are excluded
-entirely — they don't appear in the retention denominator.
+**If explicit-start retention undercounts unexpectedly:** confirm that the start event has
+post-exposure occurrences. Users with only pre-exposure start events do not enter the denominator.
 
-**Exposure starts work differently.** A retention metric can set
-`start_event: { "kind": "ExperimentExposureMetricSource" }`, which anchors the window on the user's
-first exposure in the experiment being read. There is no separate start event, so nothing above
-applies: no occurrences are dropped for being pre-exposure, and a user with no post-exposure start
-event is not a possible cause of undercounting. `start_handling` must be `first_seen` and the window
-unit must be `day` or `hour`; any other combination is rejected rather than silently adjusted. For an
-undercount here, check the completion event and the retention window instead.
+**If exposure-start retention undercounts unexpectedly:** inspect exposure criteria and the resolved
+exposure event. Do not look for a separate start event.
 
 ## E11 — "Matured users" filtering [HIGH]
 
