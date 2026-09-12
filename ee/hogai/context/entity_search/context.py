@@ -200,7 +200,7 @@ class EntitySearchContext:
         entity_type: str,
         limit: int = 100,
         offset: int = 0,
-    ) -> tuple[list[dict[str, Any]], int]:
+    ) -> tuple[list[dict[str, Any]], int | None]:
         """
         List entities with pagination support, sorted by updated_at DESC.
 
@@ -210,10 +210,11 @@ class EntitySearchContext:
             offset: Number of entities to skip
 
         Returns:
-            Tuple of (entities list, total count)
+            Tuple of (entities list, total count). The count is None when the search dropped the
+            entity, so the caller knows the total is unknown rather than zero.
         """
         all_entities: list[dict[str, Any]] = []
-        total_count: int = 0
+        total_count: int | None = 0
 
         if entity_type == "artifact":
             (
@@ -258,7 +259,6 @@ class EntitySearchContext:
                 offset=offset,
             )
             all_entities.extend(db_results)
-            assert maybe_count is not None
             total_count = maybe_count
 
         return all_entities, total_count

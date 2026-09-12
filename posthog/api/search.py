@@ -1,12 +1,18 @@
 import re
 from collections import defaultdict
-from typing import Any, Literal, TypedDict, cast
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from functools import partial
+from time import monotonic
+from typing import Any, Literal, TypedDict, TypeVar, cast
 
+from django.db import DEFAULT_DB_ALIAS, OperationalError, connections, router
 from django.db.models import BigIntegerField, CharField, F, Model, QuerySet, Value
 from django.db.models.functions import Cast, JSONObject
 from django.http import HttpResponse
 
 from drf_spectacular.utils import extend_schema
+from prometheus_client import Counter
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -15,6 +21,8 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
 from posthog.models import EventDefinition, PropertyDefinition
+from posthog.models.utils import execute_with_timeout
+from posthog.taxonomy.property_definition_api import is_query_canceled
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
 from products.actions.backend.models.action import Action
@@ -29,6 +37,23 @@ from products.surveys.backend.models import Survey
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 LIMIT = 25
+
+ENTITY_STATEMENT_TIMEOUT_MS = 3_000
+"""`build_rank` composes the search vector over live columns instead of a stored tsvector, so no
+index covers the rank predicate and each entity scans its whole project partition. This budget stops
+one large entity from spending the whole request timeout."""
+
+SEARCH_BUDGET_MS = 15_000
+"""Ceiling on the entity queries together, so a project where many entities are slow still answers."""
+
+SEARCH_TIMED_OUT_COUNTER = Counter(
+    "project_search_entity_timed_out_total",
+    "Project search entities that returned nothing, by reason: `cancelled` by the per-entity "
+    "statement timeout, or `skipped` because the search budget was already spent.",
+    labelnames=["entity", "reason"],
+)
+
+T = TypeVar("T")
 
 
 class EntityConfig(TypedDict, total=False):
@@ -175,41 +200,71 @@ def search_entities(
     include_counts: bool = True,
     annotate_access_levels: UserAccessControl | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int | None] | None, int | None]:
-    # empty queryset to union things onto it
+    """Search each entity separately, under its own time budget, and merge the pages here.
+
+    Entities sharing one statement timeout would let the slowest of them decide whether the caller
+    gets a result at all. Apart, a slow entity drops out — its count comes back as `None` — and the
+    rest of the search still answers.
+    """
     counts: dict[str, int | None] = dict.fromkeys(entity_map) if include_counts else {}
-    qs = (
-        Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
-        .filter(team__project_id=project_id)
-        .none()
+    # The merged page takes at most `cap` rows from any one entity, so the cap costs no results.
+    cap = offset + limit
+    # A merge needs every entity's rows from the start, because any of them can fill the window. One
+    # entity has nothing to merge with, so there the database can skip the rows below the window.
+    fetch_offset = offset if len(entities) == 1 else 0
+    rows: list[dict[str, Any]] = []
+    saturated: list[tuple[str, str, QuerySet[Any]]] = []
+    deadline = monotonic() + SEARCH_BUDGET_MS / 1000
+    order_by = "-rank" if query else F("_sort_name").asc(nulls_first=True)
+
+    with _restored_statement_timeout({_read_alias(entity_map[entity]["klass"]) for entity in entities}):
+        for entity in sorted(entities):  # sorted so equally ranked rows keep a stable order
+            entity_meta = entity_map[entity]
+            klass_qs, entity_name = class_queryset(
+                view=view,
+                klass=entity_meta["klass"],
+                project_id=project_id,
+                query=query,
+                search_fields=entity_meta["search_fields"],
+                extra_fields=entity_meta["extra_fields"],
+                filters=entity_meta.get("filters"),
+            )
+            klass_qs = klass_qs.order_by(order_by)
+            alias = _read_alias(entity_meta["klass"])
+            fetch_page: Callable[[], list[dict[str, Any]]] = partial(list, klass_qs[fetch_offset:cap])
+            entity_rows = _run_bounded(entity_name, alias, deadline, fetch_page)
+            if entity_rows is None:
+                continue
+            rows.extend(entity_rows)
+            if include_counts:
+                # A page short of what was asked for ends the entity, so fetching it has counted it.
+                if len(entity_rows) < cap - fetch_offset:
+                    counts[entity_name] = fetch_offset + len(entity_rows)
+                else:
+                    saturated.append((entity_name, alias, klass_qs))
+
+        # Count last. A count that spends what is left of the budget would otherwise cost a later
+        # entity its rows, and the rows are what the caller came for.
+        for entity_name, alias, klass_qs in saturated:
+            counts[entity_name] = _run_bounded(entity_name, alias, deadline, klass_qs.count)
+
+    if query:
+        rows.sort(key=lambda row: row["rank"], reverse=True)
+    else:
+        # Sort by type only. The name order is the database's, whose collation is not Python's, and
+        # each entity's rows arrive contiguous, so a stable sort keeps the order the page was cut in.
+        rows.sort(key=lambda row: row["type"])
+
+    # The entities partition the rows, so their counts sum to the total without another scan. An
+    # entity that dropped out reports no count, and the rest of them then sum to less than the total.
+    searched_counts = [counts[entity] for entity in entities] if include_counts else []
+    total_count = (
+        sum(count for count in searched_counts if count is not None)
+        if include_counts and None not in searched_counts
+        else None
     )
 
-    # add entities
-    for entity_meta in [entity_map[entity] for entity in entities]:
-        assert entity_meta is not None
-        klass_qs, entity_name = class_queryset(
-            view=view,
-            klass=entity_meta["klass"],
-            project_id=project_id,
-            query=query,
-            search_fields=entity_meta["search_fields"],
-            extra_fields=entity_meta["extra_fields"],
-            filters=entity_meta.get("filters"),
-        )
-        qs = qs.union(klass_qs)
-        if include_counts:
-            counts[entity_name] = klass_qs.count()
-
-    # order by rank
-    if query:
-        qs = qs.order_by("-rank")
-    else:
-        qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
-
-    # Get total count before pagination (only when needed)
-    total_count = qs.count() if include_counts else None
-
-    # Apply pagination
-    results = cast(list[dict[str, Any]], list(qs[offset : offset + limit]))
+    results = cast(list[dict[str, Any]], rows[offset - fetch_offset : cap - fetch_offset])
     if annotate_access_levels is not None:
         _annotate_user_access_levels(results, entity_map, annotate_access_levels)
     for result in results:
@@ -217,6 +272,54 @@ def search_entities(
         result.pop("_pk", None)
         result.pop("_created_by_id", None)
     return results, counts or None, total_count
+
+
+def _read_alias(klass: type[Model]) -> str:
+    """The connection the entity reads from, which is the one the budget has to be set on.
+
+    A model opted into the read replica routes there, and a budget set on another connection
+    describes a different session than the one doing the work.
+    """
+    return router.db_for_read(klass) or DEFAULT_DB_ALIAS
+
+
+def _run_bounded(entity: str, alias: str, deadline: float, run: Callable[[], T]) -> T | None:
+    """Returns `None` when the database cancels the query, or when the search has no budget left."""
+    budget_ms = min(ENTITY_STATEMENT_TIMEOUT_MS, int((deadline - monotonic()) * 1000))
+    if budget_ms <= 0:
+        SEARCH_TIMED_OUT_COUNTER.labels(entity=entity, reason="skipped").inc()
+        return None
+    try:
+        with execute_with_timeout(budget_ms, database=alias):
+            return run()
+    except OperationalError as error:
+        if not is_query_canceled(error):
+            raise
+        SEARCH_TIMED_OUT_COUNTER.labels(entity=entity, reason="cancelled").inc()
+        return None
+
+
+@contextmanager
+def _restored_statement_timeout(aliases: set[str]) -> Iterator[None]:
+    """Put the `statement_timeout` of every connection the search reads from back afterwards.
+
+    `SET LOCAL` lasts until the enclosing transaction ends, so when the caller already holds one the
+    per-entity budgets would otherwise govern every later query it runs.
+    """
+    previous: dict[str, str] = {}
+    for alias in aliases:
+        if not connections[alias].in_atomic_block:
+            continue  # each per-entity transaction commits on its own, which discards its `SET LOCAL`
+        with connections[alias].cursor() as cursor:
+            cursor.execute("SHOW statement_timeout")
+            row = cursor.fetchone()
+        previous[alias] = row[0] if row else "0"
+    try:
+        yield
+    finally:
+        for alias, timeout in previous.items():
+            with connections[alias].cursor() as cursor:
+                cursor.execute("SET LOCAL statement_timeout = %s", [timeout])
 
 
 def _annotate_user_access_levels(
@@ -264,15 +367,13 @@ def class_queryset(
     qs: QuerySet[Any] = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
 
-    # Uniform columns for access level resolution — every union member must produce them
+    # Uniform columns for access level resolution — every entity must produce them
     qs = qs.annotate(_pk=Cast("pk", CharField()))
     if hasattr(klass, "created_by"):
         qs = qs.annotate(_created_by_id=F("created_by_id"))
     else:
-        # Explicitly cast rather than relying on Value(None, ...)'s output_field: Django
-        # renders untyped None values as a bare `NULL`, so if two or more such entities end
-        # up adjacent in the union, Postgres resolves their shared column as `text` and then
-        # fails to match it against a real integer `_created_by_id` column elsewhere.
+        # Cast explicitly: Django renders an untyped None as a bare `NULL`, which Postgres types
+        # as `text` rather than the integer `_created_by_id` readers expect.
         qs = qs.annotate(_created_by_id=Cast(Value(None), output_field=BigIntegerField()))
 
     # Apply entity-specific filters
