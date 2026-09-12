@@ -4923,7 +4923,8 @@ const api = {
                 lastEventId,
             }: {
                 onMessage: (data: EventSourceMessage) => void
-                onError: (error: any) => void
+                /** See `api.stream`: the returned number is the retry delay in milliseconds. */
+                onError: (error: any) => number | void
                 onOpen?: () => void
                 onClose?: () => void
                 signal?: AbortSignal
@@ -7179,7 +7180,12 @@ const api = {
                   /** GET requests cannot contain a body, use URL params instead. */
                   data?: never
                   onMessage: (data: EventSourceMessage) => void
-                  onError: (error: any) => void
+                  /** fetch-event-source reopens the stream itself after a failure. Return a
+                   *  number of milliseconds to set how long it waits first. Returning nothing
+                   *  keeps its 1s default, which is a tight loop while the network is down.
+                   *  Throwing instead stops the internal retry and rejects this call, which
+                   *  leaves reconnection to the caller. */
+                  onError: (error: any) => number | void
                   /** Fires every time the underlying fetch returns a healthy response — i.e.
                    *  on initial open *and* on each successful internal reconnect by fetch-event-source. */
                   onOpen?: () => void
@@ -7194,7 +7200,7 @@ const api = {
                   /** Any JSON-serializable object. */
                   data: any
                   onMessage: (data: EventSourceMessage) => void
-                  onError: (error: any) => void
+                  onError: (error: any) => number | void
                   onOpen?: () => void
                   onClose?: () => void
                   headers?: Record<string, string>

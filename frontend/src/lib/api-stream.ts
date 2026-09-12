@@ -1,7 +1,9 @@
 import api from 'lib/api'
 
-const INITIAL_RETRY_DELAY_MS = 1000
-const MAX_RETRY_DELAY_MS = 30000
+/** First delay before an SSE consumer reopens a dropped stream. Doubles on each failure. */
+export const INITIAL_RETRY_DELAY_MS = 1000
+/** Ceiling for that backoff, so a broken network settles into a slow poll. */
+export const MAX_RETRY_DELAY_MS = 30000
 
 export interface StreamConnectionConfig {
     url: URL
