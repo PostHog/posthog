@@ -4,6 +4,7 @@ import socket
 import asyncio
 import logging
 import secrets
+from argparse import ArgumentParser
 from datetime import timedelta
 from functools import partial
 from pathlib import Path
@@ -79,18 +80,25 @@ async def restart_attempt_already_started(client: Client, dispatch: TaskWorkflow
 class Command(BaseCommand):
     help = "Dispatch queued task workflows from the durable outbox"
 
-    def handle(self, *args: object, **options: object) -> None:
-        start_http_server(8001)
-        asyncio.run(self._run())
+    def add_arguments(self, parser: ArgumentParser) -> None:
+        parser.add_argument("--metrics-port", type=int, default=8001)
+        parser.add_argument("--health-directory", type=Path, default=Path("/tmp"))
 
-    async def _run(self) -> None:
+    def handle(self, *args: object, **options: object) -> None:
+        start_http_server(int(str(options.get("metrics_port", 8001))))
+        asyncio.run(self._run(Path(str(options.get("health_directory", "/tmp")))))
+
+    async def _run(self, health_directory: Path = Path("/tmp")) -> None:
         instance_id = f"{socket.gethostname()}:{os.getpid()}:{secrets.token_hex(4)}"
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop.set)
         client = await async_connect()
-        Path("/tmp/dispatcher-ready").touch()
+        health_directory.mkdir(parents=True, exist_ok=True)
+        ready = health_directory / "dispatcher-ready"
+        heartbeat = health_directory / "dispatcher-heartbeat"
+        ready.touch()
         semaphore = asyncio.Semaphore(settings.TASKS_DISPATCHER_CONCURRENCY)
         lease = timedelta(seconds=settings.TASKS_DISPATCHER_LEASE_SECONDS)
         in_flight: set[asyncio.Task[None]] = set()
@@ -99,7 +107,7 @@ class Command(BaseCommand):
         last_metrics_sample = 0.0
         try:
             while not stop.is_set():
-                Path("/tmp/dispatcher-heartbeat").touch()
+                heartbeat.touch()
                 try:
                     if monotonic() - last_metrics_sample >= 15:
                         await sync_to_async(sample_dispatch_metrics)()
@@ -130,6 +138,8 @@ class Command(BaseCommand):
                     in_flight.add(task)
                     task.add_done_callback(partial(self._on_dispatch_done, in_flight, in_flight_ids, dispatch))
         finally:
+            ready.unlink(missing_ok=True)
+            heartbeat.unlink(missing_ok=True)
             if in_flight:
                 await asyncio.gather(*in_flight, return_exceptions=True)
             stop.set()

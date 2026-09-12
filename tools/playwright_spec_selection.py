@@ -117,11 +117,12 @@ def _compile_glob(pattern: str) -> re.Pattern[str]:
 
 
 def discover_specs(root: Path) -> set[str]:
-    """All spec files on disk, as repo-relative POSIX paths."""
+    """Regular-suite specs on disk, as repo-relative POSIX paths."""
     found: set[str] = set()
     for glob in SPEC_GLOBS:
         for path in root.glob(glob):
-            found.add(path.relative_to(root).as_posix())
+            if not path.name.endswith(".ai.spec.ts"):
+                found.add(path.relative_to(root).as_posix())
     return found
 
 

@@ -1,0 +1,3 @@
+{"type":"response.created","response":{"id":"{{message_id}}","object":"response","status":"in_progress","model":"{{model}}","output":[]}}
+{"type":"response.output_item.done","output_index":0,"item":{"type":"tool_search_call","id":"{{message_id}}_search","call_id":"{{tool_call_id}}","execution":"client","status":"completed","arguments":{"query":"{{text}}","limit":1}}}
+{"type":"response.completed","response":{"id":"{{message_id}}","object":"response","status":"completed","model":"{{model}}","output":[],"usage":{"input_tokens":100,"output_tokens":10,"total_tokens":110}}}
