@@ -15,9 +15,10 @@ DEFAULT_BACKFILL_DAYS = 365
 # over a fixed trailing window rather than an incremental scroll.
 DEFAULT_REPORT_LOOKBACK_DAYS = 30
 
-# `accounts` is a single top-level call; every other endpoint fans out over the publisher accounts
-# the token can see (the publisherId is a path param).
-AwinEndpointKind = Literal["accounts", "publisher_fanout"]
+# `accounts` is a single top-level call. Every other endpoint fans out: over the publisher accounts
+# the token can see, over its advertiser accounts, or — for the publisher-scoped endpoints that also
+# require an advertiserId query param — over each publisher's joined programmes.
+AwinEndpointKind = Literal["accounts", "publisher_fanout", "advertiser_fanout", "publisher_programme_fanout"]
 
 # Awin's aggregated report endpoints require a `region` query param naming the account's market
 # (there is no "all regions" value). Options and default ("GB") match Awin's own API docs.
@@ -50,22 +51,27 @@ DEFAULT_REGION = "GB"
 class AwinEndpointConfig:
     name: str
     kind: AwinEndpointKind
-    # Path relative to https://api.awin.com. `{publisher_id}` is substituted per account for fan-out
-    # endpoints.
+    # Path relative to https://api.awin.com. `{publisher_id}` / `{advertiser_id}` is substituted per
+    # account for fan-out endpoints.
     path: str
     primary_keys: list[str]
-    # For `accounts` the payload is wrapped as {"accounts": [...]}. Every other endpoint returns a
-    # bare JSON array.
+    # For `accounts` the payload is wrapped as {"accounts": [...]}; `commission_groups` wraps its rows
+    # under "commissionGroups". Every other list endpoint returns a bare JSON array.
     data_key: Optional[str] = None
-    # Inject the fan-out publisherId onto each row so the parent identifier is present in the table
-    # (and in composite primary keys). Transactions/reports already carry publisherId, so only the
-    # programmes endpoint needs it.
+    # The payload is a single object that becomes one row, rather than a list of them.
+    single_row: bool = False
+    # Top-level fields copied onto every row extracted from `data_key`. Awin hangs the rate validity
+    # window off the commission groups envelope rather than off each group.
+    envelope_keys: list[str] = field(default_factory=list)
+    # Inject the fan-out identifiers onto each row so the parent identifier is present in the table
+    # (and in composite primary keys). Transactions and the performance reports already carry them.
     inject_publisher_id: bool = False
+    inject_advertiser_id: bool = False
     # Static query params sent on every request for this endpoint (e.g. the programmes relationship
     # filter).
     extra_params: dict[str, str] = field(default_factory=dict)
-    # Whether the endpoint takes a startDate/endDate window. Transactions and reports do; accounts
-    # and programmes don't.
+    # Whether the endpoint takes a startDate/endDate window. Transactions and reports do; the lookup
+    # endpoints don't.
     date_windowed: bool = False
     # Awin uses full ISO datetimes for transactions but date-only for the aggregated reports.
     date_format: str = "%Y-%m-%dT%H:%M:%S"
@@ -77,7 +83,7 @@ class AwinEndpointConfig:
     # Trailing window (in days) for full-refresh report snapshots. `None` for non-report endpoints.
     report_lookback_days: Optional[int] = None
     # Whether this endpoint needs the account's `region` in its query params. Only Awin's
-    # aggregated report endpoints require it; transactions and programmes don't.
+    # publisher-side aggregated report requires it; the advertiser-side report does not.
     requires_region: bool = False
     should_sync_default: bool = True
 
@@ -99,6 +105,36 @@ AWIN_ENDPOINTS: dict[str, AwinEndpointConfig] = {
         # Only the advertiser programmes the publisher has actually joined; the default (all
         # programmes in the network) would be enormous and mostly irrelevant.
         extra_params={"relationship": "joined"},
+    ),
+    "programme_details": AwinEndpointConfig(
+        name="programme_details",
+        kind="publisher_programme_fanout",
+        path="/publishers/{publisher_id}/programmedetails",
+        primary_keys=["publisherId", "advertiserId"],
+        # One programme per call, so the whole payload (commission range, KPIs, programme info) is
+        # a single row.
+        single_row=True,
+        inject_publisher_id=True,
+        inject_advertiser_id=True,
+        extra_params={"relationship": "joined"},
+        # One request per joined programme, so it is slow for a publisher in many programmes.
+        should_sync_default=False,
+    ),
+    "commission_groups": AwinEndpointConfig(
+        name="commission_groups",
+        kind="publisher_programme_fanout",
+        path="/publishers/{publisher_id}/commissiongroups",
+        # groupId is documented as unique across advertisers, but the rates attached to it are the
+        # ones this publisher gets, so the publisher belongs in the key too.
+        primary_keys=["publisherId", "advertiserId", "groupId"],
+        data_key="commissionGroups",
+        envelope_keys=["ratesStart", "ratesEnd"],
+        # Without this Awin returns each condition's type and operator but not the values it
+        # compares against, which is the part a query needs.
+        extra_params={"extraConditionsDetails": "true"},
+        inject_publisher_id=True,
+        inject_advertiser_id=True,
+        should_sync_default=False,
     ),
     "transactions": AwinEndpointConfig(
         name="transactions",
@@ -136,6 +172,26 @@ AWIN_ENDPOINTS: dict[str, AwinEndpointConfig] = {
         date_format="%Y-%m-%d",
         report_lookback_days=DEFAULT_REPORT_LOOKBACK_DAYS,
         requires_region=True,
+    ),
+    "reports_publisher": AwinEndpointConfig(
+        name="reports_publisher",
+        kind="advertiser_fanout",
+        path="/advertisers/{advertiser_id}/reports/publisher",
+        # The advertiser-side counterpart of reports_advertiser; rows carry both ids already. Awin's
+        # spec shows a {body, statusCode, statusCodeValue} wrapper on both reports, but that is a
+        # Spring ResponseEntity artifact — the service returns the bare array reports_advertiser
+        # already reads.
+        primary_keys=["advertiserId", "publisherId"],
+        date_windowed=True,
+        date_format="%Y-%m-%d",
+        report_lookback_days=DEFAULT_REPORT_LOOKBACK_DAYS,
+    ),
+    "advertiser_publishers": AwinEndpointConfig(
+        name="advertiser_publishers",
+        kind="advertiser_fanout",
+        path="/advertisers/{advertiser_id}/publishers",
+        primary_keys=["advertiserId", "id"],
+        inject_advertiser_id=True,
     ),
 }
 
