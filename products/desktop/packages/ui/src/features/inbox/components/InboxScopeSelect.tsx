@@ -22,7 +22,7 @@ import {
   ComboboxTrigger,
 } from "@posthog/quill";
 import { ReviewerAvatar } from "@posthog/ui/features/inbox/components/ReviewerAvatar";
-import { getSuggestedReviewerDisplayName } from "@posthog/ui/features/inbox/filterOptions";
+import { getInboxScopeOptionLabel } from "@posthog/ui/features/inbox/filterOptions";
 import { useInboxScopeOptions } from "@posthog/ui/features/inbox/hooks/useInboxScopeOptions";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useMemo, useRef, useState } from "react";
@@ -34,27 +34,25 @@ export function InboxScopeSelect() {
   const setScope = useInboxReviewerScopeStore((s) => s.setScope);
   const anchorRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const { teammateOptions } = useInboxScopeOptions();
+  const { people } = useInboxScopeOptions();
 
-  const selectedTeammate = useMemo(() => {
-    const teammateUuid = parseTeammateInboxScope(scope);
-    if (!teammateUuid) return null;
-    return (
-      teammateOptions.find((option) => option.uuid === teammateUuid) ?? null
-    );
-  }, [scope, teammateOptions]);
+  const selectedPerson = useMemo(() => {
+    const personUuid = parseTeammateInboxScope(scope);
+    if (!personUuid) return null;
+    return people.find((option) => option.uuid === personUuid) ?? null;
+  }, [scope, people]);
 
-  const rightLabel = selectedTeammate
-    ? getSuggestedReviewerDisplayName(selectedTeammate)
+  const rightLabel = selectedPerson
+    ? getInboxScopeOptionLabel(selectedPerson)
     : "Entire project";
 
   const pickerItems = useMemo(() => {
     const items: string[] = [INBOX_SCOPE_FOR_YOU, PICKER_ENTIRE_PROJECT_VALUE];
-    for (const teammate of teammateOptions) {
-      items.push(teammateInboxScope(teammate.uuid));
+    for (const person of people) {
+      items.push(teammateInboxScope(person.uuid));
     }
     return items;
-  }, [teammateOptions]);
+  }, [people]);
 
   const pickerValue: string =
     scope === INBOX_SCOPE_FOR_YOU
@@ -151,20 +149,16 @@ export function InboxScopeSelect() {
                 </ComboboxItem>
               );
             }
-            const teammateUuid = parseTeammateInboxScope(
-              itemValue as InboxScope,
-            );
-            if (!teammateUuid) return null;
-            const teammate = teammateOptions.find(
-              (t) => t.uuid === teammateUuid,
-            );
-            if (!teammate) return null;
-            const displayName = getSuggestedReviewerDisplayName(teammate);
+            const personUuid = parseTeammateInboxScope(itemValue as InboxScope);
+            if (!personUuid) return null;
+            const person = people.find((p) => p.uuid === personUuid);
+            if (!person) return null;
+            const displayName = getInboxScopeOptionLabel(person);
             const searchText = [
               displayName,
-              teammate.name,
-              teammate.email,
-              teammate.github_login,
+              person.name,
+              person.email,
+              person.github_login,
             ]
               .filter(Boolean)
               .join(" ");
@@ -176,9 +170,9 @@ export function InboxScopeSelect() {
                 className="gap-2"
               >
                 <ReviewerAvatar
-                  seed={teammate.uuid}
-                  name={teammate.name}
-                  email={teammate.email}
+                  seed={person.uuid}
+                  name={person.name}
+                  email={person.email}
                 />
                 <span className="min-w-0 flex-1 truncate text-left">
                   {displayName}
