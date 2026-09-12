@@ -1,6 +1,16 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Error};
+use thiserror::Error as ThisError;
+
+/// Typed so telemetry can separate this from unclassified failures, the same treatment
+/// `ApiProxyError::HomeDirUnavailable` gives the bundle install directory.
+#[derive(Debug, ThisError)]
+#[error(
+    "Could not determine a home directory for the PostHog CLI. Set POSTHOG_HOME to a writable \
+     directory."
+)]
+pub struct HomeDirUnavailable;
 
 // IF `POSTHOG_HOME` is set, use that, otherwise use $HOME/.posthog
 pub fn posthog_home_dir_if_available() -> Option<PathBuf> {
@@ -14,10 +24,7 @@ pub fn posthog_home_dir_if_available() -> Option<PathBuf> {
 }
 
 pub fn posthog_home_dir() -> Result<PathBuf, Error> {
-    posthog_home_dir_if_available().context(
-        "Could not determine a home directory for the PostHog CLI. Set POSTHOG_HOME to a writable \
-         directory.",
-    )
+    posthog_home_dir_if_available().ok_or_else(|| HomeDirUnavailable.into())
 }
 
 pub fn ensure_homedir_exists() -> Result<(), Error> {

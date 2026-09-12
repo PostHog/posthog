@@ -10,7 +10,7 @@ use tracing::debug;
 
 use crate::{
     api::client::ClientError, api_proxy::ApiProxyError,
-    invocation_context::current_telemetry_command_name,
+    invocation_context::current_telemetry_command_name, utils::homedir::HomeDirUnavailable,
 };
 
 pub struct CapturedError {
@@ -110,7 +110,9 @@ impl ErrorTelemetryMetadata {
             return metadata;
         }
 
-        if let Some(io_error) = find_error::<std::io::Error>(error) {
+        if find_error::<HomeDirUnavailable>(error).is_some() {
+            metadata.error_kind = "home_dir_unavailable";
+        } else if let Some(io_error) = find_error::<std::io::Error>(error) {
             metadata.error_kind = "io_error";
             metadata.io_error_kind = Some(format!("{:?}", io_error.kind()));
         } else if find_error::<serde_json::Error>(error).is_some() {
@@ -295,6 +297,14 @@ mod tests {
             (
                 anyhow::Error::new(serde_json::from_str::<serde_json::Value>("{").unwrap_err()),
                 "json_error",
+                None,
+            ),
+            // get_token wraps this in context before it reaches capture, so the classification
+            // has to survive the chain rather than match only the outermost error.
+            (
+                anyhow::Error::new(HomeDirUnavailable)
+                    .context("Couldn't load credentials... Have you logged in recently?"),
+                "home_dir_unavailable",
                 None,
             ),
         ];
