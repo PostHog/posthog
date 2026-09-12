@@ -68,6 +68,9 @@ export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 /** Matches MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE in posthog/api/query.py. */
 const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavailable'
 
+/** The escapes Python repr writes, which a rendered message should show unescaped. */
+const PYTHON_REPR_ESCAPES: Record<string, string> = { '\\': '\\', "'": "'", '"': '"', n: '\n', r: '\r', t: '\t' }
+
 /**
  * Parse error message that may be in ErrorDetail string format.
  * Backend sometimes serializes ValidationError.detail as a string like:
@@ -83,11 +86,14 @@ export function parseErrorMessage(errorMessage: string | undefined): { message: 
     }
 
     // Matches the list format too, because the brackets sit outside the part we read.
-    // Python repr switches to double quotes when the message holds an apostrophe, so take either.
-    // Each quote style gets its own negated class, so a long unmatched input cannot rescan the tail.
-    const match = errorMessage.match(/ErrorDetail\(string=(?:'([^']*)'|"([^"]*)"),\s*code=(['"])([^'"]*)\3\)/)
+    // Python repr picks the quote style from the message, and escapes a quote of that style inside it.
+    // Read either style, and take an escape pair as body text. Negated classes keep long input linear.
+    const match = errorMessage.match(
+        /ErrorDetail\(string=(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"),\s*code=(['"])([^'"]*)\3\)/
+    )
     if (match) {
-        return { message: match[1] ?? match[2], code: match[4] }
+        const body = match[1] ?? match[2]
+        return { message: body.replace(/\\([\\'"nrt])/g, (_, escaped) => PYTHON_REPR_ESCAPES[escaped]), code: match[4] }
     }
 
     // Fallback: return original string unchanged
