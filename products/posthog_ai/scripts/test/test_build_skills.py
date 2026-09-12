@@ -425,6 +425,7 @@ def test_end_to_end_template_with_pydantic(tmp_path: Path) -> None:
         with zipfile.ZipFile(zip_path) as zf:
             assert "e2e-skill/SKILL.md" in zf.namelist()
             assert '"title"' in zf.read("e2e-skill/SKILL.md").decode()
+            assert zf.getinfo("e2e-skill/SKILL.md").compress_type == zipfile.ZIP_DEFLATED
 
     finally:
         del sys.modules["_test_e2e_models"]

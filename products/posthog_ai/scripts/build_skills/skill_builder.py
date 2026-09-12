@@ -135,6 +135,8 @@ class SkillBuilder:
                 if file_path.is_file():
                     arcname = str(file_path.relative_to(self.skills_dist_dir))
                     info = zipfile.ZipInfo(arcname, date_time=_ZIP_FIXED_TIME)
+                    # A bare ZipInfo carries ZIP_STORED, which wins over the archive's default.
+                    info.compress_type = zipfile.ZIP_DEFLATED
                     zf.writestr(info, file_path.read_text())
         return zip_path
 
