@@ -2013,7 +2013,8 @@ class TaskRunSummarySerializer(serializers.Serializer):
         allow_null=True,
         help_text="URL of the pull request the latest run opened, or null when it opened none.",
     )
-    pr_state = serializers.CharField(
+    pr_state = serializers.ChoiceField(
+        choices=[*tasks_facade.PR_STATES, "unknown"],
         allow_null=True,
         help_text=(
             "State of that pull request: open, draft, merged, closed, or unknown. "

@@ -989,7 +989,7 @@ def _pull_request_state(output: Mapping[str, object]) -> str:
     if output.get("pr_merged"):
         return "merged"
     state = output.get("pr_state")
-    return state if isinstance(state, str) else "unknown"
+    return state if isinstance(state, str) and state in PR_STATES else "unknown"
 
 
 def get_pull_requests_for_tasks(
@@ -5689,11 +5689,16 @@ def _search_latest_run_summary(run: TaskRun | None) -> contracts.TaskLatestRunSu
     if run is None:
         return None
     interactive = (run.state or {}).get("mode") == "interactive"
+    output = run.output if isinstance(run.output, dict) else {}
+    pr_url = output.get("pr_url")
+    pr_url = pr_url if isinstance(pr_url, str) and pr_url else None
     return contracts.TaskLatestRunSummaryDTO(
         id=run.id,
         status=run.status,
         environment=run.environment,
         mode="interactive" if interactive else "background",
+        pr_url=pr_url,
+        pr_state=_pull_request_state(output) if pr_url else None,
     )
 
 
@@ -5800,7 +5805,8 @@ def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
 def _latest_run_summary(raw: object) -> contracts.TaskLatestRunSummaryDTO | None:
     if not isinstance(raw, dict):
         return None
-    pr_url = raw.get("pr_url") or None
+    pr_url = raw.get("pr_url")
+    pr_url = pr_url if isinstance(pr_url, str) and pr_url else None
     return contracts.TaskLatestRunSummaryDTO(
         id=raw["id"],
         status=raw.get("status"),
