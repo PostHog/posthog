@@ -484,6 +484,72 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
                 assert (result.baseline.number_of_samples, result.baseline.sum) == (1, 1)
                 assert (result.variant_results[0].number_of_samples, result.variant_results[0].sum) == (1, 0)
 
+    @time_machine.travel("2024-01-20T12:00:00Z", tick=False)
+    def test_exposure_retention_excludes_immature_users(self):
+        self._setup_precomputation_test(True)
+        start_date = datetime(2024, 1, 2)
+        experiment = self.create_experiment(start_date=start_date, end_date=datetime(2024, 1, 19))
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.only_count_matured_users = True
+        experiment.exposure_criteria = {
+            "exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "entered", "properties": []}
+        }
+        metric = ExperimentRetentionMetric(
+            start_event=ExperimentExposureMetricSource(),
+            completion_event=EventsNode(event="returned"),
+            retention_window_start=0,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, True)
+        variant_property = f"$feature/{experiment.feature_flag.key}"
+        journeys_for(
+            {
+                "matured_control": [
+                    {
+                        "event": "entered",
+                        "timestamp": "2024-01-02T12:10:00",
+                        "properties": {variant_property: "control"},
+                    },
+                    {"event": "returned", "timestamp": "2024-01-04T12:00:00"},
+                ],
+                "immature_control": [
+                    {
+                        "event": "entered",
+                        "timestamp": "2024-01-18T12:00:00",
+                        "properties": {variant_property: "control"},
+                    },
+                    {"event": "returned", "timestamp": "2024-01-19T00:00:00"},
+                ],
+                "matured_test": [
+                    {
+                        "event": "entered",
+                        "timestamp": "2024-01-02T12:10:00",
+                        "properties": {variant_property: "test"},
+                    },
+                    {"event": "returned", "timestamp": "2024-01-04T12:00:00"},
+                ],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        for mode in (PrecomputationMode.DIRECT, PrecomputationMode.PRECOMPUTED):
+            with self.subTest(mode=mode):
+                runner = ExperimentQueryRunner(
+                    query=ExperimentQuery(experiment_id=experiment.id, metric=metric, precomputation_mode=mode),
+                    team=self.team,
+                )
+                result = cast(ExperimentQueryResponse, runner.calculate())
+                assert runner._is_precomputed is (mode == PrecomputationMode.PRECOMPUTED)
+                assert runner._metric_events_precomputed is (mode == PrecomputationMode.PRECOMPUTED)
+                assert result.baseline is not None and result.variant_results is not None
+                # The immature exposure is 2 days old, so it stays out of the denominator.
+                assert (result.baseline.number_of_samples, result.baseline.sum) == (1, 1)
+                assert (result.variant_results[0].number_of_samples, result.variant_results[0].sum) == (1, 1)
+
     @parameterized.expand(
         [
             ("direct", False),
