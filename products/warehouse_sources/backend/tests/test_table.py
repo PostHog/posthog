@@ -287,6 +287,40 @@ class TestStructureAgainstTheEngine(BaseTest):
 
         assert "widget" in result
 
+    def test_a_key_outside_the_schema_reads_through_a_json_column(self) -> None:
+        # Introspection samples one file, so the second file's key is absent from the stored schema and still reads.
+        # A Tuple of the sampled keys drops it at parse time instead.
+        directory = Path(tempfile.mkdtemp())
+        self._json_file(['{"id": 1, "usage": {"inputTokens": 10}}'], name="a.json", directory=directory)
+        self._json_file(
+            ['{"id": 2, "usage": {"inputTokens": 20, "cacheWriteInputTokenCount": 5}}'],
+            name="b.json",
+            directory=directory,
+        )
+        table = DataWarehouseTable(
+            name="runs",
+            format=DataWarehouseTable.TableFormat.JSON,
+            team=self.team,
+            url_pattern="s3://bucket/team_1/runs/*",
+            columns={
+                "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField", "valid": True},
+                "usage": {"clickhouse": "JSON", "hogql": "NativeJSONDatabaseField", "valid": True},
+            },
+        )
+
+        definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
+        assert definition.structure is not None
+        glob = escape_param_clickhouse(str(directory / "*.json"))
+        result = run_chdb_query(
+            "SET allow_experimental_json_type=1; SELECT id, usage.cacheWriteInputTokenCount AS written FROM "
+            f"file({glob}, JSONEachRow, {escape_param_clickhouse(definition.structure)}) ORDER BY id",
+            timeout=self.CHDB_TIMEOUT_SECONDS,
+        )
+
+        # The file that carries the key reads it; the file that does not reads NULL rather than failing.
+        assert result.splitlines() == ["1,\\N", "2,5"]
+
 
 class TestSchemaInferenceMode(BaseTest):
     def _table(self, table_format: str) -> DataWarehouseTable:

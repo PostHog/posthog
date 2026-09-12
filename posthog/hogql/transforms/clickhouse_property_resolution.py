@@ -27,7 +27,7 @@ from typing import Literal, cast
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField
+from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, NativeJSONDatabaseField
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
@@ -551,6 +551,19 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
             if not deeper_keys:
                 return map_head
             return ast.PropertyAccess(expr=map_head, keys=deeper_keys, type=ast.StringType(nullable=True))
+        # A physical JSON column reads a key as a subcolumn, because ClickHouse rejects JSONExtract on this type too.
+        # An integer index keeps the JSON fallback: it addresses an array inside the value, which the Dynamic the
+        # subcolumn resolves to cannot take.
+        if isinstance(field_type.resolve_database_field(context), NativeJSONDatabaseField) and all(
+            isinstance(key, str) for key in node.keys
+        ):
+            _record_property_usage(context, "json_subcolumn")
+            return ast.JsonSubcolumnAccess(
+                expr=clone_expr(node.expr),
+                keys=[str(key) for key in node.keys],
+                access_type="path",
+                type=ast.StringType(nullable=True),
+            )
         _record_property_usage(context, None)
         return None
 
