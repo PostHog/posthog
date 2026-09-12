@@ -1132,10 +1132,20 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // flag-scoped check is the one that can tell this experiment apart, so a flag whose
                 // own events carry no session id disables the scope here rather than letting it
                 // narrow to a set that can only be empty.
-                if (exposureSessionLinkable === false && exposureFallbackLinkable === false) {
-                    return FLAG_NOT_SESSION_LINKED_REASON
+                if (inSessionExposure) {
+                    // Read the verdict for the evidence the query will actually match on. The
+                    // query only falls back to the stamped stand-in when that same project-wide
+                    // fact says the exposure event is never session-linked, so a stand-in with
+                    // coverage doesn't rescue an exposure event the query is still filtering on.
+                    const evidenceLinkable = inSessionExposure.uses_stamped_fallback
+                        ? exposureFallbackLinkable
+                        : exposureSessionLinkable
+                    return evidenceLinkable === false ? FLAG_NOT_SESSION_LINKED_REASON : null
                 }
-                return null
+                // Without the server's answer, refuse only what neither evidence could match.
+                return exposureSessionLinkable === false && exposureFallbackLinkable === false
+                    ? FLAG_NOT_SESSION_LINKED_REASON
+                    : null
             },
         ],
         effectiveExposureScope: [

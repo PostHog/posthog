@@ -487,14 +487,19 @@ describe('experimentReplayTabLogic', () => {
         unavailable.unmount()
     })
 
-    it('disables in-session when the flag-scoped check says nothing can match a session', async () => {
-        // The backend availability check reads the project-wide `seen_together` fact, which one
-        // client-evaluated flag makes true for every experiment's exposure event, so it reports the
-        // scope available for a server-evaluated flag too. Narrowing on that would show an empty
-        // list with no reason; the flag-scoped verdict is what tells this experiment apart.
+    // The backend availability check reads the project-wide `seen_together` fact, which one
+    // client-evaluated flag makes true for every experiment's exposure event, so it reports the
+    // scope available for a server-evaluated flag too. Narrowing on that would show an empty
+    // list with no reason; the flag-scoped verdict is what tells this experiment apart. The second
+    // case is the one the pair alone misses: the query keeps the exposure event here, so a stand-in
+    // with coverage changes nothing about what it can match.
+    it.each([
+        ['neither the exposure event nor its stand-in can match a session', false],
+        ['the stand-in can match but the query will not use it', true],
+    ])('disables in-session when %s', async (_, flagPropertyLinkable) => {
         ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockResolvedValue({
             exposure_event_linkable: false,
-            flag_property_linkable: false,
+            flag_property_linkable: flagPropertyLinkable,
             max_window_days: 7,
         })
         const serverSide = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 55 } as Experiment })

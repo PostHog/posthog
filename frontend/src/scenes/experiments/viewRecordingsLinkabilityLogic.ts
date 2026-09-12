@@ -22,7 +22,7 @@ export const EXPOSURE_UNLINKABLE_REASON =
     "This experiment's exposure event is captured server-side without a session ID, so recordings can't be matched."
 
 export const FLAG_NOT_SESSION_LINKED_REASON =
-    "None of this flag's recent events carry a session ID, so there's nothing to match recordings on. Send a session ID with your server-side events, or evaluate the flag on the client."
+    "This experiment's exposure events carry no session ID, so there's nothing to match recordings on. Send a session ID with your server-side events, or evaluate the flag on the client."
 
 export const METRIC_UNLINKABLE_REASON =
     "This metric's events are captured server-side without a session ID, so recordings can't be matched."
