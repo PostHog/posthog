@@ -37,8 +37,7 @@ class AskNicelyResumeConfig:
     # 1-based next page to fetch. Page numbering is only stable relative to the since_time
     # cutoff the run started with, so the cutoff is persisted alongside it.
     page_number: int
-    # 0 for the endpoints that take no time cutoff.
-    since_time: int = 0
+    since_time: int
 
 
 def _base_url(subdomain: str) -> str:

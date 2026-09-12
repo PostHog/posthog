@@ -229,7 +229,7 @@ class TestAsknicely:
         manager.save_state.assert_called_once_with(AskNicelyResumeConfig(page_number=2, since_time=0))
 
     def test_unsubscribed_resumes_from_saved_page(self) -> None:
-        manager = _manager(AskNicelyResumeConfig(page_number=3))
+        manager = _manager(AskNicelyResumeConfig(page_number=3, since_time=0))
 
         _, calls = self._run([_response([])], manager, endpoint="contacts_unsubscribed")
 
