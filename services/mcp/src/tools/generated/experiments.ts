@@ -1291,13 +1291,15 @@ const ExperimentUpdateSchema = () => {
                 repository: true,
                 primary_metrics_ordered_uuids: true,
                 secondary_metrics_ordered_uuids: true,
-                only_count_matured_users: true,
                 version: true,
                 original_experiment: true,
             }).shape
         )
         .extend({
             id: z.preprocess(castStringToInt, ExperimentsPartialUpdateParams.shape['id']),
+            only_count_matured_users: ExperimentsPartialUpdateBody.shape['only_count_matured_users'].describe(
+                'Whether to count only participants whose conversion or retention window has fully elapsed ("Require completed conversion or retention window" in the experiment\'s settings tab). New experiments inherit the environment default, so set this per experiment to override it. Set it to false when a long conversion window (for example 14 days) makes a young experiment report 0 exposures and "not-enough-exposures" on every metric: with it enabled, nobody counts until their window closes.'
+            ),
             feature_flag: ExperimentsPartialUpdateBody.shape['feature_flag'].describe(
                 "Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in the flag's own filters shape. This is the canonical input for flag config. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100; the analysis baseline defaults to the variant keyed 'control' when present, else the first variant — except web experiments, which must keep a variant keyed 'control') to change the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to change the overall rollout. Config this object omits is preserved from the flag's current state. On a running experiment this requires update_feature_flag_params=true (see rule 1: warn the user first)."
             ),
@@ -1363,6 +1365,9 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
             if (params.conclusion_comment !== undefined) {
                 body['conclusion_comment'] = params.conclusion_comment
             }
+            if (params.only_count_matured_users !== undefined) {
+                body['only_count_matured_users'] = params.only_count_matured_users
+            }
             if (params.update_feature_flag_params !== undefined) {
                 body['update_feature_flag_params'] = params.update_feature_flag_params
             }
@@ -1387,6 +1392,7 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
                 'metrics',
                 'metrics_secondary',
                 'saved_metrics',
+                'only_count_matured_users',
                 'conclusion',
                 'conclusion_comment',
             ]) as typeof result
