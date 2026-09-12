@@ -92,9 +92,9 @@ export class MlMirrorMetrics {
         help: 'Bytes of collected images delivered to the scrub topic (acked)',
     })
 
-    private static readonly mlImagePseudoTeamInvalid = new Counter({
-        name: 'recording_blob_ingestion_v2_ml_image_pseudo_team_invalid',
-        help: 'Messages whose derived team pseudonym failed the consumer ref-shape check; collection disabled for them (inline blur instead)',
+    private static readonly mlImageTeamIdInvalid = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_image_team_id_invalid',
+        help: 'Messages whose team ID failed the consumer ref-shape check; collection disabled for them (inline blur instead)',
     })
 
     private static readonly mlUrlBytes = new Histogram({
@@ -188,8 +188,8 @@ export class MlMirrorMetrics {
         this.mlImageBytesProduced.inc(bytes)
     }
 
-    public static incrementMlImagePseudoTeamInvalid(): void {
-        this.mlImagePseudoTeamInvalid.inc()
+    public static incrementMlImageTeamIdInvalid(): void {
+        this.mlImageTeamIdInvalid.inc()
     }
 }
 

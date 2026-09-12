@@ -50,12 +50,12 @@ describe('produceCollectedImagesStep', () => {
                 {
                     key: 'image:aa:h1',
                     value: Buffer.from([1]),
-                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT) },
+                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT), ai_research_ingestion_version: '1' },
                 },
                 {
                     key: 'image:aa:h2',
                     value: Buffer.from([2]),
-                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT) },
+                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT), ai_research_ingestion_version: '1' },
                 },
             ],
         ])
@@ -80,14 +80,14 @@ describe('produceCollectedImagesStep', () => {
                 {
                     key: 'image:aa:h1',
                     value: Buffer.from([1]),
-                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT) },
+                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT), ai_research_ingestion_version: '1' },
                 },
             ],
             [
                 {
                     key: 'image:aa:h2',
                     value: Buffer.from([1]),
-                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT) },
+                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT), ai_research_ingestion_version: '1' },
                 },
             ],
         ])

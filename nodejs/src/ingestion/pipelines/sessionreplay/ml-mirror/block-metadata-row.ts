@@ -1,8 +1,8 @@
-/** One anonymized block's metadata for the ML Parquet datasets; ids are pseudonyms. */
 import { ReplayIndexEntry } from '~/ingestion/pipelines/sessionreplay/shared/metadata/replay-index-entry'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
 import { PSEUDONYM_DISTINCT_ID, PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
+import { sessionStartTimestampFromUuidV7, usesRawSessionIdentifiers } from './session-identifier-format'
 
 export interface MlBlockMetadataRow {
     format_version?: 2
@@ -58,7 +58,9 @@ export function toBlockMetadataRow(block: SessionBlockMetadata, secret: string |
     }
     const { key, start, end } = parseBlockUrl(block.blockUrl)
     const sessionStartTimestamp = sessionStartTimestampFromUuidV7(block.sessionId)
+    const rawIdentifiers = usesRawSessionIdentifiers(block.sessionId)
     return {
+        ...(rawIdentifiers ? { format_version: 2 as const } : {}),
         replay_index_entries: block.replayIndexEntries,
         replay_index_truncated: block.replayIndexTruncated,
         ...(sessionStartTimestamp === null
@@ -66,9 +68,9 @@ export function toBlockMetadataRow(block: SessionBlockMetadata, secret: string |
             : {
                   session_start_ts_ms: sessionStartTimestamp,
               }),
-        session_id: pseudonymize(secret, PSEUDONYM_SESSION, block.sessionId),
-        team_id: pseudonymize(secret, PSEUDONYM_TEAM, String(block.teamId)),
-        distinct_id: pseudonymize(secret, PSEUDONYM_DISTINCT_ID, block.distinctId),
+        session_id: rawIdentifiers ? block.sessionId : pseudonymize(secret, PSEUDONYM_SESSION, block.sessionId),
+        team_id: rawIdentifiers ? String(block.teamId) : pseudonymize(secret, PSEUDONYM_TEAM, String(block.teamId)),
+        distinct_id: rawIdentifiers ? block.distinctId : pseudonymize(secret, PSEUDONYM_DISTINCT_ID, block.distinctId),
         block_url: block.blockUrl,
         block_s3_key: key,
         block_byte_start: start,
@@ -92,12 +94,4 @@ export function toBlockMetadataRow(block: SessionBlockMetadata, secret: string |
         snapshot_library: block.snapshotLibrary,
         retention_period_days: block.retentionPeriodDays,
     }
-}
-
-export function sessionStartTimestampFromUuidV7(sessionId: string): number | null {
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId)) {
-        return null
-    }
-    const timestamp = Number.parseInt(sessionId.slice(0, 8) + sessionId.slice(9, 13), 16)
-    return timestamp > 0 ? timestamp : null
 }

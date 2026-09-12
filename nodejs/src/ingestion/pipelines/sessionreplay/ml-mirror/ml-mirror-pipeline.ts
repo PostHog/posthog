@@ -7,6 +7,7 @@ import { createTopHogWrapper, sum, timer } from '~/ingestion/framework/extension
 import { aggregateKafkaDebugContexts } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 import {
     SessionReplayPipeline,
     SessionReplayPipelineConfig,
@@ -19,6 +20,7 @@ import { createProduceCollectedImagesStep } from '~/ingestion/pipelines/sessionr
 import { createProduceCollectedUrlsStep } from '~/ingestion/pipelines/sessionreplay/ml-mirror/produce-collected-urls-step'
 import { MessageContext } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
+import { RecordSessionEventStepInput } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
 import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-batch-mark-seen-step'
 import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
 import { createTrackAndGateStep } from '~/ingestion/pipelines/sessionreplay/session-batch-track-and-gate-step'
@@ -28,10 +30,12 @@ import { createTeamFilterStep } from '~/ingestion/pipelines/sessionreplay/team-f
 import { createValidateSessionReplayHeadersStep } from '~/ingestion/pipelines/sessionreplay/validate-headers-step'
 
 import { createParseAndAnonymizeMessageStep } from './parse-and-anonymize-step'
+import { MlPrivacyBatchController } from './privacy/batch-controller'
 
 export interface MlMirrorPipelineOptions {
     /** Cap on sessions scrubbed concurrently; each in-flight scrub occupies a libuv threadpool thread. */
     anonymizeMaxConcurrency: number
+    privacy?: MlPrivacyBatchController
 }
 
 /** Enables the image-collection lane: inlined images become refs, originals go to the scrub topic. */
@@ -59,7 +63,7 @@ export interface MlMirrorUrlFetchProducer {
  * make that measurement impossible to take on its own.
  */
 export interface MlMirrorCollection {
-    /** The ML pseudonym HMAC key, also used by the block-metadata sink. */
+    /** The root key for image content and URL HMAC keys. */
     pseudonymSecret: string | Buffer
     collectImages: boolean
     collectUrls: boolean
@@ -89,6 +93,11 @@ export function createMlMirrorReplayPipeline(
 
     const pipelineConfig: PipelineConfig<OverflowOutput> = { outputs, promiseScheduler }
     const topHogWrapper = createTopHogWrapper(topHog)
+    function deferPublication<T extends RecordSessionEventStepInput & { headers: { session_id: string } }>(
+        step: ProcessingStep<T, T>
+    ): ProcessingStep<T, T> {
+        return mlOptions.privacy ? (input) => mlOptions.privacy!.defer(input, step) : step
+    }
 
     return newBatchingPipeline<
         SessionReplayPipelineInput,
@@ -100,6 +109,7 @@ export function createMlMirrorReplayPipeline(
     >(
         (beforeBatch) =>
             beforeBatch.pipe(function passThroughBeforeBatch(input) {
+                mlOptions.privacy?.reset()
                 return Promise.resolve(ok(input))
             }),
         (batch) =>
@@ -125,6 +135,24 @@ export function createMlMirrorReplayPipeline(
                         // Resolve retention up front (before parse), keyed on the (validated) session_id
                         // header; drop unresolvable sessions.
                         .gather()
+                        .pipeChunk(async function readMlPrivacyBatch(values) {
+                            if (mlOptions.privacy) {
+                                await mlOptions.privacy.prepare(
+                                    values.map((value) => {
+                                        if (!value.team.organizationId) {
+                                            throw new Error('ML privacy requires organization ownership')
+                                        }
+                                        return {
+                                            teamId: value.team.teamId,
+                                            organizationId: value.team.organizationId,
+                                            sessionId: value.headers.session_id,
+                                            distinctId: value.headers.distinct_id,
+                                        }
+                                    })
+                                )
+                            }
+                            return values.map((value) => ok(value))
+                        })
                         .pipeChunk(createResolveRetentionStep(retentionService), {
                             retry: { tries: 3, sleepMs: 100 },
                         })
@@ -173,7 +201,8 @@ export function createMlMirrorReplayPipeline(
                                                             createParseAndAnonymizeMessageStep(
                                                                 collection?.collectImages || collection?.collectUrls
                                                                     ? collection
-                                                                    : undefined
+                                                                    : undefined,
+                                                                mlOptions.privacy
                                                             ),
                                                             [
                                                                 timer('parse_time_ms_by_session_id', (input) => ({
@@ -185,27 +214,40 @@ export function createMlMirrorReplayPipeline(
                                                     )
                                                     const withImagesProduced = imageScrub
                                                         ? parsed.pipe(
-                                                              createProduceCollectedImagesStep(
-                                                                  imageScrub.outputs,
-                                                                  imageScrub.producedRefCacheMax
+                                                              deferPublication(
+                                                                  createProduceCollectedImagesStep(
+                                                                      imageScrub.outputs,
+                                                                      imageScrub.producedRefCacheMax,
+                                                                      mlOptions.privacy
+                                                                  )
                                                               )
                                                           )
                                                         : parsed
                                                     const withUrlsProduced = urlFetch
                                                         ? withImagesProduced.pipe(
-                                                              createProduceCollectedUrlsStep(urlFetch.outputs, topHog, {
-                                                                  producedRefCacheMax: urlFetch.producedRefCacheMax,
-                                                                  producedRefCacheWindowMs:
-                                                                      urlFetch.producedRefCacheWindowMs,
-                                                                  crawlHistory: urlFetch.crawlHistory,
-                                                              })
+                                                              deferPublication(
+                                                                  createProduceCollectedUrlsStep(
+                                                                      urlFetch.outputs,
+                                                                      topHog,
+                                                                      {
+                                                                          producedRefCacheMax:
+                                                                              urlFetch.producedRefCacheMax,
+                                                                          producedRefCacheWindowMs:
+                                                                              urlFetch.producedRefCacheWindowMs,
+                                                                          crawlHistory: urlFetch.crawlHistory,
+                                                                          privacy: mlOptions.privacy,
+                                                                      }
+                                                                  )
+                                                              )
                                                           )
                                                         : withImagesProduced
                                                     return withUrlsProduced.pipe(
                                                         topHogWrapper(
-                                                            createRecordSessionEventStep({
-                                                                isDebugLoggingEnabled,
-                                                            }),
+                                                            deferPublication(
+                                                                createRecordSessionEventStep({
+                                                                    isDebugLoggingEnabled,
+                                                                })
+                                                            ),
                                                             [
                                                                 sum(
                                                                     'message_size_by_session_id',
@@ -234,8 +276,9 @@ export function createMlMirrorReplayPipeline(
                 .handleSideEffects(promiseScheduler, { await: false })
                 .gather(),
         (afterBatch) =>
-            afterBatch.pipe(function passThroughAfterBatch(input) {
-                return Promise.resolve(ok(input))
+            afterBatch.pipe(async function passThroughAfterBatch(input) {
+                await mlOptions.privacy?.commit()
+                return ok(input)
             }),
         // One batch in flight at a time (also the framework default): each feed tags the manager's
         // current recorder, so a concurrent batch could span a flush and record into a stale recorder.

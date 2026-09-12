@@ -186,8 +186,3 @@ When both aliases are set, the `AI_RESEARCH_REPLAY_*` value takes precedence, in
 The wrapped HMAC secret keeps the single name `SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY` in both the environment and secret store.
 It has no new alias.
 Renaming configuration must not rotate that key.
-
-V2 data uses `YYYY-MM` directories from the session UUIDv7 start timestamp in UTC.
-Recording blocks, metadata, image shards, image lookups and URL images retain that month across late arrivals.
-V2 image references include `<team>:<grant>:<month>:<hash>`, so the image-fetch seen history is independent for each month.
-Robots.txt and TDM reservation caches remain shared by origin across months.
