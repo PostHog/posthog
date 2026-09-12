@@ -6,6 +6,7 @@ from django.conf import settings
 
 from asgiref.sync import async_to_sync
 from temporalio.client import Client
+from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.common.client import sync_connect
@@ -22,6 +23,7 @@ async def _start_workflow(
     workflow_id: str,
     inputs: object,
     execution_timeout: timedelta | None = None,
+    id_conflict_policy: WorkflowIDConflictPolicy = WorkflowIDConflictPolicy.UNSPECIFIED,
 ) -> None:
     await temporal.start_workflow(
         name,
@@ -29,6 +31,7 @@ async def _start_workflow(
         id=workflow_id,
         task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         execution_timeout=execution_timeout,
+        id_conflict_policy=id_conflict_policy,
     )
 
 
@@ -52,6 +55,8 @@ def start_frame_materialize_workflow(inputs: FrameMaterializeInputs) -> None:
 
 def start_widget_generation_workflow(job_id: str, team_id: int) -> None:
     inputs = WidgetGenerationInput(job_id=job_id, team_id=team_id)
+    # A second start attaches to the running workflow instead of raising, so the duplicate
+    # leaves no errored start span. The catch still covers the window while a run is closing.
     try:
         _start_workflow(
             sync_connect(),
@@ -59,6 +64,7 @@ def start_widget_generation_workflow(job_id: str, team_id: int) -> None:
             f"notebook-widget-generate-{job_id}",
             inputs,
             execution_timeout=timedelta(minutes=30),
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
         )
     except WorkflowAlreadyStartedError:
         pass

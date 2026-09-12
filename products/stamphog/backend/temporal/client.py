@@ -10,7 +10,7 @@ import logging
 from django.conf import settings
 
 from asgiref.sync import async_to_sync
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.temporal.common.client import async_connect
 
@@ -30,8 +30,8 @@ async def execute_stamphog_review_workflow(review_run_id: str, team_id: int) -> 
 
     Decorated with ``async_to_sync`` so it bridges cleanly out of the synchronous
     ``transaction.on_commit`` callback the Celery task registers, without nesting a
-    second event loop. Fire-and-forget: a duplicate delivery re-enters
-    ``ALLOW_DUPLICATE_FAILED_ONLY`` and is a no-op while a workflow is live.
+    second event loop. Fire-and-forget: a duplicate delivery for a live workflow attaches
+    to the running one, and for a closed one re-enters ``ALLOW_DUPLICATE_FAILED_ONLY``.
     """
     # Deferred so the workflow module (and the temporalio workflow sandbox it drags
     # in) stays off the Celery/web import path that this client rides on.
@@ -46,6 +46,10 @@ async def execute_stamphog_review_workflow(review_run_id: str, team_id: int) -> 
         StamphogReviewInput(review_run_id=review_run_id, team_id=team_id),
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+        # A duplicate delivery must be a no-op, so attach to the running workflow instead of
+        # raising: the tracing interceptor ends the start span with an error before the caller
+        # can swallow the exception.
+        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
         task_queue=_stamphog_task_queue(),
         # Single attempt at the workflow level. A workflow retry would restart the whole review AFTER
         # mark_review_failed already ran — re-provisioning the sandbox and possibly re-posting a verdict
