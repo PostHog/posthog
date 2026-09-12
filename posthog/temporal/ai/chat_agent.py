@@ -12,6 +12,7 @@ import pydantic
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ActivityError
 
 from posthog.schema import AgentMode, AssistantEventType, HumanMessage, MaxBillingContext
 
@@ -20,6 +21,10 @@ from posthog.temporal.ai.base import AgentBaseWorkflow
 from posthog.temporal.common.client import async_connect
 
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.posthog_ai.backend.temporal.activities import (
+    MirrorConversationInputs,
+    mirror_conversation_to_task_activity,
+)
 
 from ee.hogai.chat_agent.runner import ChatAgentRunner
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore
@@ -36,6 +41,8 @@ CHAT_AGENT_ACTIVITY_RETRY_INTERVAL = 1  # 1 second
 CHAT_AGENT_ACTIVITY_RETRY_MAX_INTERVAL = 30 * 60  # 30 minutes
 CHAT_AGENT_ACTIVITY_RETRY_MAX_ATTEMPTS = 3
 CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT = 5 * 60  # 5 minutes
+MIRROR_ACTIVITY_TIMEOUT = 2 * 60  # 2 minutes
+MIRROR_ACTIVITY_MAX_ATTEMPTS = 3
 
 
 @dataclass
@@ -151,6 +158,21 @@ class ChatAgentWorkflow(AgentBaseWorkflow):
             ),
             heartbeat_timeout=timedelta(seconds=CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT),
         )
+        # The turn is persisted and streamed by now, so the task-world mirror must never fail this
+        # workflow; a skipped mirror catches up from its cursor on the conversation's next turn.
+        try:
+            await workflow.execute_activity(
+                mirror_conversation_to_task_activity,
+                MirrorConversationInputs(
+                    team_id=inputs.team_id, user_id=inputs.user_id, conversation_id=str(inputs.conversation_id)
+                ),
+                start_to_close_timeout=timedelta(seconds=MIRROR_ACTIVITY_TIMEOUT),
+                retry_policy=RetryPolicy(maximum_attempts=MIRROR_ACTIVITY_MAX_ATTEMPTS),
+            )
+        except ActivityError:
+            workflow.logger.warning(
+                "legacy mirror activity failed", extra={"conversation_id": str(inputs.conversation_id)}
+            )
 
 
 @activity.defn
