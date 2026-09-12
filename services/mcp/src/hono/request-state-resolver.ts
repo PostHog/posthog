@@ -84,9 +84,9 @@ export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MC
     useSingleExec: boolean
 } {
     const { mode, clientProfile } = args
-    // CLI (single-exec) is the default; only allow-listed clients (Cursor,
-    // ChatGPT) keep the full per-tool roster, and an explicit ?mode= /
-    // x-posthog-mcp-mode header always wins over auto-detection.
+    // CLI (single-exec) is the default; only allow-listed clients (Cursor) keep
+    // the full per-tool roster, and an explicit ?mode= / x-posthog-mcp-mode
+    // header always wins over auto-detection.
     const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() ? 'tools' : 'cli')
     return { mode: resolved, useSingleExec: resolved === 'cli' }
 }

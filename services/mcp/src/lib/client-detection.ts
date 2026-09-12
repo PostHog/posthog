@@ -115,12 +115,13 @@ export const LEGACY_DIALECT_ONLY_CLIENT_NAME_FRAGMENTS = ['antigravity'] as cons
 //   the full roster serves it better than the exec wrapper. Some older Cursor
 //   builds omit `clientInfo.name` and are only identifiable by their
 //   `Cursor/x.y.z (...)` User-Agent, hence the UA fragment too.
-// - ChatGPT connects through OpenAI's shared `openai-mcp` client whose
-//   `clientInfo.name` is generic; the surface only shows up in the User-Agent
-//   parenthetical (`openai-mcp/1.0.0 (ChatGPT)`). Other openai-mcp surfaces
-//   (Codex, Agent Builder, Responses API) stay on the CLI default.
-export const TOOLS_MODE_CLIENT_NAME_FRAGMENTS = ['cursor', 'chatgpt'] as const
-export const TOOLS_MODE_USER_AGENT_FRAGMENTS = ['cursor', 'chatgpt'] as const
+// - Every OpenAI surface (ChatGPT, Codex, Agent Builder, Responses API) stays
+//   on the CLI default. OpenAI's shared `openai-mcp` client caches the roster it
+//   captures for a published plugin and serves that snapshot to every user, so
+//   the plugin listing pins its mode explicitly with `?mode=` instead of relying
+//   on a User-Agent label that only some of its requests carry.
+export const TOOLS_MODE_CLIENT_NAME_FRAGMENTS = ['cursor'] as const
+export const TOOLS_MODE_USER_AGENT_FRAGMENTS = ['cursor'] as const
 
 // Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
 // MCP transports across all its products and reports the live one in this
@@ -270,9 +271,9 @@ export class MCPClientProfile {
     isToolsModeClient(): boolean {
         // The only clients that auto-select the full per-tool roster; everyone
         // else defaults to CLI (single-exec) mode — see `resolveMode`. Matched on
-        // the self-reported `clientInfo.name` and the User-Agent (ChatGPT's
-        // surface only appears in the UA parenthetical); never on the vendor
-        // header, so Anthropic pooled transports can't land in tools mode.
+        // the self-reported `clientInfo.name` and the User-Agent (older Cursor
+        // builds identify only through the UA); never on the vendor header, so
+        // Anthropic pooled transports can't land in tools mode.
         return (
             matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
             matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
