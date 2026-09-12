@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconExternal, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconExternal, IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -11,27 +11,15 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { scoutCostWindowLabel } from '../../../utils/scoutCosts'
-import { formatRunCost, scoutDisplayName, SCOUT_RUNS_PER_SCOUT, ScoutRollup } from '../../../utils/scoutRunsWindow'
-import { ScoutStatusTag } from './ScoutBadges'
-import { ScoutCadenceLabel } from './ScoutCadenceLabel'
+import { scoutDisplayName, ScoutRollup } from '../../../utils/scoutRunsWindow'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
-import { ScoutNextRunLabel } from './ScoutNextRunLabel'
+import { ScoutHealthStrip } from './ScoutHealthStrip'
 import { LeaveScoutNoteButton } from './ScoutNotesPanel'
 import { ScoutOwners } from './ScoutOwners'
 import { ScoutSettingsButton } from './ScoutSettingsModal'
 
-function Metric({ value, label }: { value: React.ReactNode; label: string }): JSX.Element {
-    return (
-        <div className="flex flex-1 flex-col border-r border-primary px-3 py-1.5 last:border-r-0">
-            <span className="text-sm font-semibold tabular-nums leading-tight">{value}</span>
-            <span className="text-[10px] uppercase tracking-wide text-muted">{label}</span>
-        </div>
-    )
-}
-
 /**
- * Canonical descriptions run to a paragraph. Two lines is enough to recognise the scout; the rest
+ * Canonical descriptions run to a paragraph. One line is enough to recognise the scout; the rest
  * is there on a click for the reader who wants the full brief.
  */
 function ScoutDescription({ text }: { text: string }): JSX.Element {
@@ -39,9 +27,9 @@ function ScoutDescription({ text }: { text: string }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const [truncatable, setTruncatable] = useState(false)
 
-    // Measure whether the two-line clamp actually hides anything, mirroring FlagDescription in
-    // feature flags. Runs while the paragraph is still clamped, so the toggle only appears when
-    // there is more to reveal.
+    // Measure whether the clamp actually hides anything, mirroring FlagDescription in feature
+    // flags. Runs while the paragraph is still clamped, so the toggle only appears when there is
+    // more to reveal.
     useEffect(() => {
         if (ref.current) {
             setTruncatable(ref.current.scrollHeight > ref.current.clientHeight)
@@ -49,12 +37,12 @@ function ScoutDescription({ text }: { text: string }): JSX.Element {
     }, [text])
 
     const paragraph = (
-        <p ref={ref} className={`mb-0 text-sm leading-snug text-secondary ${expanded ? '' : 'line-clamp-2'}`}>
+        <p ref={ref} className={`mb-0 text-sm leading-snug text-secondary ${expanded ? '' : 'line-clamp-1'}`}>
             {text}
         </p>
     )
 
-    // A description that fits in two lines stays plain text — no control that changes nothing on click.
+    // A description that fits on one line stays plain text — no control that changes nothing on click.
     if (!truncatable) {
         return paragraph
     }
@@ -73,8 +61,8 @@ function ScoutDescription({ text }: { text: string }): JSX.Element {
 }
 
 /**
- * The scout page header: what it is, the controls that act on it, and the numbers that say whether
- * it is worth keeping on.
+ * The scout page header: what it is, the controls that act on it, and one health strip that says
+ * whether it is worth keeping on.
  */
 export function ScoutDetailHeader({
     config,
@@ -92,21 +80,28 @@ export function ScoutDetailHeader({
 
     const updating = updatingScoutIds.includes(config.id)
     const running = manualRunScoutIds.includes(config.id)
-    // Filed and edited stay separate — adding the weak-signal count on top produced a total of two
-    // different things, which is exactly what made the old "filed" number unreadable. A report the
-    // scout filed and later added to counts once, as filed.
-    const authoredIds = rollup?.authoredReportIds ?? new Set<string>()
-    const authored = authoredIds.size
-    const edited = [...(rollup?.editedReportIds ?? [])].filter((id) => !authoredIds.has(id)).length
 
     return (
-        <div className="flex flex-col gap-3 border-b border-primary bg-surface-primary px-4 py-3">
+        <div className="flex flex-col gap-2 border-b border-primary bg-surface-primary px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">
-                <h2 className="mb-0 text-lg font-semibold">{scoutDisplayName(config)}</h2>
+                <h2 className="mb-0 flex min-w-0 items-baseline gap-1.5 text-lg font-semibold">
+                    {/* Navigation only: the scouts URL handler clears the selected scout, so
+                        nothing is dispatched here. */}
+                    <Link
+                        to={urls.inbox('scouts')}
+                        className="flex items-center gap-0.5 text-sm font-normal text-secondary"
+                    >
+                        <IconArrowLeft className="size-3.5" />
+                        Scouts
+                    </Link>
+                    <span className="text-sm font-normal text-muted" aria-hidden>
+                        /
+                    </span>
+                    <span className="min-w-0 truncate">{scoutDisplayName(config)}</span>
+                </h2>
                 <LemonTag size="small" type={config.scout_origin === 'canonical' ? 'muted' : 'highlight'}>
                     {config.scout_origin === 'canonical' ? 'Canonical' : 'Custom'}
                 </LemonTag>
-                <ScoutStatusTag config={config} />
                 <ScoutOwners config={config} />
                 <span className="flex-1" />
                 <Tooltip title="Dispatch a run now, outside the schedule. Counts against the project's daily run budget.">
@@ -150,45 +145,8 @@ export function ScoutDetailHeader({
 
             {config.description && <ScoutDescription text={config.description} />}
 
-            <div className="flex flex-wrap rounded border border-primary">
-                <Metric value={<ScoutCadenceLabel config={config} />} label="Cadence" />
-                <Metric value={<ScoutNextRunLabel config={config} />} label="Next run" />
-                <Metric value={rollup?.runCount ?? 0} label={`Runs · last ${SCOUT_RUNS_PER_SCOUT}`} />
-                <Metric value={authored} label="Reports filed" />
-                <Metric value={edited} label="Reports edited" />
-                <Metric value={learnedCount} label="Learned" />
-                <Metric value={noteCount} label="Told" />
-                <ScoutCostMetrics skillName={config.skill_name} />
-            </div>
+            <ScoutHealthStrip config={config} rollup={rollup} noteCount={noteCount} learnedCount={learnedCount} />
         </div>
-    )
-}
-
-/**
- * What the scout cost over the window, and what that buys per run and per report. Staff only, and
- * absent while it has no priced run in the window, the same way the per-run tooltip omits a cost it
- * cannot attribute.
- */
-function ScoutCostMetrics({ skillName }: { skillName: string }): JSX.Element | null {
-    const { scoutCostRollups } = useValues(scoutFleetLogic)
-    const rollup = scoutCostRollups.get(skillName)
-
-    if (!rollup) {
-        return null
-    }
-
-    return (
-        <>
-            <Metric
-                value={formatRunCost(rollup.spendUsd)}
-                label={`Cost · ${scoutCostWindowLabel(rollup.windowDays)}`}
-            />
-            <Metric value={formatRunCost(rollup.perRun)} label="Cost per run" />
-            <Metric
-                value={rollup.perReport === null ? 'No reports' : formatRunCost(rollup.perReport)}
-                label="Cost per report"
-            />
-        </>
     )
 }
 
