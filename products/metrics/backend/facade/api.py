@@ -8,8 +8,15 @@ so import-linter's strict-mode contract holds.
 import math
 import datetime as dt
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import Any
 
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
 from products.error_tracking.backend.facade.api import list_spike_events
@@ -59,6 +66,34 @@ _RUNNER_AGGREGATIONS: dict[MetricAggregation, str] = {
 def team_has_metrics(team: Team) -> bool:
     """Return True if the given team has ingested at least one metric."""
     return _team_has_metrics(team)
+
+
+def _units_by_name(team: Team, metric_names: set[str]) -> dict[str, str]:
+    """One ClickHouse lookup of the ingested UCUM unit per metric name, read from
+    `metric_series` (the same table the catalog reads). Returns only the names that
+    carry a non-empty unit; a name with no unit is simply absent, so callers use
+    `.get(name)`. Kept separate from the per-series data query so the unit costs one
+    small grouped scan regardless of how many series a query returns."""
+    if not metric_names:
+        return {}
+    names = sorted(metric_names)
+    query = parse_select(
+        """
+            SELECT metric_name, any(unit) AS unit
+            FROM posthog.metric_series
+            WHERE metric_name IN {names}
+            GROUP BY metric_name
+        """,
+        placeholders={"names": ast.Tuple(exprs=[ast.Constant(value=n) for n in names])},
+    )
+    response = execute_hogql_query(
+        query_type="MetricUnitsLookup",
+        query=query,
+        team=team,
+        workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+        settings=HogQLGlobalSettings(max_execution_time=30),
+    )
+    return {str(row[0]): str(row[1]) for row in (response.results or []) if row[1]}
 
 
 # Hard cap on series returned per clause; the largest series (by summed
@@ -211,10 +246,18 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         for clause in request.clauses
     }
 
+    # Attach the ingested unit so a tile formats values without a second catalog call.
+    # A formula combines clauses (possibly of different units), so its series carry no unit.
+    units = _units_by_name(team, {clause.metric_name for clause in request.clauses})
+
     if request.formula is not None:
         return _evaluate_formula(request.formula, series_by_clause, grid)
 
-    return [series for clause in request.clauses for series in series_by_clause[clause.name]]
+    return [
+        replace(series, unit=units.get(series.metric_name or "")) if series.unit is None else series
+        for clause in request.clauses
+        for series in series_by_clause[clause.name]
+    ]
 
 
 def list_metric_names(

@@ -580,6 +580,63 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(series[0].clause, "a")
         self.assertEqual(sum(p.value for p in series[0].points), 4.0)
 
+    def test_attaches_ingested_unit_to_series(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+        )
+
+        series = run_metric_query(team=self.team, request=self._request())
+
+        self.assertEqual(len(series), 1)
+        self.assertEqual(series[0].unit, "ms")
+
+    def test_series_without_unit_has_none(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+        )
+
+        series = run_metric_query(team=self.team, request=self._request())
+
+        self.assertEqual(len(series), 1)
+        self.assertIsNone(series[0].unit)
+
+    def test_formula_series_carries_no_unit(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 2.0)],
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m2",
+            unit="s",
+            points=[(anchor - dt.timedelta(minutes=10), 4.0)],
+        )
+
+        series = run_metric_query(
+            team=self.team,
+            request=self._request(
+                clauses=(
+                    MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.SUM),
+                    MetricQueryClause(name="b", metric_name="m2", aggregation=MetricAggregation.SUM),
+                ),
+                formula="a / b",
+            ),
+        )
+
+        self.assertEqual(len(series), 1)
+        self.assertEqual(series[0].clause, "formula")
+        self.assertIsNone(series[0].unit)
+
     def test_quantile_095_maps_to_p95(self):
         anchor = timezone.now().replace(microsecond=0)
         seed_metric(team_id=self.team.id, metric_name="m1", points=[(anchor - dt.timedelta(minutes=10), 5.0)])

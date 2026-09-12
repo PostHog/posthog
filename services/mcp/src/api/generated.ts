@@ -46060,6 +46060,27 @@ export namespace Schemas {
       quantile?: number | null;
     }
 
+    export type MetricsReducer = typeof MetricsReducer[keyof typeof MetricsReducer];
+
+
+    export const MetricsReducer = {
+      Last: 'last',
+      Mean: 'mean',
+      Min: 'min',
+      Max: 'max',
+      Sum: 'sum',
+      Delta: 'delta',
+    } as const;
+
+    export type MetricsNullMode = typeof MetricsNullMode[keyof typeof MetricsNullMode];
+
+
+    export const MetricsNullMode = {
+      Gap: 'gap',
+      Zero: 'zero',
+      Connect: 'connect',
+    } as const;
+
     export type MetricsStatSummary = typeof MetricsStatSummary[keyof typeof MetricsStatSummary];
 
 
@@ -46069,6 +46090,13 @@ export namespace Schemas {
       Total: 'total',
     } as const;
 
+    export interface MetricsThreshold {
+      /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
+      color: string;
+      /** Lower bound of this band. The lowest step is the base color below every other step. */
+      value: number;
+    }
+
     export type MetricsDisplayType = typeof MetricsDisplayType[keyof typeof MetricsDisplayType];
 
 
@@ -46077,6 +46105,10 @@ export namespace Schemas {
       Area: 'area',
       Bar: 'bar',
       Stat: 'stat',
+      Gauge: 'gauge',
+      Bargauge: 'bargauge',
+      Table: 'table',
+      Heatmap: 'heatmap',
     } as const;
 
     export type MetricsAxisScale = typeof MetricsAxisScale[keyof typeof MetricsAxisScale];
@@ -46099,9 +46131,19 @@ export namespace Schemas {
 
     export interface MetricsDisplaySettings {
       goalLines?: GoalLine[] | null;
+      /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
+      legendCalcs?: MetricsReducer[] | null;
+      /** How a null bucket renders on a time-series chart. */
+      nullMode?: MetricsNullMode | null;
+      /** How scalar panels and legend calcs collapse a series to one number. */
+      reduce?: MetricsReducer | null;
       /** `stat` display only: which summary the headline value shows. */
       statSummary?: MetricsStatSummary | null;
+      /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
+      thresholds?: MetricsThreshold[] | null;
       type?: MetricsDisplayType | null;
+      /** UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit. */
+      unit?: string | null;
       yAxis?: MetricsYAxisSettings | null;
     }
 
@@ -46123,6 +46165,8 @@ export namespace Schemas {
       labels: MetricsQuerySeriesLabels;
       metricName?: string | null;
       points: MetricsQueryPoint[];
+      /** UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one. */
+      unit?: string | null;
     }
 
     export interface MetricsQueryResponse {

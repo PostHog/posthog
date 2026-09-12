@@ -3346,6 +3346,10 @@ class MetricsDisplayType(StrEnum):
     AREA = "area"
     BAR = "bar"
     STAT = "stat"
+    GAUGE = "gauge"
+    BARGAUGE = "bargauge"
+    TABLE = "table"
+    HEATMAP = "heatmap"
 
 
 class MetricsFilterOp(StrEnum):
@@ -3355,12 +3359,27 @@ class MetricsFilterOp(StrEnum):
     NOT_REGEX = "not_regex"
 
 
+class MetricsNullMode(StrEnum):
+    GAP = "gap"
+    ZERO = "zero"
+    CONNECT = "connect"
+
+
 class MetricsOtelType(StrEnum):
     GAUGE = "gauge"
     SUM = "sum"
     HISTOGRAM = "histogram"
     EXPONENTIAL_HISTOGRAM = "exponential_histogram"
     SUMMARY = "summary"
+
+
+class MetricsReducer(StrEnum):
+    LAST = "last"
+    MEAN = "mean"
+    MIN = "min"
+    MAX = "max"
+    SUM = "sum"
+    DELTA = "delta"
 
 
 class MetricsStatSummary(StrEnum):

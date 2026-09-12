@@ -137,6 +137,9 @@ class MetricSeries:
     points: tuple[MetricPoint, ...]
     metric_name: str | None = None
     clause: str | None = None
+    # UCUM unit of the metric as ingested (e.g. "By", "ms"). Empty when the SDK
+    # did not set one. Set by `run_metric_query`, not by callers.
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
