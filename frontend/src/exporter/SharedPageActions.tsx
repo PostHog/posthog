@@ -31,7 +31,9 @@ export function SharedPageActions({
         open: openMenu === menu,
         onOpenChange: (open) => setOpenMenu(open ? menu : openMenu === menu ? null : openMenu),
     })
-    // The sharing page is not a routed scene, so every link here is a full navigation.
+    // The sharing page is not a routed scene, so every link here is a full navigation. `next` carries
+    // this page's access token into the app, where lib/utils/shareTokenRedaction keeps it out of
+    // captured events and replay.
     const signInUrl = combineUrl(urls.login(), { next: `${window.location.pathname}${window.location.search}` }).url
 
     return (
