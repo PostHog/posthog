@@ -219,9 +219,15 @@ const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(
  *
  * @param tasks - An array of functions that return promises.
  * @param limit - The maximum number of concurrent tasks.
+ * @param shouldStop - Checked before each task starts. Once it returns true, no further task is
+ *                     started and the run resolves as soon as the tasks already in flight settle.
  * @returns A promise that resolves to an array of results from the tasks.
  */
-export async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
+export async function runWithLimit<T>(
+    tasks: (() => Promise<T>)[],
+    limit: number,
+    shouldStop?: () => boolean
+): Promise<T[]> {
     const results: T[] = []
     const activePromises: Set<Promise<void>> = new Set()
     const remainingTasks = [...tasks]
@@ -242,6 +248,12 @@ export async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number
     }
 
     while (remainingTasks.length > 0 || activePromises.size > 0) {
+        if (shouldStop?.()) {
+            remainingTasks.length = 0
+            if (activePromises.size === 0) {
+                break
+            }
+        }
         if (activePromises.size < limit && remainingTasks.length > 0) {
             void startTask(remainingTasks.shift()!)
         } else {

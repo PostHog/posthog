@@ -2328,13 +2328,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         // Denominator for "X out of Y", pinned up front so Y stays fixed while tiles enroll one by one.
         // null = no batch pinned → selector falls back to the live map size (single-insight refreshes).
-        // Reset on cycle boundaries only, never on the per-tile abortQuery, so an aborted tile can't shrink Y.
+        // Reset on cycle boundaries only, never on the per-tile abortQuery or on a cancel, so neither
+        // an aborted tile nor the cancel itself can shrink Y while the batch winds down.
         refreshTilesTotal: [
             null as number | null,
             {
                 setRefreshTilesTotal: (_, { total }) => total,
                 refreshDashboardItems: () => null,
-                cancelDashboardRefresh: () => null,
             },
         ],
         columns: [
@@ -4152,6 +4152,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // between the refreshDashboardItems reducer wiping refreshStatus to {} and it
                 // being repopulated - otherwise tiles briefly show as "not queued" and fall
                 // through to the query's default empty state instead of the loading state.
+                cache.refreshCancelled = false
                 actions.setRefreshTilesTotal(tilesStaleCount)
                 actions.setRefreshStatuses(
                     sortedTilesToRefresh.map((tile) => tile.insight.short_id),
@@ -4232,15 +4233,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 })
 
-                // Execute the fetches with concurrency limit of 4
-                await runWithLimit(fetchSyncInsightFunctions, 4)
+                // Execute the fetches with concurrency limit of 4. Cancelling stops the remaining tiles
+                // from enrolling, so the batch cannot drain itself back into the refresh status map.
+                await runWithLimit(fetchSyncInsightFunctions, 4, () => cache.refreshCancelled)
                 breakpoint()
+
+                const wasCancelled = !!cache.refreshCancelled
 
                 // REFRESH DONE: all insights have been refreshed
 
                 // update last refresh time, only if we've forced a blocking refresh of the dashboard
                 // and all tiles were refreshed
-                if (forceRefresh && tilesAbortedCount === 0 && tilesErroredCount === 0) {
+                if (forceRefresh && !wasCancelled && tilesAbortedCount === 0 && tilesErroredCount === 0) {
                     actions.updateDashboardLastRefresh(dayjs())
                 }
 
@@ -4281,7 +4285,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 if (
                     (previewUnsavedFilters || initialUrlOverridesArePreviewed) &&
-                    (tilesErroredCount > 0 || tilesAbortedCount > 0)
+                    (wasCancelled || tilesErroredCount > 0 || tilesAbortedCount > 0)
                 ) {
                     actions.previewDashboardChangesFailure()
                 } else if (previewUnsavedFilters || initialUrlOverridesArePreviewed) {
@@ -4689,6 +4693,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         cancelDashboardRefresh: () => {
+            cache.refreshCancelled = true
             actions.abortAnyRunningQuery()
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
