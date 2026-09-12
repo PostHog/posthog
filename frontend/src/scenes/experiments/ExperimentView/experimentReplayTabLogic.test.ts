@@ -514,6 +514,32 @@ describe('experimentReplayTabLogic', () => {
         serverSide.unmount()
     })
 
+    it('leaves the metric filter unapplied when the flag cannot be matched to a session', async () => {
+        // The bucket scan answers over the same exposed sessions the in-session scope narrows to,
+        // so on this flag it could only come back empty, and the tab reports an empty bucket as a
+        // metric miss rather than as the flag's own linkability.
+        ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockResolvedValue({
+            exposure_event_linkable: false,
+            flag_property_linkable: false,
+            max_window_days: 7,
+        })
+        const serverSide = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 58 } as Experiment })
+        serverSide.mount()
+        await expectLogic(serverSide).toFinishAllListeners()
+        ;(experimentsSessionBucketsCreate as jest.Mock).mockClear()
+
+        serverSide.actions.setMetricSelected('metric-purchase', true)
+        serverSide.actions.setMetricFilterMode('no_metric_activity')
+        await expectLogic(serverSide).toFinishAllListeners()
+
+        expect(serverSide.values.sessionBucketRequest).toBeNull()
+        expect(experimentsSessionBucketsCreate).not.toHaveBeenCalled()
+        // Undefined, not empty: the playlist keeps the all-exposed population instead of listing
+        // nothing under a filter that could never match.
+        expect(serverSide.values.bucketSessionIds).toBeUndefined()
+        serverSide.unmount()
+    })
+
     it('falls back to all sessions when the availability check fails', async () => {
         // A failed check can't confirm the scope is safe to send, so the option isn't disabled (the
         // failure is transient) but the query still holds at the all-sessions superset, never

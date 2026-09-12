@@ -141,6 +141,12 @@ function unappliedModeReason(mode: ExperimentReplayMetricFilterMode): string {
         : 'Pick at least one metric. Showing every exposed recording until then.'
 }
 
+// The metric filter is a server-side scan over the same exposed sessions the in-session scope
+// narrows to, so a flag that can't be matched to a session can't answer it either. Said here too,
+// because the scope control's own reason sits further up the tab.
+const FLAG_NOT_SESSION_LINKED_FILTER_REASON =
+    "This experiment's exposure events carry no session ID, so a metric filter has nothing to match. Showing every exposed recording instead."
+
 /**
  * States what the server-computed set does and doesn't cover. Every clause is load-bearing: the
  * list is capped, the scan window ends at the last exposure and reaches back only so far from
@@ -279,6 +285,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         effectiveVariantKey,
         effectiveExposureScope,
         exposureInSessionUnavailableReason,
+        exposureCannotMatchSession,
         inSessionExposure,
         playlistHeldForChecks,
         variantKeys,
@@ -498,7 +505,11 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                         </span>
                     ) : null
                 ) : !sessionBucketRequest ? (
-                    <span>{unappliedModeReason(metricFilterMode)}</span>
+                    <span>
+                        {exposureCannotMatchSession
+                            ? FLAG_NOT_SESSION_LINKED_FILTER_REASON
+                            : unappliedModeReason(metricFilterMode)}
+                    </span>
                 ) : sessionBucketError !== null ? (
                     <>
                         <span>Couldn't work out which sessions match this filter: {sessionBucketError}</span>

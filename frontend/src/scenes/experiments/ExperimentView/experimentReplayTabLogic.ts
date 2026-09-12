@@ -313,6 +313,7 @@ export interface experimentReplayTabLogicValues {
     effectiveExposureScope: ExperimentReplayExposureScope
     effectiveMetricUuids: string[]
     effectiveVariantKey: string | null
+    exposureCannotMatchSession: boolean
     exposureInSessionUnavailableReason: string | null
     exposureLinkable: boolean | null
     exposureScope: ExperimentReplayExposureScope
@@ -614,10 +615,14 @@ export interface experimentReplayTabLogicMeta {
         variantKeys: (arg: any) => string[]
         behaviorComparisonAvailable: (featureFlags: FeatureFlagsSet) => boolean
         effectiveVariantKey: (selectedVariantKey: string | null, variantKeys: string[]) => string | null
-        exposureInSessionUnavailableReason: (
+        exposureCannotMatchSession: (
             inSessionExposure: ExperimentInSessionExposureApi | null,
             exposureSessionLinkable: boolean | null,
             exposureFallbackLinkable: boolean | null
+        ) => boolean
+        exposureInSessionUnavailableReason: (
+            inSessionExposure: ExperimentInSessionExposureApi | null,
+            exposureCannotMatchSession: any
         ) => string | null
         effectiveExposureScope: (
             exposureScope: ExperimentReplayExposureScope,
@@ -708,7 +713,8 @@ export interface experimentReplayTabLogicMeta {
             metricFilterMode: ExperimentReplayMetricFilterMode,
             effectiveMetricUuids: string[],
             effectiveVariantKey: string | null,
-            metricOptions: ExperimentReplayMetricOption[]
+            metricOptions: ExperimentReplayMetricOption[],
+            exposureCannotMatchSession: any
         ) => ExperimentSessionBucketRequest | null
         bucketSessionIds: (
             sessionBucketRequest: ExperimentSessionBucketRequest | null,
@@ -1117,21 +1123,18 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // stand-in, or a fallback scan too large for this project). Null while the check loads or
         // fails, so the option isn't disabled on a transient error; the query still stays on all
         // sessions until the check confirms availability (see effectiveExposureScope).
-        exposureInSessionUnavailableReason: [
+        // Whether this experiment's flag can be matched to a session at all, from the flag-scoped
+        // check. The server-side check reads the project-wide `seen_together` fact, which one
+        // client-evaluated flag makes true for every experiment's exposure event, so only this one
+        // can tell this experiment apart. Every surface that narrows to sessions reads it, since
+        // narrowing on a flag it says no for can only return an empty set.
+        exposureCannotMatchSession: [
             (s) => [s.inSessionExposure, s.exposureSessionLinkable, s.exposureFallbackLinkable],
             (
                 inSessionExposure: ExperimentInSessionExposureApi | null,
                 exposureSessionLinkable: boolean | null,
                 exposureFallbackLinkable: boolean | null
-            ): string | null => {
-                if (inSessionExposure?.unavailable_reason) {
-                    return inSessionExposure.unavailable_reason
-                }
-                // The server-side check reads the project-wide `seen_together` fact, which one
-                // client-evaluated flag makes true for every experiment's exposure event. The
-                // flag-scoped check is the one that can tell this experiment apart, so a flag whose
-                // own events carry no session id disables the scope here rather than letting it
-                // narrow to a set that can only be empty.
+            ): boolean => {
                 if (inSessionExposure) {
                     // Read the verdict for the evidence the query will actually match on. The
                     // query only falls back to the stamped stand-in when that same project-wide
@@ -1140,13 +1143,22 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                     const evidenceLinkable = inSessionExposure.uses_stamped_fallback
                         ? exposureFallbackLinkable
                         : exposureSessionLinkable
-                    return evidenceLinkable === false ? FLAG_NOT_SESSION_LINKED_REASON : null
+                    return evidenceLinkable === false
                 }
                 // Without the server's answer, refuse only what neither evidence could match.
                 return exposureSessionLinkable === false && exposureFallbackLinkable === false
-                    ? FLAG_NOT_SESSION_LINKED_REASON
-                    : null
             },
+        ],
+        exposureInSessionUnavailableReason: [
+            (s) => [s.inSessionExposure, s.exposureCannotMatchSession],
+            (
+                inSessionExposure: ExperimentInSessionExposureApi | null,
+                exposureCannotMatchSession: boolean
+            ): string | null =>
+                // The backend's own refusal first: it names the narrower cause (activation
+                // criteria, a custom event with no stand-in, a fallback scan too large).
+                inSessionExposure?.unavailable_reason ??
+                (exposureCannotMatchSession ? FLAG_NOT_SESSION_LINKED_REASON : null),
         ],
         effectiveExposureScope: [
             (s) => [s.exposureScope, s.inSessionExposure, s.exposureInSessionUnavailableReason],
@@ -1553,13 +1565,26 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
          * silently matches the primary event only.
          */
         sessionBucketRequest: [
-            (s) => [s.metricFilterMode, s.effectiveMetricUuids, s.effectiveVariantKey, s.metricOptions],
+            (s) => [
+                s.metricFilterMode,
+                s.effectiveMetricUuids,
+                s.effectiveVariantKey,
+                s.metricOptions,
+                s.exposureCannotMatchSession,
+            ],
             (
                 metricFilterMode: ExperimentReplayMetricFilterMode,
                 effectiveMetricUuids: string[],
                 effectiveVariantKey: string | null,
-                metricOptions: ExperimentReplayMetricOption[]
+                metricOptions: ExperimentReplayMetricOption[],
+                exposureCannotMatchSession: boolean
             ): ExperimentSessionBucketRequest | null => {
+                if (exposureCannotMatchSession) {
+                    // The bucket scan answers over the same exposed-sessions population the
+                    // in-session scope narrows to, so a flag that can't be matched to a session
+                    // can only come back empty, and the empty answer would read as a metric miss.
+                    return null
+                }
                 const request = (bucket: ExperimentSessionBucketEnumApi): ExperimentSessionBucketRequest => ({
                     bucket,
                     metric_uuids: effectiveMetricUuids,
