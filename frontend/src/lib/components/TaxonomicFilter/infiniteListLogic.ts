@@ -2278,13 +2278,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         remoteItemsFetchFailedForQuery: ({ searchQuery }) => {
             // Failures land on the same empty state as genuine no-matches, so without this
             // capture the "event exists but the backend blipped" case is invisible in prod.
-            // Only count failures the user can actually see: the current query (a stale
-            // out-of-order failure is rejected by `remoteResultsAreFresh` and never renders),
-            // a real typed search (mount loads with an empty query are a different signal),
-            // and the active tab — every list runs the search in parallel, and background-tab
-            // failures the user never sees would inflate the metric.
+            // The empty-query load that runs when the picker opens counts too: it hits the same
+            // endpoint and fails just as often on a large project. Only count failures the user
+            // can actually see: the current query (a stale out-of-order failure is rejected by
+            // `remoteResultsAreFresh` and never renders) and the active tab, because every list
+            // runs the search in parallel and background-tab failures would inflate the metric.
             const trimmedQuery = searchQuery.trim()
-            if (!values.isActiveTab || searchQuery !== values.searchQuery || trimmedQuery.length === 0) {
+            if (!values.isActiveTab || searchQuery !== values.searchQuery) {
                 return
             }
             const dedupeKey = `${props.listGroupType}::${trimmedQuery}`
@@ -2363,14 +2363,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
             actions.reconcilePinnedRowState()
 
-            // Clean up all cache timers to prevent memory leaks
-            cache.disposables.add(() => {
-                return () => {
-                    Object.values(apiCacheTimers).forEach((timerId) => {
-                        window.clearTimeout(timerId)
-                    })
-                }
-            }, 'apiCacheTimersCleanup')
+            // Clean up all cache timers to prevent memory leaks. Clearing only the timers would
+            // leave each `apiCache` entry with no expiry, so it would be served stale until reload.
+            cache.disposables.add(() => clearApiCache, 'apiCacheTimersCleanup')
         },
     })),
 
