@@ -18,7 +18,7 @@ from posthog.models.user import User
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import asyncify
 
-from products.business_knowledge.backend import logic
+from products.business_knowledge.backend import learning_settings, logic
 from products.business_knowledge.backend.constants import BK_EMBEDDING_MODEL, BK_QUERY_EMBEDDING_TIMEOUT
 from products.business_knowledge.backend.learning.contracts import EvidenceBundle, EvidenceRef
 from products.business_knowledge.backend.learning.providers import get_learning_provider
@@ -221,15 +221,19 @@ def _render_search_context(results: list[logic.KnowledgeSearchResult]) -> list[d
     for result in results:
         if remaining <= 0:
             break
+        document_title = result.document_title[:remaining]
+        remaining -= len(document_title)
+        heading = result.heading_path[:remaining]
+        remaining -= len(heading)
         content = result.content[:remaining]
+        remaining -= len(content)
         rendered.append(
             {
-                "document_title": result.document_title,
-                "heading": result.heading_path,
+                "document_title": document_title,
+                "heading": heading,
                 "content": content,
             }
         )
-        remaining -= len(content)
     return rendered
 
 
@@ -297,7 +301,12 @@ def _get_run(input: AnalyzeLearningEvidenceInput) -> KnowledgeLearningRun:
         run_id = UUID(input.run_id)
     except ValueError:
         raise LearningAnalysisError("invalid_run_id") from None
-    run = KnowledgeLearningRun.objects.for_team(canonical_team_id).select_related("team__organization").get(id=run_id)
+    try:
+        run = (
+            KnowledgeLearningRun.objects.for_team(canonical_team_id).select_related("team__organization").get(id=run_id)
+        )
+    except KnowledgeLearningRun.DoesNotExist:
+        raise LearningAnalysisError("run_not_found") from None
     if (
         run.team_id != canonical_team_id
         or run.provider != input.evidence.provider
@@ -442,7 +451,10 @@ def _publish_candidate(
 
 
 def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> AnalyzeLearningEvidenceOutput:
-    if not run.team.organization.is_ai_data_processing_approved:
+    if (
+        not run.team.organization.is_ai_data_processing_approved
+        or not learning_settings.get_team_business_knowledge_config(run.team).learn_from_support_enabled
+    ):
         return _finish_without_knowledge(
             run,
             result="ineligible",

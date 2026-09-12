@@ -12,15 +12,19 @@ from temporalio.testing import ActivityEnvironment
 from posthog.api.embedding_worker import EmbeddingResponse
 from posthog.models.team import Team
 
-from products.business_knowledge.backend import logic
+from products.business_knowledge.backend import learning_settings, logic
 from products.business_knowledge.backend.learning.contracts import EvidenceBundle, EvidenceRef, evidence_key_for
 from products.business_knowledge.backend.models import KnowledgeDocument, KnowledgeLearningRun, LearningRunResult
 from products.business_knowledge.backend.temporal.learning.activities.analyze import (
     LearningAnalysisError,
+    _render_search_context,
     analyze_learning_evidence,
     analyze_learning_evidence_activity,
 )
-from products.business_knowledge.backend.temporal.learning.constants import ANALYSIS_VERSION
+from products.business_knowledge.backend.temporal.learning.constants import (
+    ANALYSIS_VERSION,
+    LEARNING_MAX_SEARCH_CONTEXT_CHARS,
+)
 from products.business_knowledge.backend.temporal.learning.schemas import (
     AnalyzeLearningEvidenceInput,
     ExtractedKnowledge,
@@ -129,6 +133,7 @@ def _create_run(team: Team, evidence: EvidenceRef) -> KnowledgeLearningRun:
 def _setup_sync(team: Team) -> tuple[KnowledgeLearningRun, AnalyzeLearningEvidenceInput]:
     team.organization.is_ai_data_processing_approved = True
     team.organization.save(update_fields=["is_ai_data_processing_approved"])
+    learning_settings.set_learn_from_support_enabled(team, True)
     evidence = _evidence()
     evidence = EvidenceRef(
         evidence_key=evidence.evidence_key,
@@ -146,6 +151,24 @@ def _setup_sync(team: Team) -> tuple[KnowledgeLearningRun, AnalyzeLearningEviden
 
 async def _setup(team: Team) -> tuple[KnowledgeLearningRun, AnalyzeLearningEvidenceInput]:
     return await sync_to_async(_setup_sync)(team)
+
+
+def test_search_context_budget_includes_titles_and_headings() -> None:
+    result = logic.KnowledgeSearchResult(
+        chunk_id=UUID("30000000-0000-4000-8000-000000000003"),
+        source_id=UUID("40000000-0000-4000-8000-000000000004"),
+        source_name="Policies",
+        source_type="text",
+        document_id=UUID("50000000-0000-4000-8000-000000000005"),
+        document_title="t" * 512,
+        heading_path="h" * 1024,
+        ordinal=0,
+        content="c" * LEARNING_MAX_SEARCH_CONTEXT_CHARS,
+    )
+
+    rendered = _render_search_context([result])
+
+    assert sum(len(value) for value in rendered[0].values()) == LEARNING_MAX_SEARCH_CONTEXT_CHARS
 
 
 @pytest.mark.asyncio
@@ -403,3 +426,26 @@ class TestLearningAnalyzer:
         assert result.result == "ineligible"
         assert run.result == LearningRunResult.INELIGIBLE
         invoke.assert_not_called()
+
+    def test_disabled_learning_stops_a_queued_run_before_loading_evidence(self, team: Team) -> None:
+        run, input = _setup_sync(team)
+        learning_settings.set_learn_from_support_enabled(team, False)
+
+        with (
+            patch(f"{_MODULE}.get_learning_provider") as get_provider,
+            patch(f"{_MODULE}.logic.create_generated_knowledge_document") as publish,
+        ):
+            result = analyze_learning_evidence(input)
+
+        run.refresh_from_db()
+        assert result.result == "ineligible"
+        assert run.result == LearningRunResult.INELIGIBLE
+        get_provider.assert_not_called()
+        publish.assert_not_called()
+
+    def test_missing_run_raises_bounded_error(self, team: Team) -> None:
+        run, input = _setup_sync(team)
+        run.delete()
+
+        with pytest.raises(LearningAnalysisError, match="run_not_found"):
+            analyze_learning_evidence(input)
