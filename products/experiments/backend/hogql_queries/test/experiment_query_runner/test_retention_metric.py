@@ -9,12 +9,16 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.schema import (
+    EventPropertyFilter,
     EventsNode,
+    ExperimentEventExposureConfig,
+    ExperimentExposureMetricSource,
     ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentQueryResponse,
     ExperimentRetentionMetric,
     FunnelConversionWindowTimeUnit,
+    PropertyOperator,
     StartHandling,
 )
 
@@ -183,6 +187,137 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum, 8)  # 8 users started
         self.assertEqual(test_variant.denominator_sum_squares, 8)
         self.assertEqual(test_variant.numerator_denominator_sum_product, 6)  # 6 completed
+
+    @parameterized.expand([("direct", False), ("precomputed", True)])
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_retention_can_start_at_custom_exposure(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        exposure_config = ExperimentEventExposureConfig(
+            event="experiment_entered",
+            properties=[EventPropertyFilter(key="plan", operator=PropertyOperator.EXACT, value="paid", type="event")],
+        )
+        experiment.exposure_criteria = {"exposure_config": exposure_config.model_dump(mode="json")}
+
+        metric = ExperimentRetentionMetric(
+            start_event=ExperimentExposureMetricSource(),
+            completion_event=EventsNode(event="returned"),
+            retention_window_start=24,
+            retention_window_end=48,
+            retention_window_unit=FunnelConversionWindowTimeUnit.HOUR,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        variant_property = f"$feature/{feature_flag.key}"
+        journeys_for(
+            {
+                "retained_control": [
+                    {
+                        "event": "experiment_entered",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {variant_property: "control", "plan": "paid"},
+                    },
+                    {"event": "returned", "timestamp": "2024-01-03T12:00:00"},
+                ],
+                "late_test": [
+                    {
+                        "event": "experiment_entered",
+                        "timestamp": "2024-01-02T14:00:00",
+                        "properties": {variant_property: "test", "plan": "paid"},
+                    },
+                    {"event": "returned", "timestamp": "2024-01-04T15:00:00"},
+                ],
+                "excluded_free_user": [
+                    {
+                        "event": "experiment_entered",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {variant_property: "control", "plan": "free"},
+                    },
+                    {"event": "returned", "timestamp": "2024-01-03T12:00:00"},
+                ],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        result = cast(
+            ExperimentQueryResponse,
+            ExperimentQueryRunner(
+                query=ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric),
+                team=self.team,
+            ).calculate(),
+        )
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(result.baseline.number_of_samples, 1)
+        self.assertEqual(result.baseline.sum, 1)
+        self.assertEqual(result.variant_results[0].number_of_samples, 1)
+        self.assertEqual(result.variant_results[0].sum, 0)
+
+    @parameterized.expand([("direct", False), ("precomputed", True)])
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_retention_can_start_at_default_exposure(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        metric = ExperimentRetentionMetric(
+            start_event=ExperimentExposureMetricSource(),
+            completion_event=EventsNode(event="$feature_flag_called"),
+            retention_window_start=0,
+            retention_window_end=0,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        variant_property = f"$feature/{feature_flag.key}"
+
+        def exposure(variant: str, timestamp: str) -> dict:
+            return {
+                "event": "$feature_flag_called",
+                "timestamp": timestamp,
+                "properties": {
+                    variant_property: variant,
+                    "$feature_flag_response": variant,
+                    "$feature_flag": feature_flag.key,
+                },
+            }
+
+        journeys_for(
+            {
+                "control_once": [exposure("control", "2024-01-02T12:00:00")],
+                "test_twice": [
+                    exposure("test", "2024-01-02T12:00:00"),
+                    exposure("test", "2024-01-02T13:00:00"),
+                ],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        result = cast(
+            ExperimentQueryResponse,
+            ExperimentQueryRunner(
+                query=ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric),
+                team=self.team,
+            ).calculate(),
+        )
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(result.baseline.number_of_samples, 1)
+        self.assertEqual(result.baseline.sum, 0)
+        self.assertEqual(result.variant_results[0].number_of_samples, 1)
+        self.assertEqual(result.variant_results[0].sum, 1)
 
     @parameterized.expand(
         [

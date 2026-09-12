@@ -12,6 +12,8 @@ from products.actions.backend.models.action import Action
 def _get_source_name(source: dict) -> str:
     """Extract a display name from an event/action/data warehouse source dict."""
     kind = source.get("kind", "")
+    if kind == "ExperimentExposureMetricSource":
+        return "Exposure event"
     if kind == "ExperimentDataWarehouseNode":
         return source.get("table_name") or "Table"
     # EventsNode or ActionsNode

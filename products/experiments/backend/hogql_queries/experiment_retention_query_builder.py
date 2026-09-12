@@ -6,6 +6,7 @@ from posthog.schema import (
     ActionsNode,
     EventsNode,
     ExperimentDataWarehouseNode,
+    ExperimentExposureMetricSource,
     ExperimentRetentionMetric,
     FunnelConversionWindowTimeUnit,
     StartHandling,
@@ -42,6 +43,10 @@ class RetentionQueryBuilder:
     def __init__(self, builder: "ExperimentQueryBuilder"):
         self._b = builder
 
+    def uses_exposure_as_start(self) -> bool:
+        assert isinstance(self._b.metric, ExperimentRetentionMetric)
+        return isinstance(self._b.metric.start_event, ExperimentExposureMetricSource)
+
     def get_retention_maturity_seconds(self) -> int:
         """
         Returns the maturity window in seconds for retention metrics.
@@ -63,7 +68,8 @@ class RetentionQueryBuilder:
         bounds it.
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
-        return self._b._get_conversion_window_seconds() + conversion_window_to_seconds(
+        conversion_window_seconds = 0 if self.uses_exposure_as_start() else self._b._get_conversion_window_seconds()
+        return conversion_window_seconds + conversion_window_to_seconds(
             self._b.metric.retention_window_end,
             self._b.metric.retention_window_unit,
         )
@@ -94,8 +100,14 @@ class RetentionQueryBuilder:
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
         start_event = self._b.metric.start_event
         completion_event = self._b.metric.completion_event
-        assert isinstance(start_event, (EventsNode, ActionsNode))
         assert isinstance(completion_event, (EventsNode, ActionsNode))
+
+        start_event_filter: ast.Expr
+        if isinstance(start_event, ExperimentExposureMetricSource):
+            start_event_filter = ast.Constant(value=False)
+        else:
+            assert isinstance(start_event, (EventsNode, ActionsNode))
+            start_event_filter = event_or_action_to_filter(self._b.team, start_event)
 
         query_string = """
             SELECT
@@ -117,7 +129,7 @@ class RetentionQueryBuilder:
 
         placeholders: dict[str, ast.Expr] = {
             "entity_key": parse_expr(self._b.entity_key),
-            "start_event_filter": event_or_action_to_filter(self._b.team, start_event),
+            "start_event_filter": start_event_filter,
             "completion_event_filter": event_or_action_to_filter(self._b.team, completion_event),
             "experiment_date_from": self._b.date_range_query.date_from_as_hogql(),
             "experiment_date_to": self._b.date_range_query.date_to_as_hogql(),
@@ -195,7 +207,31 @@ class RetentionQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
-        if self._b.metric_events_preaggregation_job_ids:
+        if self.uses_exposure_as_start() and self._b.metric.start_handling != StartHandling.FIRST_SEEN:
+            raise ValueError("Exposure-based retention requires first_seen start handling")
+
+        if self.uses_exposure_as_start():
+            start_events_body = "FROM exposures"
+            if self._b.metric_events_preaggregation_job_ids:
+                entity_id_cast = "toUUID(t.entity_id)" if self._b.entity_key == "person_id" else "t.entity_id"
+                completion_events_body = f"""SELECT
+                    {entity_id_cast} AS entity_id,
+                    t.event_uuid AS completion_uuid,
+                    t.timestamp AS completion_timestamp
+                FROM experiment_metric_events_preaggregated AS t
+                WHERE t.job_id IN {{metric_events_job_ids}}
+                    AND t.team_id = {{metric_events_team_id}}
+                    AND arrayElement(t.steps, 2) = 1
+                    AND t.timestamp >= {{metric_events_date_from}}
+                    AND t.timestamp < {{metric_events_date_to}} + toIntervalSecond({{metric_events_completion_window_seconds}})"""
+            else:
+                completion_events_body = """SELECT
+                    {entity_key} AS entity_id,
+                    uuid AS completion_uuid,
+                    timestamp AS completion_timestamp
+                FROM events
+                WHERE {completion_event_predicate}"""
+        elif self._b.metric_events_preaggregation_job_ids:
             # Read start/completion events from the precomputed table instead of scanning
             # events; the event predicates were applied at build time and survive as the
             # steps flags (steps[1] = matched start_event, steps[2] = matched completion_event).
@@ -373,6 +409,8 @@ class RetentionQueryBuilder:
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
         if self._b.metric.start_handling == StartHandling.FIRST_SEEN:
+            if self.uses_exposure_as_start():
+                return parse_expr("min(exposures.first_exposure_time)")
             return parse_expr("min(timestamp)")
         else:  # LAST_SEEN
             return parse_expr("max(timestamp)")
@@ -386,6 +424,8 @@ class RetentionQueryBuilder:
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
         if self._b.metric.start_handling == StartHandling.FIRST_SEEN:
+            if self.uses_exposure_as_start():
+                return parse_expr("argMin(exposures.exposure_event_uuid, exposures.first_exposure_time)")
             return parse_expr("argMin(uuid, timestamp)")
         else:  # LAST_SEEN
             return parse_expr("argMax(uuid, timestamp)")
@@ -441,9 +481,13 @@ class RetentionQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
+        if self.uses_exposure_as_start():
+            return ast.Constant(value=True)
+
         if isinstance(self._b.metric.start_event, ExperimentDataWarehouseNode):
             event_filter = data_warehouse_node_to_filter(self._b.team, self._b.metric.start_event)
         else:
+            assert isinstance(self._b.metric.start_event, (EventsNode, ActionsNode))
             event_filter = event_or_action_to_filter(self._b.team, self._b.metric.start_event)
         conversion_window_seconds = self._b._get_conversion_window_seconds()
 
@@ -500,6 +544,9 @@ class RetentionQueryBuilder:
         Applied inside the start_events CTE (pre-aggregation) so that min/max only
         considers events after the user's first exposure.
         """
+        if self.uses_exposure_as_start():
+            return ast.Constant(value=True)
+
         conversion_window_seconds = self._b._get_conversion_window_seconds()
         if conversion_window_seconds > 0:
             return parse_expr(

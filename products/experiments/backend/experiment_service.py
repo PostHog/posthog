@@ -26,9 +26,12 @@ from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
+    ExperimentExposureMetricSource,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetric,
+    ExperimentRetentionMetric,
+    StartHandling,
 )
 
 from posthog.hogql import ast
@@ -856,6 +859,14 @@ class ExperimentService:
                                 f"Invalid metric at index {i}: a threshold cannot be combined with "
                                 "outlier handling (winsorization)."
                             )
+                    elif (
+                        isinstance(actual_metric, ExperimentRetentionMetric)
+                        and isinstance(actual_metric.start_event, ExperimentExposureMetricSource)
+                        and actual_metric.start_handling != StartHandling.FIRST_SEEN
+                    ):
+                        raise ValidationError(
+                            f"Invalid metric at index {i}: an exposure start requires first_seen start handling."
+                        )
 
                 except pydantic.ValidationError as e:
                     # Surface only the field locations and error types from pydantic — not the

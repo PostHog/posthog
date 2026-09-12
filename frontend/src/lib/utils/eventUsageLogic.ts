@@ -21,6 +21,7 @@ import {
     ExperimentMetric,
     ExperimentMetricSource,
     ExperimentRetentionMetric,
+    ExperimentRetentionStartSource,
     ExperimentTrendsQuery,
     InsightQueryNode,
     isExperimentFunnelMetric,
@@ -322,13 +323,23 @@ function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefi
     return multiplier ? (metric.retention_window_end - metric.retention_window_start) * multiplier : undefined
 }
 
-function getSourceProperties(source: ExperimentMetricSource): {
+function getSourceProperties(source: ExperimentMetricSource | ExperimentRetentionStartSource): {
     source_kind: string
     is_data_warehouse: boolean
     property_filter_count: number
     math_type: string | undefined
     has_math_hogql: boolean
 } {
+    if (source.kind === NodeKind.ExperimentExposureMetricSource) {
+        return {
+            source_kind: source.kind,
+            is_data_warehouse: false,
+            property_filter_count: 0,
+            math_type: undefined,
+            has_math_hogql: false,
+        }
+    }
+
     return {
         source_kind: source.kind,
         is_data_warehouse: source.kind === NodeKind.ExperimentDataWarehouseNode,

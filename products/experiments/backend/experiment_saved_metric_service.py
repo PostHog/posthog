@@ -9,6 +9,7 @@ import pydantic
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    ExperimentExposureMetricSource,
     ExperimentFunnelMetric,
     ExperimentFunnelsQuery,
     ExperimentMeanMetric,
@@ -16,6 +17,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentTrendsQuery,
+    StartHandling,
 )
 
 from posthog.models.team.team import Team
@@ -62,7 +64,12 @@ class ExperimentSavedMetricService:
                 elif query["metric_type"] == ExperimentMetricType.RATIO:
                     ExperimentRatioMetric(**query)
                 elif query["metric_type"] == ExperimentMetricType.RETENTION:
-                    ExperimentRetentionMetric(**query)
+                    retention_metric = ExperimentRetentionMetric(**query)
+                    if (
+                        isinstance(retention_metric.start_event, ExperimentExposureMetricSource)
+                        and retention_metric.start_handling != StartHandling.FIRST_SEEN
+                    ):
+                        raise ValidationError("An exposure start requires first_seen start handling")
                 else:
                     raise ValidationError(
                         "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'"
