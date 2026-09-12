@@ -88,6 +88,7 @@ import {
 } from '../utils'
 import {
     DATA_WAREHOUSE_UNLINKABLE_REASON,
+    FLAG_NOT_SESSION_LINKED_REASON,
     METRIC_UNLINKABLE_REASON,
     RETENTION_UNLINKABLE_REASON,
     viewRecordingsLinkabilityLogic,
@@ -291,6 +292,9 @@ export interface experimentReplayTabLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentProjectId: number | string // teamLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    exposureFallbackLinkable: boolean | null // viewRecordingsLinkabilityLogic
+    exposureSessionLinkable: boolean | null // viewRecordingsLinkabilityLogic
+    flagCoverageLoading: boolean // viewRecordingsLinkabilityLogic
     linkabilityLoaded: boolean // viewRecordingsLinkabilityLogic
     seenTogetherMapLoading: boolean // viewRecordingsLinkabilityLogic
     unlinkableEventNames: Set<string> // viewRecordingsLinkabilityLogic
@@ -583,18 +587,29 @@ export interface experimentReplayTabLogicMeta {
         variantKeys: (arg: any) => string[]
         behaviorComparisonAvailable: (featureFlags: FeatureFlagsSet) => boolean
         effectiveVariantKey: (selectedVariantKey: string | null, variantKeys: string[]) => string | null
-        exposureInSessionUnavailableReason: (inSessionExposure: ExperimentInSessionExposureApi | null) => string | null
+        exposureInSessionUnavailableReason: (
+            inSessionExposure: ExperimentInSessionExposureApi | null,
+            exposureSessionLinkable: boolean | null,
+            exposureFallbackLinkable: boolean | null
+        ) => string | null
         effectiveExposureScope: (
             exposureScope: ExperimentReplayExposureScope,
-            inSessionExposure: ExperimentInSessionExposureApi | null
+            inSessionExposure: ExperimentInSessionExposureApi | null,
+            exposureInSessionUnavailableReason: string | null
         ) => ExperimentReplayExposureScope
         playlistHeldForChecks: (
             exposureScope: ExperimentReplayExposureScope,
             inSessionExposureLoading: boolean,
             linkabilityLoaded: boolean,
-            seenTogetherMapLoading: boolean
+            seenTogetherMapLoading: boolean,
+            flagCoverageLoading: boolean
         ) => boolean
-        exposureLinkable: (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, arg: any) => boolean | null
+        exposureLinkable: (
+            linkabilityLoaded: boolean,
+            unlinkableEventNames: Set<string>,
+            exposureSessionLinkable: boolean | null,
+            arg: any
+        ) => boolean | null
         durationFilterActive: (
             playlistFilters: RecordingUniversalFilters | null,
             recordingsFilters: RecordingUniversalFilters
@@ -704,7 +719,14 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // Same key as the metric buttons' lookup, so the two surfaces share one `seen_together` request.
         values: [
             viewRecordingsLinkabilityLogic({ experiment: props.experiment }),
-            ['unlinkableEventNames', 'linkabilityLoaded', 'seenTogetherMapLoading'],
+            [
+                'unlinkableEventNames',
+                'linkabilityLoaded',
+                'seenTogetherMapLoading',
+                'exposureSessionLinkable',
+                'exposureFallbackLinkable',
+                'flagCoverageLoading',
+            ],
             featureFlagLogic,
             ['featureFlags'],
             teamLogic,
@@ -1052,42 +1074,87 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // fails, so the option isn't disabled on a transient error; the query still stays on all
         // sessions until the check confirms availability (see effectiveExposureScope).
         exposureInSessionUnavailableReason: [
-            (s) => [s.inSessionExposure],
-            (inSessionExposure: ExperimentInSessionExposureApi | null): string | null =>
-                inSessionExposure?.unavailable_reason ?? null,
+            (s) => [s.inSessionExposure, s.exposureSessionLinkable, s.exposureFallbackLinkable],
+            (
+                inSessionExposure: ExperimentInSessionExposureApi | null,
+                exposureSessionLinkable: boolean | null,
+                exposureFallbackLinkable: boolean | null
+            ): string | null => {
+                if (inSessionExposure?.unavailable_reason) {
+                    return inSessionExposure.unavailable_reason
+                }
+                // The server-side check reads the project-wide `seen_together` fact, which one
+                // client-evaluated flag makes true for every experiment's exposure event. The
+                // flag-scoped check is the one that can tell this experiment apart, so a flag whose
+                // own events carry no session id disables the scope here rather than letting it
+                // narrow to a set that can only be empty.
+                if (exposureSessionLinkable === false && exposureFallbackLinkable === false) {
+                    return FLAG_NOT_SESSION_LINKED_REASON
+                }
+                return null
+            },
         ],
         effectiveExposureScope: [
-            (s) => [s.exposureScope, s.inSessionExposure],
+            (s) => [s.exposureScope, s.inSessionExposure, s.exposureInSessionUnavailableReason],
             (
                 exposureScope: ExperimentReplayExposureScope,
-                inSessionExposure: ExperimentInSessionExposureApi | null
+                inSessionExposure: ExperimentInSessionExposureApi | null,
+                exposureInSessionUnavailableReason: string | null
             ): ExperimentReplayExposureScope =>
-                // Narrow only on the server's confirmed-available verdict. While the check is in
-                // flight or if it failed (null), or when it reports the scope unavailable, hold at
-                // the all-sessions superset so no narrowing the backend would refuse reaches the
-                // query. The query gate and the caption both read this, so they stay in step.
-                exposureScope === 'in_session' && inSessionExposure?.available ? 'in_session' : 'all_exposed',
+                // Narrow only on the server's confirmed-available verdict, and only while nothing
+                // else refuses the scope. While a check is in flight or if it failed (null), or
+                // when either reports the scope unavailable, hold at the all-sessions superset so
+                // no narrowing the backend would refuse, and none that could only be empty,
+                // reaches the query. The query gate, the scope control and the caption all read
+                // this pair, so they stay in step.
+                exposureScope === 'in_session' &&
+                inSessionExposure?.available &&
+                exposureInSessionUnavailableReason === null
+                    ? 'in_session'
+                    : 'all_exposed',
         ],
         // Holds the playlist while a persisted in-session choice waits on the checks: mounted
         // immediately, it would fire the heavy all-sessions listing only to discard it seconds
         // later when the scope confirms and the filters flip to in_session.
         playlistHeldForChecks: [
-            (s) => [s.exposureScope, s.inSessionExposureLoading, s.linkabilityLoaded, s.seenTogetherMapLoading],
+            (s) => [
+                s.exposureScope,
+                s.inSessionExposureLoading,
+                s.linkabilityLoaded,
+                s.seenTogetherMapLoading,
+                s.flagCoverageLoading,
+            ],
             (
                 exposureScope: ExperimentReplayExposureScope,
                 inSessionExposureLoading: boolean,
                 linkabilityLoaded: boolean,
-                seenTogetherMapLoading: boolean
+                seenTogetherMapLoading: boolean,
+                flagCoverageLoading: boolean
             ): boolean =>
                 exposureScope === 'in_session' &&
-                (inSessionExposureLoading || (!linkabilityLoaded && seenTogetherMapLoading)),
+                (inSessionExposureLoading || flagCoverageLoading || (!linkabilityLoaded && seenTogetherMapLoading)),
         ],
-        // Whether the exposure event is ever seen carrying a session id, off the shared linkability
-        // check. Null until the check lands, and for an action exposure config, which matches
-        // several events rather than one.
+        // Whether this experiment's exposure is ever seen carrying a session id. The flag-scoped
+        // check answers it where it can; the project-wide event-name check only stands in while
+        // that one hasn't landed, since it can't tell one flag's exposure from another's. Null
+        // until either lands, and for an action exposure config, which matches several events
+        // rather than one.
         exposureLinkable: [
-            (s) => [s.linkabilityLoaded, s.unlinkableEventNames, (_, props) => props.experiment],
-            (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, experiment: Experiment): boolean | null => {
+            (s) => [
+                s.linkabilityLoaded,
+                s.unlinkableEventNames,
+                s.exposureSessionLinkable,
+                (_, props) => props.experiment,
+            ],
+            (
+                linkabilityLoaded: boolean,
+                unlinkableEventNames: Set<string>,
+                exposureSessionLinkable: boolean | null,
+                experiment: Experiment
+            ): boolean | null => {
+                if (exposureSessionLinkable !== null) {
+                    return exposureSessionLinkable
+                }
                 const exposureEventName = getExposureLinkabilityEventName(experiment)
                 if (!linkabilityLoaded || exposureEventName === null) {
                     return null

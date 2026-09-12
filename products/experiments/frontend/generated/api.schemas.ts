@@ -2251,6 +2251,24 @@ export interface ExperimentMetricsRecalculationApi {
 }
 
 /**
+ * Whether this experiment's own flag produces anything a recordings filter can match.
+ */
+export interface ExperimentReplayLinkabilityApi {
+    /**
+     * Whether exposure events for this experiment's flag were seen carrying a `$session_id` in the last `window_days`. Scoped to the flag, unlike the taxonomy `seen_together` fact, which answers for the event name across the whole project and so reads as linkable for a server-evaluated flag in any project that also evaluates flags on the client. Null when the scan couldn't answer (action-based exposure criteria, an experiment that never launched, or a refused scan); treat null as linkable.
+     * @nullable
+     */
+    exposure_event_linkable: boolean | null
+    /**
+     * Whether the `$feature/<flag_key>` stand-in the recordings surfaces fall back to was seen carrying a `$session_id` in the last `window_days`. Only scanned when `exposure_event_linkable` is false, so it is null whenever the exposure event itself can match; treat null as linkable.
+     * @nullable
+     */
+    flag_property_linkable: boolean | null
+    /** How many days back the scan read. */
+    window_days: number
+}
+
+/**
  * * `fired_any` - fired_any
  * * `no_metric_activity` - no_metric_activity
  * * `funnel_dropoff` - funnel_dropoff

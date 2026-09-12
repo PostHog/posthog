@@ -1769,6 +1769,31 @@ class ExperimentInSessionExposureSerializer(serializers.Serializer):
     )
 
 
+class ExperimentReplayLinkabilitySerializer(serializers.Serializer):
+    """Whether this experiment's own flag produces anything a recordings filter can match."""
+
+    exposure_event_linkable = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether exposure events for this experiment's flag were seen carrying a `$session_id` in the "
+            "last `window_days`. Scoped to the flag, unlike the taxonomy `seen_together` fact, which answers "
+            "for the event name across the whole project and so reads as linkable for a server-evaluated flag "
+            "in any project that also evaluates flags on the client. Null when the scan couldn't answer "
+            "(action-based exposure criteria, an experiment that never launched, or a refused scan); treat "
+            "null as linkable."
+        ),
+    )
+    flag_property_linkable = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether the `$feature/<flag_key>` stand-in the recordings surfaces fall back to was seen carrying "
+            "a `$session_id` in the last `window_days`. Only scanned when `exposure_event_linkable` is false, "
+            "so it is null whenever the exposure event itself can match; treat null as linkable."
+        ),
+    )
+    window_days = serializers.IntegerField(help_text="How many days back the scan read.")
+
+
 class ExperimentSessionBucketRequestSerializer(serializers.Serializer):
     """Request body for the session-bucket endpoint."""
 
