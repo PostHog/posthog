@@ -177,8 +177,6 @@ jobs:
               id: test-runner
               continue-on-error: true
               working-directory: products/desktop
-              env:
-                  HOME: /root
               run: pnpm --filter code run test:visual:ci:update
 
             # The Desktop build uses Node 22, while the Visual Review CLI requires Node 24.
@@ -234,9 +232,10 @@ jobs:
               if: always() && steps.visual-review.outputs.run_id != ''
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_RUN_ID: ${{ steps.visual-review.outputs.run_id }}
               run: |
                   node vr-cli/products/visual_review/cli/dist/cli/src/index.js run upload \
-                    --run-id "${{ steps.visual-review.outputs.run_id }}" \
+                    --run-id "$VR_RUN_ID" \
                     --dir products/desktop/apps/code/.storybook/__snapshots__/ \
                     --baseline products/desktop/apps/code/snapshots.yml \
                     --token "$VR_TOKEN"
@@ -246,11 +245,13 @@ jobs:
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   VR_TOLERATE_DRIFT: ${{ github.event_name == 'push' }}
+                  VR_RUN_ID: ${{ steps.visual-review.outputs.run_id }}
+                  VR_PURPOSE: ${{ (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'trunk-merge/'))) && 'observe' || 'review' }}
               run: |
                   args=(
-                    --run-id "${{ steps.visual-review.outputs.run_id }}"
+                    --run-id "$VR_RUN_ID"
                     --baseline products/desktop/apps/code/snapshots.yml
-                    --purpose "${{ (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'trunk-merge/'))) && 'observe' || 'review' }}"
+                    --purpose "$VR_PURPOSE"
                     --token "$VR_TOKEN"
                   )
                   if [ "$VR_TOLERATE_DRIFT" = 'true' ]; then
