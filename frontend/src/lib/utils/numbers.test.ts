@@ -3,6 +3,7 @@ import {
     compactNumber,
     formatPercentageDiff,
     humanFriendlyLargeNumber,
+    humanizeBytes,
     median,
     roundToDecimal,
 } from 'lib/utils/numbers'
@@ -86,6 +87,33 @@ describe('numbers utils', () => {
             { current: 0, previous: 0, description: 'zero divided by zero' },
         ])('returns null for $description', ({ current, previous }) => {
             expect(formatPercentageDiff(current, previous)).toBeNull()
+        })
+    })
+
+    describe('humanizeBytes()', () => {
+        it('returns an empty string for null input', () => {
+            expect(humanizeBytes(null)).toEqual('')
+        })
+
+        it.each([
+            { input: 0, expected: '0 bytes' },
+            { input: 500, expected: '0.49 kB' },
+            { input: 1024, expected: '1.00 kB' },
+            { input: 1024 * 1024, expected: '1024.00 kB' },
+            { input: 1024 ** 8, expected: '1024.00 ZB' },
+            { input: 1024 ** 9, expected: '1024.00 YB' },
+        ])('formats $input bytes as $expected', ({ input, expected }) => {
+            expect(humanizeBytes(input)).toEqual(expected)
+        })
+
+        it('does not show an invalid unit suffix for sizes beyond the largest defined unit', () => {
+            expect(humanizeBytes(1e30)).not.toContain('undefined')
+        })
+    })
+
+    describe('compactNumber() magnitude overflow handling', () => {
+        it.each([1e27, 1e30, -1e27])('does not show an invalid suffix for $#', (input) => {
+            expect(compactNumber(input)).not.toContain('undefined')
         })
     })
 })
