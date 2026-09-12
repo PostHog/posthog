@@ -378,6 +378,8 @@ class TaskLatestRunSummaryDTO:
     status: str | None
     environment: str | None
     mode: Literal["interactive", "background"]
+    pr_url: str | None = None
+    pr_state: str | None = None
 
 
 @dataclass(frozen=True)
@@ -385,7 +387,7 @@ class TaskSummaryDTO:
     """The HTTP summary representation of a task.
 
     Mirrors exactly the fields ``TaskSummarySerializer`` emits. ``latest_run`` carries the
-    most-recent run's status, environment, and mode (or ``None`` when the task has no runs).
+    most-recent run's status, environment, mode and pull request (or ``None`` when the task has no runs).
     """
 
     id: UUID

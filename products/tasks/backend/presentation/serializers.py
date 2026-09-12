@@ -2009,6 +2009,17 @@ class TaskRunSummarySerializer(serializers.Serializer):
         choices=TaskExecutionMode.choices,
         help_text="Execution mode of the latest run.",
     )
+    pr_url = serializers.CharField(
+        allow_null=True,
+        help_text="URL of the pull request the latest run opened, or null when it opened none.",
+    )
+    pr_state = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "State of that pull request: open, draft, merged, closed, or unknown. "
+            "Null when the latest run opened no pull request."
+        ),
+    )
 
 
 class TaskSummarySerializer(DataclassSerializer):
