@@ -396,20 +396,11 @@ def _series_limit(
     return None
 
 
-def _replay(
+def _build_histories(
     counts_by_severity: dict[str, dict[dt.datetime, int]],
-    attempt: ScanAttempt,
-    service_name: str,
-    config: DetectionConfig,
-    tz: ZoneInfo,
-    scan_constraints: list[BindingConstraint],
-) -> tuple[list[ScanSeries], list[ScanIssue]]:
-    grid_start = attempt.eval_start - attempt.lookback_buckets * BUCKET
-    n_buckets = int((attempt.eval_end - grid_start) / BUCKET)
-    eval_start_index = int((attempt.eval_start - grid_start) / BUCKET)
-    grid = TimeGrid.build(grid_start, n_buckets, tz)
-    band_model = NegativeBinomialBandModel()
-
+    grid_start: dt.datetime,
+    n_buckets: int,
+) -> dict[str, SeriesHistory]:
     histories: dict[str, SeriesHistory] = {}
     for severity, per_bucket in counts_by_severity.items():
         counts = np.zeros(n_buckets, dtype=np.float64)
@@ -418,75 +409,98 @@ def _replay(
             if 0 <= index < n_buckets:
                 counts[index] = total
         histories[severity] = SeriesHistory(grid_start=grid_start, counts=counts)
+    return histories
 
-    series_keys = {
-        severity: SeriesKey(namespace="logs", service=service_name, environment="", severity=severity)
-        for severity in histories
-    }
-    series_buckets: dict[str, list[ScanBucket]] = {severity: [] for severity in histories}
-    last_stage: dict[str, BaselineStage | None] = dict.fromkeys(histories)
-    last_tier: dict[str, TrafficTier | None] = dict.fromkeys(histories)
-    accumulators: dict[IssueFingerprint, _IssueAccumulator] = {}
 
-    for index in range(eval_start_index, n_buckets):
-        bucket_time = grid_start + index * BUCKET
-        tick_verdicts: dict[IssueFingerprint, BucketVerdict] = {}
-        for severity, history in histories.items():
-            evaluation = evaluate_series_bucket_detail(history, index, series_keys[severity], grid, config, band_model)
-            verdict = evaluation.verdict
-            if verdict is not None:
-                # Exclusion feedback: flagged buckets never legitimize
-                # themselves in later baselines.
-                history.excluded.add(index)
-                fingerprint = fingerprint_for(verdict.key, verdict.verdict_type)
-                existing = tick_verdicts.get(fingerprint)
-                # Direction-shared fingerprints (drop/silence): silence wins the tick.
-                if existing is None or verdict.verdict_type is VerdictType.SILENCE:
-                    tick_verdicts[fingerprint] = verdict
-            series_buckets[severity].append(
-                ScanBucket(
-                    time=bucket_time,
-                    observed=evaluation.observed,
-                    expected=evaluation.band.expected if evaluation.band else None,
-                    lower=evaluation.band.lower if evaluation.band else None,
-                    upper=evaluation.band.upper if evaluation.band else None,
-                    stage=evaluation.stage,
-                    verdict=verdict.verdict_type if verdict else None,
-                )
+def _evaluate_tick(
+    index: int,
+    bucket_time: dt.datetime,
+    histories: dict[str, SeriesHistory],
+    series_keys: dict[str, SeriesKey],
+    series_buckets: dict[str, list[ScanBucket]],
+    last_stage: dict[str, BaselineStage | None],
+    last_tier: dict[str, TrafficTier | None],
+    grid: TimeGrid,
+    config: DetectionConfig,
+    band_model: NegativeBinomialBandModel,
+) -> dict[IssueFingerprint, BucketVerdict]:
+    """Score every severity at one bucket, record the bucket, and collect verdicts."""
+    tick_verdicts: dict[IssueFingerprint, BucketVerdict] = {}
+    for severity, history in histories.items():
+        evaluation = evaluate_series_bucket_detail(history, index, series_keys[severity], grid, config, band_model)
+        verdict = evaluation.verdict
+        if verdict is not None:
+            # Exclusion feedback: flagged buckets never legitimize
+            # themselves in later baselines.
+            history.excluded.add(index)
+            fingerprint = fingerprint_for(verdict.key, verdict.verdict_type)
+            existing = tick_verdicts.get(fingerprint)
+            # Direction-shared fingerprints (drop/silence): silence wins the tick.
+            if existing is None or verdict.verdict_type is VerdictType.SILENCE:
+                tick_verdicts[fingerprint] = verdict
+        series_buckets[severity].append(
+            ScanBucket(
+                time=bucket_time,
+                observed=evaluation.observed,
+                expected=evaluation.band.expected if evaluation.band else None,
+                lower=evaluation.band.lower if evaluation.band else None,
+                upper=evaluation.band.upper if evaluation.band else None,
+                stage=evaluation.stage,
+                verdict=verdict.verdict_type if verdict else None,
             )
-            if evaluation.stage is not None:
-                last_stage[severity] = evaluation.stage
-            if evaluation.tier is not None:
-                last_tier[severity] = evaluation.tier
+        )
+        if evaluation.stage is not None:
+            last_stage[severity] = evaluation.stage
+        if evaluation.tier is not None:
+            last_tier[severity] = evaluation.tier
+    return tick_verdicts
 
-        open_fingerprints = {fp for fp, acc in accumulators.items() if acc.snapshot is not None}
-        for fingerprint in open_fingerprints | set(tick_verdicts):
-            verdict_here = tick_verdicts.get(fingerprint)
-            accumulator = accumulators.get(fingerprint)
-            snapshot = accumulator.snapshot if accumulator else None
-            if verdict_here is not None:
-                required = required_consecutive(verdict_here.verdict_type, verdict_here.tier, config)
-                outcome = evaluate_issue_transition(snapshot, verdict_here.verdict_type, index, required, config)
-            else:
-                outcome = evaluate_issue_transition(snapshot, None, index, config.open_after_buckets, config)
 
-            if accumulator is None:
-                accumulator = _IssueAccumulator(fingerprint=fingerprint, snapshot=outcome.snapshot)
-                accumulators[fingerprint] = accumulator
-            else:
-                accumulator.snapshot = outcome.snapshot
-            if verdict_here is not None:
-                accumulator.anomalous_times.append(bucket_time)
-            if outcome.snapshot is not None:
-                accumulator.last_kind = outcome.snapshot.kind
-            if outcome.action in (IssueAction.OPEN, IssueAction.REOPEN):
-                accumulator.ever_opened = True
-                if accumulator.opened_at is None:
-                    accumulator.opened_at = bucket_time
-                accumulator.resolved_at = None
-            elif outcome.action is IssueAction.RESOLVE:
-                accumulator.resolved_at = bucket_time
+def _advance_accumulators(
+    index: int,
+    bucket_time: dt.datetime,
+    tick_verdicts: dict[IssueFingerprint, BucketVerdict],
+    accumulators: dict[IssueFingerprint, _IssueAccumulator],
+    config: DetectionConfig,
+) -> None:
+    """Step the issue state machine for every open or freshly-flagged fingerprint."""
+    open_fingerprints = {fp for fp, acc in accumulators.items() if acc.snapshot is not None}
+    for fingerprint in open_fingerprints | set(tick_verdicts):
+        verdict_here = tick_verdicts.get(fingerprint)
+        accumulator = accumulators.get(fingerprint)
+        snapshot = accumulator.snapshot if accumulator else None
+        if verdict_here is not None:
+            required = required_consecutive(verdict_here.verdict_type, verdict_here.tier, config)
+            outcome = evaluate_issue_transition(snapshot, verdict_here.verdict_type, index, required, config)
+        else:
+            outcome = evaluate_issue_transition(snapshot, None, index, config.open_after_buckets, config)
 
+        if accumulator is None:
+            accumulator = _IssueAccumulator(fingerprint=fingerprint, snapshot=outcome.snapshot)
+            accumulators[fingerprint] = accumulator
+        else:
+            accumulator.snapshot = outcome.snapshot
+        if verdict_here is not None:
+            accumulator.anomalous_times.append(bucket_time)
+        if outcome.snapshot is not None:
+            accumulator.last_kind = outcome.snapshot.kind
+        if outcome.action in (IssueAction.OPEN, IssueAction.REOPEN):
+            accumulator.ever_opened = True
+            if accumulator.opened_at is None:
+                accumulator.opened_at = bucket_time
+            accumulator.resolved_at = None
+        elif outcome.action is IssueAction.RESOLVE:
+            accumulator.resolved_at = bucket_time
+
+
+def _build_series(
+    histories: dict[str, SeriesHistory],
+    series_buckets: dict[str, list[ScanBucket]],
+    last_stage: dict[str, BaselineStage | None],
+    last_tier: dict[str, TrafficTier | None],
+    grid_start: dt.datetime,
+    scan_constraints: list[BindingConstraint],
+) -> list[ScanSeries]:
     series = []
     for severity in sorted(histories):
         first = histories[severity].first_active_index
@@ -501,7 +515,10 @@ def _replay(
                 buckets=series_buckets[severity],
             )
         )
+    return series
 
+
+def _build_issues(accumulators: dict[IssueFingerprint, _IssueAccumulator]) -> list[ScanIssue]:
     issues = []
     for accumulator in accumulators.values():
         if not accumulator.ever_opened or accumulator.opened_at is None or accumulator.last_kind is None:
@@ -529,6 +546,42 @@ def _replay(
             )
         )
     issues.sort(key=lambda issue: issue.opened_at)
+    return issues
+
+
+def _replay(
+    counts_by_severity: dict[str, dict[dt.datetime, int]],
+    attempt: ScanAttempt,
+    service_name: str,
+    config: DetectionConfig,
+    tz: ZoneInfo,
+    scan_constraints: list[BindingConstraint],
+) -> tuple[list[ScanSeries], list[ScanIssue]]:
+    grid_start = attempt.eval_start - attempt.lookback_buckets * BUCKET
+    n_buckets = int((attempt.eval_end - grid_start) / BUCKET)
+    eval_start_index = int((attempt.eval_start - grid_start) / BUCKET)
+    grid = TimeGrid.build(grid_start, n_buckets, tz)
+    band_model = NegativeBinomialBandModel()
+
+    histories = _build_histories(counts_by_severity, grid_start, n_buckets)
+    series_keys = {
+        severity: SeriesKey(namespace="logs", service=service_name, environment="", severity=severity)
+        for severity in histories
+    }
+    series_buckets: dict[str, list[ScanBucket]] = {severity: [] for severity in histories}
+    last_stage: dict[str, BaselineStage | None] = dict.fromkeys(histories)
+    last_tier: dict[str, TrafficTier | None] = dict.fromkeys(histories)
+    accumulators: dict[IssueFingerprint, _IssueAccumulator] = {}
+
+    for index in range(eval_start_index, n_buckets):
+        bucket_time = grid_start + index * BUCKET
+        tick_verdicts = _evaluate_tick(
+            index, bucket_time, histories, series_keys, series_buckets, last_stage, last_tier, grid, config, band_model
+        )
+        _advance_accumulators(index, bucket_time, tick_verdicts, accumulators, config)
+
+    series = _build_series(histories, series_buckets, last_stage, last_tier, grid_start, scan_constraints)
+    issues = _build_issues(accumulators)
     return series, issues
 
 
