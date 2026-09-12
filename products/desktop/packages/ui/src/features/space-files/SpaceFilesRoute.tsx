@@ -5,7 +5,7 @@ import { useRouterState } from "@tanstack/react-router";
 import type { ReactElement } from "react";
 
 export function SpaceFilesRoute(): ReactElement | null {
-  const enabled = useFeatureFlag(SPACE_FILES_FLAG);
+  const enabled = useFeatureFlag(SPACE_FILES_FLAG, import.meta.env.DEV);
   const fileId = useRouterState({
     select: (state) => {
       const file = state.location.search.file;

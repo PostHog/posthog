@@ -197,7 +197,10 @@ function NavRailImpl() {
   );
 
   const savedSearchesRailEnabled = useFeatureFlag(SAVED_SEARCHES_RAIL_FLAG);
-  const spaceFilesEnabled = useFeatureFlag(SPACE_FILES_FLAG);
+  const spaceFilesEnabled = useFeatureFlag(
+    SPACE_FILES_FLAG,
+    import.meta.env.DEV,
+  );
   const hasSavedSearches = useProjectTaskFeeds().length > 0;
   const destinations = visibleRailDestinations({
     home: homeEnabled,

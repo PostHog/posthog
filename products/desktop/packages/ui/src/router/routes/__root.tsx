@@ -210,7 +210,10 @@ function RootLayout() {
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const spaceFilesEnabled = useFeatureFlag(SPACE_FILES_FLAG);
+  const spaceFilesEnabled = useFeatureFlag(
+    SPACE_FILES_FLAG,
+    import.meta.env.DEV,
+  );
   const channelsWorld = useChannelsWorld();
   // The new channels layout has exactly one gate: its feature flag (no
   // sidebar toggle). When on it subsumes the channels alpha entirely.
