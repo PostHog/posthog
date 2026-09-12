@@ -103,9 +103,11 @@ Don't guess table or column names — they differ per entity and drift over time
 - `relationships` — one row per joinable relationship. Fields: source_table, source_column, target_table, target_column, relationship_kind, via, confidence, reasoning.
 - `data_types` — one row per HogQL type. Fields: type_name, description.
 
-`certification` on `tables` and `confidence` / `reasoning` on `relationships` come from the data catalog. A project without the data catalog does not expose them, and neither does a direct connection queried with `connectionId`. An unknown-field error on one of those three means that context, not a wrong field name.
+`certification` on `tables` and `confidence` / `reasoning` on `relationships` come from the data catalog. The project catalog, which is what `execute-sql` reads by default, always carries all three. A caller without data catalog access still selects them, and every value reads NULL. A NULL there means an unmarked table or a caller without access, never a wrong field name.
 
-The same namespace carries six more catalog surfaces, each about project state rather than schema: `metrics`, `certifications` (the full trust-mark review queue, as opposed to the settled `tables.certification` mark), `relationship_proposals`, `data_quality_checks`, `data_quality_check_runs`, and `data_quality_health`.
+The same namespace carries six more catalog surfaces, each about project state rather than schema: `metrics`, `certifications` (the full trust-mark review queue, as opposed to the settled `tables.certification` mark), `relationship_proposals`, `data_quality_checks`, `data_quality_check_runs`, and `data_quality_health`. The project serves the three data-quality surfaces only while data quality checks are on for it.
+
+A direct connection queried with `connectionId` is the runtime that drops surfaces. It serves `tables`, `columns`, and `data_types` only, and its `tables` has no `certification`. Leave `certification` out of a `connectionId` query. Do not read `relationships` there before a join, because the surface is absent and the query fails on an unknown table.
 
 Every surface describes itself, so its live field set is always discoverable — ask the catalog instead of trusting the lists above:
 
