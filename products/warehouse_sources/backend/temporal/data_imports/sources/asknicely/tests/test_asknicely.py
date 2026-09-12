@@ -13,9 +13,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.
     _to_unix_timestamp,
     asknicely_source,
     build_responses_url,
+    build_stats_url,
+    build_unsubscribed_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.settings import RESPONSES_PAGE_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.settings import (
+    RESPONSES_PAGE_SIZE,
+    UNSUBSCRIBED_PAGE_SIZE,
+)
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.asknicely"
 
@@ -37,22 +42,27 @@ def _manager(resume: Optional[AskNicelyResumeConfig] = None) -> mock.MagicMock:
     return manager
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[str]:
-    """Wire a mock session and capture each request's URL AT PREPARE TIME.
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
+    """Wire a mock session and capture each request's URL and params AT PREPARE TIME.
 
-    The paginator mutates ``request.url`` in place across pages, so inspecting it after the run
-    shows only the final URL — snapshot it when each request is prepared instead.
+    The paginators mutate ``request.url`` and ``request.params`` in place across pages, so
+    inspecting them after the run shows only the final page — snapshot each request as it is
+    prepared instead.
     """
     session.headers = {}
-    url_snapshots: list[str] = []
+    snapshots: list[tuple[str, dict[str, Any]]] = []
 
     def _prepare(request: Any) -> mock.MagicMock:
-        url_snapshots.append(request.url)
+        snapshots.append((request.url, dict(request.params or {})))
         return mock.MagicMock()
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
-    return url_snapshots
+    return snapshots
+
+
+def _urls(calls: list[tuple[str, dict[str, Any]]]) -> list[str]:
+    return [url for url, _ in calls]
 
 
 def _rows(source_response) -> list[dict[str, Any]]:
@@ -105,15 +115,16 @@ class TestAsknicely:
         manager: mock.MagicMock,
         should_use_incremental_field: bool = False,
         db_incremental_field_last_value: Any = None,
-    ) -> tuple[list[dict[str, Any]], list[str]]:
+        endpoint: str = "responses",
+    ) -> tuple[list[dict[str, Any]], list[tuple[str, dict[str, Any]]]]:
         session = mock.MagicMock()
-        urls = _wire(session, responses)
+        calls = _wire(session, responses)
         with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
             rows = _rows(
                 asknicely_source(
                     subdomain="acme",
                     api_key="key",
-                    endpoint="responses",
+                    endpoint=endpoint,
                     team_id=1,
                     job_id="job-1",
                     resumable_source_manager=manager,
@@ -121,7 +132,7 @@ class TestAsknicely:
                     db_incremental_field_last_value=db_incremental_field_last_value,
                 )
             )
-        return rows, urls
+        return rows, calls
 
     def test_paginates_until_totalpages_and_normalizes_rows(self) -> None:
         manager = _manager()
@@ -130,12 +141,12 @@ class TestAsknicely:
             _response([{"response_id": "r2", "responded": "200"}], total_pages=2),
         ]
 
-        rows, urls = self._run(responses, manager)
+        rows, calls = self._run(responses, manager)
 
         assert [row["response_id"] for row in rows] == ["r1", "r2"]
         # String timestamps are coerced to ints via the data_map.
         assert rows[0]["responded"] == 100
-        assert urls == [
+        assert _urls(calls) == [
             build_responses_url("acme", page_number=1, since_time=0),
             build_responses_url("acme", page_number=2, since_time=0),
         ]
@@ -148,54 +159,107 @@ class TestAsknicely:
             _response([]),
         ]
 
-        rows, urls = self._run(responses, _manager())
+        rows, calls = self._run(responses, _manager())
 
         assert len(rows) == RESPONSES_PAGE_SIZE
-        assert len(urls) == 2
+        assert len(calls) == 2
 
     def test_short_page_without_totalpages_terminates(self) -> None:
-        rows, urls = self._run([_response([{"response_id": "r1", "responded": "100"}])], _manager())
+        rows, calls = self._run([_response([{"response_id": "r1", "responded": "100"}])], _manager())
 
         assert [row["response_id"] for row in rows] == ["r1"]
-        assert len(urls) == 1
+        assert len(calls) == 1
 
     def test_incremental_since_time_steps_back_one_second(self) -> None:
-        _, urls = self._run(
+        _, calls = self._run(
             [_response([])],
             _manager(),
             should_use_incremental_field=True,
             db_incremental_field_last_value=1700000000,
         )
-        assert urls == [build_responses_url("acme", page_number=1, since_time=1699999999)]
+        assert _urls(calls) == [build_responses_url("acme", page_number=1, since_time=1699999999)]
 
     def test_incremental_since_time_clamps_at_zero(self) -> None:
-        _, urls = self._run(
+        _, calls = self._run(
             [_response([])],
             _manager(),
             should_use_incremental_field=True,
             db_incremental_field_last_value=0,
         )
-        assert urls == [build_responses_url("acme", page_number=1, since_time=0)]
+        assert _urls(calls) == [build_responses_url("acme", page_number=1, since_time=0)]
 
     def test_resumes_from_saved_page_and_cutoff(self) -> None:
         # The saved since_time must win over a freshly derived one: page numbering is only
         # stable against the cutoff the interrupted run used.
         manager = _manager(AskNicelyResumeConfig(page_number=3, since_time=500))
 
-        _, urls = self._run(
+        _, calls = self._run(
             [_response([])],
             manager,
             should_use_incremental_field=True,
             db_incremental_field_last_value=1700000000,
         )
 
-        assert urls == [build_responses_url("acme", page_number=3, since_time=500)]
+        assert _urls(calls) == [build_responses_url("acme", page_number=3, since_time=500)]
 
     def test_no_checkpoint_on_single_short_page(self) -> None:
         # A run that finishes on its first page must never checkpoint — there is no next page.
         manager = _manager()
         self._run([_response([{"response_id": "r1", "responded": "100"}])], manager)
         manager.save_state.assert_not_called()
+
+    def test_unsubscribed_paginates_by_page_number_and_normalizes_rows(self) -> None:
+        manager = _manager()
+        first = [
+            {"id": str(i), "unsubscribetime": "1452219376", "email": f"c{i}@example.com"}
+            for i in range(UNSUBSCRIBED_PAGE_SIZE)
+        ]
+        responses = [_response(first), _response([{"id": "last", "unsubscribetime": "1452219999"}])]
+
+        rows, calls = self._run(responses, manager, endpoint="contacts_unsubscribed")
+
+        assert len(rows) == UNSUBSCRIBED_PAGE_SIZE + 1
+        # The unix timestamp arrives as a string; it has to be an int to partition on and to
+        # compare against the responses table's timestamps.
+        assert rows[0]["unsubscribetime"] == 1452219376
+        assert _urls(calls) == [build_unsubscribed_url("acme")] * 2
+        assert [params["pagenumber"] for _, params in calls] == [1, 2]
+        assert {params["pagesize"] for _, params in calls} == {UNSUBSCRIBED_PAGE_SIZE}
+        # The short second page ends the walk, so only the one page boundary is checkpointed.
+        manager.save_state.assert_called_once_with(AskNicelyResumeConfig(page_number=2, since_time=0))
+
+    def test_unsubscribed_resumes_from_saved_page(self) -> None:
+        manager = _manager(AskNicelyResumeConfig(page_number=3))
+
+        _, calls = self._run([_response([])], manager, endpoint="contacts_unsubscribed")
+
+        assert [params["pagenumber"] for _, params in calls] == [3]
+
+    def test_stats_fetches_one_page_and_never_checkpoints(self) -> None:
+        # The stats series comes back whole, so a second request would re-read the same rows
+        # and a saved checkpoint would leave a later run resuming a page that never existed.
+        manager = _manager()
+
+        rows, calls = self._run(
+            [_response([{"year": "2023", "month": "8", "day": "16", "nps": "50.0"}])],
+            manager,
+            endpoint="stats",
+        )
+
+        assert [row["day"] for row in rows] == ["16"]
+        assert _urls(calls) == [build_stats_url("acme")]
+        manager.save_state.assert_not_called()
+
+    def test_unknown_endpoint_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unknown AskNicely endpoint"):
+            asknicely_source(
+                subdomain="acme",
+                api_key="key",
+                endpoint="nope",
+                team_id=1,
+                job_id="job-1",
+                resumable_source_manager=_manager(),
+            )
 
     def test_sync_session_disables_capture_and_redirects(self) -> None:
         # Survey bodies stay out of HTTP sample capture, and the X-apikey header must never be
