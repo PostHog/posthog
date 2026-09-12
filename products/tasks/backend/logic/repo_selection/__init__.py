@@ -1,3 +1,4 @@
+from importlib import import_module
 from typing import TYPE_CHECKING
 
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
@@ -43,13 +44,19 @@ _LAZY_FROM_AGENT = frozenset(
 _LAZY_FROM_CASCADE = frozenset({"select_repository_for_message"})
 
 
+def _load(module_name: str, name: str) -> object:
+    # `from <package> import <name>` discards any AttributeError `__getattr__` raises, reporting a failure
+    # inside the loaded module as a missing re-export here. Re-raise it as ImportError to keep the cause.
+    try:
+        module = import_module(f"{__name__}.{module_name}")
+        return getattr(module, name)
+    except AttributeError as error:
+        raise ImportError(f"cannot load {name!r} from {__name__}.{module_name}") from error
+
+
 def __getattr__(name: str) -> object:
     if name in _LAZY_FROM_AGENT:
-        from products.tasks.backend.logic.repo_selection import agent
-
-        return getattr(agent, name)
+        return _load("agent", name)
     if name in _LAZY_FROM_CASCADE:
-        from products.tasks.backend.logic.repo_selection import cascade
-
-        return getattr(cascade, name)
+        return _load("cascade", name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
