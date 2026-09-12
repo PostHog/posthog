@@ -145,7 +145,10 @@ class TestCanvasFork(CanvasSharingTestBase):
         self, *, allow_forking: bool, password_required: bool = False, capabilities: dict[str, Any] | None = None
     ) -> str:
         canvas_id = self._create_canvas(name="Shared board")
-        self._publish_ready(canvas_id, **({"capabilities": capabilities} if capabilities else {}))
+        if capabilities:
+            self._publish_ready(canvas_id, capabilities=capabilities)
+        else:
+            self._publish_ready(canvas_id)
         access_token = self._enable_sharing(canvas_id)
         with team_scope(self.team.id):
             config = SharingConfiguration.objects.get(access_token=access_token)
