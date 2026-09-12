@@ -321,6 +321,50 @@ tools:
     sandbox-retrieve:
         operation: sandbox_retrieve
         enabled: false
+    space-files-create:
+        operation: space_files_create
+        enabled: false
+    space-files-get:
+        operation: space_files_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a space file
+        description: >
+            Get a Markdown file from a Tasks space, including its content and current version. Read the file before
+            updating it so you can send the version as base_version.
+        feature_flag: posthog-desktop-space-files
+    space-files-list:
+        operation: space_files_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List space files
+        description: List Markdown files in Tasks spaces you can access. File content is omitted from the list.
+        feature_flag: posthog-desktop-space-files
+    space-files-update:
+        operation: space_files_partial_update
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update a space file
+        description: >
+            Replace a Markdown file's complete content. Get the file first and send its version as base_version. A stale
+            version returns a conflict without changing the file.
+        feature_flag: posthog-desktop-space-files
     task-activity-list:
         operation: task_activity_list
         enabled: false
