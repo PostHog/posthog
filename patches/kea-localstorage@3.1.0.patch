@@ -1,0 +1,94 @@
+diff --git a/lib/index.js b/lib/index.js
+index 57681b67659efefd8f5f4bd4639e54611cc4296f..608b5db23d75d1990382de82101b7574b954a532 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -61,25 +61,37 @@ function persistReducer(key) {
+         (_d = (_j = logic.cache).localStorage) !== null && _d !== void 0 ? _d : (_j.localStorage = {});
+         (_e = (_k = logic.cache).localStorageDefaults) !== null && _e !== void 0 ? _e : (_k.localStorageDefaults = {});
+         (_f = (_l = logic.cache.localStorageDefaults)[key]) !== null && _f !== void 0 ? _f : (_l[key] = (_g = logic.defaults[key]) !== null && _g !== void 0 ? _g : null);
++        // PostHog patch: only put values in storage that JSON.parse can read back. Upstream wrote
++        // raw values and the literal `undefined`, and both fail to parse on every later load, so
++        // one bad write kept the key broken for the rest of that browser's life.
++        var writeToStorage = function (value) {
++            if (typeof value !== 'undefined' && typeof value !== 'function') {
++                storageEngine[path] = JSON.stringify(value);
++            }
++        };
+         if (typeof storageEngine[path] !== 'undefined') {
+             try {
+                 logic.defaults[key] = JSON.parse(storageEngine[path]);
+             }
+             catch (e) {
+-                storageEngine[path] = undefined;
++                // can't deserialize a value? pretend it never existed
++                writeToStorage((_h = logic.defaults[key]) !== null && _h !== void 0 ? _h : null);
+             }
+         }
+         else {
+-            storageEngine[path] = (_h = logic.defaults[key]) !== null && _h !== void 0 ? _h : null;
++            writeToStorage((_h = logic.defaults[key]) !== null && _h !== void 0 ? _h : null);
+         }
+         storageCache[path] = logic.defaults[key];
+         var reducer = logic.reducers[key];
+         if (reducer) {
+-            logic.reducers[key] = function (state, action) {
+-                var result = reducer(state, action);
++            // PostHog patch: kea 4 passes the full store state as a third argument and resolves a
++            // lazy default from it. Drop that argument and the default resolves to undefined, which
++            // kea throws on for every dispatch that follows in the session.
++            logic.reducers[key] = function (state, action, fullState) {
++                var result = reducer(state, action, fullState);
+                 if (storageCache[path] !== result) {
+                     storageCache[path] = result;
+-                    storageEngine[path] = JSON.stringify(result);
++                    writeToStorage(result);
+                 }
+                 return result;
+             };
+diff --git a/src/index.ts b/src/index.ts
+index 2d052b737f0373eaf1d8e760eba59d0b7cd0c213..8b1d3b29baf5504fa89a1e842bd2e8acb701299b 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -89,25 +89,37 @@ export function persistReducer<L extends Logic>(key: keyof L['reducers']): Logic
+     logic.cache.localStorageDefaults ??= {}
+     logic.cache.localStorageDefaults[key] ??= logic.defaults[key as any] ?? null
+ 
++    // PostHog patch: only put values in storage that JSON.parse can read back. Upstream wrote raw
++    // values and the literal `undefined`, and both fail to parse on every later load, so one bad
++    // write kept the key broken for the rest of that browser's life.
++    const writeToStorage = (value: any): void => {
++      if (typeof value !== 'undefined' && typeof value !== 'function') {
++        storageEngine[path] = JSON.stringify(value)
++      }
++    }
++
+     if (typeof storageEngine[path] !== 'undefined') {
+       try {
+         logic.defaults[key as any] = JSON.parse(storageEngine[path])
+       } catch (e) {
+         // can't deserialize a value? pretend it never existed
+-        storageEngine[path] = undefined
++        writeToStorage(logic.defaults[key as any] ?? null)
+       }
+     } else {
+-      storageEngine[path] = logic.defaults[key as any] ?? null
++      writeToStorage(logic.defaults[key as any] ?? null)
+     }
+     storageCache[path] = logic.defaults[key as any]
+ 
+     const reducer = logic.reducers[key as any]
+     if (reducer) {
+-      logic.reducers[key as any] = (state, action) => {
+-        const result = reducer(state, action)
++      // PostHog patch: kea 4 passes the full store state as a third argument and resolves a lazy
++      // default from it. Drop that argument and the default resolves to undefined, which kea
++      // throws on for every dispatch that follows in the session.
++      logic.reducers[key as any] = (state, action, fullState) => {
++        const result = reducer(state, action, fullState)
+         if (storageCache[path] !== result) {
+           storageCache[path] = result
+-          storageEngine[path] = JSON.stringify(result)
++          writeToStorage(result)
+         }
+         return result
+       }

@@ -198,6 +198,9 @@ patchedDependencies:
   heatmap.js@2.0.5:
     hash: d95e6638894935a75bd93b60b5243cb825892a1eedcc4c9a125a3e7dce8b64f0
     path: patches/heatmap.js@2.0.5.patch
+  kea-localstorage@3.1.0:
+    hash: b0d8da37142c9233ef09de0122604014024e02db863a50ea5b5357d28d107ede
+    path: patches/kea-localstorage@3.1.0.patch
   kea@4.0.0-pre.6:
     hash: 139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5
     path: patches/kea@4.0.0-pre.6.patch
@@ -1087,7 +1090,7 @@ importers:
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-localstorage:
         specifier: 'catalog:'
-        version: 3.1.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.0(patch_hash=b0d8da37142c9233ef09de0122604014024e02db863a50ea5b5357d28d107ede)(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -39887,7 +39890,7 @@ snapshots:
     dependencies:
       kea: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
 
-  kea-localstorage@3.1.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)):
+  kea-localstorage@3.1.0(patch_hash=b0d8da37142c9233ef09de0122604014024e02db863a50ea5b5357d28d107ede)(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)):
     dependencies:
       kea: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
 
