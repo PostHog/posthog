@@ -160,7 +160,10 @@ class TestAgentProxyCallback(TestCase):
 
     def test_awaiting_input_dispatches_for_interactive_run(self) -> None:
         run = self.task.create_run(mode="interactive")
-        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify:
+        with (
+            patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify,
+            patch.object(TaskRun, "signal_agent_turn_completed", return_value=True) as signal_turn_completed,
+        ):
             response = self._post(
                 self._body(kind="awaiting_input", agent_active=False),
                 token=self._token(run),
@@ -169,13 +172,21 @@ class TestAgentProxyCallback(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["dispatched"])
         notify.assert_called_once()
+        signal_turn_completed.assert_called_once()
 
-    def test_awaiting_input_skipped_for_background_run(self) -> None:
-        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify:
+    def test_awaiting_input_signals_workflow_for_background_run(self) -> None:
+        # A background run has no push notification, but the workflow still needs the
+        # end-of-turn observation: it is what separates a finished run from one whose
+        # sandbox died mid-turn when the inactivity timeout later fires.
+        with (
+            patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify,
+            patch.object(TaskRun, "signal_agent_turn_completed", return_value=True) as signal_turn_completed,
+        ):
             response = self._post(self._body(kind="awaiting_input", agent_active=False), token=self._token())
         self.assertEqual(response.status_code, 200)
-        self.assertFalse(response.json()["dispatched"])
+        self.assertTrue(response.json()["dispatched"])
         notify.assert_not_called()
+        signal_turn_completed.assert_called_once()
 
     def test_unknown_run_returns_200_not_dispatched(self) -> None:
         run = self.task.create_run()

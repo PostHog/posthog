@@ -1,3 +1,4 @@
+from .check_agent_active_flag import CheckAgentActiveFlagInput, check_agent_active_flag
 from .cleanup_sandbox import CleanupSandboxInput, CompleteRunStreamInput, cleanup_sandbox, complete_run_stream
 from .create_resume_snapshot import CreateResumeSnapshotInput, CreateResumeSnapshotOutput, create_resume_snapshot
 from .emit_progress_activity import EmitProgressInput, emit_progress_activity
@@ -165,6 +166,8 @@ __all__ = [
     "mark_repo_ready",
     "track_workflow_event",
     "update_task_run_status",
+    "check_agent_active_flag",
+    "CheckAgentActiveFlagInput",
     "clone_repository_in_sandbox",
     "materialize_context_layer_in_sandbox",
     "MaterializeContextLayerInput",

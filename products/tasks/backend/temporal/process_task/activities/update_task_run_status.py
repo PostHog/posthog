@@ -26,6 +26,10 @@ TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 TIMED_OUT_WALL_CLOCK_STATE_KEY = "timed_out_wall_clock"
 # TaskRun.state marker for runs terminalized because their sandbox disappeared.
 SANDBOX_GONE_STATE_KEY = "sandbox_gone"
+# TaskRun.state marker for runs whose agent was still mid-turn at termination — the sandbox
+# or agent-server died before the turn ended, so the run delivered nothing. Written alongside
+# the timeout markers above, which carry how the run ended; this one carries why it failed.
+AGENT_LOST_STATE_KEY = "agent_lost"
 USAGE_METRICS_RECORDED_STATE_KEY = "usage_metrics_recorded"
 
 # Allowlist for `timeout_marker` so the activity never writes an arbitrary state key.
@@ -50,6 +54,9 @@ class UpdateTaskRunStatusInput:
     # One of _TERMINAL_STATE_MARKERS, recorded as a True key in TaskRun.state.
     # Optional with a default for the same in-flight payload reason as error_type.
     timeout_marker: Optional[str] = None
+    # True when the workflow's evidence shows the agent died mid-turn; defaulted for the
+    # same in-flight payload reason as error_type.
+    agent_lost: bool = False
     agent_active_at_termination: Optional[bool] = None
     end_of_turn_received: Optional[bool] = None
     last_agent_heartbeat_at: Optional[str] = None
@@ -95,9 +102,14 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             if input.error_message:
                 task_run.error_message = input.error_message
             marker = TIMED_OUT_INACTIVITY_STATE_KEY if input.timed_out_inactivity else input.timeout_marker
+            state_updates: dict[str, Any] = {}
             if marker in _TERMINAL_STATE_MARKERS:
+                state_updates[marker] = True
+            if input.agent_lost:
+                state_updates[AGENT_LOST_STATE_KEY] = True
+            if state_updates:
                 # Atomic merge so concurrent state writers aren't clobbered; reassigned so reads below see it.
-                task_run.state = TaskRun.update_state_atomic(task_run.id, updates={marker: True})
+                task_run.state = TaskRun.update_state_atomic(task_run.id, updates=state_updates)
             if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
                 task_run.completed_at = timezone.now()
             elif (

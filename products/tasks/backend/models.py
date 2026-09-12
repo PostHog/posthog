@@ -2524,6 +2524,28 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
+    def signal_agent_turn_completed(self) -> bool:
+        """Tell the workflow the agent's turn ended.
+
+        On the event-ingest transport no SSE relay runs, so this is the only way the
+        end-of-turn observation reaches the workflow. Best-effort: the ingest plane's
+        Redis agent-active flag stays the durable record when the signal is lost.
+        """
+        import asyncio
+
+        from posthog.temporal.common.client import sync_connect
+
+        from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(self.workflow_id)
+            asyncio.run(handle.signal(ProcessTaskWorkflow.agent_state_changed, arg=False))
+            return True
+        except Exception as e:
+            logger.warning("task_run.agent_turn_completed_signal_failed", task_run_id=str(self.id), error=str(e))
+            return False
+
     def signal_agent_boot_milestone(
         self, milestone: Literal["agent_command_dispatched", "agent_activity_observed"]
     ) -> bool:

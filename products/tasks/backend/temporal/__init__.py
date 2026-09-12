@@ -14,6 +14,7 @@ from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
 from .loops import RunLoopWorkflow, run_loop_trigger_activity
 from .process_task.activities import (
     await_agent_server_ready,
+    check_agent_active_flag,
     checkout_branch_in_sandbox,
     cleanup_sandbox,
     clone_repository_in_sandbox,
@@ -114,6 +115,7 @@ ACTIVITIES = [
     start_dev_stack_preview,
     wait_dev_stack_preview,
     update_task_run_status,
+    check_agent_active_flag,
     get_pr_context,
     get_pr_babysit_snapshot,
     relay_slack_message,

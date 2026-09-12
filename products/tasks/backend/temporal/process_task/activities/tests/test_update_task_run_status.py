@@ -10,6 +10,7 @@ from temporalio.testing import ActivityEnvironment
 from products.tasks.backend.models import Loop, Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
+    AGENT_LOST_STATE_KEY,
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_INACTIVITY_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
@@ -203,6 +204,32 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.status == TaskRun.Status.FAILED
         assert test_task_run.error_message is None
         assert test_task_run.state.get(marker) is True
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "input_kwargs,expected_how_marker",
+        [
+            ({"timed_out_inactivity": True}, TIMED_OUT_INACTIVITY_STATE_KEY),
+            ({"timeout_marker": SANDBOX_GONE_STATE_KEY}, SANDBOX_GONE_STATE_KEY),
+        ],
+    )
+    def test_agent_lost_is_recorded_alongside_the_timeout_marker(
+        self, activity_environment, test_task_run, input_kwargs, expected_how_marker
+    ):
+        # Both keys must land: the timeout marker says how the run ended, agent_lost says why
+        # it failed, and dropping either loses the evidence a dead mid-turn run was detected on.
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.FAILED,
+            agent_lost=True,
+            **input_kwargs,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert test_task_run.status == TaskRun.Status.FAILED
+        assert test_task_run.state.get(AGENT_LOST_STATE_KEY) is True
+        assert test_task_run.state.get(expected_how_marker) is True
 
     @pytest.mark.django_db(transaction=True)
     def test_unknown_timeout_marker_is_not_written(self, activity_environment, test_task_run):
