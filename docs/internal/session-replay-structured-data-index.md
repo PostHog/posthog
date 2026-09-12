@@ -1,6 +1,7 @@
 # Session replay structured data index
 
-The ML mirror writes a sparse Parquet index for full snapshots, `$json_ld` custom events, and URL changes.
+The ML mirror extracts a sparse index for full snapshots, `$json_ld` custom events, and URL changes.
+V1 stores separate Parquet index files; v2 keeps the entries inside encrypted block metadata.
 Use it to find candidate labels and block locations without downloading DOM payloads.
 The native anonymizer extracts metadata after scrubbing and passes it beside the serialized recording bytes.
 The ordinary replay ingestion path does not extract this index.
@@ -9,17 +10,37 @@ See [ML mirror identifiers](session-replay-ml-team-ids.md) for identifier format
 
 ## Storage and lookup
 
-The existing metadata sink writes the index to the same bucket as block metadata.
-Its prefix is `<block-metadata-prefix>-replay-index/v2/`.
+### Encrypted v2 metadata
+
+V2 writes `block-metadata/v2/<YYYY-MM>/part-<writer>-<time>-<sequence>.parquet` in the recording bucket.
+The partition follows the session's UTC start month, including late arrivals.
+There is no separate plaintext v2 replay-index dataset.
+
+Use `ReplayV2Reader.metadata()` to decrypt selected metadata objects with live key and consent checks.
+Each returned block contains raw team and session IDs, its storage key and byte range, `replay_index_entries`, and `replay_index_truncated`.
+The entries retain their original fields, including `windowId`, `eventTimestamp`, `eventIndex`, and `rootTypes`.
+The sink does not apply the legacy index projection or URL enrichment to these encrypted entries.
+
+Data preparation must validate and flatten the entries before using the SQL example below.
+Attach the block's identifiers and storage location to each entry, and apply the URL matching rules in this guide.
+Map `windowId` to `window_id`, `eventTimestamp` to `event_ts_ms`, `eventIndex` to `event_index`, and `rootTypes` to `root_types`.
+Map the block's `replay_index_truncated` flag to `block_index_truncated`.
+The encrypted reader returns metadata; it does not create these query views.
+Use `ReplayV2Reader.recording()` to fetch and decrypt selected recording blocks before inspecting their events.
+
+### Legacy v1 sparse index
+
+The legacy metadata sink writes the index to the same bucket as block metadata.
+Its prefix is `<block-metadata-prefix>-replay-index/v1/`.
 For the default prefix, files have this form:
 
 ```text
-block-metadata-replay-index/v2/kind=json_ld/session_start_date=2026-09-01/part-<writer>-<time>-<sequence>.parquet
-block-metadata-replay-index/v2/kind=full_snapshot/session_start_date=2026-09-01/part-<writer>-<time>-<sequence>.parquet
-block-metadata-replay-index/v2/kind=page/session_start_date=2026-09-01/part-<writer>-<time>-<sequence>.parquet
+block-metadata-replay-index/v1/kind=json_ld/session_start_date=2026-09-01/part-<writer>-<time>-<sequence>.parquet
+block-metadata-replay-index/v1/kind=full_snapshot/session_start_date=2026-09-01/part-<writer>-<time>-<sequence>.parquet
+block-metadata-replay-index/v1/kind=page/session_start_date=2026-09-01/part-<writer>-<time>-<sequence>.parquet
 ```
 
-Each row identifies raw team and session IDs, the recording window, an event timestamp, and a zero-based event index within the decompressed block.
+Each legacy row identifies pseudonymized team and session IDs, the recording window, an event timestamp, and a zero-based event index within the decompressed block.
 The block key and inclusive byte range locate the independently compressed block.
 Timestamps use doubles so fractional milliseconds survive an exact join.
 Window IDs match the IDs in the scrubbed recording lines.
@@ -31,7 +52,7 @@ Types come from root objects, root arrays, and `@graph` members.
 Nested entity properties, such as a product's offers, do not contribute types.
 The types help select candidates; read the payload before deciding which label to use.
 
-The index partitions each row by its session's UTC start date, decoded from UUIDv7.
+The legacy index partitions each row by its session's UTC start date, decoded from UUIDv7.
 Entries for one session stay under one date, including separate blocks and late arrivals across midnight.
 This partition helps session lookups and cross-block joins. An arrival-date partition would make ingestion-time scans simpler, but would spread one session across dates.
 The index omits non-v7 session IDs and starts outside the interval from seven days before the block's last event through that event.
@@ -40,7 +61,8 @@ For an event-time search, include the preceding seven session-start dates and fi
 
 ## Full snapshot URLs
 
-The ML-mirror metadata consumer enriches index rows before writing Parquet.
+The legacy metadata consumer enriches index rows before writing Parquet.
+Apply these same matching rules when preparing decrypted v2 entries for queries.
 For JSON-LD, it copies the URL from the `page` entry at the same event index, then omits that duplicate page row.
 For a full snapshot, it uses a URL entry at the same event index or the immediately preceding event index.
 The URL entry must belong to the same window and have a timestamp no later than the snapshot.
@@ -59,7 +81,8 @@ Payload validation must account for this limit.
 
 ## Pairing labels with snapshots
 
-Read the requested session-start partitions into DuckDB views named `labels`, `snapshots`, and `pages`.
+For v1, read the requested session-start partitions into DuckDB views named `labels`, `snapshots`, and `pages`.
+For v2, create these views from the validated, projected entries in decrypted monthly metadata.
 Use `union_by_name=true` when reading Parquet files across schema versions.
 The following query finds candidates by URL and time, including separate blocks and out-of-order arrivals.
 Its one-second Meta gap and two-second label gap are example selection parameters, not SDK guarantees.
@@ -125,7 +148,8 @@ Missing events, masked Meta events, and URL collisions can also conceal a naviga
 Neither an adjacent URL nor a temporal fallback proves the label describes that snapshot.
 A later query can find late arrivals once both blocks exist; record the input object list to make a dataset run reproducible.
 
-Fetch each distinct block key and inclusive byte range once, then decompress its Snappy JSONL recording lines.
+For v1, fetch each distinct block key and inclusive byte range once, then decompress its Snappy JSONL recording lines.
+For v2, use the encrypted recording reader to perform the fetch, decryption, and decompression.
 Check the window, event kind, and timestamp at each event index before using its payload.
 Reject ambiguous matches, including distinct full snapshots that share a timestamp or several plausible snapshots for one label.
 A timestamp is not a unique rrweb event ID.
@@ -141,14 +165,16 @@ Exclude JSON-LD rows without URLs; do not infer those URLs from older SDK naviga
 
 Use the `url` on each `json_ld` row for site and page coverage.
 The SDK captures it in `data.href` at the same time as the label, after applying replay URL masking and hash settings.
-The shared recorder emits a label entry and a URL entry for that event; the ML-mirror consumer combines them by event index.
+The shared recorder emits a label entry and a URL entry for that event.
+The legacy consumer combines them by event index; v2 data preparation must apply the same projection.
 The anonymizer scrubs it again before extracting index metadata.
 This works when navigation events and JSON-LD arrive in separate payloads and needs no session URL cache.
 
 Exclude rows without a usable URL from coverage counts and dataset selection.
 Older SDKs do not send this field; URL masking can also omit it.
 The index retains those rows, but coverage queries do not infer their URLs from `page` events.
-JSON-LD events with a URL do not also create a `page` row in Parquet.
+The legacy projection omits the duplicate `page` row for JSON-LD events with a URL.
+The encrypted v2 entries retain both entries until data preparation combines them.
 
 Count distinct normalized scrubbed URLs as page families.
 Scrubbing can group similar paths, which helps deduplicate similar pages.
@@ -170,7 +196,8 @@ Keep split assignment stable across resampling and dataset versions.
 Audit examples where one scrubbed URL has different labels; URL deduplication alone must not silently choose a conflicting label.
 Exclude cross-split content duplicates or keep their domain groups together before freezing the final split.
 
-This layout supports a bounded-date Parquet scan followed by selective block fetches.
+The v1 layout supports a bounded-date Parquet scan followed by selective block fetches.
+V2 readers select monthly metadata objects, decrypt their payloads, and then fetch selected blocks.
 It does not provide an S3 point lookup by domain or URL: those filters still scan the selected date partitions.
 Cache the selected index locally for repeated sampling and split experiments.
 A compacted metadata table can reduce file-listing overhead later without changing SDK capture or replay storage.
@@ -181,12 +208,15 @@ Each block has a 128 KiB index budget. If it exceeds that budget, its retained e
 The recorder still stores all replay events.
 The metadata batcher also flushes at 32 MiB of input messages, checked after each Kafka batch.
 This limits accumulation to that threshold plus one input batch; decoded objects and Parquet encoding require additional memory.
-The metadata sink writes index partitions sequentially and commits Kafka offsets only after all index and block-metadata writes succeed.
+The legacy metadata sink writes index partitions sequentially.
+The v2 sink writes encrypted metadata by session month.
+Both paths commit Kafka offsets only after their storage writes succeed.
 A partial upload followed by a retry can produce duplicate rows.
 Deduplicate rows by team, session, block key, byte range, event index, and kind before counting them.
 Repeated source blocks can also have different storage keys, so dataset preparation still needs content deduplication.
 
-The existing write-error metric includes index failures.
+The existing write-error metric includes storage failures.
+The following index counters apply to the legacy projection.
 `ml_mirror_replay_index_rows_written_total` counts uploaded entries by kind, including retries.
 `ml_mirror_replay_index_skipped_total` counts invalid entries, blocks without a usable session start, and truncated blocks.
 These counters measure indexing, not unique sessions or pages.
@@ -199,7 +229,8 @@ This change does not backfill old recordings.
 ## JSON-LD URL rollout
 
 Deploy the anonymizer that scrubs `data.href` before releasing the SDK change that sends it.
-Deploy the updated ML-mirror metadata consumer to populate URLs on JSON-LD and full-snapshot Parquet rows.
+The updated legacy metadata consumer populates URLs on JSON-LD and full-snapshot Parquet rows.
+V2 data preparation applies this enrichment after decrypting the metadata entries.
 The existing schema and shared recorder already provide the fields needed by that consumer.
 Full-snapshot URL enrichment also works with older SDKs that send Meta events; JSON-LD coverage still requires the SDK URL addition.
 Existing events without `data.href` remain readable and do not contribute to URL-based coverage.

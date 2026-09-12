@@ -133,7 +133,7 @@ describe('ML metadata producer → sink round-trip', () => {
         await batcher.handleBatch(messages, 0)
         await batcher.flush(1) // force the window out
 
-        const rows = await readRows(puts.find((put) => put.Key!.startsWith('block-metadata/v2/dt='))!.Body)
+        const rows = await readRows(puts.find((put) => put.Key!.startsWith('block-metadata/v2/2026-09/'))!.Body)
         expect(rows).toHaveLength(1)
         expect(rows[0].distinct_id).toBeUndefined()
         expect(rows[0].urls).toBeUndefined()
