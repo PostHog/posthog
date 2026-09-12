@@ -21,8 +21,7 @@ from enum import StrEnum
 from functools import lru_cache, partial
 from typing import Optional
 
-from django.db.models import BigIntegerField, Case, CharField, Max, Value, When
-from django.db.models.functions import Coalesce
+from django.db.models import Case, CharField, Max, Value, When
 
 import structlog
 
@@ -34,6 +33,7 @@ from posthog.schema_enums import ProductKey
 from posthog.utils import ensure_utc, get_safe_cache, safe_cache_set
 
 from products.event_definitions.backend.models.event_definition import EventDefinition
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 logger = structlog.get_logger(__name__)
 
@@ -252,8 +252,9 @@ def _probe_event_definitions(specs: tuple[DataSourceSpec, ...], teams: list[Team
 
     queryset = (
         EventDefinition.objects.annotate(
-            # Mirrors the table's `(coalesce(project_id, team_id), name)` unique index.
-            scope_id=Coalesce("project_id", "team_id", output_field=BigIntegerField()),
+            # Mirrors the leading column of `eventdef_scope_last_seen_idx`, which the
+            # `last_seen_at` window below seeks.
+            scope_id=effective_project_id_expr(),
             source=Case(*whens, default=Value(residual), output_field=CharField()),
         )
         .filter(scope_id__in=scopes.keys(), last_seen_at__gte=window.cutoff, last_seen_at__lte=window.horizon)

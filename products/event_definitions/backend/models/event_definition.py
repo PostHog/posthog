@@ -1,11 +1,14 @@
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+from django.db.models.expressions import F
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 from posthog.utils import invalidate_default_event_info_cache
+
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 DEFAULT_EVENT_INFO_NAMES: frozenset[str] = frozenset({"$pageview", "$screen"})
 
@@ -60,6 +63,13 @@ class EventDefinition(UUIDTModel):
                 condition=models.Q(enforcement_mode="reject"),
             ),
             models.Index(fields=["team_id", "name"], name="posthog_eventdef_team_name_idx"),
+            # The unique index below is name-ordered, so a `last_seen_at` window over a project
+            # scope has to scan every definition in that scope. This one seeks the range.
+            models.Index(
+                effective_project_id_expr(),
+                F("last_seen_at"),
+                name="eventdef_scope_last_seen_idx",
+            ),
         ]
         constraints = [
             UniqueConstraintByExpression(
