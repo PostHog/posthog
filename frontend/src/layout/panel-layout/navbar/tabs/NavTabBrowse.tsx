@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { Fragment } from 'react'
+import { Fragment, MutableRefObject } from 'react'
 
 import {
     IconApps,
@@ -160,7 +160,7 @@ function AddToStarredDropdownAction({ item }: { item: FileSystemEntry }): JSX.El
     )
 }
 
-export function NavTabBrowse(): JSX.Element {
+export function NavTabBrowse({ scrollRef }: { scrollRef?: MutableRefObject<HTMLDivElement | null> }): JSX.Element {
     const { showLayoutPanel, setActivePanelIdentifier, clearActivePanelIdentifier, toggleNavSection } =
         useActions(panelLayoutLogic)
     const {
@@ -196,6 +196,7 @@ export function NavTabBrowse(): JSX.Element {
 
     return (
         <ScrollableShadows
+            scrollRef={scrollRef}
             className="flex-1"
             innerClassName="overflow-y-auto overflow-x-hidden px-2 focus-visible:outline-accent -outline-offset-2"
             direction="vertical"

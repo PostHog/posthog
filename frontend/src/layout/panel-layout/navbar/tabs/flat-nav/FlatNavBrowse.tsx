@@ -2,6 +2,7 @@ import './FlatNavBrowse.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { MutableRefObject } from 'react'
 
 import { IconClock, IconHome, IconNotification } from '@posthog/icons'
 
@@ -21,7 +22,7 @@ import { FlatNavPanelButtons } from './FlatNavPanelButtons'
 import { FlatNavProducts } from './FlatNavProducts'
 import { FlatNavRecents } from './FlatNavRecents'
 
-export function FlatNavBrowse(): JSX.Element {
+export function FlatNavBrowse({ scrollRef }: { scrollRef?: MutableRefObject<HTMLDivElement | null> }): JSX.Element {
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
     const { sidebarDensity, isSidebarSectionShown, isSidebarItemShown, uiCustomizationEnabled } =
         useValues(uiCustomizationLogic)
@@ -32,6 +33,7 @@ export function FlatNavBrowse(): JSX.Element {
     return (
         <div className="FlatNavBrowse flex flex-col flex-1 overflow-hidden" data-nav-density={sidebarDensity}>
             <ScrollableShadows
+                scrollRef={scrollRef}
                 className="flex-1"
                 innerClassName="overflow-y-auto overflow-x-hidden pl-2 pr-0.5 pt-1 focus-visible:outline-accent -outline-offset-2"
                 direction="vertical"

@@ -105,6 +105,7 @@ const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] =
 
 export function NavBar(): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
+    const browseScrollRef = useRef<HTMLDivElement | null>(null)
     const {
         toggleLayoutNavCollapsed,
         setNavExperimentTab,
@@ -153,6 +154,20 @@ export function NavBar(): JSX.Element {
         interaction: 'function',
         callback: toggleLayoutNavCollapsed,
     })
+
+    // Base UI fires onValueChange only when the value changes, so a click on the already-selected
+    // Browse tab reaches no handler at all. Acknowledge it by returning the sidebar to the top of
+    // the browse list.
+    function handleBrowseReselected(): void {
+        posthog.capture('nav tab reselected', { tab: 'home' })
+        if (activePanelIdentifier) {
+            clearActivePanelIdentifier()
+            showLayoutPanel(false)
+        }
+        const reduceMotion =
+            typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+        browseScrollRef.current?.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
+    }
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -256,6 +271,11 @@ export function NavBar(): JSX.Element {
                                 <Tabs.Tab
                                     key={tab.id}
                                     value={tab.id}
+                                    onClick={() => {
+                                        if (tab.id === 'home' && navExperimentActiveTab === 'home') {
+                                            handleBrowseReselected()
+                                        }
+                                    }}
                                     render={(props) => (
                                         <ButtonPrimitive
                                             {...props}
@@ -291,7 +311,11 @@ export function NavBar(): JSX.Element {
 
                     <div className="flex-1 overflow-hidden relative">
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
-                            {isFlatNavEnabled ? <FlatNavBrowse /> : <NavTabBrowse />}
+                            {isFlatNavEnabled ? (
+                                <FlatNavBrowse scrollRef={browseScrollRef} />
+                            ) : (
+                                <NavTabBrowse scrollRef={browseScrollRef} />
+                            )}
                         </Tabs.Panel>
                         {/* Lazy until first activated: the visited list only ever grows, so once
                             mounted the panel never unmounts — keepMounted then preserves it across
