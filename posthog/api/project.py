@@ -2026,6 +2026,8 @@ class ProjectViewSet(
                 detail=Detail(name="moved to another organization", changes=[project_change]),
             )
 
+            # Record departure for the losing organization. Its members can no longer reach this
+            # project, so an org-scoped audit entry is their only readable record.
             log_activity(
                 organization_id=current_organization.id,
                 team_id=None,
