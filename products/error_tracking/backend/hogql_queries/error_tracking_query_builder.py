@@ -87,6 +87,29 @@ def _merge(state_alias: str, base_aggregator: str) -> ast.Call:
     return ast.Call(name=base_aggregator + _MERGE_SUFFIX, args=[ast.Field(chain=["ev", state_alias])])
 
 
+def _occurrences_summed() -> ast.Call:
+    """Exact occurrence count of the optimized shape, summed over the inner per-bin counts."""
+    return ast.Call(name="sum", args=[ast.Field(chain=["ev", "occ"])])
+
+
+def _occurrences_counted() -> ast.Call:
+    """Exact occurrence count of the legacy single-query shape."""
+    return ast.Call(name="count", args=[])
+
+
+def _capped_at_occurrences(approximate: ast.Call, occurrences: ast.Call) -> ast.Call:
+    """Cap an approximate `uniq` count at the exact occurrence count.
+
+    One occurrence carries one user and one session, so a distinct count above
+    the occurrence count is HLL estimation error and never a real value.
+
+    `occurrences` must print identically to the `occurrences` alias of the same
+    query: ClickHouse folds aggregates by their printed expression, so a
+    divergence costs a second aggregate state per group.
+    """
+    return ast.Call(name="least", args=[approximate, occurrences])
+
+
 def _fingerprint_hash_expr() -> ast.Call:
     """Hash the fingerprint without resolving it to its materialized column.
 
@@ -548,9 +571,15 @@ class ErrorTrackingQueryBuilder:
         if self.query.withAggregations:
             exprs.extend(
                 [
-                    ast.Alias(alias="occurrences", expr=ast.Call(name="sum", args=[ast.Field(chain=["ev", "occ"])])),
-                    ast.Alias(alias="sessions", expr=_merge("sessions_state", "uniq")),
-                    ast.Alias(alias="users", expr=_merge("users_state", "uniq")),
+                    ast.Alias(alias="occurrences", expr=_occurrences_summed()),
+                    ast.Alias(
+                        alias="sessions",
+                        expr=_capped_at_occurrences(_merge("sessions_state", "uniq"), _occurrences_summed()),
+                    ),
+                    ast.Alias(
+                        alias="users",
+                        expr=_capped_at_occurrences(_merge("users_state", "uniq"), _occurrences_summed()),
+                    ),
                 ]
             )
             if self.query.volumeResolution > 0:
@@ -662,49 +691,41 @@ class ErrorTrackingQueryBuilder:
         if self.query.withAggregations:
             # `uuid` is the events primary key, so `count(DISTINCT uuid)` is
             # identical to `count()` but pays for a distinct hashset per group.
-            exprs.append(ast.Alias(alias="occurrences", expr=ast.Call(name="count", args=[])))
+            exprs.append(ast.Alias(alias="occurrences", expr=_occurrences_counted()))
             # `uniq()` is HLL-based and ~1-2% off vs exact `count(DISTINCT)`
             # on high-cardinality inputs, but much cheaper.
-            exprs.append(
-                ast.Alias(
-                    alias="sessions",
-                    expr=ast.Call(
-                        name="uniq",
+            sessions = ast.Call(
+                name="uniq",
+                args=[
+                    ast.Call(
+                        name="nullIf",
+                        args=[ast.Field(chain=["e", "$session_id"]), ast.Constant(value="")],
+                    )
+                ],
+            )
+            exprs.append(ast.Alias(alias="sessions", expr=_capped_at_occurrences(sessions, _occurrences_counted())))
+            users = ast.Call(
+                name="uniq",
+                args=[
+                    ast.Call(
+                        name="coalesce",
                         args=[
                             ast.Call(
                                 name="nullIf",
-                                args=[ast.Field(chain=["e", "$session_id"]), ast.Constant(value="")],
-                            )
-                        ],
-                    ),
-                )
-            )
-            exprs.append(
-                ast.Alias(
-                    alias="users",
-                    expr=ast.Call(
-                        name="uniq",
-                        args=[
-                            ast.Call(
-                                name="coalesce",
                                 args=[
                                     ast.Call(
-                                        name="nullIf",
-                                        args=[
-                                            ast.Call(
-                                                name="toString",
-                                                args=[ast.Field(chain=["e", "event_person_id"])],
-                                            ),
-                                            ast.Constant(value="00000000-0000-0000-0000-000000000000"),
-                                        ],
+                                        name="toString",
+                                        args=[ast.Field(chain=["e", "event_person_id"])],
                                     ),
-                                    ast.Field(chain=["e", "distinct_id"]),
+                                    ast.Constant(value="00000000-0000-0000-0000-000000000000"),
                                 ],
-                            )
+                            ),
+                            ast.Field(chain=["e", "distinct_id"]),
                         ],
-                    ),
-                )
+                    )
+                ],
             )
+            exprs.append(ast.Alias(alias="users", expr=_capped_at_occurrences(users, _occurrences_counted())))
             exprs.append(
                 ast.Alias(
                     alias="volumeRange",
