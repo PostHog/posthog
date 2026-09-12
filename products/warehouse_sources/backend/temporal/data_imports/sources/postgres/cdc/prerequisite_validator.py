@@ -24,20 +24,25 @@ def validate_cdc_prerequisites(
     conn: psycopg.Connection,
     management_mode: Literal["posthog", "self_managed"],
     tables: list[str],
-    schema: str = "public",
+    schema: str | None = "public",
     slot_name: str | None = None,
     publication_name: str | None = None,
 ) -> list[str]:
     """Validate that the database is ready for CDC.
 
+    `schema` is the single schema the source is configured to read. Pass None when the source
+    reads every schema, because schema discovery then names each table `schema.table` and the
+    entries in `tables` carry their own schema.
+
     Returns a list of user-facing error messages. Empty list = valid.
     """
     errors: list[str] = []
+    qualified_tables = _resolve_table_schemas(tables, schema)
 
     errors.extend(_check_pg_version(conn))
     errors.extend(_check_wal_level(conn))
-    errors.extend(_check_tables_have_primary_keys(conn, schema, tables))
-    errors.extend(_check_select_permission(conn, schema, tables))
+    errors.extend(_check_tables_have_primary_keys(conn, qualified_tables))
+    errors.extend(_check_select_permission(conn, qualified_tables))
 
     if management_mode == "posthog":
         errors.extend(_check_replication_role(conn))
@@ -97,7 +102,24 @@ def _check_wal_level(conn: psycopg.Connection) -> list[str]:
     return []
 
 
-def _check_tables_have_primary_keys(conn: psycopg.Connection, schema: str, tables: list[str]) -> list[str]:
+def _resolve_table_schemas(tables: list[str], schema: str | None) -> list[tuple[str, str]]:
+    """Pair each table with the schema that holds it.
+
+    A source configured for one schema lists bare table names, so they all take that schema. A
+    source that reads every schema lists them as `schema.table`, which must be split before a
+    catalog lookup, because `relname` holds the table name alone.
+    """
+    if schema is not None:
+        return [(schema, table) for table in tables]
+
+    resolved: list[tuple[str, str]] = []
+    for table in tables:
+        schema_name, separator, table_name = table.partition(".")
+        resolved.append((schema_name, table_name) if separator else ("public", table))
+    return resolved
+
+
+def _check_tables_have_primary_keys(conn: psycopg.Connection, tables: list[tuple[str, str]]) -> list[str]:
     """Each target table must have a primary key.
 
     Uses pg_catalog rather than information_schema because information_schema views
@@ -109,7 +131,7 @@ def _check_tables_have_primary_keys(conn: psycopg.Connection, schema: str, table
 
     errors: list[str] = []
     with conn.cursor() as cur:
-        for table in tables:
+        for schema, table in tables:
             cur.execute(
                 sql.SQL(
                     "SELECT COUNT(*) FROM pg_index i "
@@ -124,11 +146,11 @@ def _check_tables_have_primary_keys(conn: psycopg.Connection, schema: str, table
     return errors
 
 
-def _check_select_permission(conn: psycopg.Connection, schema: str, tables: list[str]) -> list[str]:
+def _check_select_permission(conn: psycopg.Connection, tables: list[tuple[str, str]]) -> list[str]:
     """Check SELECT permission on target tables."""
     errors: list[str] = []
     with conn.cursor() as cur:
-        for table in tables:
+        for schema, table in tables:
             try:
                 cur.execute(
                     sql.SQL("SELECT 1 FROM {}.{} LIMIT 0").format(sql.Identifier(schema), sql.Identifier(table))

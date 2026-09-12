@@ -1479,7 +1479,9 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 team_id=team_id,
             )
             try:
-                schema = config.schema.strip() if isinstance(config.schema, str) and config.schema.strip() else "public"
+                # A blank schema means discovery enumerated every schema and named each table
+                # `schema.table`, so the validator has to read the schema off each entry.
+                schema = config.schema.strip() if isinstance(config.schema, str) and config.schema.strip() else None
                 return validate_cdc_prerequisites(
                     conn=conn,
                     management_mode=management_mode,  # type: ignore[arg-type]
