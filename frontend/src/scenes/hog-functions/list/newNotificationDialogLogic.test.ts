@@ -4,6 +4,7 @@ import api from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { CyclotronJobFiltersType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { newNotificationDialogLogic } from './newNotificationDialogLogic'
 
@@ -26,7 +27,10 @@ describe('newNotificationDialogLogic', () => {
         } as any)
         createSpy = jest.spyOn(api.hogFunctions, 'create').mockResolvedValue({ id: 'created' } as any)
 
-        logic = newNotificationDialogLogic({ subTemplateId: 'mcp-tool-error', onCreated: () => {} })
+        logic = newNotificationDialogLogic({
+            triggers: [{ subTemplateId: 'mcp-tool-error', label: 'Tool error' }],
+            onCreated: () => {},
+        })
         logic.mount()
     })
 
@@ -60,5 +64,79 @@ describe('newNotificationDialogLogic', () => {
         // has to yield a constant for those rather than an empty string.
         expect(masking.hash).toContain("!= ''")
         expect(masking.hash).toContain('unknown-tool')
+    })
+
+    // Falling back to the sub-template's own filters would make the notification fire for every flag
+    it('creates a notification bound to one resource, named after it', async () => {
+        const boundFilters: CyclotronJobFiltersType = {
+            source: 'internal-events',
+            events: [{ id: '$activity_log_entry_created', type: 'events' }],
+            properties: [
+                { key: 'item_id', type: PropertyFilterType.Event, value: ['42'], operator: PropertyOperator.Exact },
+            ],
+        }
+        const boundLogic = newNotificationDialogLogic({
+            triggers: [{ subTemplateId: 'feature-flag-change', label: 'Flag changed', filters: boundFilters }],
+            onCreated: () => {},
+            scopeLabel: 'checkout-redesign',
+        })
+        boundLogic.mount()
+
+        try {
+            boundLogic.actions.setNotificationFormValues({
+                destination: 'slack',
+                slackIntegrationId: 1,
+                slackChannel: 'C123|releases',
+            })
+
+            await expectLogic(boundLogic, () => boundLogic.actions.submitNotificationForm()).toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledTimes(1)
+            expect(createSpy.mock.calls[0][0]).toMatchObject({
+                type: 'internal_destination',
+                name: 'Notify Slack for feature flag changes (checkout-redesign)',
+                filters: boundFilters,
+            })
+        } finally {
+            boundLogic.unmount()
+        }
+    })
+
+    // The chosen trigger, not the first one, decides the sub-template
+    it('creates the notification for the chosen trigger', async () => {
+        const staleFilters: CyclotronJobFiltersType = {
+            source: 'internal-events',
+            events: [{ id: '$feature_flag_stale', type: 'events' }],
+            properties: [
+                { key: 'flag_id', type: PropertyFilterType.Event, value: ['42'], operator: PropertyOperator.Exact },
+            ],
+        }
+        const multiLogic = newNotificationDialogLogic({
+            triggers: [
+                { subTemplateId: 'feature-flag-change', label: 'Flag changed' },
+                { subTemplateId: 'feature-flag-stale', label: 'Flag became stale', filters: staleFilters },
+            ],
+            onCreated: () => {},
+        })
+        multiLogic.mount()
+
+        try {
+            multiLogic.actions.setNotificationFormValues({
+                trigger: 'feature-flag-stale',
+                destination: 'slack',
+                slackIntegrationId: 1,
+                slackChannel: 'C123|releases',
+            })
+
+            await expectLogic(multiLogic, () => multiLogic.actions.submitNotificationForm()).toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledTimes(1)
+            expect(createSpy.mock.calls[0][0]).toMatchObject({
+                name: 'Notify Slack when a feature flag becomes stale',
+                filters: staleFilters,
+            })
+        } finally {
+            multiLogic.unmount()
+        }
     })
 })

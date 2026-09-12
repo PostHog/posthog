@@ -1585,6 +1585,44 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert len(response.json()["results"]) == 2
 
+    def test_list_with_filter_groups_finds_a_notification_bound_to_one_activity_log_item(self, *args):
+        # The shape a flag's Notifications tab creates and lists by
+        def bound_filters(item_id: str) -> dict:
+            return {
+                "source": "internal-events",
+                "events": [
+                    {
+                        "id": "$activity_log_entry_created",
+                        "type": "events",
+                        "properties": [
+                            {"key": "scope", "type": "event", "value": ["FeatureFlag"], "operator": "exact"}
+                        ],
+                    }
+                ],
+                "properties": [{"key": "item_id", "type": "event", "value": [item_id], "operator": "exact"}],
+            }
+
+        created_ids = {}
+        for item_id in ("42", "43"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": f"Notify Slack for feature flag changes (flag-{item_id})",
+                    "hog": "fetch('https://example.com');",
+                    "type": "internal_destination",
+                    "template_id": "template-slack",
+                    "inputs": {"slack_workspace": {"value": 1}, "channel": {"value": "#general"}},
+                    "filters": bound_filters(item_id),
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            created_ids[item_id] = response.json()["id"]
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_functions/?filter_groups={json.dumps([bound_filters('42')])}"
+        )
+        assert [result["id"] for result in response.json()["results"]] == [created_ids["42"]]
+
     def test_list_with_type_filter(self, *args):
         response_destination = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
