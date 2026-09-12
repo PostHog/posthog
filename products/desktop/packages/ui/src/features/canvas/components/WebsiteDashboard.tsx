@@ -1,8 +1,14 @@
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { CanvasLoadFailed } from "@posthog/ui/features/canvas/components/CanvasLoadFailed";
+import { CanvasNotFound } from "@posthog/ui/features/canvas/components/CanvasNotFound";
 import { FreeformCanvasView } from "@posthog/ui/features/canvas/freeform/FreeformCanvasView";
 import { GridCanvasView } from "@posthog/ui/features/canvas/grid/GridCanvasView";
-import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import {
+  useDashboard,
+  usePrimeCanvasView,
+} from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useIsDashboardEditing } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
+import { CanvasSkeleton } from "@posthog/ui/router/routeSkeletons";
 import { track } from "@posthog/ui/shell/analytics";
 import { useEffect, useRef } from "react";
 
@@ -11,10 +17,28 @@ import { useEffect, useRef } from "react";
 // view fetches its own record/source/build lifecycle — including the author
 // context, which the side panel edits against the saved record directly.
 // Grid-kind canvases render the widget-grid surface instead of the single app.
-export function WebsiteDashboard({ dashboardId }: { dashboardId: string }) {
+// A null record is a canvas this project does not have (a share link from
+// another project); the views would render it as a real, empty canvas.
+export function WebsiteDashboard({
+  dashboardId,
+  channelId,
+}: {
+  dashboardId: string;
+  channelId?: string;
+}) {
   const editing = useIsDashboardEditing(dashboardId);
-  const { dashboard } = useDashboard(dashboardId);
+  const { dashboard, isError, isFetching, error, refetch } =
+    useDashboard(dashboardId);
   const viewedDashboardIdRef = useRef<string | undefined>(undefined);
+
+  // Above the record gate below: the gate holds both views unmounted until the
+  // record resolves, and the freeform view's own prime is what used to start
+  // the rest of the open alongside it. A cold open — a share link, a deep
+  // link, a reload — has no hover prime to fall back on.
+  const primeCanvasView = usePrimeCanvasView();
+  useEffect(() => {
+    primeCanvasView(dashboardId);
+  }, [dashboardId, primeCanvasView]);
 
   useEffect(() => {
     if (!dashboard || viewedDashboardIdRef.current === dashboard.id) return;
@@ -27,7 +51,17 @@ export function WebsiteDashboard({ dashboardId }: { dashboardId: string }) {
     });
   }, [dashboard]);
 
-  if (dashboard?.kind === "grid") {
+  if (dashboard === undefined) {
+    return isError ? (
+      <CanvasLoadFailed error={error} retrying={isFetching} onRetry={refetch} />
+    ) : (
+      <CanvasSkeleton />
+    );
+  }
+  if (dashboard === null) {
+    return <CanvasNotFound channelId={channelId} />;
+  }
+  if (dashboard.kind === "grid") {
     return <GridCanvasView canvasId={dashboardId} interactive={editing} />;
   }
   return (

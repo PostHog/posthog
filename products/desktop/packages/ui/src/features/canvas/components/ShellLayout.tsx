@@ -349,9 +349,9 @@ export function ShellLayout() {
     strict: false,
     select: (p) => p.dashboardId,
   });
-  const { dashboard: selectedCanvas } = useDashboard(selectedCanvasId);
   const toolbarDashboardId = dashboardId ?? selectedCanvasId;
-  const toolbarChannelId = channelId ?? selectedCanvas?.channelId;
+  const { dashboard: toolbarCanvas } = useDashboard(toolbarDashboardId);
+  const toolbarChannelId = channelId ?? toolbarCanvas?.channelId;
 
   // Activity reads a task into its pane off the feed, so the session is not
   // always the one in the URL.
@@ -382,7 +382,10 @@ export function ShellLayout() {
     ? (channels.find((c) => c.id === toolbarChannelId)?.name ?? channelName)
     : channelName;
 
-  const isDashboardDetail = Boolean(toolbarDashboardId);
+  // A null record is a canvas this project does not have; the toolbar's Edit,
+  // Pin and Delete would act on a record that was never fetched.
+  const isDashboardDetail =
+    Boolean(toolbarDashboardId) && toolbarCanvas !== null;
   // The canvases grid (its own sub-route now that the channel index is the
   // static homepage, which carries its own header content).
   const isDashboardsGrid =

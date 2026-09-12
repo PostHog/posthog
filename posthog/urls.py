@@ -391,9 +391,12 @@ urlpatterns = [
     re_path("organization/confirm-creation", home),
     re_path("login", home),
     re_path("unsubscribe", home),
-    # Public bridges for desktop-app share links — deep-link into PostHog Desktop.
-    re_path(r"code/canvas/[^/]+/[^/]+", home),
-    re_path(r"code/task/[^/]+", home),
+    # Public bridges for desktop-app share links, which deep-link into PostHog Desktop.
+    # Anchored because re_path matches with re.search. The optional project prefix keeps
+    # links the web app used to inject one into working for logged-out recipients.
+    re_path(r"^(project/[^/]+/)?code/canvas/[^/]+/[^/]+", home),
+    re_path(r"^(project/[^/]+/)?code/channel/[^/]+", home),
+    re_path(r"^(project/[^/]+/)?code/task/[^/]+", home),
     re_path("verify_email", home),
     re_path(r"agentic/account-mismatch", home),
     # OAuth redirect target when logging the local frontend into a remote cloud region;

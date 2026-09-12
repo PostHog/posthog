@@ -43,6 +43,7 @@ const PATHS_WITHOUT_PROJECT_ID = new Set([
     'oauth',
     'shared',
     'embedded',
+    'code',
     'interview',
     'cli',
     'render_query',

@@ -16,6 +16,8 @@ const pathsWithoutProjectId = [
     'oauth',
     'shared',
     'embedded',
+    // /code/* are public bridges for PostHog Desktop share links; the app's link parser rejects a project prefix.
+    'code',
     'interview',
     'cli',
     'render_query',

@@ -277,12 +277,12 @@
     "codeCanvasLink": {
         "template": "/code/canvas/{channelId}/{dashboardId}",
         "params": ["channelId", "dashboardId"],
-        "scope": "project"
+        "scope": "global"
     },
     "codeChannelLink": {
         "template": "/code/channel/{channelId}",
         "params": ["channelId"],
-        "scope": "project"
+        "scope": "global"
     },
     "codeReview": {
         "template": "/code-review",
@@ -292,7 +292,7 @@
     "codeTaskLink": {
         "template": "/code/task/{taskId}",
         "params": ["taskId"],
-        "scope": "project"
+        "scope": "global"
     },
     "cohort": {
         "template": "/cohorts/{id}",

@@ -70,6 +70,19 @@ describe('router-utils', () => {
         })
     })
 
+    describe('desktop share link routes', () => {
+        it.each([
+            ['/code/canvas/chan-1/dash-1', '/code/canvas/chan-1/dash-1'],
+            ['/code/channel/chan-1', '/code/channel/chan-1'],
+            ['/code/channel/chan-1/tasks/task-1', '/code/channel/chan-1/tasks/task-1'],
+            ['/code/task/task-1', '/code/task/task-1'],
+            ['/project/123/code/canvas/chan-1/dash-1', '/code/canvas/chan-1/dash-1'],
+            ['/code-review', '/project/123/code-review'],
+        ])('routes %s to %s', (input, expected) => {
+            expect(addProjectIdIfMissing(input, 123)).toEqual(expected)
+        })
+    })
+
     describe('relative path normalization', () => {
         it('normalizes ../ prefix to absolute path with project id', () => {
             expect(addProjectIdIfMissing('../dashboard/1663553', 112509)).toEqual('/project/112509/dashboard/1663553')
