@@ -5,7 +5,6 @@ import { LemonCollapse, Link, Spinner } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { TicketPatternSeverityTag } from '../../components/TicketPatterns/TicketPatternSeverityTag'
-import { ticketPatternsLogic } from '../../components/TicketPatterns/ticketPatternsLogic'
 import { ticketPatternPanelLogic } from './ticketPatternPanelLogic'
 
 interface TicketPatternPanelProps {
@@ -13,8 +12,7 @@ interface TicketPatternPanelProps {
 }
 
 export function TicketPatternPanel({ ticketId }: TicketPatternPanelProps): JSX.Element | null {
-    const { patternsEnabled } = useValues(ticketPatternsLogic)
-    const { patterns, patternsLoading } = useValues(ticketPatternPanelLogic({ ticketId }))
+    const { patternsEnabled, patterns, patternsLoading } = useValues(ticketPatternPanelLogic({ ticketId }))
 
     if (!patternsEnabled || (!patternsLoading && patterns.length === 0)) {
         return null
