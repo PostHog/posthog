@@ -807,7 +807,7 @@ describe('IngestionConsumer', () => {
                     headers: [
                         { token: Buffer.from(team.api_token) },
                         { distinct_id: Buffer.from('user-old-event') },
-                        { timestamp: Buffer.from(oldEventTime.toISO()!) }, // Event time (when it actually happened)
+                        { timestamp: Buffer.from(oldEventTime.toMillis().toString()) }, // Event time as epoch ms, matching capture
                         { now: Buffer.from(ingestionTime.toISO()!) }, // Ingestion time (when we received it)
                         { historical_migration: Buffer.from('true') },
                     ],
@@ -817,7 +817,7 @@ describe('IngestionConsumer', () => {
                     headers: [
                         { token: Buffer.from(team.api_token) },
                         { distinct_id: Buffer.from('user-recent-event') },
-                        { timestamp: Buffer.from(recentEventTime.toISO()!) }, // Event time (when it actually happened)
+                        { timestamp: Buffer.from(recentEventTime.toMillis().toString()) }, // Event time as epoch ms, matching capture
                         { now: Buffer.from(ingestionTime.toISO()!) }, // Ingestion time (when we received it)
                         { historical_migration: Buffer.from('true') },
                     ],
