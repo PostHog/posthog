@@ -145,11 +145,11 @@ def _viewer_in_team(viewer: User, team_id: int) -> bool:
     return viewer.teams.filter(id=team_id).exists()
 
 
-def _viewer_can_edit_canvas(viewer: User, team: Team, canvas: Canvas) -> bool:
-    # The rule `_require_canvas_access` applies to changing a share, evaluated for the session user.
+def _viewer_canvas_access_level(viewer: User, team: Team, canvas: Canvas) -> AccessControlLevel | None:
+    # The per-object half of the rule `_require_canvas_access` applies to a share, evaluated for the
+    # session user. The channel half is `user_can_access_canvas`; both have to pass.
     access_control = UserAccessControl(user=viewer, team=team, organization_id=str(team.organization_id))
-    access_level = access_control.get_user_access_level(canvas)
-    return access_level is not None and access_level_satisfied_for_resource("canvas", access_level, "editor")
+    return access_control.get_user_access_level(canvas)
 
 
 def _shared_page_viewer(
@@ -1365,9 +1365,16 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if viewer is not None and _viewer_in_team(viewer, resource.team_id):
             if resource.canvas is not None:
                 is_creator = resource.canvas.created_by_id == viewer.id
-                if user_can_access_canvas(team_id=resource.team_id, user_id=viewer.id, canvas_id=resource.canvas_id):
+                access_level = _viewer_canvas_access_level(viewer, resource.team, resource.canvas)
+                if (
+                    access_level is not None
+                    and access_level_satisfied_for_resource("canvas", access_level, "viewer")
+                    and user_can_access_canvas(
+                        team_id=resource.team_id, user_id=viewer.id, canvas_id=resource.canvas_id
+                    )
+                ):
                     open_path = canvas_app_path(resource.canvas)
-                    if _viewer_can_edit_canvas(viewer, resource.team, resource.canvas):
+                    if access_level_satisfied_for_resource("canvas", access_level, "editor"):
                         sharing_api_path = f"/api/projects/{resource.team_id}/canvases/{resource.canvas_id}/sharing"
             elif resource.task_artifact is not None:
                 shared_artifact = resource.task_artifact

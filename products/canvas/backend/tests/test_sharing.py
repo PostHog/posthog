@@ -7,10 +7,13 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_sharing import mock_exporter_template
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, SharingConfiguration, Team
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.artifacts import create_canvas_artifact_url
 from products.canvas.backend.models import Canvas, CanvasBuild
 from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
@@ -201,6 +204,32 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
         assert payload["canvas"]["allow_forking"] is False
 
         self.client.logout()
+        assert self.client.get(f"/shared/{access_token}").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_a_link_that_is_off_stays_gone_for_a_member_denied_the_canvas(self):
+        canvas_id = self._create_canvas()
+        self._publish_ready(canvas_id)
+        access_token = self._enable_sharing(canvas_id)
+        turned_off = self.client.patch(self._sharing_url(canvas_id), {"enabled": False})
+        assert turned_off.status_code == status.HTTP_200_OK, turned_off.json()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", None)
+        # A creator is never denied their own canvas, so the deny only bites once someone else owns it.
+        with team_scope(self.team.id):
+            Canvas.objects.filter(id=canvas_id).update(created_by=owner)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="canvas",
+            resource_id=canvas_id,
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+
         assert self.client.get(f"/shared/{access_token}").status_code == status.HTTP_404_NOT_FOUND
 
     def test_someone_elses_personal_canvas_cannot_be_shared(self):
