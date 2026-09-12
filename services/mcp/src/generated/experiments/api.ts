@@ -879,6 +879,7 @@ export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperat
 export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsOneItemStartEventTwoKindDefault = `ExperimentExposureMetricSource`
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
@@ -910,6 +911,7 @@ export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneI
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault = `ExperimentExposureMetricSource`
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
@@ -5554,10 +5556,24 @@ export const ExperimentsCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        kind: zod
+                                            .literal('ExperimentExposureMetricSource')
+                                            .default(experimentsCreateBodyMetricsOneItemStartEventTwoKindDefault),
+                                        response: zod
+                                            .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                                            .optional(),
+                                        version: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('version of the node, used for schema migrations'),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    "For retention metrics: start event or the experiment's resolved exposure event."
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -6576,10 +6592,26 @@ export const ExperimentsCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        kind: zod
+                                            .literal('ExperimentExposureMetricSource')
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault
+                                            ),
+                                        response: zod
+                                            .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                                            .optional(),
+                                        version: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('version of the node, used for schema migrations'),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    "For retention metrics: start event or the experiment's resolved exposure event."
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -6796,6 +6828,7 @@ export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneIte
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsOneItemStartEventTwoKindDefault = `ExperimentExposureMetricSource`
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
@@ -6827,6 +6860,7 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropert
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoKindDefault = `ExperimentExposureMetricSource`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
@@ -11468,10 +11502,26 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        kind: zod
+                                            .literal('ExperimentExposureMetricSource')
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemStartEventTwoKindDefault
+                                            ),
+                                        response: zod
+                                            .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                                            .optional(),
+                                        version: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('version of the node, used for schema migrations'),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    "For retention metrics: start event or the experiment's resolved exposure event."
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -12494,10 +12544,26 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        kind: zod
+                                            .literal('ExperimentExposureMetricSource')
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoKindDefault
+                                            ),
+                                        response: zod
+                                            .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                                            .optional(),
+                                        version: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('version of the node, used for schema migrations'),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    "For retention metrics: start event or the experiment's resolved exposure event."
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -12791,6 +12857,7 @@ export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneI
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoKindDefault = `ExperimentExposureMetricSource`
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
@@ -12822,6 +12889,7 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePrope
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault = `ExperimentExposureMetricSource`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
@@ -17362,10 +17430,26 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        kind: zod
+                                            .literal('ExperimentExposureMetricSource')
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoKindDefault
+                                            ),
+                                        response: zod
+                                            .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                                            .optional(),
+                                        version: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('version of the node, used for schema migrations'),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    "For retention metrics: start event or the experiment's resolved exposure event."
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -18388,10 +18472,26 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        kind: zod
+                                            .literal('ExperimentExposureMetricSource')
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault
+                                            ),
+                                        response: zod
+                                            .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                                            .optional(),
+                                        version: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('version of the node, used for schema migrations'),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    "For retention metrics: start event or the experiment's resolved exposure event."
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])

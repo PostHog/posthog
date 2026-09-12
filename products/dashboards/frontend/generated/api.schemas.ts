@@ -6408,6 +6408,15 @@ export interface ExperimentRatioMetricApi {
     version?: number | null
 }
 
+export type ExperimentExposureMetricSourceApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentExposureMetricSourceApi {
+    kind?: 'ExperimentExposureMetricSource'
+    response?: ExperimentExposureMetricSourceApiResponse
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type StartHandlingApi = (typeof StartHandlingApi)[keyof typeof StartHandlingApi]
 
 export const StartHandlingApi = {
@@ -6433,7 +6442,7 @@ export interface ExperimentRetentionMetricApi {
     retention_window_start: number
     retention_window_unit: FunnelConversionWindowTimeUnitApi
     sharedMetricId?: number | null
-    start_event: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    start_event: ExperimentExposureMetricSourceApi | EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
     start_handling: StartHandlingApi
     uuid?: string | null
     /** version of the node, used for schema migrations */

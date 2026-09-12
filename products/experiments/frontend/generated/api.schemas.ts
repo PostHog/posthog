@@ -1393,6 +1393,15 @@ export const FunnelConversionWindowTimeUnitApi = {
     Month: 'month',
 } as const
 
+export type ExperimentExposureMetricSourceApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentExposureMetricSourceApi {
+    kind?: 'ExperimentExposureMetricSource'
+    response?: ExperimentExposureMetricSourceApiResponse
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type StartHandlingApi = (typeof StartHandlingApi)[keyof typeof StartHandlingApi]
 
 export const StartHandlingApi = {
@@ -1430,8 +1439,8 @@ export interface ExperimentApiMetricApi {
     series?: ExperimentApiEventSourceApi[] | null
     /** For mean metrics: event source. */
     source?: ExperimentApiEventSourceApi | null
-    /** For retention metrics: start event. */
-    start_event?: ExperimentApiEventSourceApi | null
+    /** For retention metrics: start event or the experiment's resolved exposure event. */
+    start_event?: ExperimentApiEventSourceApi | ExperimentExposureMetricSourceApi | null
     start_handling?: StartHandlingApi | null
     /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
     threshold?: number | null
