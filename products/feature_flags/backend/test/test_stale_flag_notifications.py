@@ -9,6 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.team import Team
+from posthog.redis import get_client
 
 from products.cdp.backend.facade.models import HogFunction, HogFunctionType
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -17,6 +18,7 @@ from products.feature_flags.backend.stale_flag_notifications import (
     EVIDENCE_NOT_CALLED_RECENTLY,
     STALE_FLAG_EVENT,
     notify_stale_flags_for_team,
+    stale_notified_key,
     teams_subscribed_to_stale_flags,
 )
 
@@ -137,6 +139,19 @@ class TestNotifyStaleFlagsForTeam(BaseTest):
         assert notify_stale_flags_for_team(self.team.id) == 1
 
         assert [event["days_since_evidence"] for event in self._events(produce)] == [45, 31]
+
+    @patch(PRODUCE)
+    def test_keeps_the_marker_alive_while_the_flag_stays_stale(self, produce: MagicMock) -> None:
+        flag = self._create_flag("checkout", last_called_at=timezone.now() - timedelta(days=45))
+        assert notify_stale_flags_for_team(self.team.id) == 1
+
+        # A marker about to expire is renewed by the next run, so a long stale period is reported once
+        redis = get_client()
+        redis.expire(stale_notified_key(flag.id), 10)
+        assert notify_stale_flags_for_team(self.team.id) == 0
+
+        assert redis.ttl(stale_notified_key(flag.id)) > 10
+        assert produce.call_count == 1
 
     @patch(PRODUCE, side_effect=Exception("kafka is down"))
     def test_a_failed_send_is_retried_on_the_next_run(self, produce: MagicMock) -> None:

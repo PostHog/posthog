@@ -21,9 +21,14 @@ EVIDENCE_NOT_CALLED_RECENTLY = "not_called_recently"
 EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA = "fully_rolled_out_without_usage_data"
 
 # Evidence date of the last notice, per flag. A flag that gets called again has a newer evidence date
-# and is reported again once it goes stale.
+# and is reported again once it goes stale. The TTL is refreshed on every run while the flag stays
+# stale, so the marker outlives any stale period and only expires once the flag is no longer reported.
 _NOTIFIED_KEY_PREFIX = "posthog:feature_flags:stale_notified:"
 _NOTIFIED_KEY_TTL = timedelta(days=180)
+
+
+def stale_notified_key(flag_id: int) -> str:
+    return f"{_NOTIFIED_KEY_PREFIX}{flag_id}"
 
 
 def teams_subscribed_to_stale_flags() -> list[int]:
@@ -57,8 +62,9 @@ def notify_stale_flags_for_team(team_id: int, now: datetime | None = None) -> in
             continue
 
         evidence_date = flag.last_called_at or flag.created_at
-        key = f"{_NOTIFIED_KEY_PREFIX}{flag.id}"
+        key = stale_notified_key(flag.id)
         if _already_notified(redis.get(key), evidence_date):
+            redis.expire(key, _NOTIFIED_KEY_TTL)
             continue
 
         try:

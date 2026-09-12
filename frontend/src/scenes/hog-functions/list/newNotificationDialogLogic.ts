@@ -38,6 +38,20 @@ export interface NotificationTriggerOption {
     filters?: CyclotronJobFiltersType
 }
 
+const MAX_NOTIFICATION_NAME_LENGTH = 400
+
+export function notificationName(baseName: string, scopeLabel?: string): string {
+    if (!scopeLabel) {
+        return baseName
+    }
+    const room = MAX_NOTIFICATION_NAME_LENGTH - baseName.length - ' ()'.length
+    if (room <= 1) {
+        return baseName.slice(0, MAX_NOTIFICATION_NAME_LENGTH)
+    }
+    const label = scopeLabel.length > room ? `${scopeLabel.slice(0, room - 1)}…` : scopeLabel
+    return `${baseName} (${label})`
+}
+
 export interface NewNotificationForm {
     trigger: HogFunctionSubTemplateIdType
     destination: DestinationKey
@@ -227,7 +241,7 @@ export const newNotificationDialogLogic = kea<newNotificationDialogLogicType>([
                 const payload: Partial<HogFunctionType> = {
                     template_id: destinationOption.templateId,
                     type: commonProps.type,
-                    name: props.scopeLabel ? `${baseName} (${props.scopeLabel})` : baseName,
+                    name: notificationName(baseName, props.scopeLabel),
                     description: subTemplate?.description ?? '',
                     inputs_schema: template.inputs_schema,
                     inputs,

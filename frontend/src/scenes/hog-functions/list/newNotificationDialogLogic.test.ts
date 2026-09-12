@@ -6,7 +6,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { CyclotronJobFiltersType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { newNotificationDialogLogic } from './newNotificationDialogLogic'
+import { newNotificationDialogLogic, notificationName } from './newNotificationDialogLogic'
 
 describe('newNotificationDialogLogic', () => {
     let logic: ReturnType<typeof newNotificationDialogLogic.build>
@@ -138,5 +138,14 @@ describe('newNotificationDialogLogic', () => {
         } finally {
             multiLogic.unmount()
         }
+    })
+    
+    it('keeps a scoped name within the name column limit', () => {
+        const name = notificationName('Notify Slack for feature flag changes', 'k'.repeat(400))
+
+        expect(name.length).toBeLessThanOrEqual(400)
+        expect(name.startsWith('Notify Slack for feature flag changes (k')).toBe(true)
+        expect(name.endsWith('…)')).toBe(true)
+        expect(notificationName('Notify Slack', 'checkout')).toBe('Notify Slack (checkout)')
     })
 })
