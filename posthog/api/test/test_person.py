@@ -1389,16 +1389,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("patch_transport_error", PATCH_PROPERTIES, CaptureInternalError("boom"), 502),
-            ("patch_upstream_status", PATCH_PROPERTIES, CaptureInternalError("boom", status_code=503), 503),
-            ("update_property_transport_error", POST_UPDATE_PROPERTY, CaptureInternalError("boom"), 502),
-            ("update_property_unexpected_error", POST_UPDATE_PROPERTY, Exception("boom"), 502),
+            ("patch_transport_error", PATCH_PROPERTIES, CaptureInternalError("boom")),
+            ("patch_upstream_status_not_relayed", PATCH_PROPERTIES, CaptureInternalError("boom", status_code=503)),
+            ("update_property_transport_error", POST_UPDATE_PROPERTY, CaptureInternalError("boom")),
+            ("update_property_unexpected_error", POST_UPDATE_PROPERTY, Exception("boom")),
         ]
     )
     @mock.patch("posthog.api.person.capture_internal")
-    def test_set_person_properties_reports_capture_failure(
-        self, _name, request_shape, exception, expected_status, mock_capture
-    ) -> None:
+    def test_set_person_properties_reports_capture_failure(self, _name, request_shape, exception, mock_capture) -> None:
         method, suffix, payload = request_shape
         person = _create_person(
             team=self.team,
@@ -1414,7 +1412,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.status_code, 502)
         self.assertEqual(self._get_person_activity(str(person.uuid))["results"], [])
 
     @mock.patch("posthog.api.person.capture_internal")

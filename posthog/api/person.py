@@ -528,12 +528,11 @@ def _exact_identifier_person_uuids(team_id: int, search: str) -> list[str]:
 class PersonPropertyCaptureFailed(APIException):
     # The write is an async capture event, so a swallowed failure looks exactly like a successful
     # edit until the user reloads. Raising keeps the failure impossible for a caller to drop.
+    # The status stays 502 whatever capture answers, so this endpoint's contract does not grow
+    # every status an internal service can produce.
+    status_code = 502
     default_detail = "Couldn't update the property. Try again, and if it keeps happening contact support."
     default_code = "person_property_capture_failed"
-
-    def __init__(self, status_code: int) -> None:
-        self.status_code = status_code
-        super().__init__()
 
 
 @extend_schema(extensions={"x-product": ProductKey.PERSONS})
@@ -1403,7 +1402,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 property_keys=sorted(properties),
                 status_code=cre.status_code,
             )
-            raise PersonPropertyCaptureFailed(cre.status_code or 502) from cre
+            raise PersonPropertyCaptureFailed from cre
 
         except Exception as e:
             logger.exception(
@@ -1412,7 +1411,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 person_uuid=str(instance.uuid),
                 property_keys=sorted(properties),
             )
-            raise PersonPropertyCaptureFailed(502) from e
+            raise PersonPropertyCaptureFailed from e
 
         if self.organization.id:  # should always be true, but mypy...
             log_activity(
