@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
@@ -5,19 +6,21 @@ from uuid import UUID, uuid4
 from unittest.mock import patch
 
 from django.db import IntegrityError
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.test.utils import override_settings
 
+import yaml
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 from posthog.models.user import User
-from posthog.temporal.oauth import MCP_READ_SCOPES
+from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, MCP_READ_SCOPES, resolve_scopes
 
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.facade.domain_research import DomainResearch
 from products.tasks.backend.facade.onboarding import (
+    ONBOARDING_SESSION_SCOPES,
     _origin_key,
     _session_enabled,
     onboarding_test_tools_enabled,
@@ -25,6 +28,7 @@ from products.tasks.backend.facade.onboarding import (
     start_onboarding_test_session,
 )
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
+from products.tasks.backend.facade.onboarding_prompt import BUNDLED_ONBOARDING_PROMPT
 from products.tasks.backend.models import Task, TaskClientProvenance
 
 MODULE = "products.tasks.backend.facade.onboarding"
@@ -133,16 +137,25 @@ class TestOnboardingSessionIdempotency(TestCase):
             self.assertIn("Use the canonical `posthog:exec` tool", kwargs["description"])
             self.assertIn("use `docs-search` before answering", kwargs["description"])
             self.assertIn("without first running `docs-search`", kwargs["description"])
-            self.assertIn("info channel-instructions-retrieve", kwargs["description"])
+            self.assertIn("call task-context-wiki-channel-resolve", kwargs["description"])
+            self.assertIn("task-context-wiki-page-retrieve", kwargs["description"])
+            self.assertIn("call task-context-wiki-page-update", kwargs["description"])
             self.assertIn("call channel-instructions-retrieve", kwargs["description"])
-            self.assertIn("info channel-instructions-update", kwargs["description"])
-            self.assertEqual(set(kwargs["posthog_mcp_scopes"]), {*MCP_READ_SCOPES, "task:write"})
+            self.assertIn("call channel-instructions-update", kwargs["description"])
+            write_scopes = {"task:write", CONTEXT_LAYER_INTERNAL_SCOPE}
+            self.assertEqual(set(kwargs["posthog_mcp_scopes"]), {*MCP_READ_SCOPES, *write_scopes})
             self.assertFalse(
-                any(scope.endswith(":write") and scope != "task:write" for scope in kwargs["posthog_mcp_scopes"])
+                any(scope.endswith(":write") and scope not in write_scopes for scope in kwargs["posthog_mcp_scopes"])
             )
             return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
 
-        started, create_calls = self._start(create_side_effect=succeed)
+        # Pinned to the bundled prompt: the managed one is edited outside this repo, so
+        # reading it here would assert on whatever it happens to say today.
+        with patch(
+            f"{MODULE}.load_onboarding_prompt",
+            return_value=SimpleNamespace(prompt=BUNDLED_ONBOARDING_PROMPT, source="bundled", version=None),
+        ):
+            started, create_calls = self._start(create_side_effect=succeed)
 
         self.assertEqual(started, task_id)
         self.assertEqual(create_calls, 1)
@@ -245,3 +258,30 @@ class TestOnboardingSessionIdempotency(TestCase):
 
         self.assertEqual(started, task_id)
         self.assertEqual(create_calls, 1)
+
+
+class TestOnboardingSessionReachesTheToolsItNames(SimpleTestCase):
+    """The prompt names context tools by hand, so the session token must carry their scopes."""
+
+    REPO_ROOT = Path(__file__).parents[4]
+    TOOL_DEFINITIONS = (
+        REPO_ROOT / "products/tasks/mcp/tools.yaml",
+        REPO_ROOT / "products/context_layer/mcp/tools.yaml",
+    )
+    CONTEXT_TOOLS = (
+        "task-context-wiki-channel-resolve",
+        "task-context-wiki-page-retrieve",
+        "task-context-wiki-page-update",
+        "channel-instructions-retrieve",
+        "channel-instructions-update",
+    )
+
+    def test_every_context_tool_the_prompt_names_is_in_scope(self) -> None:
+        declared: dict[str, Any] = {}
+        for path in self.TOOL_DEFINITIONS:
+            declared |= yaml.safe_load(path.read_text())["tools"]
+        granted = set(resolve_scopes(ONBOARDING_SESSION_SCOPES))
+
+        for tool in self.CONTEXT_TOOLS:
+            self.assertIn(tool, BUNDLED_ONBOARDING_PROMPT)
+            self.assertLessEqual(set(declared[tool].get("scopes") or []), granted, tool)

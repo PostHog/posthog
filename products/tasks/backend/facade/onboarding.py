@@ -12,7 +12,7 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.oauth import MCP_READ_SCOPES
+from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, MCP_READ_SCOPES
 
 from products.signals.backend.facade.api import enable_onboarding_signal_sources, waiting_reports
 from products.tasks.backend.facade.api import (
@@ -47,7 +47,10 @@ ONBOARDING_SESSION_TITLE = "Getting set up"
 ONBOARDING_SESSION_PAID_MODEL = "claude-opus-4-8"
 ONBOARDING_SESSION_FREE_MODEL = "@cf/zai-org/glm-5.2"
 ONBOARDING_SESSION_EFFORT = "medium"
-ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write"]
+# `context_layer_internal:write` reaches only this session's own channel page, which is the
+# one thing the prompt asks it to save. The channel-instructions tools it falls back to are
+# hidden on a team with the context wiki, so without it the save has no route at all.
+ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write", CONTEXT_LAYER_INTERNAL_SCOPE]
 
 SPACES_FLAGS = ("code-spaces-layout", "project-bluebird")
 ONBOARDING_TEST_TOOLS_FLAG = "posthog-desktop-onboarding-test-tools"
