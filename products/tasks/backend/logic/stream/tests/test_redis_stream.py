@@ -1,3 +1,4 @@
+import ssl
 import json
 from collections.abc import Awaitable, Callable
 from uuid import uuid4
@@ -5,6 +6,9 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
+import redis.exceptions as redis_exceptions
+
+from products.tasks.backend.logic.stream import redis_stream as redis_stream_module
 from products.tasks.backend.logic.stream.redis_stream import (
     DATA_KEY,
     TASK_RUN_STREAM_COMPLETED_TIMEOUT,
@@ -19,6 +23,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     get_task_run_stream_completed_key,
     get_task_run_stream_key,
     get_task_run_stream_watched_key,
+    is_redis_connect_error,
     publish_task_run_stream_complete,
     publish_task_run_stream_event,
     reset_task_run_stream,
@@ -104,6 +109,150 @@ async def test_write_event_with_sequence_mirrors_only_when_presence_allows(
         assert (write.stream_id is not None) is expect_mirrored
         assert await redis_stream.get_last_sequence() == 1
         assert await _read_stream_events(redis_stream) == ([{"type": "message"}] if expect_mirrored else [])
+    finally:
+        await redis_stream.delete_stream()
+
+
+def _connection_error_wrapping(cause: BaseException) -> redis_exceptions.ConnectionError:
+    """Rebuild what redis-py's connect path hands back: the OSError wrapped, cause dropped."""
+    try:
+        raise cause
+    except BaseException:
+        try:
+            raise redis_exceptions.ConnectionError("Error connecting to redis")
+        except redis_exceptions.ConnectionError as wrapped:
+            return wrapped
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (redis_exceptions.TimeoutError("Timeout connecting to server"), True),
+        (redis_exceptions.ConnectionError("Error connecting to redis"), True),
+        (redis_exceptions.BusyLoadingError("Redis is loading the dataset in memory"), True),
+        (redis_exceptions.AuthenticationError("invalid password"), False),
+        (redis_exceptions.AuthorizationError("no permissions"), False),
+        (redis_exceptions.ResponseError("unknown command"), False),
+        (redis_exceptions.ReadOnlyError("READONLY You can't write against a read only replica"), False),
+        # A rejected certificate arrives as a plain ConnectionError and never clears.
+        (_connection_error_wrapping(ssl.SSLCertVerificationError("certificate verify failed")), False),
+    ],
+)
+def test_is_redis_connect_error(error: BaseException, expected: bool) -> None:
+    assert is_redis_connect_error(error) is expected
+
+
+@pytest.mark.asyncio
+async def test_initialize_resets_a_stale_pool_after_a_failover() -> None:
+    redis_stream = _new_stream()
+    try:
+        real_expire = type(redis_stream._redis_client).expire
+        calls = 0
+        disconnects = 0
+
+        async def demoted_then_promoted_expire(client, key, timeout):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise redis_exceptions.ReadOnlyError("READONLY You can't write against a read only replica")
+            return await real_expire(client, key, timeout)
+
+        async def counting_disconnect(*_args, **_kwargs):
+            nonlocal disconnects
+            disconnects += 1
+
+        with (
+            patch.object(type(redis_stream._redis_client), "expire", demoted_then_promoted_expire),
+            patch.object(redis_stream._redis_client.connection_pool, "disconnect", counting_disconnect),
+            patch.object(redis_stream_module, "TASK_RUN_STREAM_CONNECT_RETRY_INITIAL_DELAY_SECONDS", 0.0),
+        ):
+            await redis_stream.initialize()
+
+        # Without the disconnect the pool keeps serving the demoted node for the worker's life.
+        assert (calls, disconnects) == (2, 1)
+    finally:
+        await redis_stream.delete_stream()
+
+
+@pytest.mark.asyncio
+async def test_initialize_does_not_retry_a_rejected_certificate() -> None:
+    redis_stream = _new_stream()
+    try:
+        calls = 0
+
+        async def bad_certificate_expire(client, key, timeout):
+            nonlocal calls
+            calls += 1
+            raise _connection_error_wrapping(ssl.SSLCertVerificationError("certificate verify failed"))
+
+        with patch.object(type(redis_stream._redis_client), "expire", bad_certificate_expire):
+            with pytest.raises(redis_exceptions.ConnectionError):
+                await redis_stream.initialize()
+
+        assert calls == 1
+    finally:
+        await redis_stream.delete_stream()
+
+
+@pytest.mark.asyncio
+async def test_initialize_absorbs_a_transient_connect_failure() -> None:
+    redis_stream = _new_stream()
+    try:
+        real_expire = type(redis_stream._redis_client).expire
+        calls = 0
+
+        async def flaky_expire(client, key, timeout):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise redis_exceptions.TimeoutError("Timeout connecting to server")
+            return await real_expire(client, key, timeout)
+
+        with (
+            patch.object(type(redis_stream._redis_client), "expire", flaky_expire),
+            patch.object(redis_stream_module, "TASK_RUN_STREAM_CONNECT_RETRY_INITIAL_DELAY_SECONDS", 0.0),
+        ):
+            await redis_stream.initialize()
+
+        assert calls == 2
+    finally:
+        await redis_stream.delete_stream()
+
+
+@pytest.mark.asyncio
+async def test_initialize_gives_up_once_the_retry_budget_is_spent() -> None:
+    redis_stream = _new_stream()
+    try:
+
+        async def always_timing_out_expire(client, key, timeout):
+            raise redis_exceptions.TimeoutError("Timeout connecting to server")
+
+        with (
+            patch.object(type(redis_stream._redis_client), "expire", always_timing_out_expire),
+            patch.object(redis_stream_module, "TASK_RUN_STREAM_CONNECT_RETRY_BUDGET_SECONDS", 0.0),
+        ):
+            with pytest.raises(redis_exceptions.TimeoutError):
+                await redis_stream.initialize()
+    finally:
+        await redis_stream.delete_stream()
+
+
+@pytest.mark.asyncio
+async def test_initialize_does_not_retry_an_auth_failure() -> None:
+    redis_stream = _new_stream()
+    try:
+        calls = 0
+
+        async def unauthenticated_expire(client, key, timeout):
+            nonlocal calls
+            calls += 1
+            raise redis_exceptions.AuthenticationError("invalid password")
+
+        with patch.object(type(redis_stream._redis_client), "expire", unauthenticated_expire):
+            with pytest.raises(redis_exceptions.AuthenticationError):
+                await redis_stream.initialize()
+
+        assert calls == 1
     finally:
         await redis_stream.delete_stream()
 
