@@ -103,7 +103,9 @@ Don't guess table or column names — they differ per entity and drift over time
 - `relationships` — one row per joinable relationship. Fields: source_table, source_column, target_table, target_column, relationship_kind, via, confidence, reasoning.
 - `data_types` — one row per HogQL type. Fields: type_name, description.
 
-`certification` on `tables` and `confidence` / `reasoning` on `relationships` come from the data catalog. The project catalog, which is what `execute-sql` reads by default, always carries all three. A caller without data catalog access still selects them, and every value reads NULL. A NULL there means an unmarked table or a caller without access, never a wrong field name.
+`certification` on `tables` and `confidence` / `reasoning` on `relationships` come from the data catalog. The project catalog, which is what `execute-sql` reads by default, always carries all three. A caller without data catalog access still selects them, and every value reads NULL. A NULL there never means a wrong field name.
+
+The two surfaces differ in what else a NULL means. On `tables`, `certification` reads NULL for a table nobody marked. On `relationships`, `confidence` and `reasoning` hold the review evidence of an accepted relationship proposal. Only a data warehouse join that still matches its proposal carries that evidence. Every built-in join and every field traverser reads NULL for both fields, even on a project with full catalog access. A NULL there means no review evidence, not a broken join: read `source_column` and `target_column`, and use the join.
 
 The same namespace carries six more catalog surfaces, each about project state rather than schema: `metrics`, `certifications` (the full trust-mark review queue, as opposed to the settled `tables.certification` mark), `relationship_proposals`, `data_quality_checks`, `data_quality_check_runs`, and `data_quality_health`. The project serves the three data-quality surfaces only while data quality checks are on for it.
 
