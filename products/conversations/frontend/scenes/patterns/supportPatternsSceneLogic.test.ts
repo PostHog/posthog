@@ -84,6 +84,34 @@ describe('supportPatternsSceneLogic', () => {
         expect(logic.values.visiblePatterns.map((p) => p.id)).toEqual(visible)
     })
 
+    it('ignores a response for the filter the person left', async () => {
+        let releaseConfirmed = (): void => {}
+        const confirmedHeld = new Promise<void>((resolve) => {
+            releaseConfirmed = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/conversations/patterns/': async ({ request }) => {
+                    const status = new URL(request.url).searchParams.get('status')
+                    if (status === 'confirmed') {
+                        await confirmedHeld
+                        return [200, { results: [makePattern('stale')], count: 1, next: null, previous: null }]
+                    }
+                    return [200, { results: [makePattern('fresh')], count: 1, next: null, previous: null }]
+                },
+            },
+        })
+
+        logic.actions.setStatusFilter('confirmed')
+        logic.actions.setStatusFilter('dismissed')
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+
+        releaseConfirmed()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.patterns.map((p) => p.id)).toEqual(['fresh'])
+    })
+
     it('loads nothing when the feature flag is off', async () => {
         logic.unmount()
         featureFlagLogic.actions.setFeatureFlags([], {})

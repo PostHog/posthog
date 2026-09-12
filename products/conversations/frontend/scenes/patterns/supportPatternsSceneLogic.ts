@@ -24,7 +24,9 @@ export interface supportPatternsSceneLogicActions {
     decisionSucceeded: (pattern: TicketPatternApi) => {
         pattern: TicketPatternApi
     } // ticketPatternsLogic
-    loadPatterns: () => any
+    loadPatterns: () => {
+        value: true
+    }
     loadPatternsFailure: (
         error: string,
         errorObject?: any
@@ -34,10 +36,14 @@ export interface supportPatternsSceneLogicActions {
     }
     loadPatternsSuccess: (
         patterns: TicketPatternApi[],
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         patterns: TicketPatternApi[]
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     setStatusFilter: (statusFilter: PatternStatusFilter) => {
         statusFilter: PatternStatusFilter
@@ -69,15 +75,21 @@ export const supportPatternsSceneLogic = kea<supportPatternsSceneLogicType>([
         values: [ticketPatternsLogic, ['inFlightIds', 'patternsEnabled']],
     })),
     actions({
+        // Declared parameterless so callers dispatch it without a payload: the loader below takes
+        // the breakpoint as its second argument.
+        loadPatterns: true,
         setStatusFilter: (statusFilter: PatternStatusFilter) => ({ statusFilter }),
     }),
     loaders(({ values }) => ({
         patterns: [
             [] as TicketPatternApi[],
             {
-                loadPatterns: async () => {
+                loadPatterns: async (_, breakpoint) => {
                     const status = values.statusFilter === 'all' ? undefined : values.statusFilter
                     const response = await api.conversationsPatternsList(String(getCurrentTeamId()), { status })
+                    // Drop a response that was superseded while in flight, so a slow reply for the
+                    // filter the person left cannot overwrite the newer one.
+                    breakpoint()
                     return [...response.results]
                 },
             },
