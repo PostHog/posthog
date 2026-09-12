@@ -674,6 +674,26 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         ).first()
         assert activity_log is not None
 
+    @parameterized.expand(
+        [
+            ("same_team", False),
+            ("sibling_environment", True),
+        ]
+    )
+    def test_create_event_definition_duplicate_name(self, _name: str, in_sibling_environment: bool):
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+        owner = self.demo_team
+        if in_sibling_environment:
+            owner = Team.objects.create(organization=self.organization, project=self.demo_team.project)
+        EventDefinition.objects.create(team=owner, project=self.demo_team.project, name="existing_event")
+
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {"name": "existing_event", "description": "Duplicate"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_create_event_definition_with_verified(self):
         """Test creating a verified event definition"""
         License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
