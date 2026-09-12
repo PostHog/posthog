@@ -52,6 +52,7 @@ from posthog.api.team import (
     handle_tracing_config,
     report_conversations_settings_changes,
     team_event_ingestion_restrictions_view,
+    validate_events_retention_read_only,
     validate_secret_token_generation,
     validate_team_attrs,
 )
@@ -1091,6 +1092,7 @@ class ProjectBackwardCompatSerializer(
         return TeamSerializer.validate_proactive_tasks_enabled(cast(TeamSerializer, self), value)
 
     def validate(self, attrs: Any) -> Any:
+        validate_events_retention_read_only(self.initial_data, self.instance)
         attrs = validate_team_attrs(attrs, self.context["view"], self.instance)
 
         if self.instance:
