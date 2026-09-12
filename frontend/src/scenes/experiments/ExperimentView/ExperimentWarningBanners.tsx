@@ -3,11 +3,16 @@ import { useEffect } from 'react'
 
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
+import type { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
+import { AccessControlLevel, AccessControlResourceType, type Experiment } from '~/types'
+
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentWarning } from '../experimentLogic'
+import { modalsLogic } from '../modalsLogic'
 
 function warningCaption(key: ExperimentWarning['key']): string {
     switch (key) {
@@ -33,8 +38,8 @@ function WarningDetail({
         case 'running_but_flag_disabled':
             return (
                 <>
-                    The linked feature flag {flagLink} is <strong>disabled</strong> while the experiment has not been
-                    ended. Resume or end the experiment.
+                    The linked feature flag {flagLink} is <strong>disabled</strong>, so nobody is seeing the experiment
+                    variants. Resume the experiment to re-enable the flag, or end it.
                 </>
             )
         case 'running_but_single_variant_shipped':
@@ -70,9 +75,29 @@ function WarningDetail({
     }
 }
 
+/**
+ * Resuming re-enables the flag, so the paused warning is the one case the banner can fix itself.
+ * Every other warning needs a judgement call about rollout or conclusion, and stays link-only.
+ */
+function resumeAction(experiment: Experiment, openResumeExperimentModal: () => void): LemonBannerAction {
+    const accessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Experiment,
+        AccessControlLevel.Editor,
+        experiment.user_access_level
+    )
+
+    return {
+        children: 'Resume experiment',
+        onClick: openResumeExperimentModal,
+        disabledReason: experiment.feature_flag ? (accessDisabledReason ?? undefined) : 'No feature flag linked',
+        'data-attr': 'experiment-warning-resume-experiment',
+    }
+}
+
 export function ExperimentWarningBanner(): JSX.Element | null {
     const { experimentWarning, experiment } = useValues(experimentLogic)
     const { reportExperimentInconsistencyWarningShown } = useActions(eventUsageLogic)
+    const { openResumeExperimentModal } = useActions(modalsLogic)
 
     useEffect(() => {
         if (experimentWarning) {
@@ -91,7 +116,15 @@ export function ExperimentWarningBanner(): JSX.Element | null {
     ) : null
 
     return (
-        <LemonBanner className="mb-4" type="warning">
+        <LemonBanner
+            className="mb-4"
+            type="warning"
+            action={
+                experimentWarning.key === 'running_but_flag_disabled'
+                    ? resumeAction(experiment, openResumeExperimentModal)
+                    : undefined
+            }
+        >
             <div>
                 <strong>{warningCaption(experimentWarning.key)}</strong>
             </div>
