@@ -72,6 +72,64 @@ describe('eligibleFilterGroups', () => {
         ])
     })
 
+    it("appends an event's property conditions so a scoped event doesn't read as every occurrence", () => {
+        // A bare "checkout_clicked" chip reads as every click; the country filter has to show or the
+        // preview overstates the match.
+        const groups = eligibleFilterGroups(
+            scanner({
+                query: {
+                    kind: NodeKind.RecordingsQuery,
+                    events: [
+                        {
+                            id: 'checkout_clicked',
+                            name: 'checkout_clicked',
+                            type: 'events',
+                            order: 0,
+                            properties: [
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$geoip_country_code',
+                                    value: ['US'],
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+        )
+
+        expect(groups).toEqual([{ label: 'Event', values: ['checkout_clicked where Country code = US'] }])
+    })
+
+    it('renders a HogQL condition by its comment, so a scoped $exception reads as the error', () => {
+        // Error tracking pins $exception to one issue with `issue_id = '...' -- <error>`; the comment
+        // is what makes the condition legible instead of an opaque id.
+        const groups = eligibleFilterGroups(
+            scanner({
+                query: {
+                    kind: NodeKind.RecordingsQuery,
+                    events: [
+                        {
+                            id: '$exception',
+                            name: '$exception',
+                            type: 'events',
+                            order: 0,
+                            properties: [
+                                {
+                                    type: PropertyFilterType.HogQL,
+                                    key: "issue_id = 'abc' -- TypeError: x is not a function",
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+        )
+
+        expect(groups).toEqual([{ label: 'Event', values: ['$exception where TypeError: x is not a function'] }])
+    })
+
     it('has no groups when the draft watches every recording', () => {
         expect(eligibleFilterGroups(scanner({ query: { kind: NodeKind.RecordingsQuery } }))).toEqual([])
     })

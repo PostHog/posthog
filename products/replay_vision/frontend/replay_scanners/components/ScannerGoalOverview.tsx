@@ -6,13 +6,14 @@ import { TextMorph } from 'torph/react'
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
@@ -140,11 +141,26 @@ function pageValues(scanner: ReplayScanner): string[] {
     return property.value.map(String)
 }
 
-/** The names of the query's events or actions, whichever list is asked for. */
+/** Each event or action the scan watches, with its own property conditions appended.
+ *
+ * A bare event name reads as "every time this event fires", so an event carrying a sub-filter (for
+ * example "checkout clicked where country = US", or an `$exception` pinned to one issue) has to show
+ * that filter or the preview overstates what the scan matches. A HogQL condition renders by its
+ * trailing `-- comment` when it has one, which is how the issue filter shows the error name rather
+ * than a raw `issue_id = '...'`.
+ */
 function namedQueryEntities(scanner: ReplayScanner, key: 'events' | 'actions'): string[] {
     const query = scanner.query
     const entities = (query && key in query ? query[key] : null) ?? []
-    return entities.map((entity) => String(entity.name ?? entity.id)).filter(Boolean)
+    return entities
+        .map((entity) => {
+            const name = String(entity.name ?? entity.id)
+            const conditions = ((entity.properties ?? []) as AnyPropertyFilter[])
+                .map((property) => formatPropertyLabel(property, {}).trim())
+                .filter(Boolean)
+            return conditions.length > 0 ? `${name} where ${conditions.join(', ')}` : name
+        })
+        .filter(Boolean)
 }
 
 /** The cohorts the scan is limited to. The query carries only ids, so the name is looked up. */
