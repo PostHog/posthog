@@ -159,6 +159,21 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         assert sweep_blocklisted_gateway_credentials() == SweepResult()
         mock_blocked.assert_not_called()
 
+    @patch("posthog.tasks.wizard_blocklist.wizard_identity_blocked", return_value=True)
+    def test_a_live_token_with_no_refresh_token_is_still_a_candidate(self, mock_blocked: MagicMock) -> None:
+        # The live half of the read stands on `expires` alone; requiring a refresh
+        # token there would leave a first-party session banned in name only.
+        OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.application,
+            token="live_no_refresh",
+            scope="llm_gateway:read",
+            expires=timezone.now() + timedelta(hours=1),
+        )
+
+        assert sweep_blocklisted_gateway_credentials() == SweepResult(blocked_users=1, revoked_sessions=1)
+        assert not OAuthAccessToken.objects.filter(token="live_no_refresh").exists()
+
     def test_the_verdict_is_asked_per_organization_not_once_per_user(self) -> None:
         # A user-keyed memo would answer for whichever row the scan read first.
         self._token(token="org_a", scoped_organizations=["11111111-1111-4111-8111-111111111111"])
