@@ -128,6 +128,47 @@ export const Narrow: Story = {
     ),
 }
 
+// The narrow layout only holds if long text truncates, so give it a pattern whose title, summary
+// and evidence subject each run past the column.
+const longPattern = makePattern({
+    id: '019f9582-93e7-77c1-8912-4f541d70cb16',
+    topic: 'scheduled export',
+    title: '11 tickets from 9 customers about: scheduled export to the reporting warehouse fails overnight',
+    summary:
+        'Every overnight run since Tuesday stops at the same step, and the job page at https://example.com/settings/integrations/warehouse-exports/scheduled/overnight shows no error.',
+    ticket_count: 11,
+    requester_count: 9,
+    peak_ticket_count: 11,
+    tickets: [
+        {
+            id: '019f9582-0000-7000-8000-000000000009',
+            ticket_number: 4907,
+            channel_source: 'email',
+            email_subject: 'Scheduled export to the reporting warehouse failed again overnight with no alert',
+            status: 'open',
+            created_at: '2026-07-25T09:40:00Z',
+        },
+    ],
+})
+
+export const NarrowLongText: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/conversations/patterns/': () => [
+                    200,
+                    { results: [longPattern], count: 1, next: null, previous: null },
+                ],
+            },
+        }),
+    ],
+    render: () => (
+        <div className="w-[520px]">
+            <SupportPatternsScene />
+        </div>
+    ),
+}
+
 export const Empty: Story = {
     decorators: [
         mswDecorator({

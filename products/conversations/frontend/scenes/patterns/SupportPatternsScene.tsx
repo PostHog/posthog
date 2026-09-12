@@ -66,10 +66,12 @@ export function SupportPatternsScene(): JSX.Element {
                     <div className="flex flex-col gap-1 min-w-0 py-1">
                         <div className="flex flex-wrap items-center gap-2 min-w-0">
                             <TicketPatternSeverityTag severity={pattern.severity} />
-                            <span className="font-semibold truncate">{pattern.title}</span>
+                            <span className="font-semibold truncate min-w-0">{pattern.title}</span>
                             {statusFilter === 'all' ? <LemonTag>{STATUS_LABEL[pattern.status]}</LemonTag> : null}
                         </div>
-                        {pattern.summary ? <span className="text-muted text-xs">{pattern.summary}</span> : null}
+                        {pattern.summary ? (
+                            <span className="text-muted text-xs break-words">{pattern.summary}</span>
+                        ) : null}
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
                             <span translate="no">
                                 {pattern.ticket_count} {pattern.ticket_count === 1 ? 'ticket' : 'tickets'} from{' '}
@@ -152,6 +154,10 @@ export function SupportPatternsScene(): JSX.Element {
                     columns={columns}
                     loading={patternsLoading}
                     rowKey="id"
+                    // Auto layout sizes the column to its longest line, and a customer writes that text,
+                    // so the table outgrows a narrow container and scrolls sideways. Fixed layout bounds
+                    // the column, which is what lets the cells truncate.
+                    tableLayout="fixed"
                     expandable={{
                         rowExpandable: (pattern) => pattern.tickets.length > 0,
                         expandedRowRender: (pattern) => (
@@ -161,7 +167,7 @@ export function SupportPatternsScene(): JSX.Element {
                                         <Link to={urls.supportTicketDetail(ticket.ticket_number)}>
                                             #{ticket.ticket_number}
                                         </Link>
-                                        <span className="truncate">
+                                        <span className="truncate min-w-0">
                                             {ticket.email_subject || ticket.channel_source}
                                         </span>
                                         <TZLabel time={ticket.created_at} className="text-muted text-xs" />
