@@ -8,6 +8,7 @@ from django.test import override_settings
 
 from products.tasks.backend.constants import TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG
 from products.tasks.backend.exceptions import SandboxNetworkPolicyError
+from products.tasks.backend.logic.services.agentsh import _SANDBOX_URL_SETTINGS
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
@@ -141,38 +142,58 @@ def test_blobless_clone_fails_closed_when_flag_evaluation_fails(mocker):
     assert _is_blobless_signals_clone_enabled(_context(origin_product=Task.OriginProduct.SIGNAL_REPORT)) is False
 
 
-# All four SANDBOX_*_URL settings are pinned: they feed the enforced allowlist
-# outside DEBUG, so a developer's environment value (an ngrok SANDBOX_API_URL)
-# would otherwise leak into these exact-equality expectations.
-@override_settings(
+# Every sandbox URL setting is pinned: they feed the enforced allowlist outside
+# DEBUG, so a developer's environment value (an ngrok SANDBOX_API_URL) would
+# otherwise leak into these exact-equality expectations.
+_PINNED_SANDBOX_URLS = override_settings(
     DEBUG=False,
-    SANDBOX_API_URL=None,
-    SANDBOX_LLM_GATEWAY_URL=None,
-    SANDBOX_AI_GATEWAY_URL=None,
+    SITE_URL="http://localhost:8010",
     SANDBOX_MCP_URL=None,
+    **{name: None for name in _SANDBOX_URL_SETTINGS if name != "SITE_URL"},
 )
+
+
+@_PINNED_SANDBOX_URLS
 @pytest.mark.parametrize(
     "allowed_domains, expected",
     [
         (
             ["github.com", "api.github.com", "posthog.com", "us.posthog.com", "example.com"],
-            ["github.com", "api.github.com", "example.com", "*.posthog.com", "api.anthropic.com"],
+            [
+                "github.com",
+                "api.github.com",
+                "posthog.com",
+                "us.posthog.com",
+                "example.com",
+                "api.anthropic.com",
+                "gateway.us.posthog.com",
+                "gateway.eu.posthog.com",
+                "ai-gateway.us.posthog.com",
+                "ai-gateway.eu.posthog.com",
+            ],
         ),
         (
             [],
-            ["*.posthog.com", "api.anthropic.com"],
-        ),
-        (
-            ["github.com", "registry.npmjs.org"],
-            ["github.com", "registry.npmjs.org", "*.posthog.com", "api.anthropic.com"],
-        ),
-        (
-            ["*.posthog.com", "*.us.posthog.com", "gateway.us.posthog.com", "github.com"],
-            ["*.posthog.com", "github.com", "api.anthropic.com"],
+            [
+                "api.anthropic.com",
+                "us.posthog.com",
+                "gateway.us.posthog.com",
+                "gateway.eu.posthog.com",
+                "ai-gateway.us.posthog.com",
+                "ai-gateway.eu.posthog.com",
+            ],
         ),
         (
             ["github.com", "github.com", "api.anthropic.com"],
-            ["github.com", "api.anthropic.com", "*.posthog.com"],
+            [
+                "github.com",
+                "api.anthropic.com",
+                "us.posthog.com",
+                "gateway.us.posthog.com",
+                "gateway.eu.posthog.com",
+                "ai-gateway.us.posthog.com",
+                "ai-gateway.eu.posthog.com",
+            ],
         ),
     ],
 )
@@ -180,11 +201,20 @@ def test_to_modal_domain_allowlist_resolves_exact_list(allowed_domains, expected
     assert _to_modal_domain_allowlist(allowed_domains) == expected
 
 
+@_PINNED_SANDBOX_URLS
+def test_to_modal_domain_allowlist_collapses_subdomains_under_a_requested_wildcard():
+    # A caller-requested zone wildcard swallows every host below it, so Modal
+    # gets one entry instead of the subdomain list.
+    assert _to_modal_domain_allowlist(
+        ["*.posthog.com", "*.us.posthog.com", "gateway.us.posthog.com", "github.com"]
+    ) == ["*.posthog.com", "github.com", "api.anthropic.com"]
+
+
 @override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="https://ai-gateway.dev.posthog.dev")
 def test_to_modal_domain_allowlist_admits_configured_gateway_host():
     # Modal fences egress independently of agentsh, so the settings-derived
-    # gateway host must clear this layer too; dev's host is outside
-    # *.posthog.com and nothing else admits it.
+    # gateway host must clear this layer too; nothing in the static
+    # infrastructure list admits dev's host.
     assert "ai-gateway.dev.posthog.dev" in _to_modal_domain_allowlist([])
 
 
@@ -272,7 +302,7 @@ def test_restricted_vm_recompiles_modal_policy_for_legacy_context() -> None:
 
     assert config.outbound_domain_allowlist is not None
     assert "example.com" in config.outbound_domain_allowlist
-    assert "*.posthog.com" in config.outbound_domain_allowlist
+    assert "us.posthog.com" in config.outbound_domain_allowlist
     assert "api.anthropic.com" in config.outbound_domain_allowlist
     assert config.network_policy_fingerprint is not None
 
