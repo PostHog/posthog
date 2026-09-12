@@ -1,3 +1,9 @@
+"""Canvas facade API for cross-product access.
+
+Separate from ``facade/search.py`` because the tasks app imports search.py at ``django.setup()``
+to wire its index, and this module pulls the build path (and Temporal) onto startup.
+"""
+
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
