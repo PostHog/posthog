@@ -838,13 +838,19 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         // One request per report, so the cap above is what keeps this bounded. A missing report
         // resolves to null and is never asked for again.
         resolveReportTitles: async () => {
-            const teamId = teamLogic.values.currentTeamId
+            // Ask the canonical project, not the environment in the URL. The harness writes every
+            // scout row through `_canonical_team_id` (parent_team_id or team_id), so a report a
+            // scratchpad key names belongs to the parent, while the reports endpoint filters by the
+            // team the URL carries and does not canonicalize it. A child-environment id would 404
+            // every title. `currentProjectId` mirrors that canonical id, and equals the team id for
+            // a root project; it reads '@current' until the team loads, which we reject.
+            const projectId = teamLogic.values.currentProjectId
             // An id reaches `reportTitles` only when its response lands, so a pass that starts
             // while another is in flight would list, and ask for, every id the first one is
             // already fetching. Two loads answering at different times is ordinary here.
             const inFlight: Set<string> = (cache.resolvingReportIds ??= new Set<string>())
             const ids = values.unresolvedReportIds.filter((reportId) => !inFlight.has(reportId))
-            if (!teamId || ids.length === 0) {
+            if (!projectId || projectId === '@current' || ids.length === 0) {
                 return
             }
             for (const reportId of ids) {
@@ -853,7 +859,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             await Promise.all(
                 ids.map(async (reportId) => {
                     try {
-                        const report = await signalsReportsRetrieve(String(teamId), reportId)
+                        const report = await signalsReportsRetrieve(String(projectId), reportId)
                         actions.setReportTitle(reportId, report.title ?? null)
                     } catch (error) {
                         // A stored null asserts the report is gone and stops the key being asked

@@ -1,5 +1,9 @@
+import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
+
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -496,6 +500,29 @@ describe('scratchpadLogic', () => {
 
         expect(Object.hasOwn(logic.values.reportTitles, reportId)).toBe(remembered)
         expect(logic.values.unresolvedReportIds).toEqual(remembered ? [] : [reportId])
+    })
+
+    // The harness writes every scout row under the canonical project, so a report a scratchpad key
+    // names belongs to the parent. The reports endpoint filters by the team the URL carries, so
+    // asking as a child environment 404s every title and caches each miss.
+    it('asks the canonical project for a report title from a child environment', async () => {
+        const reportId = '01a0918c-5f5f-74c4-b539-c634a8cb990a'
+        const reportPaths: string[] = []
+        useMocks({
+            get: {
+                [SCRATCHPAD_URL]: () => [200, [entry(`judged:${reportId}`, 'note')]],
+                '/api/projects/:team_id/signals/reports/:id/': ({ request }) => {
+                    reportPaths.push(new URL(request.url).pathname)
+                    return [200, { id: reportId, title: 'Export error rate doubled' }]
+                },
+            },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: 4242, project_id: 99 })
+
+        logic.actions.loadEntries()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(reportPaths).toEqual([`/api/projects/99/signals/reports/${reportId}/`])
     })
 
     // 1,000 rows is a cap, not a total. The header has to say what span they cover, or a busy
