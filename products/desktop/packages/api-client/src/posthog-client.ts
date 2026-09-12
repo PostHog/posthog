@@ -144,6 +144,20 @@ import {
   type TaskRunArtifactDTO,
 } from "./task-normalization";
 
+export type SpaceFileSummary = Schemas.SpaceFileListDTO;
+export type SpaceFile = Schemas.SpaceFileDTO;
+export type SpaceFileCreate = Schemas.SpaceFileCreate;
+
+export class SpaceFileConflictError extends Error {
+  readonly currentVersion: number;
+
+  constructor(conflict: Schemas.SpaceFileVersionConflict) {
+    super(conflict.detail);
+    this.name = "SpaceFileConflictError";
+    this.currentVersion = conflict.current_version;
+  }
+}
+
 interface HogQLGrid {
   results: unknown[][];
   columns: string[];
@@ -1943,6 +1957,66 @@ export class PostHogAPIClient {
     return data;
   }
 
+  async listSpaceFiles(): Promise<SpaceFileSummary[]> {
+    const teamId = await this.getTeamId();
+    const files: SpaceFileSummary[] = [];
+    let offset = 0;
+
+    while (true) {
+      const page = await this.api.get(
+        "/api/projects/{project_id}/space_files/",
+        {
+          path: { project_id: teamId.toString() },
+          query: { limit: 100, offset },
+        },
+      );
+      files.push(...page.results);
+      offset += page.results.length;
+      if (offset >= page.count || page.results.length === 0) return files;
+    }
+  }
+
+  async getSpaceFile(id: string): Promise<SpaceFile> {
+    const teamId = await this.getTeamId();
+    return await this.api.get("/api/projects/{project_id}/space_files/{id}/", {
+      path: { project_id: teamId.toString(), id },
+    });
+  }
+
+  async createSpaceFile(input: SpaceFileCreate): Promise<SpaceFile> {
+    const teamId = await this.getTeamId();
+    return await this.api.post("/api/projects/{project_id}/space_files/", {
+      path: { project_id: teamId.toString() },
+      body: input,
+    });
+  }
+
+  async updateSpaceFile(
+    id: string,
+    input: { content: string; baseVersion: number },
+  ): Promise<SpaceFile> {
+    const teamId = await this.getTeamId();
+    try {
+      return await this.api.patch(
+        "/api/projects/{project_id}/space_files/{id}/",
+        {
+          path: { project_id: teamId.toString(), id },
+          body: { content: input.content, base_version: input.baseVersion },
+        },
+      );
+    } catch (error) {
+      if (
+        requestErrorStatus(error) === 409 &&
+        error instanceof ApiRequestError
+      ) {
+        throw new SpaceFileConflictError(
+          error.body as Schemas.SpaceFileVersionConflict,
+        );
+      }
+      throw error;
+    }
+  }
+
   async getCloudTaskGatewayModels(): Promise<GatewayModel[]> {
     const teamId = await this.getTeamId();
     const url = new URL(`${getCloudTaskGatewayUrl(this.apiHost)}/v1/models`);
@@ -3210,6 +3284,7 @@ export class PostHogAPIClient {
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/`, {
         path: { project_id: teamId.toString() },
+        header: {},
         body: {
           ...taskOptions,
           origin_product: originProduct ?? "user_created",
@@ -4139,6 +4214,7 @@ export class PostHogAPIClient {
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/{id}/run/`, {
         path: { project_id: teamId.toString(), id: taskId },
+        header: {},
         body,
       }),
     );

@@ -2,6 +2,7 @@ import {
   BellIcon,
   BookOpenTextIcon,
   EnvelopeSimple,
+  FileTextIcon,
   HouseSimple,
   type IconProps,
   Lightning,
@@ -35,6 +36,7 @@ import {
   navigateToChannel,
   navigateToCommandCenter,
   navigateToFeeds,
+  navigateToFiles,
   navigateToHome,
   navigateToInbox,
   navigateToLoops,
@@ -77,6 +79,7 @@ export interface RailFlags {
   loops: boolean;
   context: boolean;
   savedSearches: boolean;
+  files: boolean;
 }
 
 /**
@@ -202,6 +205,16 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     href: "/canvases",
     onPick: () => navigateToCanvases(),
     onReclick: focusColumnSearch,
+  },
+  {
+    pane: "files",
+    label: "Files",
+    analyticsId: "files",
+    Icon: FileTextIcon,
+    href: "/files",
+    onPick: navigateToFiles,
+    onReclick: focusColumnSearch,
+    enabled: (flags) => flags.files,
   },
   {
     pane: "inbox",

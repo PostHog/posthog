@@ -14,6 +14,7 @@ import {
   DESKTOP_HOME_FLAG,
   LOOPS_FLAG,
   SAVED_SEARCHES_RAIL_FLAG,
+  SPACE_FILES_FLAG,
 } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
@@ -196,6 +197,7 @@ function NavRailImpl() {
   );
 
   const savedSearchesRailEnabled = useFeatureFlag(SAVED_SEARCHES_RAIL_FLAG);
+  const spaceFilesEnabled = useFeatureFlag(SPACE_FILES_FLAG);
   const hasSavedSearches = useProjectTaskFeeds().length > 0;
   const destinations = visibleRailDestinations({
     home: homeEnabled,
@@ -203,6 +205,7 @@ function NavRailImpl() {
     loops: loopsEnabled,
     context: contextEnabled,
     savedSearches: savedSearchesRailEnabled && hasSavedSearches,
+    files: spaceFilesEnabled,
   });
   const topDestinations = destinations.filter(
     ({ placement }) => placement !== "bottom",

@@ -5,7 +5,11 @@ import {
 } from "@phosphor-icons/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { Button, ButtonGroup, cn } from "@posthog/quill";
-import { BILLING_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import {
+  BILLING_FLAG,
+  PROJECT_BLUEBIRD_FLAG,
+  SPACE_FILES_FLAG,
+} from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isContentlessTask } from "@posthog/shared/domain-types";
 import { AnnouncementBanner } from "@posthog/ui/features/announcements/AnnouncementBanner";
@@ -206,6 +210,7 @@ function RootLayout() {
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
+  const spaceFilesEnabled = useFeatureFlag(SPACE_FILES_FLAG);
   const channelsWorld = useChannelsWorld();
   // The new channels layout has exactly one gate: its feature flag (no
   // sidebar toggle). When on it subsumes the channels alpha entirely.
@@ -309,6 +314,14 @@ function RootLayout() {
       openTaskInput();
     }
   }, [flagsLoaded, bluebirdEnabled, onBluebirdOnlyPath]);
+  const onSpaceFilesPath = useRouterState({
+    select: (state) => state.location.pathname === "/files",
+  });
+  useEffect(() => {
+    if (flagsLoaded && !spaceFilesEnabled && onSpaceFilesPath) {
+      openTaskInput();
+    }
+  }, [flagsLoaded, onSpaceFilesPath, spaceFilesEnabled]);
 
   return (
     // DnD scope for the tab strip's drag-to-reorder (pill sortables live in

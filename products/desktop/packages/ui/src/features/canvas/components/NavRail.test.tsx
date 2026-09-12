@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   navigateToActivity: vi.fn(),
   navigateToCanvases: vi.fn(),
+  navigateToFiles: vi.fn(),
   navigateToSpaces: vi.fn(),
   navigateToChannel: vi.fn(),
   navigateToHome: vi.fn(),
@@ -79,6 +80,7 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   getCurrentMatches: () => [{ fullPath: mocks.fullPath }],
   navigateToActivity: (...a: unknown[]) => mocks.navigateToActivity(...a),
   navigateToCanvases: (...a: unknown[]) => mocks.navigateToCanvases(...a),
+  navigateToFiles: (...a: unknown[]) => mocks.navigateToFiles(...a),
   navigateToSpaces: (...a: unknown[]) => mocks.navigateToSpaces(...a),
   navigateToChannel: (...a: unknown[]) => mocks.navigateToChannel(...a),
   navigateToHome: (...a: unknown[]) => mocks.navigateToHome(...a),
@@ -97,7 +99,11 @@ vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
 }));
 
 import { browserTabsStore } from "@posthog/core/browser-tabs/browserTabsStore";
-import { DESKTOP_HOME_FLAG, type RailVisit } from "@posthog/shared";
+import {
+  DESKTOP_HOME_FLAG,
+  type RailVisit,
+  SPACE_FILES_FLAG,
+} from "@posthog/shared";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import {
   clearKeepListForRoute,
@@ -147,6 +153,7 @@ describe("NavRail", () => {
     vi.clearAllMocks();
     mocks.featureFlags.clear();
     mocks.featureFlags.set(DESKTOP_HOME_FLAG, true);
+    mocks.featureFlags.set(SPACE_FILES_FLAG, true);
     mocks.fullPath = "/";
     mocks.href = "/";
     useActivityFilterStore.setState({ mentionsEnabled: true });
@@ -163,6 +170,23 @@ describe("NavRail", () => {
     render(<NavRail />);
 
     expect(screen.queryByLabelText("Home")).not.toBeInTheDocument();
+  });
+
+  it("hides Files when its feature flag is off", () => {
+    mocks.featureFlags.set(SPACE_FILES_FLAG, false);
+
+    render(<NavRail />);
+
+    expect(screen.queryByLabelText("Files")).not.toBeInTheDocument();
+  });
+
+  it("puts Files directly below Canvases", () => {
+    render(<NavRail />);
+
+    const labels = screen
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label"));
+    expect(labels.indexOf("Files")).toBe(labels.indexOf("Canvases") + 1);
   });
 
   it("keeps Search directly above Settings at the bottom of the rail", () => {
@@ -206,6 +230,7 @@ describe("NavRail", () => {
   it.each([
     ["/", "Home"],
     ["/activity", "Activity"],
+    ["/files", "Files"],
     ["/inbox/pulls/$reportId", "Self-driving"],
     ["/command-center", "Command Center"],
     ["/spaces", "Spaces"],

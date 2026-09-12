@@ -62,6 +62,13 @@ export function navigateToCanvases(canvasId?: string): void {
   });
 }
 
+export function navigateToFiles(fileId?: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/files",
+    search: { file: fileId },
+  });
+}
+
 export function navigateToHome(): void {
   void getRouterOrNull()?.navigate({ to: "/" });
 }
