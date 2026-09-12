@@ -4,8 +4,9 @@ Backs the LLM gateway's `QuotaResolver`, which forwards the caller's auth
 header here to learn whether a given team is currently over its AI credits
 quota. Project-nested so org membership and token `scoped_teams`/
 `scoped_organizations` enforcement come from the standard
-`TeamAndOrgViewSetMixin` permission chain — see
-`posthog.permissions.APIScopePermission.check_team_and_org_permissions`.
+`TeamAndOrgViewSetMixin` permission chain, except for resource-level access
+control because this endpoint must report quota state for deactivated organizations.
+See `posthog.permissions.APIScopePermission.check_team_and_org_permissions`.
 """
 
 from __future__ import annotations
@@ -14,11 +15,13 @@ from typing import Any
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
+from posthog.permissions import APIScopePermission, TeamMemberAccessPermission
 
 from ee.billing.quota_limiting import INFORMATIONAL_USAGE_RESOURCES, QuotaResource, get_fresh_team_limited_resources
 
@@ -91,6 +94,13 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "project"
     required_scopes = ["project:read"]
     http_method_names = ["get", "head", "options"]
+
+    def dangerously_get_permissions(self) -> list[BasePermission]:
+        return [
+            IsAuthenticated(),
+            APIScopePermission(),
+            TeamMemberAccessPermission(),
+        ]
 
     @extend_schema(
         summary="Get a team's quota-limit state",

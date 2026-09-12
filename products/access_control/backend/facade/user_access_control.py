@@ -405,9 +405,16 @@ class UserAccessControl:
     Typically a Team (Project) is required other than in certain circumstances, particularly when validating which projects a user has access to within an organization.
     """
 
-    def __init__(self, user: User, team: Optional[Team] = None, organization_id: Optional[str] = None):
+    def __init__(
+        self,
+        user: User,
+        team: Optional[Team] = None,
+        organization_id: Optional[str] = None,
+        allow_deactivated_organization: bool = False,
+    ):
         self._user = user
         self._team = team
+        self._allow_deactivated_organization = allow_deactivated_organization
         self._cache: dict[str, list[AccessControl]] = {}
         self._sibling_team_access_controls: dict[int, UserAccessControl] = {}
         # Divergences this instance already reported. An instance lives for one request, and one
@@ -471,7 +478,11 @@ class UserAccessControl:
 
         if missing:
             for team in Team.objects.filter(id__in=missing):
-                sibling = UserAccessControl(self._user, team=team)
+                sibling = UserAccessControl(
+                    self._user,
+                    team=team,
+                    allow_deactivated_organization=self._allow_deactivated_organization,
+                )
                 if sibling._organization_id == self._organization_id:
                     # Org membership and role ids don't vary by team, so seed them from this
                     # instance rather than letting each sibling re-query them. Written straight
@@ -564,7 +575,21 @@ class UserAccessControl:
     def is_organization_admin(self) -> bool:
         """Org owners/admins bypass object- and resource-level access control."""
         org_membership = self._organization_membership
-        return bool(org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN)
+        return (
+            bool(org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN)
+            and self.is_organization_active
+        )
+
+    @property
+    def is_organization_active(self) -> bool:
+        """De-activated organizations get default-deny for any request."""
+        return bool(
+            self._organization
+            and (
+                (self._allow_deactivated_organization and self._organization.is_active is False)
+                or (self._organization.is_active is not False and not self._organization.is_pending_deletion)
+            )
+        )
 
     def _is_creator(self, obj: Model) -> bool:
         """Whether the principal created the object, which grants them the highest access to it.
@@ -781,7 +806,7 @@ class UserAccessControl:
         resource = resource or model_to_resource(obj)
         org_membership = self._organization_membership
 
-        if not resource or not org_membership:
+        if not resource or not org_membership or not self.is_organization_active:
             return None
 
         if self._is_most_specific_access_control_enabled:
@@ -957,6 +982,9 @@ class UserAccessControl:
         attached so callers can attribute it.
         """
 
+        if not self.is_organization_active:
+            return None
+
         if self._is_most_specific_access_control_enabled:
             return self.resolve_most_specific_resource_access(resource)
 
@@ -1083,7 +1111,7 @@ class UserAccessControl:
         """
         org_membership = self._organization_membership
 
-        if not resource or not org_membership:
+        if not resource or not org_membership or not self.is_organization_active:
             return False
 
         # Org admins always have access
@@ -1157,6 +1185,9 @@ class UserAccessControl:
     ) -> QuerySet:
         # Filter queryset based on access controls, handling cases where user has "none" resource access
         # but may have specific object access
+
+        if not self.is_organization_active:
+            return queryset.none()
 
         model = cast(Model, queryset.model)
         # Callers that already know the resource must pass it: model_to_resource cannot map every
@@ -1278,7 +1309,7 @@ class UserAccessControl:
         Empty for org admins and when there is no team / EE / entitlement, matching
         `blocked_resource_ids_by_scope`.
         """
-        if not EE_AVAILABLE or not self._team or self.is_organization_admin:
+        if not EE_AVAILABLE or not self._team or self.is_organization_admin or not self.is_organization_active:
             return {}
 
         if not self.access_controls_supported:
@@ -1374,6 +1405,9 @@ class UserAccessControl:
         can span every environment in a project - a denial made in one team must not hide a
         same-valued ref that happens to belong to a different team.
         """
+        if not self.is_organization_active:
+            return queryset.none()
+
         user = self._user
 
         # 1) If the user is staff or org-admin, they can see everything
@@ -1462,7 +1496,7 @@ class UserAccessControl:
         `bulk_object_access_levels` so the single and bulk paths cannot drift.
         """
         org_membership = self._organization_membership
-        if not org_membership:
+        if not org_membership or not self.is_organization_active:
             return True, None
 
         # Creators and org admins always have highest access

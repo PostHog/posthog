@@ -22,6 +22,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.notebooks.backend.models import Notebook
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 
@@ -334,6 +335,28 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         self.user.leave(organization=self.organization)
         assert self.user_access_control.check_access_level_for_object(self.team, "member") is False
 
+    def test_deactivated_org_denies_object_and_resource_access(self):
+        self.organization.is_active = False
+        self.organization.save()
+
+        assert self.user_access_control.get_user_access_level(self.team) is None
+        assert self.user_access_control.access_level_for_object(self.team) is None
+        assert self.user_access_control.access_level_for_resource("dashboard") is None
+        assert self.user_access_control.check_access_level_for_object(self.team, "member") is False
+        assert self.user_access_control.check_access_level_for_resource("dashboard", "viewer") is False
+
+    def test_filters_project_queryset_for_deactivated_org(self):
+        self.organization.is_active = False
+        self.organization.save()
+        team2 = Team.objects.create(organization=self.organization)
+
+        filtered_teams = self.user_access_control.filter_queryset_by_access_level(
+            Team.objects.all(), include_all_if_admin=True
+        )
+
+        assert list(filtered_teams) == []
+        assert team2 not in filtered_teams
+
     def test_filters_project_queryset_based_on_acs(self):
         team2 = Team.objects.create(organization=self.organization)
         team3 = Team.objects.create(organization=self.organization)
@@ -541,6 +564,14 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         filtered_for_user = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
         # Because user is org admin => sees everything
         self.assertCountEqual([self.file_a, self.file_b], filtered_for_user)
+
+    def test_deactivated_org_hides_files_from_org_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.is_active = False
+        self.organization.save()
+
+        assert list(self.user_access_control.filter_and_annotate_file_system_queryset(FileSystem.objects.all())) == []
 
     def test_setting_explicit_viewer_or_editor_access(self):
         """
@@ -1243,8 +1274,6 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
     def test_notebook_specific_access_control(self):
         """Test notebook-specific access controls"""
-        from products.notebooks.backend.models import Notebook
-
         notebook = Notebook.objects.create(team=self.team, created_by=self.other_user)
 
         self._create_access_control(
@@ -1285,8 +1314,6 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
     def setUp(self):
         super().setUp()
         # Create test notebooks for various scenarios
-        from products.notebooks.backend.models import Notebook
-
         self.notebook_1 = Notebook.objects.create(team=self.team, created_by=self.other_user, title="Notebook 1")
         self.notebook_2 = Notebook.objects.create(team=self.team, created_by=self.other_user, title="Notebook 2")
         self.notebook_3 = Notebook.objects.create(team=self.team, created_by=self.user, title="My Notebook")
@@ -1319,6 +1346,18 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
 
         # Should return False because user has no specific object access
         assert self.user_access_control.has_any_specific_access_for_resource("notebook", "editor") is False
+        assert self.user_access_control.has_any_specific_access_for_resource("notebook", "viewer") is False
+
+    def test_deactivated_org_denies_specific_access_fallback(self):
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_1.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+        self.organization.is_active = False
+        self.organization.save()
+
         assert self.user_access_control.has_any_specific_access_for_resource("notebook", "viewer") is False
 
     def test_effective_access_level_for_resource_with_resource_access(self):
@@ -1359,10 +1398,14 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         # Should return "none" because user has no access at all
         assert self.user_access_control.effective_access_level_for_resource("notebook") == "none"
 
+    def test_filter_queryset_by_access_level_for_deactivated_org(self):
+        self.organization.is_active = False
+        self.organization.save()
+
+        assert list(self.user_access_control.filter_queryset_by_access_level(Notebook.objects.all())) == []
+
     def test_filter_queryset_by_access_level_with_none_resource_and_specific_access(self):
         """Test queryset filtering when user has 'none' resource access but specific object access"""
-        from products.notebooks.backend.models import Notebook
-
         # Set resource-level access to "none"
         self._create_access_control(resource="notebook", access_level="none")
 
@@ -1387,8 +1430,6 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         assert self.notebook_2.id not in notebook_ids  # No access
 
     def test_filter_queryset_with_none_resource_and_no_grants_shows_only_created(self):
-        from products.notebooks.backend.models import Notebook
-
         self._create_access_control(resource="notebook", access_level="none")
         self._clear_uac_caches()
 
@@ -1405,8 +1446,6 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
 
     def test_filter_queryset_by_access_level_with_resource_access(self):
         """Test queryset filtering when user has resource-level access"""
-        from products.notebooks.backend.models import Notebook
-
         # Set resource-level access to "editor"
         self._create_access_control(resource="notebook", access_level="editor")
 
@@ -1431,8 +1470,6 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         assert self.notebook_2.id not in notebook_ids  # Explicitly blocked
 
     def test_filter_queryset_ignores_rules_without_entitlement(self):
-        from products.notebooks.backend.models import Notebook
-
         # Member-level "none" rule blocking notebook_2 for the user
         self._create_access_control(
             resource="notebook",
@@ -1545,8 +1582,6 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
     def test_user_access_control_serializer_mixin_with_specific_access(self):
         """Test UserAccessControlSerializerMixin returns correct access levels"""
         from rest_framework import serializers
-
-        from products.notebooks.backend.models import Notebook
 
         # Set resource-level access to "none"
         self._create_access_control(resource="notebook", access_level="none")
