@@ -1282,10 +1282,15 @@ class LazyComputationExecutor:
                                 )
                                 if empty_expires_at is not None:
                                     new_job.expires_at = min(new_job.expires_at, empty_expires_at)
-                            new_job.save()
-                            publish_job_completion(new_job.id, "ready")
+                            persisted = self._finalize_job(new_job, ["status", "computed_at", "expires_at"])
+                            # The notification claims a job reached a terminal status, so it can't
+                            # outrun the write that makes that true — same guard the stale path uses.
+                            if persisted:
+                                publish_job_completion(new_job.id, "ready")
+                            # `abandoned` is the row vanishing mid-insert: no terminal status was
+                            # reached, so counting it as ready would overstate completions.
                             LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
-                                outcome="ready_empty" if wrote_nothing else "ready",
+                                outcome=("ready_empty" if wrote_nothing else "ready") if persisted else "abandoned",
                                 table=str(query_info.table),
                             ).inc()
                             jobs_created += 1
@@ -1300,16 +1305,19 @@ class LazyComputationExecutor:
                                 insert_duration_ms=round(insert_elapsed * 1000),
                                 rows_written=rows_written,
                                 expires_at=str(new_job.expires_at),
+                                persisted=persisted,
                             )
                         except Exception as e:
                             insert_elapsed = time.monotonic() - insert_start
                             memory_exceeded = memory_exceeded or is_memory_limit_error(e)
                             new_job.status = PreaggregationJob.Status.FAILED
                             new_job.error = str(e)
-                            new_job.save()
-                            publish_job_completion(new_job.id, "failed")
+                            persisted = self._finalize_job(new_job, ["status", "error"])
+                            if persisted:
+                                publish_job_completion(new_job.id, "failed")
                             LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
-                                outcome="failed", table=str(query_info.table)
+                                outcome="failed" if persisted else "abandoned",
+                                table=str(query_info.table),
                             ).inc()
                             jobs_created += 1
                             logger.warning(
@@ -1426,6 +1434,27 @@ class LazyComputationExecutor:
         _log_execution("success", result)
         return result
 
+    def _finalize_job(self, job: PreaggregationJob, fields: list[str]) -> bool:
+        """Move a job this executor owns out of PENDING, without recreating it if it's gone.
+
+        `job.save()` UPDATEs and then falls back to an INSERT when the UPDATE matches no rows, so a
+        job whose row was deleted mid-insert comes back — as READY, carrying its pre-deletion
+        expiry. A filtered UPDATE writes only if the row is still there and still PENDING, which is
+        the same guard `_try_mark_stale_job_as_failed` already uses. Returns whether it wrote.
+
+        Stamps `updated_at` itself: `QuerySet.update()` never runs `pre_save`, so the model's
+        `auto_now` doesn't fire and the column would sit frozen at creation time. Kept here
+        rather than at each call site so a new one can't forget it.
+        """
+        updated = PreaggregationJob.objects.filter(
+            id=job.id,
+            status=PreaggregationJob.Status.PENDING,
+        ).update(
+            updated_at=django_timezone.now(),
+            **{field: getattr(job, field) for field in fields},
+        )
+        return updated > 0
+
     def _try_fail_expired_pending_job(
         self, team: Team, query_hash: str, range_start: datetime, range_end: datetime
     ) -> bool:
@@ -1440,9 +1469,9 @@ class LazyComputationExecutor:
         forever and every reader burns its wait budget before falling back.
 
         The expires_at < now() guard means only rows whose data would already be
-        past its ClickHouse TTL can be failed; a live INSERT finishing afterwards
-        overwrites FAILED with READY, so at worst a takeover costs one duplicate
-        build. The publish wakes waiters that subscribed to the row before it
+        past its ClickHouse TTL can be failed. Finalization only updates PENDING
+        rows, so a late INSERT cannot overwrite FAILED. The publish wakes waiters
+        that subscribed to the row before it
         expired, so they rescan now instead of at their next poll timeout.
         """
         blocker = PreaggregationJob.objects.filter(
@@ -1473,16 +1502,12 @@ class LazyComputationExecutor:
         Uses atomic update with status check to prevent races.
         Returns True if this call marked it, False if another waiter did or status changed.
         """
-        updated = PreaggregationJob.objects.filter(
-            id=job.id,
-            status=PreaggregationJob.Status.PENDING,  # Only if still PENDING
-        ).update(
-            status=PreaggregationJob.Status.FAILED,
-            error="Job was stale (executor may have crashed)",
-        )
-        if updated > 0:
+        job.status = PreaggregationJob.Status.FAILED
+        job.error = "Job was stale (executor may have crashed)"
+        marked = self._finalize_job(job, ["status", "error"])
+        if marked:
             publish_job_completion(job.id, "failed")
-        return updated > 0
+        return marked
 
     def _is_job_stale(self, job: PreaggregationJob) -> bool:
         """Check if a PENDING job is stale using Redis-based CH liveness.
