@@ -29,6 +29,7 @@ import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterBatchHogFlowTriggerFailed } from './metrics'
 
 const RETRY_BACKOFF_MS = 5_000
+const HEARTBEAT_INTERVAL_MS = 10_000
 
 const counterBatchHogFlowAudienceTruncated = new Counter({
     name: 'cdp_batch_hog_flow_audience_truncated',
@@ -137,6 +138,19 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             counterBatchHogFlowResolverJobs.labels({ outcome: 'started' }).inc()
         }
 
+        // Heartbeat the lock while the page (or terminal write) runs: the audience fetch alone
+        // can hold this job for the full CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS budget,
+        // which is on the order of the janitor's stall threshold — without heartbeats the
+        // janitor would reclaim the lock mid-page and the commit would be refused.
+        const heartbeat = setInterval(() => {
+            job.heartbeat().catch((err) => {
+                logger.warn('⚠️', `${this.name} - failed to heartbeat resolver job`, {
+                    jobId: job.id,
+                    error: String(err),
+                })
+            })
+        }, HEARTBEAT_INTERVAL_MS)
+
         try {
             if (state.pendingTerminal) {
                 try {
@@ -165,6 +179,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
 
             await this.processOnePage(job, state)
         } finally {
+            clearInterval(heartbeat)
             // Flush monitoring every dequeue, not just on terminal-write. Non-terminal
             // paths (truncation log queued in processOnePage, failure log in
             // transitionToFailedTerminal) would otherwise wait for a later terminal
