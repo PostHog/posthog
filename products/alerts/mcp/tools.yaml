@@ -25,7 +25,7 @@ tools:
             threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold
             configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly
             detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos,
-            isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and
+            isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.95) and
             window size. Ensemble detectors combine 2+ sub-detectors and take an operator of 'and' or 'or', lowercase.
             Every detector parameter is optional: pass only the ones you want to change from their defaults. Requires an
             insight ID and at least one subscribed user.
