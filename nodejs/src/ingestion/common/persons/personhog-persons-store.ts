@@ -7,7 +7,7 @@ import { TRANSPORT_MAX_RETRIES } from '~/common/personhog/grpc-retry'
 import { SEMANTIC_REFUSAL_METADATA_KEY, SEMANTIC_REFUSAL_OP_ID_REUSED } from '~/common/personhog/identity'
 import { errorClassLabel } from '~/common/personhog/metrics'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
-import { PersonhogFencedError, PersonhogPropertiesSizeError } from '~/common/personhog/persons'
+import { PersonIdentity, PersonhogFencedError, PersonhogPropertiesSizeError } from '~/common/personhog/persons'
 import { PersonMessage } from '~/common/persons/person-message'
 import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
@@ -432,7 +432,12 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    /** Resolves through identity and uses that person directly, saving the leader hop. */
+    /** Check grade only: the personless step discards properties there, and the update grade reads the leader. */
+    private identityDocument(identity: PersonIdentity): InternalPerson {
+        return { ...identity, properties: {}, properties_last_updated_at: {}, properties_last_operation: null }
+    }
+
+    /** Resolves through identity and serves its answer directly, saving the leader hop. */
     async fetchForChecking(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null> {
         const cached = this.getCachedPerson(teamId, distinctId, 'check')
         if (cached !== undefined) {
@@ -440,7 +445,8 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         const generation = this.generationOf(teamId)
         const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
-        return this.cacheFetchedPerson(teamId, distinctId, resolved?.person ?? null, batchId, {
+        const document = resolved?.person ? this.identityDocument(resolved.person) : null
+        return this.cacheFetchedPerson(teamId, distinctId, document, batchId, {
             grade: 'check',
             generation,
         })
@@ -498,15 +504,17 @@ export class PersonhogPersonsStore implements PersonsStore {
             CALLER_TAG
         )
         const { created } = createResult
-        let { person } = createResult
-        if (!created) {
-            // Identity's found-branch document lags the leader, so pay a
-            // leader read; a null means the person died mid-call, and the
-            // redirect heals any ops folded onto identity's answer.
-            const leaderDoc = await this.repository.fetchPersonById(teamId, person.id, CALLER_TAG)
+        let person: InternalPerson
+        if (createResult.created) {
+            person = createResult.person
+        } else {
+            // A null means the person died mid-call, and the redirect heals
+            // any ops folded onto identity's answer.
+            const identity = createResult.person
+            const leaderDoc = await this.repository.fetchPersonById(teamId, identity.id, CALLER_TAG)
             if (leaderDoc === null) {
-                this.clearPersonCacheForPersonId(`${teamId}:${person.id}`, 'stale_write_answer')
-                return { success: true, person: this.snapshot(person), messages: [], created }
+                this.clearPersonCacheForPersonId(`${teamId}:${identity.id}`, 'stale_write_answer')
+                return { success: true, person: this.identityDocument(identity), messages: [], created }
             }
             person = leaderDoc
         }
