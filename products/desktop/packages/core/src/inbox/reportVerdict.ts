@@ -51,7 +51,23 @@ export function deriveReportVerdict(
         body: "Review the recommendation. Start an implementation task to add direction and choose a model, or ask for more context.",
       };
     case "potential":
+      return report.dismissal_reason === "already_fixed"
+        ? {
+            tone: "info",
+            title: "Dismissed until new signals",
+            body: "This report was dismissed as already fixed. It can return when another matching signal arrives.",
+          }
+        : {
+            tone: "info",
+            title: "Waiting for new signals",
+            body: "This report is waiting for more matching signals. No investigation is running.",
+          };
     case "candidate":
+      return {
+        tone: "info",
+        title: "Queued for investigation",
+        body: "This report is waiting for an agent to start investigating.",
+      };
     case "in_progress":
       return {
         tone: "progress",
