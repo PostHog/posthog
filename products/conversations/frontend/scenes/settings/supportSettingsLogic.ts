@@ -151,6 +151,8 @@ export interface supportSettingsLogicValues {
         name: string
     }[]
     teamsTeamsLoading: boolean
+    ticketRecoveryLinkTextValue: string | null
+    ticketRecoveryTextValue: string | null
     widgetEnabledLoading: boolean
 }
 
@@ -395,6 +397,12 @@ export interface supportSettingsLogicActions {
     saveSlackTicketEmoji: () => {
         value: true
     }
+    saveTicketRecoveryLinkText: () => {
+        value: true
+    }
+    saveTicketRecoveryText: () => {
+        value: true
+    }
     sendTestEmail: (configId: string) => {
         configId: string
     }
@@ -507,6 +515,12 @@ export interface supportSettingsLogicActions {
         status: 'error' | 'idle' | 'installed' | 'installing' | 'needs_org_catalog'
         teamId: string | null
     }
+    setTicketRecoveryLinkTextValue: (value: string | null) => {
+        value: string | null
+    }
+    setTicketRecoveryTextValue: (value: string | null) => {
+        value: string | null
+    }
     setWidgetEnabledLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -613,6 +627,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         saveIdentificationFormDescription: true,
         setPlaceholderTextValue: (value: string | null) => ({ value }),
         savePlaceholderText: true,
+        setTicketRecoveryTextValue: (value: string | null) => ({ value }),
+        saveTicketRecoveryText: true,
+        setTicketRecoveryLinkTextValue: (value: string | null) => ({ value }),
+        saveTicketRecoveryLinkText: true,
         // Notification recipients
         setNotificationRecipients: (users: UserBasicType[]) => ({ users }),
         // Slack channel settings (SupportHog)
@@ -749,6 +767,18 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             null as string | null,
             {
                 setPlaceholderTextValue: (_, { value }) => value,
+            },
+        ],
+        ticketRecoveryTextValue: [
+            null as string | null,
+            {
+                setTicketRecoveryTextValue: (_, { value }) => value,
+            },
+        ],
+        ticketRecoveryLinkTextValue: [
+            null as string | null,
+            {
+                setTicketRecoveryLinkTextValue: (_, { value }) => value,
             },
         ],
         // Email multi-config state
@@ -1290,6 +1320,30 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 },
             })
         },
+        saveTicketRecoveryText: () => {
+            const trimmedValue = values.ticketRecoveryTextValue?.trim()
+            if (!trimmedValue) {
+                return
+            }
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    widget_ticket_recovery_text: trimmedValue,
+                },
+            })
+        },
+        saveTicketRecoveryLinkText: () => {
+            const trimmedValue = values.ticketRecoveryLinkTextValue?.trim()
+            if (!trimmedValue) {
+                return
+            }
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    widget_ticket_recovery_link_text: trimmedValue,
+                },
+            })
+        },
         setNotificationRecipients: ({ users }) => {
             actions.updateCurrentTeam({
                 conversations_settings: {
@@ -1660,6 +1714,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.setIdentificationFormTitleValue(null)
             actions.setIdentificationFormDescriptionValue(null)
             actions.setPlaceholderTextValue(null)
+            actions.setTicketRecoveryTextValue(null)
+            actions.setTicketRecoveryLinkTextValue(null)
             actions.setSlackTicketEmojiValue(null)
             actions.setSlackBotIconUrlValue(null)
             actions.setSlackBotDisplayNameValue(null)

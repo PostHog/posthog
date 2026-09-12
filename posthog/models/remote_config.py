@@ -301,6 +301,9 @@ class RemoteConfig(UUIDTModel):
                 "identificationFormDescription": conv_settings.get("widget_identification_form_description")
                 or "Please provide your details so we can help you better.",
                 "placeholderText": conv_settings.get("widget_placeholder_text") or "Type your message...",
+                "ticketRecoveryText": conv_settings.get("widget_ticket_recovery_text")
+                or "Don't see your previous tickets?",
+                "ticketRecoveryLinkText": conv_settings.get("widget_ticket_recovery_link_text") or "Recover them here",
                 "widgetPosition": conv_settings.get("widget_position") or "bottom_right",
             }
         else:
