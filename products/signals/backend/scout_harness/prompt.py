@@ -464,7 +464,7 @@ _EDIT_EVIDENCE_VS_NOTE = (
     "there, and the note is what still lands."
 )
 
-_EDIT_REPOSITORY_BULLET = "- **Fix a misrouted report.** If a report points at the wrong codebase, set `repository` to the right `owner/repo` instead of authoring a duplicate that carries the correct one. It replaces the report's target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Pass `NO_REPO` when nothing under version control could change, and omit the field entirely when the target is already right."
+_EDIT_REPOSITORY_BULLET = "- **Fix a misrouted report.** If a report points at the wrong codebase, set `repository` to the right `owner/repo` instead of authoring a duplicate that carries the correct one. It replaces the report's target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Pass `NO_REPO` when nothing under version control could change, and omit the field entirely when the target is already right. The response carries `repository`, the target the report holds afterwards — read it back to confirm the correction landed."
 
 _AUTHORING_VS_EDITING_REPORT_BOTH = f"""# Authoring vs. editing: search the inbox first
 
