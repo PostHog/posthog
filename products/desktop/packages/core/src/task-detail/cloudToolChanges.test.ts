@@ -4,6 +4,7 @@ import {
   cachedDiffStats,
   extractCloudFileContent,
   extractCloudToolChangedFiles,
+  extractCloudToolFileDiffs,
   type ParsedToolCall,
 } from "./cloudToolChanges";
 
@@ -135,6 +136,35 @@ describe("extractCloudToolChangedFiles", () => {
     const recomputed = cachedDiffStats(distinctButEqual);
     expect(recomputed).not.toBe(first);
     expect(recomputed).toEqual(first);
+  });
+});
+
+describe("extractCloudToolFileDiffs", () => {
+  it("combines repeated edits into one diff from the first state to the last state", () => {
+    const calls = makeToolCalls(
+      toolCall({
+        toolCallId: "tc-first",
+        kind: "edit",
+        locations: [{ path: "src/app.ts" }],
+        content: diffContent("src/app.ts", "alpha\nBETA", "alpha\nbeta"),
+      }),
+      toolCall({
+        toolCallId: "tc-second",
+        kind: "edit",
+        locations: [{ path: "src/app.ts" }],
+        content: diffContent("src/app.ts", "alpha\nBETA\ngamma", "alpha\nBETA"),
+      }),
+    );
+
+    expect(extractCloudToolFileDiffs(calls)).toEqual([
+      {
+        path: "src/app.ts",
+        oldText: "alpha\nbeta",
+        newText: "alpha\nBETA\ngamma",
+        linesAdded: 2,
+        linesRemoved: 1,
+      },
+    ]);
   });
 });
 

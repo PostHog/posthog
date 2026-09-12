@@ -60,11 +60,13 @@ import type { PromptRecallHandler } from "@posthog/ui/features/sessions/componen
 import { MessageJumpPicker } from "@posthog/ui/features/sessions/components/chat-thread/MessageJumpPicker";
 import { MessageMinimap } from "@posthog/ui/features/sessions/components/chat-thread/MessageMinimap";
 import { ToolGroup } from "@posthog/ui/features/sessions/components/chat-thread/ToolGroup";
+import { TurnDiffSummary } from "@posthog/ui/features/sessions/components/chat-thread/TurnDiffSummary";
 import { THREAD_HOTKEY_OPTIONS } from "@posthog/ui/features/sessions/components/chat-thread/threadHotkeys";
 import {
   type AgentTurn,
   CHAT_THREAD_VIRTUALIZATION_THRESHOLD,
   completedTurnTimestamp,
+  completedTurnToolCalls,
   completedTurnTraceId,
   countFlatRows,
   type FlatThreadRow,
@@ -785,6 +787,7 @@ const ThreadRow = memo(function ThreadRow({
 }) {
   const { revealed: footerRevealed, rowProps } = useRowReveal(keyboardFocused);
   if (item.type === "agent_turn") {
+    const toolCalls = completedTurnToolCalls(item);
     return (
       <ChatMessageScrollerItem
         messageId={item.id}
@@ -813,6 +816,9 @@ const ThreadRow = memo(function ThreadRow({
               </div>
             ))}
           </div>
+          {toolCalls && (
+            <TurnDiffSummary toolCalls={toolCalls} turnId={item.id} />
+          )}
           <TurnFooter
             turnId={item.id}
             traceId={completedTurnTraceId(item)}
@@ -1193,6 +1199,12 @@ const FlatRowView = memo(
             isTrailing={row.isTrailingInTurn}
             keyboardFocused={keyboardFocused}
           />
+          {row.turnId != null && row.turnToolCalls != null && (
+            <TurnDiffSummary
+              toolCalls={row.turnToolCalls}
+              turnId={row.turnId}
+            />
+          )}
           {row.turnId != null && row.turnTimestamp != null && (
             <TurnFooter
               turnId={row.turnId}
@@ -1211,6 +1223,7 @@ const FlatRowView = memo(
     prev.row.inTurn === next.row.inTurn &&
     prev.row.isTrailingInTurn === next.row.isTrailingInTurn &&
     prev.row.turnTimestamp === next.row.turnTimestamp &&
+    prev.row.turnToolCalls === next.row.turnToolCalls &&
     prev.renderItem === next.renderItem &&
     prev.keyboardFocused === next.keyboardFocused,
 );

@@ -122,7 +122,7 @@ function getDiffContent(
  * diff stats with bag of lines, these are computed for every changed file whenever the session events update
  * so we want this to be fast
  */
-function getDiffStats(
+export function getDiffStats(
   oldText: string | null | undefined,
   newText: string | null | undefined,
 ): { added?: number; removed?: number } {
@@ -374,6 +374,40 @@ export function extractCloudToolChangedFiles(
   }
 
   return [...filesByPath.values()];
+}
+
+export interface CloudToolFileDiff {
+  path: string;
+  oldText: string | null;
+  newText: string | null;
+  linesAdded?: number;
+  linesRemoved?: number;
+}
+
+export function extractCloudToolFileDiffs(
+  toolCalls: Map<string, ParsedToolCall>,
+): CloudToolFileDiff[] {
+  const diffs: CloudToolFileDiff[] = [];
+
+  for (const file of extractCloudToolChangedFiles(toolCalls)) {
+    const content = extractCloudFileDiff(toolCalls, file.path);
+    if (!content || (content.oldText === null && content.newText === null)) {
+      continue;
+    }
+
+    const stats = isBinaryFile(file.path)
+      ? {}
+      : getDiffStats(content.oldText, content.newText);
+    diffs.push({
+      path: file.path,
+      oldText: content.oldText,
+      newText: content.newText,
+      linesAdded: stats.added,
+      linesRemoved: stats.removed,
+    });
+  }
+
+  return diffs;
 }
 
 export interface CloudFileContent {
