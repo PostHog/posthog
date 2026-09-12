@@ -49,7 +49,6 @@ import {
     AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
-    MultiQuestionForm,
     MultiQuestionFormAnswers,
     PENDING_APPROVAL_STATUS,
     ResumePayload,
@@ -104,10 +103,12 @@ import {
     activeSceneLogicHasMaxContext,
     findPendingClientToolCall,
     getAgentModeForScene,
+    getPendingMultiQuestionForm,
     isAssistantMessage,
     isAssistantToolCallMessage,
     isHumanMessage,
     isSubagentUpdateEvent,
+    type PendingMultiQuestionForm,
     threadEndsWithMultiQuestionForm,
 } from './utils'
 
@@ -190,7 +191,7 @@ export interface maxThreadLogicValues {
         status: 'pending_approval'
         toolName: string
     } | null
-    activeMultiQuestionForm: MultiQuestionForm | null
+    activeMultiQuestionForm: PendingMultiQuestionForm | null
     agentMode: AgentMode | null
     agentModeLockedByUser: boolean
     canCreateTicket: boolean
@@ -655,7 +656,7 @@ export interface maxThreadLogicMeta {
         threadMessageCount: (threadRaw: ThreadMessage[]) => number
         formPending: (threadRaw: ThreadMessage[]) => boolean
         multiQuestionFormPending: (threadRaw: ThreadMessage[]) => boolean
-        activeMultiQuestionForm: (threadRaw: ThreadMessage[]) => MultiQuestionForm | null
+        activeMultiQuestionForm: (threadRaw: ThreadMessage[]) => PendingMultiQuestionForm | null
         activeDangerousOperationApproval: (
             pendingApprovalProposalId: string | null,
             pendingApprovalsData: Record<string, PendingApproval>,
@@ -2720,20 +2721,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         // Returns the multi-question form data if one is pending
         activeMultiQuestionForm: [
             (s) => [s.threadRaw],
-            (threadRaw: ThreadMessage[]): MultiQuestionForm | null => {
-                if (!threadEndsWithMultiQuestionForm(threadRaw)) {
-                    return null
-                }
-                const lastMessage = threadRaw[threadRaw.length - 1]
-                if (!isAssistantMessage(lastMessage)) {
-                    return null
-                }
-                const formArgs = lastMessage.tool_calls?.find((tc) => tc.name === 'create_form')?.args
-                if (!formArgs || !Array.isArray(formArgs.questions)) {
-                    return null
-                }
-                return formArgs as unknown as MultiQuestionForm
-            },
+            (threadRaw: ThreadMessage[]): PendingMultiQuestionForm | null =>
+                getPendingMultiQuestionForm(threadRaw[threadRaw.length - 1]),
         ],
 
         // Returns the pending dangerous operation approval data if one is pending
