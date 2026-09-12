@@ -21,6 +21,38 @@ describe("GitService", () => {
     execGhMock.mockReset();
   });
 
+  it.each([
+    [
+      "https://eu.posthog.com/code/task/task-1",
+      "https://eu.posthog.com/code/task/task-1",
+    ],
+    [undefined, "https://posthog.com/desktop?ref=pr"],
+  ])("uses %s for pull request attribution", async (taskUrl, expectedUrl) => {
+    execGhMock.mockResolvedValueOnce(
+      ghResult({ stdout: "https://github.com/example/repo/pull/1" }),
+    );
+    await new GitService().createPrViaGh(
+      "/repo",
+      "Fix a bug",
+      "Description",
+      true,
+      undefined,
+      taskUrl,
+    );
+    expect(execGhMock).toHaveBeenCalledWith(
+      [
+        "pr",
+        "create",
+        "--title",
+        "Fix a bug",
+        "--body",
+        `Description\n\n---\n*Created with [PostHog Desktop](${expectedUrl})*`,
+        "--draft",
+      ],
+      { cwd: "/repo", env: undefined },
+    );
+  });
+
   it("returns lifecycle and creator details for a pull request", async () => {
     const details = {
       state: "open",
