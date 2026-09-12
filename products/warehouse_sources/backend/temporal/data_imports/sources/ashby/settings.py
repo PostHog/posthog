@@ -14,7 +14,7 @@ class AshbyFanoutConfig:
     """Field the parent's ``id`` is written onto, for children that don't already carry it."""
 
 
-@dataclass
+@dataclass(frozen=True)
 class AshbyEndpointConfig:
     name: str
     """Table name we expose to the user (snake_case)."""

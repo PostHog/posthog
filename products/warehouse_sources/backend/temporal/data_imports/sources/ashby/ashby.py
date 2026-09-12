@@ -31,7 +31,7 @@ class AshbyAPIError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class AshbyResumeConfig:
     cursor: Optional[str] = None
     """Next page cursor for a directly listed endpoint."""
