@@ -1,6 +1,7 @@
 import hmac
 import json
 import logging
+from typing import Literal
 
 from django.conf import settings
 from django.http import JsonResponse
@@ -17,6 +18,58 @@ from products.tasks.backend.presentation.serializers import (
 from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
 
 logger = logging.getLogger(__name__)
+
+AgentBootMilestone = Literal["agent_command_dispatched", "agent_activity_observed"]
+
+
+def _dispatch_heartbeat(run_id: str, task_id: str, team_id: int) -> bool:
+    try:
+        task_run = TaskRun.objects.get(id=run_id, task_id=task_id, team_id=team_id)
+        task_run.heartbeat_workflow(agent_active=True)
+        return True
+    except TaskRun.DoesNotExist:
+        logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
+    except Exception:
+        logger.exception("agent_proxy_callback.heartbeat_failed", extra={"run_id": run_id})
+    return False
+
+
+def _dispatch_boot_milestone(run_id: str, task_id: str, team_id: int, kind: str, milestone: AgentBootMilestone) -> bool:
+    try:
+        task_run = TaskRun.objects.get(id=run_id, task_id=task_id, team_id=team_id)
+        return task_run.signal_agent_boot_milestone(milestone)
+    except TaskRun.DoesNotExist:
+        logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
+    except Exception:
+        logger.exception("agent_proxy_callback.milestone_failed", extra={"run_id": run_id, "kind": kind})
+    return False
+
+
+def _dispatch_awaiting_input(run_id: str, task_id: str, team_id: int) -> bool:
+    try:
+        # The push dispatcher reads task.created_by; prefetch it so the dispatch stays one query.
+        task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id, task_id=task_id, team_id=team_id)
+        if task_run.mode != "interactive":
+            return False
+        notify_task_run_turn_completed(task_run)
+        return True
+    except TaskRun.DoesNotExist:
+        logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
+    except Exception:
+        logger.exception("agent_proxy_callback.awaiting_input_failed", extra={"run_id": run_id})
+    return False
+
+
+def _dispatch_callback(kind: str, agent_active: bool, run_id: str, task_id: str, team_id: int) -> bool:
+    if kind == "heartbeat":
+        return _dispatch_heartbeat(run_id, task_id, team_id) if agent_active else False
+    if kind == "command_dispatched":
+        return _dispatch_boot_milestone(run_id, task_id, team_id, kind, "agent_command_dispatched")
+    if kind == "agent_activity":
+        return _dispatch_boot_milestone(run_id, task_id, team_id, kind, "agent_activity_observed")
+    if kind == "awaiting_input":
+        return _dispatch_awaiting_input(run_id, task_id, team_id)
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -112,42 +165,6 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
     if task_id != claims.task_id or team_id != claims.team_id:
         return JsonResponse({"error": "Token claims do not match request body"}, status=403)
 
-    dispatched = False
-
-    if kind == "heartbeat" and agent_active:
-        try:
-            task_run = TaskRun.objects.get(id=run_id, task_id=task_id, team_id=team_id)
-            task_run.heartbeat_workflow(agent_active=True)
-            dispatched = True
-        except TaskRun.DoesNotExist:
-            logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
-        except Exception:
-            logger.exception("agent_proxy_callback.heartbeat_failed", extra={"run_id": run_id})
-
-    elif kind in {"command_dispatched", "agent_activity"}:
-        try:
-            task_run = TaskRun.objects.get(id=run_id, task_id=task_id, team_id=team_id)
-            if kind == "command_dispatched":
-                dispatched = task_run.signal_agent_boot_milestone("agent_command_dispatched")
-            else:
-                dispatched = task_run.signal_agent_boot_milestone("agent_activity_observed")
-        except TaskRun.DoesNotExist:
-            logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
-        except Exception:
-            logger.exception("agent_proxy_callback.milestone_failed", extra={"run_id": run_id, "kind": kind})
-
-    elif kind == "awaiting_input":
-        try:
-            # The push dispatcher reads task.created_by; prefetch it so the dispatch stays one query.
-            task_run = TaskRun.objects.select_related("task__created_by").get(
-                id=run_id, task_id=task_id, team_id=team_id
-            )
-            if task_run.mode == "interactive":
-                notify_task_run_turn_completed(task_run)
-                dispatched = True
-        except TaskRun.DoesNotExist:
-            logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
-        except Exception:
-            logger.exception("agent_proxy_callback.awaiting_input_failed", extra={"run_id": run_id})
+    dispatched = _dispatch_callback(kind, agent_active, run_id, task_id, team_id)
 
     return JsonResponse(AgentProxyCallbackResponseSerializer({"dispatched": dispatched}).data)

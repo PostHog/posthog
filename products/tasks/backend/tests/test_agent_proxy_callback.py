@@ -177,13 +177,19 @@ class TestAgentProxyCallback(TestCase):
         self.assertFalse(response.json()["dispatched"])
         notify.assert_not_called()
 
-    def test_unknown_run_returns_200_not_dispatched(self) -> None:
+    @parameterized.expand(
+        [
+            ("heartbeat", "heartbeat", True),
+            ("command_dispatched", "command_dispatched", False),
+            ("agent_activity", "agent_activity", True),
+            ("awaiting_input", "awaiting_input", False),
+        ]
+    )
+    def test_unknown_run_returns_200_not_dispatched(self, _name: str, kind: str, agent_active: bool) -> None:
         run = self.task.create_run()
         run_id = str(run.id)
         token = self._token(run)
         TaskRun.objects.filter(id=run_id).delete()
-        with patch.object(TaskRun, "heartbeat_workflow") as heartbeat:
-            response = self._post(self._body(kind="heartbeat", agent_active=True), token=token, run_id=run_id)
+        response = self._post(self._body(kind=kind, agent_active=agent_active), token=token, run_id=run_id)
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["dispatched"])
-        heartbeat.assert_not_called()
