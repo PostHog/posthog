@@ -76,6 +76,14 @@ export function RetentionCohortTable({
     const dimensionLabel = BREAKDOWN_LABELS[breakdownBy]
 
     const caveats: string[] = []
+    // Under a goal the first column stops being the tautological 100% and becomes a measurement, which
+    // changes how every row reads. Read from the query, because a goal can be saved with a blank name and
+    // the response's label alone cannot tell that apart from the any-visit default.
+    if (query.returnGoalId) {
+        caveats.push(
+            `Columns count ${retentionResponse?.returnGoalName || 'your unnamed goal'} instead of visits, so the first column is the share who converted in the period they arrived.`
+        )
+    }
     if (retentionResponse?.truncatedCohorts) {
         caveats.push(
             `The ${humanFriendlyNumber(retentionResponse.truncatedCohorts)} earliest periods in your date range aren't included. Narrow the range, or group by a longer period, to see them.`
