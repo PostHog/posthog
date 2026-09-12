@@ -18,6 +18,7 @@ import {
   withRepoNames,
 } from "@posthog/core/archive/archiveListView";
 import { useHostTRPC } from "@posthog/host-router/react";
+import { Button as QuillButton } from "@posthog/quill";
 import type { WorkspaceMode } from "@posthog/shared";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
@@ -494,17 +495,16 @@ export function ArchivedTasksViewPresentation({
               </Button>
             </AlertDialog.Cancel>
             <AlertDialog.Action>
-              <Button
-                variant="solid"
-                color="red"
-                size="1"
+              <QuillButton
+                variant="destructive-outline"
+                size="sm"
                 onClick={() => {
                   if (deleteTargetId) onDelete(deleteTargetId);
                   setDeleteTargetId(null);
                 }}
               >
                 Delete
-              </Button>
+              </QuillButton>
             </AlertDialog.Action>
           </Flex>
         </AlertDialog.Content>

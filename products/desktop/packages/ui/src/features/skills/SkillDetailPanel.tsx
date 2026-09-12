@@ -473,7 +473,7 @@ export function SkillDetailPanel({
             </Button>
             <Button
               type="button"
-              variant="destructive"
+              variant="destructive-outline"
               onClick={() => void handleDeleteFile()}
             >
               Delete
@@ -538,7 +538,7 @@ export function SkillDetailPanel({
             </Button>
             <Button
               type="button"
-              variant="destructive"
+              variant="destructive-outline"
               loading={deleteSkill.isPending}
               disabled={deleteSkill.isPending}
               onClick={() => void handleDeleteSkill()}

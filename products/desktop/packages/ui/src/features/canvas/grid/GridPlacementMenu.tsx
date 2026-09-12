@@ -94,7 +94,7 @@ export function GridPlacementMenu({
               }
             />
             <Button
-              variant="destructive"
+              variant="destructive-outline"
               size="sm"
               disabled={patching}
               onClick={confirmDelete}

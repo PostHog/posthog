@@ -294,7 +294,7 @@ export function ImageDetailPage({
               Cancel
             </Button>
             <Button
-              variant="destructive"
+              variant="destructive-outline"
               loading={deleteMutation.isPending}
               disabled={deleteMutation.isPending}
               data-attr="image-detail-archive-confirm"

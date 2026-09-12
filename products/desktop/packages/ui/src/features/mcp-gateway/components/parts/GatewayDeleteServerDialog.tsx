@@ -1,4 +1,4 @@
-import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { Button as QuillButton } from "@posthog/quill";
 import { AlertDialog, Button, Flex, Text } from "@radix-ui/themes";
 
 interface GatewayDeleteServerDialogProps {
@@ -44,15 +44,14 @@ export function GatewayDeleteServerDialog({
             </Button>
           </AlertDialog.Cancel>
           <AlertDialog.Action>
-            <Button
-              variant="solid"
-              color="red"
+            <QuillButton
+              variant="destructive-outline"
+              loading={pending}
               disabled={pending}
               onClick={onConfirm}
             >
-              {pending ? <Spinner size="sm" /> : null}
               Delete
-            </Button>
+            </QuillButton>
           </AlertDialog.Action>
         </Flex>
       </AlertDialog.Content>

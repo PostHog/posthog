@@ -614,7 +614,7 @@ export function ChannelItemRow({
               }
             />
             <Button
-              variant="destructive"
+              variant="destructive-outline"
               size="sm"
               onClick={() => {
                 setConfirmDeleteOpen(false);

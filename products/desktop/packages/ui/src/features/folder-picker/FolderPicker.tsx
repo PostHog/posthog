@@ -320,7 +320,7 @@ export function FolderPicker({
               render={<Button variant="outline">Cancel</Button>}
             />
             <Button
-              variant="destructive"
+              variant="destructive-outline"
               loading={isRemoving}
               onClick={() => void handleConfirmRemoval()}
             >

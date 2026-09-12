@@ -1379,7 +1379,7 @@ const ChannelSection = memo(
                   render={<Button variant="outline">Cancel</Button>}
                 />
                 <Button
-                  variant="primary"
+                  variant="destructive-outline"
                   loading={isDeleting}
                   onClick={() =>
                     void confirmDelete().then((ok) => {

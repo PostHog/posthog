@@ -6,6 +6,7 @@ import {
   UserMinusIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import { Button as QuillButton } from "@posthog/quill";
 import { isDismissalReasonSnooze } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
 import {
@@ -286,14 +287,13 @@ export function InboxBulkSelectionBar({
               </Button>
             </AlertDialog.Cancel>
             <AlertDialog.Action>
-              <Button
-                variant="solid"
-                color="red"
+              <QuillButton
+                variant="destructive-outline"
                 loading={bulkActions.isDeleting}
                 onClick={() => void handleConfirmDelete()}
               >
                 Delete
-              </Button>
+              </QuillButton>
             </AlertDialog.Action>
           </Flex>
         </AlertDialog.Content>

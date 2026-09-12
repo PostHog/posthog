@@ -45,7 +45,7 @@ export function DisconnectIntegrationDialog({
             Cancel
           </Button>
           <Button
-            variant="destructive"
+            variant="destructive-outline"
             onClick={onConfirm}
             loading={isPending}
             disabled={isPending}

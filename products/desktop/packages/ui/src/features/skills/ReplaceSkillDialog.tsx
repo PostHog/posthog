@@ -1,3 +1,4 @@
+import { Button as QuillButton } from "@posthog/quill";
 import { AlertDialog, Button, Flex } from "@radix-ui/themes";
 
 interface ReplaceSkillDialogProps {
@@ -32,9 +33,13 @@ export function ReplaceSkillDialog({
             </Button>
           </AlertDialog.Cancel>
           <AlertDialog.Action>
-            <Button size="1" variant="solid" color="red" onClick={onConfirm}>
+            <QuillButton
+              size="sm"
+              variant="destructive-outline"
+              onClick={onConfirm}
+            >
               Replace
-            </Button>
+            </QuillButton>
           </AlertDialog.Action>
         </Flex>
       </AlertDialog.Content>

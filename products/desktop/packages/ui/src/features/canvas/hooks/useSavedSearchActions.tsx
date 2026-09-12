@@ -64,7 +64,7 @@ export function useSavedSearchActions(feed: TaskFeed | undefined): {
                 </Button>
               }
             />
-            <Button variant="destructive" size="sm" onClick={remove}>
+            <Button variant="destructive-outline" size="sm" onClick={remove}>
               Delete
             </Button>
           </AlertDialogFooter>

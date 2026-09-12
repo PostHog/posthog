@@ -86,7 +86,13 @@ export function ArtifactEditView({
             >
               Keep editing
             </AlertDialogClose>
-            <Button variant="primary" loading={saving} onClick={onForceSave}>
+            <Button
+              variant={
+                conflict === "dismissed" ? "primary" : "destructive-outline"
+              }
+              loading={saving}
+              onClick={onForceSave}
+            >
               {conflict === "dismissed" ? "Save and restore" : "Save as latest"}
             </Button>
           </AlertDialogFooter>

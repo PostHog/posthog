@@ -612,7 +612,7 @@ export function LoopDetailView({
               }
             />
             <Button
-              variant="destructive"
+              variant="destructive-outline"
               size="sm"
               loading={deleteLoop.isPending}
               disabled={deleteLoop.isPending}
@@ -643,7 +643,11 @@ export function LoopDetailView({
                 </Button>
               }
             />
-            <Button variant="destructive" size="sm" onClick={discardChanges}>
+            <Button
+              variant="destructive-outline"
+              size="sm"
+              onClick={discardChanges}
+            >
               Discard changes
             </Button>
           </AlertDialogFooter>
