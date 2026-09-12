@@ -8,6 +8,7 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from posthog.models.scoping.manager import EnvironmentScopedManager
+from posthog.models.utils import uuid7
 
 
 class AITrainingConsent(models.Model):
@@ -19,7 +20,7 @@ class AITrainingConsent(models.Model):
 
 
 class AITrainingPrivacyRequest(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     organization_id = models.UUIDField(null=True)
     team_id = models.BigIntegerField(null=True)
     kind = models.CharField(max_length=32)

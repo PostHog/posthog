@@ -1,7 +1,7 @@
-import uuid
-
 import django.utils.timezone
 from django.db import migrations, models
+
+import posthog.models.utils
 
 
 class Migration(migrations.Migration):
@@ -21,7 +21,12 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="AITrainingPrivacyRequest",
             fields=[
-                ("id", models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, serialize=False)),
+                (
+                    "id",
+                    models.UUIDField(
+                        primary_key=True, default=posthog.models.utils.uuid7, editable=False, serialize=False
+                    ),
+                ),
                 ("organization_id", models.UUIDField(null=True)),
                 ("team_id", models.BigIntegerField(null=True)),
                 ("kind", models.CharField(max_length=32)),
