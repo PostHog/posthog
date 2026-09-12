@@ -36,6 +36,7 @@ Judges the report for safety, then persists it at the judged status.
 | `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                                                                                                                                                                                                                                          |
 | `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                                                                                                                |
 | `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                                             |
+| `metrics`                   | list, ≤6, optional      | Typed impact measurements the inbox shows as tiles. The report's full set. Each `{metric_id, title, kind, query, role?, value?, value_at?, series?, value_format?, unit?, caption?}`. See _Measuring impact_ below.                                                                                                                            |
 | `charts`                    | list, ≤20, optional     | Queries the inbox draws on the report — the report's full set, replacing any it already had. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                   |
 | `suggested_prompts`         | list, ≤3, optional      | Follow-up prompts the inbox offers above the report's `Ask AI` box (questions to ask, or next-step actions to request), each ≤200 characters and all distinct. See _Suggesting follow-up prompts_ below.                                                                                                                                       |
 
@@ -60,6 +61,204 @@ Leave a blank line above each label, since a label the line above runs onto is p
 | unsafe       | (any)                    | `SUPPRESSED`     | no                 |
 
 The result tells you what happened: `report_id` (always set when a report was persisted — **even when suppressed**, so you can edit or dedup against it), `report_status` (the birth status — `ready` / `pending_input` / `suppressed` — the field is named `report_status` in the response, not `status`), `emitted` (true only when it actually surfaced — `READY` / `PENDING_INPUT`), `safety_explanation`, and `skipped_reason` (set only when a preflight gate stopped the call before any report was created — the AI-data-processing / source-enabled gates that govern every scout write).
+
+### Measuring impact
+
+`metrics` carries the typed measurements that tell a reader what the observation changes, and how many people it reaches.
+A consumer draws each one as a tile: the figure with its unit, the title, the window the query covers, and a small trend strip.
+Use one `primary` metric for the key observation, and `supporting` metrics for the facts around it.
+
+**No client renders a metric yet.** The server stores and serves them, and the API redacts and refreshes them, but no inbox or desktop surface in this repository draws the tile.
+A metric you author today is a correct, queryable record that a reader cannot see until a client lands, so spend your run's query budget on the report prose first.
+
+**Omit a metric you cannot measure honestly.**
+A weak number is worse than none.
+One support ticket and a single migration crash tell the reader nothing.
+Nor does a rate over a handful of attempts, or a count with no person context.
+
+| Field          | Type                | Notes                                                                                                                                                                           |
+| -------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `metric_id`    | string, required    | Your own slug (lowercase letters, numbers, `_`, `-`, starting with a letter or number), ≤100 characters. Unique within the report, and the key a later edit updates it under. |
+| `title`        | string, required    | What was observed, and for whom, in one line: `Users who hit "Not found" opening a shared chat link`, not a label such as `Users affected`. ≤200 characters.                    |
+| `kind`         | enum, required      | What the value measures. See _Choosing the kind_ below.                                                                                                                         |
+| `query`        | object, required    | The bounded live query behind the figure. See _Keeping the query live and bounded_ below.                                                                                       |
+| `role`         | enum, default       | `primary` for the report's key observation, else `supporting` (the default). At most one `primary` per report.                                                                  |
+| `value`        | number, optional    | A snapshot you measured in this run. Optional cached fallback only. Pair it with `value_at`.                                                                                    |
+| `value_at`     | timestamp, optional | When you measured `value`. ISO-8601 with a timezone, and not in the future.                                                                                                     |
+| `series`       | list, optional      | Trailing per-bucket values from the same run, oldest first, ≤14 points. Part of the snapshot, so it needs `value` and `value_at`.                                               |
+| `value_format` | enum, default       | How to print the figure: `count`, `percentage`, `percentage_scaled`, `duration`, `currency`, or `number` (the default).                                                         |
+| `unit`         | string, optional    | Short suffix that completes the figure, ≤40 characters. See _Keeping semantics separate from formatting_ below.                                                                 |
+| `caption`      | string, optional    | Only what the tile cannot show, ≤500 characters. See below.                                                                                                                     |
+| `comparison`   | object, optional    | Legacy. Leave it unset.                                                                                                                                                         |
+
+A primary affected-users metric and a supporting rate, as they arrive in `metrics`:
+
+```json
+[
+  {
+    "metric_id": "people-hitting-not-found",
+    "title": "Users who hit \"Not found\" opening a shared chat link",
+    "kind": "affected_users",
+    "role": "primary",
+    "value": 412,
+    "value_at": "2026-06-18T09:00:00Z",
+    "value_format": "count",
+    "unit": "users",
+    "series": [38, 41, 55, 60, 49, 52, 58, 61, 57, 63, 66, 71, 68, 74],
+    "query": {
+      "kind": "InsightVizNode",
+      "source": {
+        "kind": "TrendsQuery",
+        "dateRange": { "date_from": "-13d" },
+        "interval": "day",
+        "series": [
+          {
+            "kind": "EventsNode",
+            "event": "shared_link_failed",
+            "math": "dau",
+            "properties": [{ "type": "event", "key": "reason", "operator": "exact", "value": ["not_found"] }]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "metric_id": "shared-link-failure-rate",
+    "title": "Shared chat links that fail to open",
+    "kind": "error_rate",
+    "value_format": "percentage_scaled",
+    "unit": "failure",
+    "caption": "Production traffic only.",
+    "query": {
+      "kind": "InsightVizNode",
+      "source": {
+        "kind": "TrendsQuery",
+        "dateRange": { "date_from": "-13d" },
+        "interval": "day",
+        "series": [
+          {
+            "kind": "EventsNode",
+            "event": "shared_link_opened",
+            "math": "total",
+            "properties": [{ "type": "event", "key": "environment", "operator": "exact", "value": ["production"] }]
+          },
+          {
+            "kind": "EventsNode",
+            "event": "shared_link_failed",
+            "math": "total",
+            "properties": [{ "type": "event", "key": "environment", "operator": "exact", "value": ["production"] }]
+          }
+        ],
+        "trendsFilter": { "formula": "B / A", "aggregationAxisFormat": "percentage_scaled" }
+      }
+    }
+  }
+]
+```
+
+#### Choosing the kind
+
+Choose by what the reader will ask, not by what the source makes easy.
+
+| Kind                | Use it for                                                                                                                                                                                                        | Query shape                                                                                                                                                 |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `affected_users`    | Anything a person experiences: a captured exception with person context, a dead click, a rage click, a failed request on a surface, a broken URL.                                                                 | Exactly one series, `math: "dau"`. `value_format: "count"`.                                                                                                 |
+| `affected_sessions` | A source that establishes sessions but not people.                                                                                                                                                                | Exactly one series, `math: "unique_session"`. `value_format: "count"`.                                                                                      |
+| `occurrences`       | Noise, and backend failures: a report asking the team to stop reporting something as an error, a Temporal, Celery, or job exception with no person on the event, or a volume counter such as tool calls per week. | Total count. `value_format: "count"`.                                                                                                                       |
+| `error_rate`        | A flow that fails.                                                                                                                                                                                                | Two series plus one formula such as `B / A`, with percentage formatting.                                                                                    |
+| `conversion_rate`   | A flow that stalls.                                                                                                                                                                                               | Same shape as `error_rate`.                                                                                                                                 |
+| `duration`          | A source that measures time.                                                                                                                                                                                      | A numeric property aggregation such as `avg` or `p95` with `math_property`. `value_format: "duration"`, `unit` of `ms` or `s`, and a non-negative snapshot. |
+| `revenue`           | A source that measures money.                                                                                                                                                                                     | A `sum` over the amount property with `math_property`. `value_format: "currency"`, `unit` of an uppercase three-letter ISO code such as `USD`.              |
+| `custom`            | A measurement that no kind above covers.                                                                                                                                                                          | Still needs a live event or action query.                                                                                                                   |
+
+**A figure with no event or action query behind it stays in the prose.**
+A database statistic, a build time read from another tool, or a number quoted from an external source has no query, so it cannot be a metric.
+
+**A noise report where nobody was hurt takes `occurrences`, never `affected_users`.**
+
+**The server checks the aggregation for `affected_users` and `affected_sessions` only.**
+A plain event count formatted as `duration` or `revenue` passes validation and then prints a count beside a time or currency unit, so pick the aggregation from the row above rather than relying on the refusal.
+
+**An `affected_users` metric means distinct PostHog people**, not sessions, events, requests, traces, groups, or the report's signal count.
+`affected_sessions` means distinct sessions.
+Group math and a formula are refused on both, because the total comes from the series math alone.
+
+#### Keeping the query live and bounded
+
+The query is the source of truth; it runs again every time a reader opens the report.
+So attach a query you ran successfully in this session, the same rule the charts carry.
+
+- **One `InsightVizNode` wrapping one `TrendsQuery`.** Any other node kind is refused at write time.
+- **Event and action series only.** Every source series must be an `EventsNode` with a non-empty `event`, or an `ActionsNode` with a positive integer `id`. This is what lets the server check a reader's access without an unbounded query fan-out.
+- **A relative window that advances with time.** `dateRange.date_from` must be relative (`-13d`, `-30d`), at most 366 days, and `date_to` must be empty. Default to `date_from: "-13d"` with `interval: "day"`, which gives 14 inclusive daily buckets including today. `interval` accepts `second` through `year`.
+- **At most 1,000 estimated longitudinal points**, counting the current partial bucket. One hourly series over roughly six weeks fits.
+- **Exactly one output series.** Without a formula that means exactly one source series. A rate may combine up to 10 source series with exactly one formula. A breakdown and compare mode are both refused, because either can multiply the output at run time.
+- **Keep the filters that reproduce the observation**, so the figure measures the thing the report describes.
+
+**Consumers own the display.** The report derives two shapes from the stored query: `BoldNumber` for the whole-window `aggregated_value`, and `ActionsBar` for the longitudinal buckets.
+The display you author does not control how the report draws the metric.
+Run the total-value shape when you measure a snapshot, because a bar or line response gives no whole-window total.
+Never sum distinct-user buckets, since one person can appear in several.
+
+#### Keeping semantics separate from formatting
+
+`kind` says what the metric measures. `value_format` says how to print it.
+
+- A non-currency `unit` is one lowercase word that completes the figure, because the report prints it next to the number: `users`, `sessions`, `events`, `runs`, `calls`.
+- For a rate, name what the share means: `failure` for an error rate, `conversion` for a conversion rate. `%` is redundant and is dropped.
+- Use `percentage` for percentage points (`34` means 34%) and `percentage_scaled` for 0–1 ratios (`0.34` means 34%).
+- **A percentage query must set `aggregationAxisFormat` to exactly the same value as `value_format`.** A missing or numeric axis format is invalid.
+
+#### Titling and captioning
+
+The tile prints the figure, the unit, the title, and the window together, so never state one fact twice across them.
+
+Leave `caption` empty unless it carries something the reader needs and cannot see:
+
+- a filter that narrows the count (`Production only, excluding internal users`),
+- why a longer window was needed,
+- a caveat on the data (`Person context is missing on about a third of these events`).
+
+A caption that restates the title, the unit, or the window is noise.
+The strip shows at most the trailing 14 buckets, so a window longer than 14 days needs the caption that explains it.
+
+#### Snapshots are optional cached fallbacks, not estimates
+
+A snapshot keeps an inbox list read cheap.
+It never replaces the required live query.
+
+- Send a snapshot only for a value you measured in this run. Zero is a real measurement; null means unavailable.
+- A `count` snapshot and series must be non-negative whole numbers. A rate snapshot must sit inside its format's range (0–100 for `percentage`, 0–1 for `percentage_scaled`).
+- **Never author a snapshot-only or queryless row.** Those shapes are legacy or malformed, and the server always redacts them.
+- **Leave `comparison` unset.** The server does not yet keep an adjacent comparison window live, so an authored comparison is stored and never shown.
+
+A refresh replaces `value`, `value_at`, and `series`, and clears `comparison`.
+It runs only when a client posts to the report's `refresh_metrics` endpoint; reading a report does not refresh anything on its own.
+Listing reports never executes a metric query: a row carries the metric metadata and any readable cached snapshot, but no query definition.
+
+#### A reader may see the tile without its data
+
+A metric snapshot is measured without a requesting user, while a report read is authorized as the viewer.
+When the server cannot prove the two are equivalent, the metric stays in the response with its data-bearing fields redacted.
+
+- **A cohort reference, including a nested one, hides the metric from every reader.** There is no cohort object access policy to prove access against, so this is an intentional safety limit rather than a display bug. Keep a cohort filter out of a metric query.
+- A reader can also lose the query, the snapshot, or both for access reasons you cannot see while authoring: a property restriction, a missing token scope, an action they cannot read, or an unfamiliar filter shape.
+
+So a metric is not a way to deliver a number to a reader who could not run the query themselves.
+Keep the figure the report's argument depends on in the `summary` prose, where every reader gets it.
+
+#### Caps, and what an edit does
+
+At most one `affected_users` metric, and 60,000 characters of query JSON across the report.
+Prefer the few measurements that change the decision.
+
+**`metrics` on an edit is the report's whole set, not an addition**, exactly like `charts`.
+Omit the field to keep the metrics the report has, send the complete replacement list to change them, or send `metrics: []` to clear them.
+Re-send a `metric_id` with a newer query or snapshot to replace that metric.
+Read the report first (`inbox-reports-retrieve` returns its metrics) when you mean to add one.
+**A metric that comes back with a null `query` is redacted, not empty.** You cannot re-send it, because the write shape requires a query, and leaving it out deletes that tile. Omit `metrics` altogether on such a report, and leave the change to a reader who can see every row.
+
+Every metric title, caption, snapshot, and query goes before the safety judge, the same as the report prose.
 
 ### Attaching charts
 
@@ -231,9 +430,9 @@ The fleet's reviewer map should compound over time.
 
 ## `edit_report` — update an existing report
 
-Rewrite `title`/`summary`, append evidence or a note, set `suggested_reviewers`, and/or replace `charts` / `suggested_prompts` on a report that already exists.
-Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `append_evidence`, `suggested_reviewers`, `charts`, `suggested_prompts`.
-An edit that supplies content (`title`, `summary`, `charts`, `suggested_prompts`, `append_note`, `append_evidence`, or a reviewer `reason`) passes the same safety judge as `emit_report`; an unsafe edit is rejected whole and the report keeps what it had.
+Rewrite `title`/`summary`, append evidence or a note, set `suggested_reviewers`, and/or replace `metrics` / `charts` / `suggested_prompts` on a report that already exists.
+Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `append_evidence`, `suggested_reviewers`, `metrics`, `charts`, `suggested_prompts`.
+An edit that supplies content (`title`, `summary`, `metrics`, `charts`, `suggested_prompts`, `append_note`, `append_evidence`, or a reviewer `reason`) passes the same safety judge as `emit_report`; an unsafe edit is rejected whole and the report keeps what it had.
 
 `edit_report` can target **any** of the team's inbox reports — not just ones a scout authored.
 That makes it the right tool when a later run learns something about a report the pipeline (or another scout) created.
