@@ -41,7 +41,7 @@ from products.tasks.backend.logic.services.workflow_task_skills import (
     resolve_attached_skills,
 )
 from products.tasks.backend.metrics import observe_workflow_task_create
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Channel, Task, TaskRun
 from products.tasks.backend.temporal.constants import WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS
 
 logger = structlog.get_logger(__name__)
@@ -138,6 +138,7 @@ def create_workflow_task(
     owner_id: int,
     prompt: str,
     title: str | None = None,
+    channel_ref: str | None = None,
     repository: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
@@ -168,6 +169,10 @@ def create_workflow_task(
     `skill_names` are skills store skills the run's prompt should name. Each resolves to its
     latest published version at create time; a name that no longer resolves is dropped rather
     than failing the create, for the same reason a Slack context is.
+
+    `channel_ref` names the space the task is filed into, so a workflow built inside a space
+    puts its runs in that space's feed. It is dropped rather than failing the create when it
+    names no space the owner can see, for the same reason a Slack context is.
 
     `event` is rendered into the agent's prompt as data. The Slack thread binding decides
     the run's lifetime: a thread-bound run stays live until its inactivity timeout, so its
@@ -341,12 +346,20 @@ def create_workflow_task(
                 # repository runs.
                 extra_run_state["end_run_when_done"] = True
 
+            # Resolved here so the row lock it takes is held until the task is inserted.
+            # delete_channel takes the same lock, and only detaches the tasks that already
+            # exist, so a space deleted between the resolve and the insert would leave the
+            # task filed into a deleted space, which no visibility rule matches: invisible
+            # even to its owner.
+            channel = _resolve_channel(team.id, owner_id, channel_ref)
+
             task = Task.create_and_run(
                 team=team,
                 title=(title or "").strip() or prompt[:255],
                 description=prompt,
                 origin_product=Task.OriginProduct.WORKFLOW,
                 user_id=owner_id,
+                channel=channel,
                 repository=repository,
                 mode="background",
                 # A task with no repository has nothing to open a PR from.
@@ -390,6 +403,40 @@ def create_workflow_task(
     # replay path above, which counts as replayed instead.
     observe_workflow_task_create(reason="created")
     return _task_dto(task, created=True)
+
+
+def _resolve_channel(team_id: int, owner_id: int, channel_ref: str | None) -> Channel | None:
+    """The space the task is filed into, or None to file it in no space.
+
+    The reference is the space id, optionally followed by "|" and its name, so a client can
+    read the name back without a second step input to keep in step. Only the id is used here.
+
+    Resolved against what the workflow owner can see, because the run executes as the owner:
+    a step input naming a private space the owner is not a member of must not place the task
+    there. An id that resolves to nothing only costs the placement: a deleted or renamed space
+    must not stop the workflow from running.
+
+    Locks the space row for the rest of the caller's transaction, the same lock
+    ``delete_channel`` takes, so the space cannot be deleted between this read and the task
+    insert. ``no_key`` keeps the task inserts of other creators in the same space, which take
+    a key-share lock on this row for the foreign key check, off that wait.
+    """
+    if not channel_ref:
+        return None
+    try:
+        channel_id = uuid.UUID(channel_ref.split("|")[0].strip())
+    except ValueError:
+        logger.warning("workflow_task_channel_malformed", team_id=team_id)
+        return None
+    channel = (
+        Channel.objects.for_team(team_id)
+        .select_for_update(no_key=True, of=("self",))
+        .filter(Channel.visible_to_q(owner_id), id=channel_id)
+        .first()
+    )
+    if channel is None:
+        logger.warning("workflow_task_channel_unresolved", team_id=team_id, channel_id=str(channel_id))
+    return channel
 
 
 def _task_dto(task: Task, *, created: bool) -> contracts.WorkflowTaskDTO:

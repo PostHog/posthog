@@ -98,6 +98,16 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="GitHub repository as organization/repo. Omit for a task with no code access.",
     )
+    channel = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Space the task is filed into, as its id, optionally followed by '|' and the space name. "
+            "A space the workflow owner cannot see, or one that no longer exists, files the task in no space "
+            "rather than failing the create."
+        ),
+    )
     model = serializers.CharField(
         max_length=128, required=False, allow_blank=True, help_text="Model ID from the task model catalogue."
     )
@@ -225,6 +235,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 owner_id=owner_id,
                 prompt=data["prompt"].strip(),
                 title=data.get("title"),
+                channel_ref=data.get("channel") or None,
                 repository=data.get("repository") or None,
                 model=data.get("model") or None,
                 reasoning_effort=data.get("reasoning_effort") or None,
