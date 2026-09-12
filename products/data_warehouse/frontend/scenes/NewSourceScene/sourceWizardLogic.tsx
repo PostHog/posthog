@@ -144,6 +144,16 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
             ],
         },
         {
+            name: 'host_key',
+            label: 'SSH host key (optional)',
+            type: 'textarea',
+            required: false,
+            placeholder: 'ssh-ed25519 AAAA...',
+            secret: false,
+            caption:
+                'Paste one public host key line for the tunnel server, and PostHog verifies its identity on every connect. Get it from your server administrator, or run `ssh-keyscan -p <port> <host>` and pick one of the lines it prints, then confirm that line through a channel you trust. Leave blank to connect without verifying the server.',
+        },
+        {
             name: 'require_tls',
             label: 'Require TLS through tunnel?',
             type: 'switch-group',
