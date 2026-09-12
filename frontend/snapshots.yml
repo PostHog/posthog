@@ -5152,6 +5152,10 @@ snapshots:
         hash: v1.k794b7964.4cbfe20c626f0f7912dbd47b41a152c9c30f92d12a3f599476fb10043d7f7e70.9NI9FaMch59lt8xO3Xhp9ruHKLyDcvupNp20dZrR8_Y
     mcp-apps-workflows--list--light:
         hash: v1.k794b7964.477017f5e06d957b8cebbbe9105e96e82c52bdf7ff512ec84d13f4db71f7916c.-hG1WABHKvQyC5AFOmyjA9Lj2lWdnz67KScAAuRz_Ps
+    metrics-group-by--default--dark:
+        hash: v1.k794b7964.ee00c0f572067d18b53141dce72c182c640f399bd746abce9b2098503dbb62aa.Bkt1qCLQus_6z8XlmJ6Ax5cQjvOkEdyrQDtZKyV_KJY
+    metrics-group-by--default--light:
+        hash: v1.k794b7964.e5d6a1978e274f76e13a0476f07c2956302b2b84bc318e38c55c72bd2839d8e9.sZnt-HOnAKGE8421CprrJcFq9wQut5SU7DSEi_6Kqiw
     posthog-3000-keyboard-shortcut--default--dark:
         hash: v1.k794b7964.a5fc5a426df52137d3fb6377a06c7b39c36b041280de154cf2b95cbe46932b8d.f2HHu2jv6bztshqmrVtHpiuuv3PJZNskIh7SbZRgIpk
     posthog-3000-keyboard-shortcut--default--light:
