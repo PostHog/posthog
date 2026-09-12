@@ -9,14 +9,8 @@ import {
 } from 'lib/components/InsightLegend/utils'
 import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import {
-    FEATURE_FLAGS,
-    NON_TIME_SERIES_DISPLAY_TYPES,
-    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
-    PIE_DISPLAY_TYPES,
-} from 'lib/constants'
+import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES, PIE_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -119,7 +113,6 @@ import {
 import { getClampedFunnelStepRange } from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 
 import type { DataColorTheme } from '../../lib/colors'
-import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type {
     Breakdown,
     DataNode,
@@ -183,7 +176,6 @@ export type QuerySourceUpdate = DistributiveOmit<Partial<InsightQueryNode>, 'kin
 export interface insightVizDataLogicValues {
     getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
     dataWarehouseTablesMap: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable> // databaseTableListLogic
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     filterTestAccountsDefault: boolean // filterTestAccountsDefaultsLogic
     insightData: Record<string, any> // insightDataLogic
     insightDataError: Record<string, any> | null // insightDataLogic
@@ -1201,8 +1193,7 @@ export interface insightVizDataLogicMeta {
         ) => BaseMathType.MonthlyActiveUsers | BaseMathType.WeeklyActiveUsers | null
         enabledIntervals: (
             activeUsersMath: BaseMathType.WeeklyActiveUsers | BaseMathType.MonthlyActiveUsers | null,
-            isTrends: boolean,
-            featureFlags: FeatureFlagsSet
+            isTrends: boolean
         ) => Intervals
         erroredQueryId: (insightDataError: Record<string, any> | null) => any
         validationError: (insightDataError: Record<string, any> | null) => string | null
@@ -1306,8 +1297,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['dataWarehouseTablesMap'],
             dataThemeLogic,
             ['getTheme'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [
             insightDataLogic,
@@ -2377,18 +2366,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ): BaseMathType.MonthlyActiveUsers | BaseMathType.WeeklyActiveUsers | null => getActiveUsersMath(series),
         ],
         enabledIntervals: [
-            (s) => [s.activeUsersMath, s.isTrends, s.featureFlags],
+            (s) => [s.activeUsersMath, s.isTrends],
             (
                 activeUsersMath: BaseMathType.MonthlyActiveUsers | BaseMathType.WeeklyActiveUsers | null,
-                isTrends: boolean,
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+                isTrends: boolean
             ): Intervals => {
                 const enabledIntervals: Intervals = { ...intervals }
-
-                if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]) {
-                    enabledIntervals.quarter = { ...enabledIntervals.quarter, hidden: false }
-                    enabledIntervals.year = { ...enabledIntervals.year, hidden: false }
-                }
 
                 if (activeUsersMath) {
                     enabledIntervals.hour = {
@@ -2947,10 +2930,6 @@ const handleQuerySourceUpdateSideEffects = (
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
 
         if (date_from && date_to && dayjs(date_from).isValid() && dayjs(date_to).isValid()) {
-            const quarterYearEnabled =
-                !!featureFlagLogic.findMounted()?.values.featureFlags[
-                    FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS
-                ]
             const parsedFrom = dayjs(date_from)
             const parsedTo = dayjs(date_to)
             const monthDiff = parsedTo.diff(parsedFrom, 'month')
@@ -2966,7 +2945,7 @@ const handleQuerySourceUpdateSideEffects = (
                 ;(mergedUpdate as TrendsQuery).interval = 'hour'
             } else if (monthDiff <= 3) {
                 ;(mergedUpdate as TrendsQuery).interval = 'day'
-            } else if (quarterYearEnabled && monthDiff > QUARTER_AUTO_INTERVAL_THRESHOLD_MONTHS) {
+            } else if (monthDiff > QUARTER_AUTO_INTERVAL_THRESHOLD_MONTHS) {
                 ;(mergedUpdate as TrendsQuery).interval = 'quarter'
             } else {
                 ;(mergedUpdate as TrendsQuery).interval = 'month'
