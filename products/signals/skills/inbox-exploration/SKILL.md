@@ -114,18 +114,25 @@ How the flag is produced:
 3. At read time, those GitHub logins are mapped back to PostHog users via each org member's
    linked GitHub identity (social auth or GitHub integration). If the _current_ viewer's
    linked GitHub login is one of them, `is_suggested_reviewer` flips to `true` for that
-   report.
+   report. A reviewer can also be stored by PostHog `user_uuid` (a scout or a person naming
+   an org member directly), which matches the viewer without any GitHub link.
+   The flag is forced to `false` on a `failed` report and on a `ready` report judged
+   `not_actionable`, whatever reviewers they carry, so read `suggested_reviewers` directly
+   when auditing routing.
 
 Practical implications for triage:
 
-- A `true` value means "you wrote (or recently touched) the code this report is about" — not
-  "you were assigned this." It's heuristic, not authoritative.
+- A `true` value means "you are a suggested reviewer for this report": a plausible owner,
+  not an assignee. When the pipeline derived the reviewers, that usually means you wrote (or
+  recently touched) the relevant code; when a scout or a person named you by `user_uuid`, it
+  means they judged you the owner. It's a recommendation, not authoritative.
 - A `false` value doesn't mean the report is irrelevant — it can mean (a) someone else owns
-  the code, (b) no one in the org has a linked GitHub account matching the suggested logins,
-  or (c) the source material wasn't tied to a specific repo / commits.
+  the code, (b) the suggested logins came from commit history and no org member has that
+  GitHub account linked (a reviewer set by `user_uuid` doesn't have this problem), or (c) the
+  source material wasn't tied to a specific repo / commits.
 - If the user asks "what should _I_ look at?", lead with `is_suggested_reviewer: true`
-  reports — these are the ones where the user's name is on the relevant code. Mention the
-  rest as a secondary group rather than mixing them in.
+  reports: these are the ones routed to the user as a likely owner. Mention the rest as a
+  secondary group rather than mixing them in.
 - If the user has _no_ suggested reports but the inbox isn't empty, say so explicitly
   ("nothing in the inbox is tied to code you've authored recently") rather than pretending
   the top of the list is personalized.
