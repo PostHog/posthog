@@ -98,6 +98,11 @@ def test_gemini_models_config_mirrors_scanner_model_enum() -> None:
     assert current == set(ScannerModel.values), (
         f"GEMINI_MODELS current lineup {current} does not mirror ScannerModel {set(ScannerModel.values)}"
     )
+    # Keys must be plain strings, not ScannerModel members: this module loads at process start, so an
+    # attribute key a rename leaves stale crashes every worker at import instead of failing this test.
+    assert all(type(model) is str for model in GEMINI_MODELS), (
+        f"GEMINI_MODELS keys must be literal model ids: {[m for m in GEMINI_MODELS if type(m) is not str]}"
+    )
 
 
 @pytest.mark.parametrize("model", [ScannerModel.GEMINI_3_FLASH_PREVIEW, ScannerModel.GEMINI_3_8_FLASH])

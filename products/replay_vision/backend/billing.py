@@ -16,7 +16,6 @@ from django.db.models.functions import Coalesce
 import structlog
 
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
-from products.replay_vision.backend.models.replay_scanner import ScannerModel
 
 logger = structlog.get_logger(__name__)
 
@@ -35,7 +34,9 @@ class GeminiModelPricing:
     retired: bool = False  # unselectable, but frozen snapshots/receipts still need its price
 
 
-# Per-model source of truth. Non-retired rows are the selectable lineup and must mirror `ScannerModel`.
+# Per-model source of truth. Non-retired rows are the selectable lineup and must mirror `ScannerModel`,
+# which `test_billing` asserts. Rows are keyed on the literal model id, never a `ScannerModel` attribute:
+# this table loads at process start, so a key left stale by a model rename aborts startup everywhere.
 # The flash tier has two options: the cheaper `gemini-3-flash-preview` (the default) and the stable
 # `gemini-3.8-flash`. `gemini-3-flash-preview` is a preview id, so watch for Google retiring it and
 # remap it like migration 0052 did if that happens. No pro option: Google's only pro model is a preview id.
@@ -57,13 +58,13 @@ class GeminiModelPricing:
 # Credit prices are hand-set. The two flash prices (5 and 15) reproduce via `suggested_observation_credits`
 # at TARGET_MARGIN; the budget tier is pinned below its suggestion to keep the 2-credit price users know.
 GEMINI_MODELS: dict[str, GeminiModelPricing] = {
-    ScannerModel.GEMINI_3_5_FLASH_LITE: GeminiModelPricing(
+    "gemini-3.5-flash-lite": GeminiModelPricing(
         tier="flash lite", input_usd_per_1m=0.30, output_usd_per_1m=2.50, credits_per_observation=2
     ),
-    ScannerModel.GEMINI_3_FLASH_PREVIEW: GeminiModelPricing(
+    "gemini-3-flash-preview": GeminiModelPricing(
         tier="flash", input_usd_per_1m=0.50, output_usd_per_1m=3.00, credits_per_observation=5
     ),
-    ScannerModel.GEMINI_3_8_FLASH: GeminiModelPricing(
+    "gemini-3.8-flash": GeminiModelPricing(
         tier="flash", input_usd_per_1m=1.50, output_usd_per_1m=7.50, credits_per_observation=15
     ),
     "gemini-3.7-flash": GeminiModelPricing(
