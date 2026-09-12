@@ -69,21 +69,30 @@ export interface ProductEmptyStateGateProps {
  * so the screen can be reviewed on a project that already has data.
  */
 export function ProductEmptyStateGate({ emptyState, params, children }: ProductEmptyStateGateProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { searchParams } = useValues(router)
+    const forcedMode = forcedModeFromParam(searchParams[EMPTY_STATE_PARAM])
     const { activeSceneId } = useValues(sceneLogic)
 
     // When the empty state is flag-gated or scoped to specific scenes or tabs, stay a strict
     // no-op otherwise — don't even mount detection (the inner component mounts it).
-    if (
-        (emptyState.featureFlag && !featureFlags[emptyState.featureFlag]) ||
-        (emptyState.bypassFeatureFlag && featureFlags[emptyState.bypassFeatureFlag])
-    ) {
+    if (emptyState.featureFlag && !featureFlags[emptyState.featureFlag]) {
         return <>{children}</>
     }
     if (
         emptyState.scenes &&
         !emptyState.scenes.some((gated) => coversCurrentSurface(gated, activeSceneId, params ?? {}))
     ) {
+        return <>{children}</>
+    }
+    if (emptyState.bypassFeatureFlag && !receivedFeatureFlags && !forcedMode) {
+        return (
+            <ProductSceneFrame config={emptyState.config}>
+                <SpinnerOverlay sceneLevel />
+            </ProductSceneFrame>
+        )
+    }
+    if (emptyState.bypassFeatureFlag && featureFlags[emptyState.bypassFeatureFlag] && !forcedMode) {
         return <>{children}</>
     }
     return <ProductEmptyStateGateInner emptyState={emptyState}>{children}</ProductEmptyStateGateInner>

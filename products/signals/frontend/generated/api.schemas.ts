@@ -104,6 +104,130 @@ export interface ReportChartApi {
     size?: SizeEnumApi | null
 }
 
+/**
+ * * `affected_users` - affected_users
+ * * `affected_sessions` - affected_sessions
+ * * `occurrences` - occurrences
+ * * `conversion_rate` - conversion_rate
+ * * `error_rate` - error_rate
+ * * `duration` - duration
+ * * `revenue` - revenue
+ * * `custom` - custom
+ */
+export type ReportMetricKindEnumApi = (typeof ReportMetricKindEnumApi)[keyof typeof ReportMetricKindEnumApi]
+
+export const ReportMetricKindEnumApi = {
+    AffectedUsers: 'affected_users',
+    AffectedSessions: 'affected_sessions',
+    Occurrences: 'occurrences',
+    ConversionRate: 'conversion_rate',
+    ErrorRate: 'error_rate',
+    Duration: 'duration',
+    Revenue: 'revenue',
+    Custom: 'custom',
+} as const
+
+/**
+ * * `primary` - primary
+ * * `supporting` - supporting
+ */
+export type RoleEnumApi = (typeof RoleEnumApi)[keyof typeof RoleEnumApi]
+
+export const RoleEnumApi = {
+    Primary: 'primary',
+    Supporting: 'supporting',
+} as const
+
+/**
+ * * `number` - number
+ * * `count` - count
+ * * `percentage` - percentage
+ * * `percentage_scaled` - percentage_scaled
+ * * `duration` - duration
+ * * `currency` - currency
+ */
+export type ValueFormatEnumApi = (typeof ValueFormatEnumApi)[keyof typeof ValueFormatEnumApi]
+
+export const ValueFormatEnumApi = {
+    Number: 'number',
+    Count: 'count',
+    Percentage: 'percentage',
+    PercentageScaled: 'percentage_scaled',
+    Duration: 'duration',
+    Currency: 'currency',
+} as const
+
+/**
+ * Snapshot-only metric shape for report lists.
+ *
+ * Omitting query definitions keeps the paginated inbox payload bounded.
+ */
+export interface ReportMetricListApi {
+    /**
+     * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
+     * @maxLength 100
+     */
+    metric_id: string
+    /**
+     * Short human-readable label for the measurement.
+     * @maxLength 200
+     */
+    title: string
+    /** What the value measures, independent of how it is formatted or drawn.
+     *
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom */
+    kind: ReportMetricKindEnumApi
+    /** `primary` for the report's key observation, otherwise `supporting`.
+     *
+     * * `primary` - primary
+     * * `supporting` - supporting */
+    role?: RoleEnumApi
+    /**
+     * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+     * @nullable
+     */
+    value?: number | null
+    /**
+     * When the visible snapshot value was measured; null when value is null.
+     * @nullable
+     */
+    value_at?: string | null
+    /**
+     * Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.
+     * @maxItems 14
+     * @nullable
+     */
+    series?: number[] | null
+    /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
+     *
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency */
+    value_format?: ValueFormatEnumApi
+    /**
+     * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
+     * @maxLength 40
+     * @nullable
+     */
+    unit?: string | null
+    /**
+     * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
+     * @maxLength 500
+     * @nullable
+     */
+    caption?: string | null
+}
+
 export type SignalReportAssignmentPrStateEnumApi =
     (typeof SignalReportAssignmentPrStateEnumApi)[keyof typeof SignalReportAssignmentPrStateEnumApi]
 
@@ -239,7 +363,7 @@ export const SignalReportBillingExemptReasonEnumApi = {
     PosthogSystem: 'posthog_system',
 } as const
 
-export interface SignalReportApi {
+export interface SignalReportListApi {
     readonly id: string
     /** @nullable */
     readonly title: string | null
@@ -254,6 +378,8 @@ export interface SignalReportApi {
     readonly artefact_count: number
     /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
     readonly charts: readonly ReportChartApi[]
+    /** Snapshot-only impact measurements for inbox rows. Live query definitions and authored comparisons are available from the report detail endpoint. */
+    readonly metrics: readonly ReportMetricListApi[]
     /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
     readonly suggested_prompts: readonly string[]
     /**
@@ -339,13 +465,186 @@ export interface SignalReportApi {
     readonly channel_id: string | null
 }
 
-export interface PaginatedSignalReportListApi {
+export interface PaginatedSignalReportListListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: SignalReportApi[]
+    results: SignalReportListApi[]
+}
+
+/**
+ * One impact measurement shown on a report.
+ */
+export interface ReportMetricApi {
+    /**
+     * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
+     * @maxLength 100
+     */
+    metric_id: string
+    /**
+     * Short human-readable label for the measurement.
+     * @maxLength 200
+     */
+    title: string
+    /** What the value measures, independent of how it is formatted or drawn.
+     *
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom */
+    kind: ReportMetricKindEnumApi
+    /** `primary` for the report's key observation, otherwise `supporting`.
+     *
+     * * `primary` - primary
+     * * `supporting` - supporting */
+    role?: RoleEnumApi
+    /**
+     * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+     * @nullable
+     */
+    value?: number | null
+    /**
+     * When the visible snapshot value was measured; null when value is null.
+     * @nullable
+     */
+    value_at?: string | null
+    /**
+     * Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.
+     * @maxItems 14
+     * @nullable
+     */
+    series?: number[] | null
+    /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
+     *
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency */
+    value_format?: ValueFormatEnumApi
+    /**
+     * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
+     * @maxLength 40
+     * @nullable
+     */
+    unit?: string | null
+    /** Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition. */
+    query?: unknown
+    /**
+     * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
+     * @maxLength 500
+     * @nullable
+     */
+    caption?: string | null
+}
+
+export interface SignalReportApi {
+    readonly id: string
+    /** @nullable */
+    readonly title: string | null
+    /** @nullable */
+    readonly summary: string | null
+    readonly status: SignalReportStatusEnumApi
+    readonly total_weight: number
+    readonly signal_count: number
+    readonly signals_at_run: number
+    readonly created_at: string
+    readonly updated_at: string
+    readonly artefact_count: number
+    /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
+    readonly charts: readonly ReportChartApi[]
+    /** Typed impact measurements in display order. At most one is primary. Live metric values and history come from their query; value/value_at are the latest saved fallback snapshots. */
+    readonly metrics: readonly ReportMetricApi[]
+    /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
+    readonly suggested_prompts: readonly string[]
+    /**
+     * P0–P4 from the latest priority judgment artefact (when present).
+     * @nullable
+     */
+    readonly priority: string | null
+    /**
+     * Actionability choice from the latest actionability judgment artefact (when present).
+     * @nullable
+     */
+    readonly actionability: string | null
+    /**
+     * Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact.
+     * @nullable
+     */
+    readonly already_addressed: boolean | null
+    /**
+     * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
+     * @nullable
+     */
+    readonly dismissal_reason: string | null
+    /**
+     * Free-form note captured alongside the dismissal reason (when present).
+     * @nullable
+     */
+    readonly dismissal_note: string | null
+    /**
+     * `organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.
+     * @nullable
+     */
+    readonly repo_slug: string | null
+    readonly is_suggested_reviewer: boolean
+    /** Distinct source products contributing signals to this report (from ClickHouse). */
+    readonly source_products: readonly string[]
+    /**
+     * skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.
+     * @nullable
+     */
+    readonly scout_name: string | null
+    /**
+     * Pull request attached to this report's claim, if available.
+     * @nullable
+     */
+    readonly implementation_pr_url: string | null
+    /** Latest known pull request state: unknown, draft, open, closed, or merged. */
+    readonly implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
+    /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
+    readonly implementation_pr_merged: boolean
+    /**
+     * Link to the issue self-driving opened in the team's tracker for this report's pull request. Null when the team tracks no issues, or the issue could not be opened.
+     * @nullable
+     */
+    readonly tracker_issue_url: string | null
+    /**
+     * How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null when there is no tracker issue.
+     * @nullable
+     */
+    readonly tracker_issue_reference: string | null
+    /**
+     * Why the tracker issue could not be opened, for a team that wants one. Null when the issue exists or the team tracks no issues.
+     * @nullable
+     */
+    readonly tracker_issue_error: string | null
+    /** Derived remediation state: unclaimed, working, in_review, or done. */
+    readonly work_state: SignalReportWorkStateEnumApi
+    /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
+    readonly assignee: SignalReportAssigneeApi | null
+    /** The report's PR refund, when one exists. One refund per report, ever. */
+    readonly refund: SignalReportRefundApi | null
+    /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
+    readonly refund_ineligibility_reason: RefundIneligibilityReasonEnumApi | null
+    /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
+     *
+     * * `posthog_health_check` - PostHog health check
+     * * `posthog_onboarding` - PostHog onboarding
+     * * `posthog_system` - PostHog system */
+    readonly billing_exempt_reason: SignalReportBillingExemptReasonEnumApi | null
+    /**
+     * The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value.
+     * @nullable
+     */
+    readonly channel_id: string | null
 }
 
 /**
@@ -1950,6 +2249,27 @@ export interface PullRequestCiStatusApi {
 export interface PullRequestCiStatusesResponseApi {
     /** One entry per requested report whose CI state resolved. Reports without an open implementation pull request, and reports GitHub could not answer for, are left out. */
     readonly statuses: readonly PullRequestCiStatusApi[]
+}
+
+export interface SignalReportMetricRefreshRequestApi {
+    /**
+     * Reports on screen, in display order. Each report's row metric is refreshed before any report's supporting metrics. At most 20 ids per call.
+     * @minItems 1
+     * @maxItems 20
+     */
+    report_ids: string[]
+}
+
+export interface SignalReportMetricSnapshotsApi {
+    /** Report id. */
+    readonly id: string
+    /** The report's metrics with their current snapshots, in display order. */
+    readonly metrics: readonly ReportMetricListApi[]
+}
+
+export interface SignalReportMetricRefreshResponseApi {
+    /** One entry per requested report the caller can read whose status is ready or pending_input, in request order. A report in any other status has no entry. A metric whose snapshot was fresh, whose query failed, or whose budget ran out keeps its previous snapshot; merge by metric_id. */
+    readonly reports: readonly SignalReportMetricSnapshotsApi[]
 }
 
 export interface SignalReportRefundSummaryResponseApi {
@@ -3602,6 +3922,89 @@ export interface SuggestedReviewerApi {
     reason?: string | null
 }
 
+export interface ReportMetricComparisonApi {
+    /** Baseline or previous value, formatted like the current value. */
+    value: number
+    /**
+     * Short context for the comparison, such as `Previous period`.
+     * @maxLength 40
+     */
+    label: string
+}
+
+/**
+ * Authoring shape: unlike a read response, the live query cannot be absent or redacted.
+ */
+export interface ReportMetricWriteApi {
+    /**
+     * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
+     * @maxLength 100
+     */
+    metric_id: string
+    /**
+     * Short human-readable label for the measurement.
+     * @maxLength 200
+     */
+    title: string
+    /** What the value measures, independent of how it is formatted or drawn.
+     *
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom */
+    kind: ReportMetricKindEnumApi
+    /** `primary` for the report's key observation, otherwise `supporting`.
+     *
+     * * `primary` - primary
+     * * `supporting` - supporting */
+    role?: RoleEnumApi
+    /**
+     * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+     * @nullable
+     */
+    value?: number | null
+    /**
+     * When the visible snapshot value was measured; null when value is null.
+     * @nullable
+     */
+    value_at?: string | null
+    /**
+     * Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.
+     * @maxItems 14
+     * @nullable
+     */
+    series?: number[] | null
+    /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
+     *
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency */
+    value_format?: ValueFormatEnumApi
+    /**
+     * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
+     * @maxLength 40
+     * @nullable
+     */
+    unit?: string | null
+    /** Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition. */
+    query: unknown
+    /**
+     * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
+     * @maxLength 500
+     * @nullable
+     */
+    caption?: string | null
+    /** Legacy optional comparison. New report metrics must omit it. */
+    comparison?: ReportMetricComparisonApi | null
+}
+
 /**
  * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
  */
@@ -3644,6 +4047,12 @@ export interface EditReportRequestApi {
      */
     charts?: ReportChartApi[] | null
     /**
+     * The report's full impact-metric set. Omit or send null to preserve it; send an empty list to clear it. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes; a snapshot is only an optional cached fallback. Snapshot-only/queryless payloads are invalid, and legacy rows of that shape are always redacted.
+     * @maxItems 6
+     * @nullable
+     */
+    metrics?: ReportMetricWriteApi[] | null
+    /**
      * The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report.
      * @maxItems 3
      * @nullable
@@ -3668,6 +4077,11 @@ export interface EditReportResponseApi {
      * @nullable
      */
     charts_set: number | null
+    /**
+     * How many impact metrics the report now shows, or null when untouched/unchanged. 0 means the edit removed every metric.
+     * @nullable
+     */
+    metrics_set: number | null
     /**
      * How many prompts the report now suggests, or null if the edit left them as they were (the field omitted, or a re-send of what was already stored). 0 means the edit took the report's suggested prompts down.
      * @nullable
@@ -3833,6 +4247,11 @@ export interface EmitReportRequestApi {
      * @maxItems 20
      */
     charts?: ReportChartApi[]
+    /**
+     * Optional typed impact measurements. Use one primary metric for the key observation and supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes. A value/value_at snapshot is an optional cached fallback. Affected users must use one series with `math: dau`. Snapshot-only/queryless payloads are invalid; legacy rows of that shape are always redacted.
+     * @maxItems 6
+     */
+    metrics?: ReportMetricWriteApi[]
     /**
      * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.
      * @maxItems 3

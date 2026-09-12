@@ -92,6 +92,25 @@ describe('ProductEmptyStateGate', () => {
         }
     )
 
+    it('waits for the bypass flag before mounting detection', () => {
+        productSetupStatusLogic({ productKey: ProductKey.EXPERIMENTS }).actions.setDetectedStatus('needs-setup')
+        render(
+            <ProductEmptyStateGate
+                emptyState={{ ...emptyState, bypassFeatureFlag: FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD }}
+            >
+                <div>the real scene</div>
+            </ProductEmptyStateGate>
+        )
+        expect(noopStatusLogic.findMounted()).toBeNull()
+        expect(screen.queryByText('Set up experiments')).toBeNull()
+        expect(screen.queryByText('the real scene')).toBeNull()
+        act(() =>
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
+        )
+        expect(screen.getByText('the real scene')).not.toBeNull()
+        expect(noopStatusLogic.findMounted()).toBeNull()
+    })
+
     // `?empty_state` exists so anyone can review the setup screen on a project that already
     // has data. Matching it too loosely would hide a real scene from a normal URL, so the
     // off cases matter as much as the on ones.
@@ -102,10 +121,13 @@ describe('ProductEmptyStateGate', () => {
         ['?empty_state=0', false],
         ['', false],
     ])('renders the setup screen for %s: %s', (search, expectedForced) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
         router.actions.push(`/experiments${search}`)
 
         render(
-            <ProductEmptyStateGate emptyState={emptyState}>
+            <ProductEmptyStateGate
+                emptyState={{ ...emptyState, bypassFeatureFlag: FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD }}
+            >
                 <div>the real scene</div>
             </ProductEmptyStateGate>
         )
