@@ -221,7 +221,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.numerator_denominator_sum_product, 6)  # 6 completed
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     def test_retention_can_start_at_custom_exposure(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
 
@@ -324,7 +324,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("copy_completion_precomputed", True, False, "$experiment_exposure"),
         ]
     )
-    @freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10))
+    @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
     def test_retention_can_start_at_default_exposure(self, name, use_precomputation, rollout_enabled, completion_event):
         self._setup_precomputation_test(use_precomputation)
 
@@ -421,7 +421,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ),
         ]
     )
-    @freeze_time("2024-11-10T12:00:00Z")
+    @time_machine.travel("2024-11-10T12:00:00Z", tick=False)
     def test_exposure_retention_includes_full_final_period(
         self, name, unit, window_end, return_offset, excluded_offset, start_date=None, team_timezone="UTC"
     ):
