@@ -83,6 +83,12 @@ MB_100_IN_BYTES = 100 * 1000 * 1000
 # itself is printed from the untouched AST.
 DESCRIBE_QUERY_SETTINGS = {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
 
+# The fallback probe re-describes the untouched GLOBAL query, so it runs the plan-time scan the
+# downgrade exists to skip. Bound it well below the activity budget so a probe that still cannot be
+# planned cheaply fails fast, rather than running until the activity deadline and taking the whole
+# materialization with it.
+DESCRIBE_FALLBACK_MAX_EXECUTION_TIME = 60
+
 _LOCAL_COMPARE_OPS = {
     ast.CompareOperationOp.GlobalIn: ast.CompareOperationOp.In,
     ast.CompareOperationOp.GlobalNotIn: ast.CompareOperationOp.NotIn,
@@ -602,12 +608,21 @@ async def hogql_table(
         described_columns = await _describe_columns(printed, context.values, DESCRIBE_QUERY_SETTINGS)
     except ClickHouseError as error:
         # ClickHouse cannot plan some shapes once GLOBAL is gone, such as an IN subquery inside an
-        # aggregate function. The untouched query is the one that runs, so it always describes.
+        # aggregate function. The untouched query is the one that runs, so it always describes — but
+        # it keeps GLOBAL, so the probe pays the plan-time scan again. Cap its execution time and
+        # keep the probe settings, so a shape that still cannot be planned cheaply fails fast.
         await logger.awarning(
             "DESCRIBE with local subqueries failed, retrying with the untouched query", error=str(error)
         )
         untouched = await database_sync_to_async_pool(_print_untouched)(prepared_hogql_query, context, settings)
-        described_columns = await _describe_columns(untouched, context.values, None)
+        # The cap rides in the DESCRIBE statement settings, not the inner SELECT: ClickHouse ignores
+        # a SETTINGS clause nested inside DESCRIBE TABLE (...), so only a statement-level setting
+        # bounds the plan-time scan.
+        described_columns = await _describe_columns(
+            untouched,
+            context.values,
+            {**DESCRIBE_QUERY_SETTINGS, "max_execution_time": str(DESCRIBE_FALLBACK_MAX_EXECUTION_TIME)},
+        )
 
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
     for column_name, ch_type in described_columns.items():
