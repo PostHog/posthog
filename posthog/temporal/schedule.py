@@ -114,6 +114,7 @@ from products.growth.backend.temporal.signup_enrichment.schedule import (
 from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.product_analytics.backend.facade.temporal import UpgradeQueriesWorkflowInputs
+from products.reaperhog.backend.facade.temporal import create_reaperhog_schedules
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
@@ -946,6 +947,7 @@ schedules = [
     create_vision_alert_check_schedule,
     create_replay_vision_read_meter_schedule,
     create_github_job_logs_coordinator_schedule,
+    create_reaperhog_schedules,
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,
     create_cleanup_data_quality_check_runs_schedule,

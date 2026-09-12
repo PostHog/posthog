@@ -47,17 +47,21 @@ def _fully_rolled_out_variant(variants: list[dict]) -> str | None:
     return at_100[0] if len(at_100) == 1 else None
 
 
-def cleanup_plan(conclusion: str, variants: list[dict]) -> CleanupPlan:
+def cleanup_plan(conclusion: str, variants: list[dict], *, baseline: str | None = None) -> CleanupPlan:
     """Decide which variant's code path to keep, from the outcome and the flag's variants.
 
     "won" keeps the shipped variant (the one rolled out to 100%); a plain win with nothing
-    shipped falls back to the single non-control variant as a best guess. Every other
-    outcome rolls back to the baseline ("control"). Anything uncertain is marked so the
-    operator (and the PR) flag it for human review rather than guessing silently.
+    shipped falls back to the single non-baseline variant as a best guess. Every other
+    outcome rolls back to the baseline. Anything uncertain is marked so the operator (and
+    the PR) flag it for human review rather than guessing silently.
+
+    ``baseline`` is the experiment's configured baseline variant; without one the baseline is
+    "control" when the flag has it.
     """
     keys = variant_keys(variants)
-    non_control = [k for k in keys if k != "control"]
-    has_control = "control" in keys
+    baseline_key = baseline if baseline and baseline in keys else ("control" if "control" in keys else None)
+    non_control = [k for k in keys if k != baseline_key]
+    has_control = baseline_key is not None
 
     def plan(keep: str | None, rationale: str, confident: bool) -> CleanupPlan:
         return CleanupPlan(
@@ -87,7 +91,7 @@ def cleanup_plan(conclusion: str, variants: list[dict]) -> CleanupPlan:
             False,
         )
 
-    keep = "control" if has_control else (keys[0] if keys else None)
+    keep = baseline_key if has_control else (keys[0] if keys else None)
     if conclusion in ("lost", "invalid"):
         return plan(
             keep,

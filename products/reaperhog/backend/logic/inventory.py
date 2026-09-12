@@ -1,0 +1,120 @@
+from collections.abc import Sequence
+from datetime import datetime
+
+from posthog.dataclasses import frozen
+
+from products.reaperhog.backend.facade.enums import ClusterStatus, InventoryStatus
+from products.reaperhog.backend.logic.converge import ClusterDraft
+from products.reaperhog.backend.models import ReaperArtefact, ReaperCluster, ReaperInventory
+
+# A declined cluster stays declined until its files change. Vanishing it would let one absent scan
+# reopen it as a fresh candidate and repeat a pull request a human already closed.
+_VANISHABLE = frozenset(
+    {
+        ClusterStatus.CANDIDATE,
+        ClusterStatus.DEAD,
+        ClusterStatus.ALIVE,
+        ClusterStatus.UNDECIDED,
+    }
+)
+_REOPENABLE = frozenset({ClusterStatus.VANISHED})
+# A verdict only speaks for the code the verifier read, so a cluster whose files moved goes back in the
+# queue instead of resting on an answer about a tree that no longer exists. Without this, ALIVE and
+# UNDECIDED absorb a root for good and the candidate pool drains run after run.
+_RETRYABLE = frozenset({ClusterStatus.DECLINED, ClusterStatus.ALIVE, ClusterStatus.UNDECIDED})
+
+
+@frozen
+class ScanOutcome:
+    created: int
+    refreshed: int
+    reopened: int
+    vanished: int
+
+
+def upsert_inventory(*, team_id: int, repository: str, scope: str) -> ReaperInventory:
+    inventory, _ = ReaperInventory.objects.for_team(team_id).get_or_create(
+        repository=repository, scope=scope, defaults={"team_id": team_id}
+    )
+    return inventory
+
+
+def begin_scan(inventory: ReaperInventory) -> None:
+    inventory.status = InventoryStatus.ACTIVE
+    inventory.save(update_fields=["status", "updated_at"])
+
+
+def abandon_scan(inventory: ReaperInventory) -> None:
+    inventory.status = InventoryStatus.IDLE
+    inventory.save(update_fields=["status", "updated_at"])
+
+
+def record_scan(
+    inventory: ReaperInventory,
+    drafts: Sequence[ClusterDraft],
+    *,
+    head_sha: str,
+    now: datetime,
+    complete: bool = True,
+) -> ScanOutcome:
+    team_id = inventory.team_id
+    existing = {
+        cluster.hash: cluster for cluster in ReaperCluster.objects.for_team(team_id).filter(inventory=inventory)
+    }
+    created = refreshed = reopened = 0
+    seen: set[str] = set()
+    for draft in drafts:
+        seen.add(draft.hash)
+        cluster = existing.get(draft.hash)
+        if cluster is None:
+            cluster = ReaperCluster.objects.for_team(team_id).create(
+                team_id=team_id,
+                inventory=inventory,
+                hash=draft.hash,
+                root_kind=draft.root_kind,
+                root=draft.root,
+                rank=draft.rank,
+                blocked_reason=draft.blocked_reason,
+                scouts=list(draft.scouts),
+                files=list(draft.files),
+                reference_count=draft.reference_count,
+                line_count=draft.line_count,
+                owner=draft.owner,
+                first_seen_at=now,
+                last_seen_at=now,
+            )
+            created += 1
+        else:
+            files_changed = list(draft.files) != cluster.files
+            if cluster.status in _REOPENABLE or (cluster.status in _RETRYABLE and files_changed):
+                cluster.status = ClusterStatus.CANDIDATE
+                reopened += 1
+            else:
+                refreshed += 1
+            cluster.rank = draft.rank
+            cluster.blocked_reason = draft.blocked_reason
+            cluster.scouts = list(draft.scouts)
+            cluster.files = list(draft.files)
+            cluster.reference_count = draft.reference_count
+            cluster.line_count = draft.line_count
+            cluster.owner = draft.owner
+            cluster.last_seen_at = now
+            cluster.save()
+        for hit in draft.hits:
+            ReaperArtefact.append(team_id=team_id, inventory_id=inventory.id, cluster_id=cluster.id, content=hit)
+
+    # A scout that failed reported no roots at all, so absence proves nothing this run.
+    vanished = 0
+    for cluster in existing.values():
+        if not complete or cluster.hash in seen or cluster.status not in _VANISHABLE:
+            continue
+        cluster.status = ClusterStatus.VANISHED
+        cluster.save(update_fields=["status", "updated_at"])
+        vanished += 1
+
+    inventory.run_count += 1
+    inventory.last_scan_sha = head_sha
+    inventory.last_scan_at = now
+    inventory.status = InventoryStatus.IDLE
+    inventory.save(update_fields=["run_count", "last_scan_sha", "last_scan_at", "status", "updated_at"])
+    return ScanOutcome(created=created, refreshed=refreshed, reopened=reopened, vanished=vanished)
