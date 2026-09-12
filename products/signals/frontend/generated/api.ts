@@ -85,6 +85,13 @@ import type {
     SignalUserAutonomyConfigCreateApi,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
+    SignalsReportPrChecksParams,
+    SignalsReportPrCommentsParams,
+    SignalsReportPrReviewCommentDestroyParams,
+    SignalsReportPrReviewCommentReactionDestroyParams,
+    SignalsReportPrReviewCommentReactionsCreateParams,
+    SignalsReportPrReviewCommentUpdateParams,
+    SignalsReportPrReviewCommentsCreateParams,
     SignalsReportsListParams,
     SignalsReportsPrCiStatusesParams,
     SignalsScoutConfigListParams,
@@ -254,7 +261,7 @@ export const getSignalsReportsClaimUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Claim a report for the current user, internal task, or external MCP agent. A later claim silently takes over ownership. Supply pr_url to attach or replace the report's pull request, or release=true to clear only ownership while preserving the pull request.
+ * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links.
  * @summary Claim or release a signal report
  */
 export const signalsReportsClaim = async (
@@ -293,8 +300,20 @@ export const signalsReportsFeedbackCreate = async (
     })
 }
 
-export const getSignalsReportPrChecksUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/pr_checks/`
+export const getSignalsReportPrChecksUrl = (projectId: string, id: string, params?: SignalsReportPrChecksParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/pr_checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/pr_checks/`
 }
 
 /**
@@ -304,16 +323,33 @@ export const getSignalsReportPrChecksUrl = (projectId: string, id: string) => {
 export const signalsReportPrChecks = async (
     projectId: string,
     id: string,
+    params?: SignalsReportPrChecksParams,
     options?: RequestInit
 ): Promise<PullRequestChecksResponseApi> => {
-    return apiMutator<PullRequestChecksResponseApi>(getSignalsReportPrChecksUrl(projectId, id), {
+    return apiMutator<PullRequestChecksResponseApi>(getSignalsReportPrChecksUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getSignalsReportPrCommentsUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/pr_comments/`
+export const getSignalsReportPrCommentsUrl = (
+    projectId: string,
+    id: string,
+    params?: SignalsReportPrCommentsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/pr_comments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/pr_comments/`
 }
 
 /**
@@ -323,16 +359,33 @@ export const getSignalsReportPrCommentsUrl = (projectId: string, id: string) => 
 export const signalsReportPrComments = async (
     projectId: string,
     id: string,
+    params?: SignalsReportPrCommentsParams,
     options?: RequestInit
 ): Promise<PullRequestCommentsResponseApi> => {
-    return apiMutator<PullRequestCommentsResponseApi>(getSignalsReportPrCommentsUrl(projectId, id), {
+    return apiMutator<PullRequestCommentsResponseApi>(getSignalsReportPrCommentsUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getSignalsReportPrReviewCommentsCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/`
+export const getSignalsReportPrReviewCommentsCreateUrl = (
+    projectId: string,
+    id: string,
+    params?: SignalsReportPrReviewCommentsCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/`
 }
 
 /**
@@ -343,10 +396,11 @@ export const signalsReportPrReviewCommentsCreate = async (
     projectId: string,
     id: string,
     pullRequestReviewCommentCreateApi: PullRequestReviewCommentCreateApi,
+    params?: SignalsReportPrReviewCommentsCreateParams,
     options?: RequestInit
 ): Promise<PullRequestReviewCommentCreateResponseApi> => {
     return apiMutator<PullRequestReviewCommentCreateResponseApi>(
-        getSignalsReportPrReviewCommentsCreateUrl(projectId, id),
+        getSignalsReportPrReviewCommentsCreateUrl(projectId, id, params),
         {
             ...options,
             method: 'POST',
@@ -356,8 +410,25 @@ export const signalsReportPrReviewCommentsCreate = async (
     )
 }
 
-export const getSignalsReportPrReviewCommentUpdateUrl = (projectId: string, id: string, commentId: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/`
+export const getSignalsReportPrReviewCommentUpdateUrl = (
+    projectId: string,
+    id: string,
+    commentId: string,
+    params?: SignalsReportPrReviewCommentUpdateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/`
 }
 
 /**
@@ -368,10 +439,11 @@ export const signalsReportPrReviewCommentUpdate = async (
     id: string,
     commentId: string,
     patchedPullRequestReviewCommentUpdateApi?: PatchedPullRequestReviewCommentUpdateApi,
+    params?: SignalsReportPrReviewCommentUpdateParams,
     options?: RequestInit
 ): Promise<PullRequestReviewCommentCreateResponseApi> => {
     return apiMutator<PullRequestReviewCommentCreateResponseApi>(
-        getSignalsReportPrReviewCommentUpdateUrl(projectId, id, commentId),
+        getSignalsReportPrReviewCommentUpdateUrl(projectId, id, commentId, params),
         {
             ...options,
             method: 'PATCH',
@@ -381,8 +453,25 @@ export const signalsReportPrReviewCommentUpdate = async (
     )
 }
 
-export const getSignalsReportPrReviewCommentDestroyUrl = (projectId: string, id: string, commentId: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/`
+export const getSignalsReportPrReviewCommentDestroyUrl = (
+    projectId: string,
+    id: string,
+    commentId: string,
+    params?: SignalsReportPrReviewCommentDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/`
 }
 
 /**
@@ -392,16 +481,34 @@ export const signalsReportPrReviewCommentDestroy = async (
     projectId: string,
     id: string,
     commentId: string,
+    params?: SignalsReportPrReviewCommentDestroyParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getSignalsReportPrReviewCommentDestroyUrl(projectId, id, commentId), {
+    return apiMutator<void>(getSignalsReportPrReviewCommentDestroyUrl(projectId, id, commentId, params), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export const getSignalsReportPrReviewCommentReactionsCreateUrl = (projectId: string, id: string, commentId: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/`
+export const getSignalsReportPrReviewCommentReactionsCreateUrl = (
+    projectId: string,
+    id: string,
+    commentId: string,
+    params?: SignalsReportPrReviewCommentReactionsCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/`
 }
 
 /**
@@ -412,10 +519,11 @@ export const signalsReportPrReviewCommentReactionsCreate = async (
     id: string,
     commentId: string,
     pullRequestReviewCommentReactionCreateApi: PullRequestReviewCommentReactionCreateApi,
+    params?: SignalsReportPrReviewCommentReactionsCreateParams,
     options?: RequestInit
 ): Promise<PullRequestReviewCommentReactionCreateResponseApi> => {
     return apiMutator<PullRequestReviewCommentReactionCreateResponseApi>(
-        getSignalsReportPrReviewCommentReactionsCreateUrl(projectId, id, commentId),
+        getSignalsReportPrReviewCommentReactionsCreateUrl(projectId, id, commentId, params),
         {
             ...options,
             method: 'POST',
@@ -429,9 +537,22 @@ export const getSignalsReportPrReviewCommentReactionDestroyUrl = (
     projectId: string,
     id: string,
     commentId: string,
-    reactionId: string
+    reactionId: string,
+    params?: SignalsReportPrReviewCommentReactionDestroyParams
 ) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/${reactionId}/`
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/${reactionId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/${reactionId}/`
 }
 
 /**
@@ -442,12 +563,16 @@ export const signalsReportPrReviewCommentReactionDestroy = async (
     id: string,
     commentId: string,
     reactionId: string,
+    params?: SignalsReportPrReviewCommentReactionDestroyParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getSignalsReportPrReviewCommentReactionDestroyUrl(projectId, id, commentId, reactionId), {
-        ...options,
-        method: 'DELETE',
-    })
+    return apiMutator<void>(
+        getSignalsReportPrReviewCommentReactionDestroyUrl(projectId, id, commentId, reactionId, params),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
 }
 
 export const getSignalsReportsRefundCreateUrl = (projectId: string, id: string) => {
