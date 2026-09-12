@@ -1001,6 +1001,23 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "column's declared length to match the remote server, or remove the foreign table "
                 "from the sync, then re-enable the sync."
             ),
+            # A selected relation is a foreign table (postgres_fdw, or a wrapper such as Supabase's
+            # "Wrappers" extension) whose locally-declared column is a timestamp/date type, but the
+            # remote server returns a value that doesn't parse as one (SQLSTATE 22007). Postgres
+            # enforces type validity at write time on ordinary tables, so this can only surface via a
+            # foreign table's separately-declared type reading data the remote side never validated
+            # against it — for example a text "\N" NULL marker left over from a text-format export
+            # that the remote side or wrapper didn't translate to a real NULL. The mismatch lives on
+            # the customer's side and is deterministic, so retrying re-reads into the same row every
+            # time. Match the stable message and exclude the volatile offending value.
+            "invalid input syntax for type timestamp": (
+                "One of the tables you selected to sync is a foreign table whose locally-declared "
+                "column is a timestamp type, but the remote server returned a value that isn't a "
+                'valid timestamp (PostgreSQL reported "invalid input syntax for type timestamp"). '
+                'This can happen when a NULL marker from a text-format export (for example "\\N") '
+                "wasn't translated to a real NULL. Fix the remote data or the foreign table's column "
+                "type, or remove the foreign table from the sync, then re-enable the sync."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
