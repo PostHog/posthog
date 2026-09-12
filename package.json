@@ -87,9 +87,9 @@
         ".claude/settings.json": "sh -c 'printf \"\\n\\033[31mDo not commit .claude/settings.json — personal permissions belong in .claude/settings.local.json (gitignored).\\nUnstage with: git restore --staged .claude/settings.json\\033[0m\\n\\n\" >&2 && exit 1'",
         "**/{AGENTS,CLAUDE}.md": "sh -c '.github/scripts/check-agents-md-symlinks.sh'",
         "frontend/public/services/*.{png,jpg,jpeg,gif}": "node frontend/bin/check-service-icon-size.mjs",
-        "products/**/manifest.tsx": [
+        "{products/**/manifest.tsx,frontend/src/appSceneModules.mts,frontend/build-products.mjs,frontend/bin/scene-chunk-map.mjs}": [
             "bin/hogli format:js",
-            "sh -c 'pnpm build:products && git add frontend/src/products.tsx frontend/src/productScenes.tsx frontend/src/products.json'"
+            "sh -c 'pnpm build:products && git add frontend/src/products.tsx frontend/src/lazySceneImports.ts frontend/src/sceneModules.json frontend/src/products.json'"
         ],
         "!(**/.sqlx/**|products/review_hog/backend/reviewer/prompts/*/schema.json|**/chart/*/templates/**|products/metrics/agent/tests/**/golden/**)*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",
