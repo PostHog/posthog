@@ -169,6 +169,13 @@ required and controls how users with multiple start events are anchored:
 `"first_seen"` (anchor on first occurrence) or `"last_seen"` (anchor on most
 recent).
 
+`start_event` is usually an `EventsNode` or `ActionsNode`. It can instead be
+`{ "kind": "ExperimentExposureMetricSource" }`, which starts the window at the
+user's first exposure in whichever experiment reads the metric — so one shared
+metric fits experiments that use different exposure events. An exposure start
+takes only `start_handling: "first_seen"` and only a `"day"` or `"hour"` window.
+Other values are rejected, on inline metrics and shared metrics alike.
+
 The window is measured **from the start event** and bucketed by
 `retention_window_unit`, which is `"day"` or `"hour"`. The start occurrence never
 counts as its own completion — only a *distinct* later event does — so the start
@@ -231,6 +238,31 @@ Measures "of users who clicked the promoted product, how many clicked it again
 within 7 days". The first click anchors the window and never counts as its own
 completion — only a later distinct click does, so a one-time clicker is correctly
 counted as not retained.
+
+### Right — retention from the experiment exposure
+
+```json
+{
+  "kind": "ExperimentMetric",
+  "metric_type": "retention",
+  "name": "7-day post-exposure retention",
+  "start_event": {
+    "kind": "ExperimentExposureMetricSource"
+  },
+  "completion_event": {
+    "kind": "EventsNode",
+    "event": "uploaded_file"
+  },
+  "retention_window_start": 0,
+  "retention_window_end": 7,
+  "retention_window_unit": "day",
+  "start_handling": "first_seen"
+}
+```
+
+Measures "of users exposed to the experiment, how many uploaded a file within 7
+days". Each experiment supplies its own exposure event, so the same metric can
+be shared across experiments.
 
 ### Wrong — missing `retention_window_start` and `start_handling`
 

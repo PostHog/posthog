@@ -180,6 +180,9 @@ was long relative to the run, consider reset + relaunch over interpreting the co
 
 ## E10 — Retention metric: start event must occur after exposure [HIGH]
 
+This case covers a retention metric whose `start_event` is an event or action. For a metric that
+starts at the exposure itself, read the exposure-start note at the end of this case first.
+
 PostHog's retention metric for experiments requires the **start event to occur after the user's
 first exposure**. This
 is the same design as all other metric types — the analysis question is "what is the effect of this
@@ -202,6 +205,14 @@ track that metric separately in product analytics.
 **If retention undercounts unexpectedly:** confirm that the start event has post-exposure
 occurrences for the affected users. Users whose only start events are pre-exposure are excluded
 entirely — they don't appear in the retention denominator.
+
+**Exposure starts work differently.** A retention metric can set
+`start_event: { "kind": "ExperimentExposureMetricSource" }`, which anchors the window on the user's
+first exposure in the experiment being read. There is no separate start event, so nothing above
+applies: no occurrences are dropped for being pre-exposure, and a user with no post-exposure start
+event is not a possible cause of undercounting. `start_handling` must be `first_seen` and the window
+unit must be `day` or `hour`; any other combination is rejected rather than silently adjusted. For an
+undercount here, check the completion event and the retention window instead.
 
 ## E11 — "Matured users" filtering [HIGH]
 
