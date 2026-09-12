@@ -1,7 +1,7 @@
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
-from typing import Generic, Optional, cast
+from typing import Generic, Optional
 
 from langchain_core.agents import AgentAction
 from langchain_core.exceptions import OutputParserException
@@ -31,6 +31,13 @@ class SchemaGenerationException(Exception):
         super().__init__("Failed to generate schema")
         self.llm_output = llm_output
         self.validation_message = validation_message
+
+
+class OutputQualityException(PydanticOutputParserException):
+    """
+    The output is valid against the schema, but it answers the question with a wrong number.
+    The LLM should iterate on it, and we present it anyway once the attempts run out.
+    """
 
 
 class SchemaGeneratorNode(AssistantNode, Generic[Q]):
@@ -76,10 +83,43 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         If implemented, this can raise a PydanticOutputParserException exception if something's off about the output
         (e.g. a non-existent table field is used).
 
-        Raising here means that the LLM should iterate on the output, but also that it's still usable
-        if we aren't able to resolve the issue in a couple attempts.
+        Raising here means that the LLM should iterate on the output. Raise an `OutputQualityException` when the
+        output is still usable, so that we present it instead of failing once the attempts run out.
         """
         pass
+
+    def _retry_state(
+        self,
+        error: PydanticOutputParserException | OutputParserException,
+        intermediate_steps: Sequence[IntermediateStep],
+    ) -> PartialAssistantState | None:
+        """The state that asks the LLM to iterate with feedback, or `None` once the attempts run out."""
+        if len(intermediate_steps) >= RETRIES_ALLOWED:
+            return None
+
+        return PartialAssistantState(
+            intermediate_steps=[
+                *intermediate_steps,
+                (
+                    AgentAction(
+                        "handle_incorrect_response",
+                        error.llm_output or "No input was provided.",
+                        error.validation_message
+                        if isinstance(error, PydanticOutputParserException)
+                        else "The provided JSON was invalid.",
+                    ),
+                    None,
+                ),
+            ],
+            query_generation_retry_count=len(intermediate_steps) + 1,
+        )
+
+    def _generation_exception(
+        self, error: PydanticOutputParserException | OutputParserException
+    ) -> SchemaGenerationException:
+        if isinstance(error, PydanticOutputParserException):
+            return SchemaGenerationException(error.llm_output, error.validation_message)
+        return SchemaGenerationException(error.llm_output or "No input was provided.", str(error))
 
     async def _run_with_prompt(
         self,
@@ -106,32 +146,21 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 },
                 config,
             )
-            # If quality check raises, we will still iterate if we've got any attempts left,
-            # however if we don't have any more attempts, we're okay to use `result` (instead of throwing)
-            await self._quality_check_output(cast(SchemaGeneratorOutput[Q], result))
         except (PydanticOutputParserException, OutputParserException) as e:
-            # Try again with feedback a couple times
-            if len(intermediate_steps) < RETRIES_ALLOWED:
-                return PartialAssistantState(
-                    intermediate_steps=[
-                        *intermediate_steps,
-                        (
-                            AgentAction(
-                                "handle_incorrect_response",
-                                e.llm_output or "No input was provided.",
-                                e.validation_message
-                                if isinstance(e, PydanticOutputParserException)
-                                else "The provided JSON was invalid.",
-                            ),
-                            None,
-                        ),
-                    ],
-                    query_generation_retry_count=len(intermediate_steps) + 1,
-                )
+            retry_state = self._retry_state(e, intermediate_steps)
+            if retry_state is None:
+                raise self._generation_exception(e)
+            return retry_state
 
-            if isinstance(e, PydanticOutputParserException):
-                raise SchemaGenerationException(e.llm_output, e.validation_message)
-            raise SchemaGenerationException(e.llm_output or "No input was provided.", str(e))
+        try:
+            await self._quality_check_output(result)
+        except (PydanticOutputParserException, OutputParserException) as e:
+            retry_state = self._retry_state(e, intermediate_steps)
+            if retry_state is not None:
+                return retry_state
+            # Out of attempts. A quality issue leaves a usable query, so present it instead of failing the turn.
+            if not isinstance(e, OutputQualityException):
+                raise self._generation_exception(e)
 
         # We've got a result that either passed the quality check or we've exhausted all attempts at iterating - return
         # Create an artifact with the visualization content
