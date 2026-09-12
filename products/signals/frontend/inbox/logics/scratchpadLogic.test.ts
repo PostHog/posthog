@@ -192,6 +192,9 @@ describe('scratchpadLogic', () => {
 
         logic.actions.setKindFilter(['pattern', 'baseline'])
         expect(logic.values.filteredEntries?.map((e) => e.key)).toEqual(['pattern:apm:p95', 'baseline:apm:error-rate'])
+        // The footer prints the bookkeeping count as a share of the listed rows, so a count taken
+        // before the facet filters can exceed the number of rows it describes.
+        expect(logic.values.visibleBookkeepingCount).toBe(0)
 
         logic.actions.setTopicFilter(['logs'])
         expect(logic.values.filteredEntries).toEqual([])
