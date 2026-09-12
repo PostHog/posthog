@@ -60,4 +60,12 @@ describe('FeedbackSurveyButton', () => {
         fireEvent.click(button)
         expect(posthog.displaySurvey).not.toHaveBeenCalled()
     })
+
+    it('exposes the visible label as the accessible name, not the tooltip', () => {
+        mockSurveysLoaded({ isLoaded: true })
+        // A name query is what voice control and screen readers use; it must match the visible copy.
+        const { getByRole } = render(<FeedbackSurveyButton surveyId={SURVEY_ID} label="Reach out to us" />)
+
+        expect(getByRole('button', { name: 'Reach out to us' })).toBeTruthy()
+    })
 })
