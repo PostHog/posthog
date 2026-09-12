@@ -2600,6 +2600,18 @@ snapshots:
         hash: v1.k794b7964.9e1bd66437108d2ae7be66826ebffdc276aa0e5d774aec80cc21f412e64bd88c.MHWc22XT82IGcvrDumZrv_AGDtt8aFuowT9zTB7TCxk
     exporter-other--sql-insight-no-results--light:
         hash: v1.k794b7964.61d2bc9e86a0f575ed9653d7a8591219e402a06f6e53021eee8efcc7eb87d644._4TYA0cVTREdm7CEPknXXiutaQB4rZKngjK1MrAGE-Y
+    exporter-shared--shared-canvas--dark:
+        hash: v1.k794b7964.4d3c8401b070c16e69d506067adbc234457bd4e7172abc0206dbabc2627a29d0.Rh7VuEph7nVb9GlTuImcgxKIEr99RRdHhpg1Y4C1CA0
+    exporter-shared--shared-canvas--light:
+        hash: v1.k794b7964.7184d077d3fad8f0a200ecabc20193759d0b03fe97eb94cfe1361dae9d29d397.Wl-r1IG303NmTGiz1Yocs0xXagUriFeVMzap5Z51Z2Y
+    exporter-shared--shared-canvas-build-gone--dark:
+        hash: v1.k794b7964.6a69f0df50bf19366d51f301a7f473acbc19cb25cb212b354f41f310cb66eb0f.mAyeCYgAMtCvK5veWJgZL0hrLwsbxsbinckp_pCu5PQ
+    exporter-shared--shared-canvas-build-gone--light:
+        hash: v1.k794b7964.d1ef167a8acc86a7f54a26863521ab6af7d18c8df8c2f295d257cb15f5dc4461.Tx_cN60iGVeHNYLR12v9SMN0w9W_zj_G2RREEXkOFrE
+    exporter-shared--shared-file--dark:
+        hash: v1.k794b7964.826a19c4da3b42e0bcd1b70d3fe3a4ecb817a29c5ada6f7fe5f21de0d1a04aed.SP53yxjmv1hU9Cycvd4Id9NsaxqvpfrIbDHhvBLDDg0
+    exporter-shared--shared-file--light:
+        hash: v1.k794b7964.1c259dea45837966ededf20da154669a59faeaff6a1127e6085d3552d6595f7f.NOxIyYbPkxUukA79b6loF_oS9OhR-pn-AKK5JEYbmuw
     exporter-trends--trends-metric-insight--dark:
         hash: v1.k794b7964.b98d85ed23d2217983a6af3c3e26c619eb1b127740286c0c2fcde8b9a9061f80.jy33WcgkTnYivlpUdM1G7XUd0K1l9VFyA4F0jbuixAQ
     exporter-trends--trends-metric-insight--light:
