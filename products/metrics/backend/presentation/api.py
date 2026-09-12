@@ -486,6 +486,13 @@ class _MetricNamesResponseSerializer(serializers.Serializer):
 
 
 class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
+    metricName = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text="Exact metric name to limit attribute keys to. Omit to list keys across all metrics.",
+    )
     search = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -923,7 +930,8 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
     def attributes(self, request: Request, *args, **kwargs) -> Response:
-        """Attribute keys ordered by distinct series count, from highest to lowest."""
+        """Attribute keys ordered by distinct series count, from highest to
+        lowest. `metricName` limits choices to one metric."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         params = _MetricAttributeKeysParamsSerializer(data=request.query_params)
@@ -932,6 +940,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             results = list_metric_attribute_keys(
                 team=self.team,
+                metric_name=params.validated_data["metricName"],
                 search=params.validated_data["search"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],

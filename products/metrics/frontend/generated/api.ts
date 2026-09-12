@@ -124,7 +124,8 @@ export const getMetricsAttributesRetrieveUrl = (projectId: string, params?: Metr
 }
 
 /**
- * Attribute keys ordered by distinct series count, from highest to lowest.
+ * Attribute keys ordered by distinct series count, from highest to
+ * lowest. `metricName` limits choices to one metric.
  */
 export const metricsAttributesRetrieve = async (
     projectId: string,

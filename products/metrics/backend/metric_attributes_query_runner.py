@@ -62,12 +62,14 @@ class MetricAttributeKeysQueryRunner:
         self,
         team: Team,
         *,
+        metric_name: str = "",
         search: str = "",
         date_from: dt.datetime | None = None,
         date_to: dt.datetime | None = None,
         limit: int = 100,
     ) -> None:
         self.team = team
+        self.metric_name = metric_name.strip()
         self.search = search.strip()
         self.date_from, self.date_to = _resolve_window(date_from, date_to)
         self.date_from += _TIME_BUCKET_INTERVAL
@@ -83,6 +85,7 @@ class MetricAttributeKeysQueryRunner:
                     uniqExact(series_fingerprint) AS series_count
                 FROM posthog.metric_series
                 WHERE last_seen >= {date_from}
+                  AND {metric_name_filter}
                   AND (attribute_key ILIKE {search_pattern}
                        OR (attribute_key = 'service_name' AND 'service.name' ILIKE {search_pattern}))
                 GROUP BY attribute_key
@@ -91,6 +94,15 @@ class MetricAttributeKeysQueryRunner:
             """,
             placeholders={
                 "date_from": ast.Constant(value=self.date_from),
+                "metric_name_filter": (
+                    ast.Constant(value=True)
+                    if not self.metric_name
+                    else ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["metric_name"]),
+                        right=ast.Constant(value=self.metric_name),
+                    )
+                ),
                 "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
                 "limit": ast.Constant(value=self.limit),
             },

@@ -643,7 +643,7 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.queryFilters).toEqual([{ key: 'env', op: 'eq', value: 'prod' }])
     })
 
-    it('group-by search keeps the series counts and order from the API', async () => {
+    it('group-by search keeps the series counts and order from the selected metric API response', async () => {
         jest.mocked(metricsAttributesRetrieve).mockResolvedValue({
             results: [
                 { name: 'service_name', series_count: 20 },
@@ -651,12 +651,13 @@ describe('metricsViewerLogic', () => {
             ],
             count: 2,
         })
+        logic.actions.setMetricName('requests_total')
         await expectLogic(logic, () => {
             logic.actions.setGroupBySearch('e')
         }).toDispatchActions(['loadAttributeKeyOptions', 'loadAttributeKeyOptionsSuccess'])
         expect(metricsAttributesRetrieve).toHaveBeenCalledWith(
             expect.any(String),
-            expect.objectContaining({ search: 'e' })
+            expect.objectContaining({ search: 'e', metricName: 'requests_total' })
         )
         expect(logic.values.attributeKeyOptions).toEqual([
             { key: 'service_name', label: 'service_name', seriesCount: 20 },

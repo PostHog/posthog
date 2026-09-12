@@ -101939,6 +101939,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Exact metric name to limit attribute keys to. Omit to list keys across all metrics.
+     * @maxLength 255
+     */
+    metricName?: string;
+    /**
      * Substring filter (case-insensitive) applied to attribute keys.
      * @maxLength 255
      */
