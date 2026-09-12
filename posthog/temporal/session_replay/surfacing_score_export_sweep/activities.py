@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
 from typing import Any, cast
@@ -53,15 +54,20 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.s3 import (
     upload_parquet,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.session_identifier_format import (
+    RAW_SESSION_IDENTIFIERS_START_MS,
     uses_raw_session_identifiers,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.types import (
+    EncryptedScoreManifest,
     EncryptedScorePage,
     EncryptedScorePageResult,
+    EncryptedScorePlan,
+    EncryptedScorePlanInput,
     ExportPartitionResult,
     ExportPartitionSpec,
     ExportScoresSweepInputs,
     ListExportPartitionsResult,
+    ScoreCursor,
 )
 
 logger = structlog.get_logger(__name__)
@@ -97,7 +103,7 @@ async def list_export_partitions_activity(_inputs: ExportScoresSweepInputs) -> L
             day=d,
             chunk_id=chunk_id,
             of_chunks=DEFAULT_OF_CHUNKS,
-            encrypted_enabled=bool(settings.AI_RESEARCH_REPLAY_PRIVACY_TABLE) and d >= "2026-09-14",
+            encrypted_enabled=bool(settings.AI_RESEARCH_REPLAY_PRIVACY_TABLE),
         )
         for d in days
         for chunk_id in range(DEFAULT_OF_CHUNKS)
@@ -261,6 +267,7 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
                         raise ApplicationError(str(error), type=type(error).__name__, non_retryable=True) from error
                 table = await sync_to_async(_page_table, thread_sensitive=False)(legacy_rows, secret)
                 await sync_to_async(writers[False].write_table, thread_sensitive=False)(table)
+                rows_total += table.num_rows
             if raw_rows and not spec.legacy_only:
                 if reader is None:
                     reader = _score_key_reader()
@@ -270,7 +277,7 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
                     lambda: activity.heartbeat({"phase": "encrypt", "day": spec.day, "chunk_id": spec.chunk_id}),
                 )
                 await sync_to_async(writers[True].write_table, thread_sensitive=False)(table)
-            rows_total += len(rows)
+                rows_total += table.num_rows
             if len(rows) < EXPORT_PAGE_MAX_ROWS:
                 break
             cursor = (rows[-1][1], rows[-1][0])
@@ -308,14 +315,14 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
 ENCRYPTED_EXPORT_PAGE_ROWS = 4096
 
 
-def _publish_encrypted_score_manifest(page: EncryptedScorePage) -> None:
+def _publish_encrypted_score_manifest(manifest: EncryptedScoreManifest) -> None:
     destination = score_export_destination()
     if destination is None:
         raise RuntimeError("ML score export destination not configured")
-    partition = page.partition
+    partition = manifest.partition
     base = f"dt={partition.day}/part-{partition.chunk_id:04d}-of-{partition.of_chunks:04d}"
-    manifest_key = f"{score_export_prefix()}/v2-manifests/{base}/{page.export_id}.json"
-    prefix = f"{score_export_prefix()}/v2/{base}/export={page.export_id}/"
+    manifest_key = f"{score_export_prefix()}/v2-manifests/{base}/{manifest.export_id}.json"
+    prefix = f"{score_export_prefix()}/v2/{base}/export={manifest.export_id}/"
     client = boto3_client(
         "s3",
         region_name=destination.region,
@@ -328,19 +335,72 @@ def _publish_encrypted_score_manifest(page: EncryptedScorePage) -> None:
         Bucket=destination.bucket,
         Key=manifest_key,
         ContentType="application/json",
-        Body=json.dumps({"prefix": prefix, "pages": page.page + 1}).encode(),
+        Body=json.dumps({"prefix": prefix, "pages": manifest.pages}).encode(),
     )
+
+
+def _encrypted_query_parameters(spec: ExportPartitionSpec, cursor: ScoreCursor, page_size: int) -> dict[str, str | int]:
+    return {
+        "of_chunks": spec.of_chunks,
+        "chunk_id": spec.chunk_id,
+        "day_start": f"{spec.day} 00:00:00",
+        "cursor_session_id": cursor.session_id,
+        "cursor_team_id": cursor.team_id,
+        "session_start_hex": f"{RAW_SESSION_IDENTIFIERS_START_MS:012x}",
+        "page_size": page_size,
+    }
+
+
+def _plan_encrypted_score_ranges(inputs: EncryptedScorePlanInput) -> EncryptedScorePlan:
+    rows = sync_execute(
+        export_sql.plan_encrypted_score_ranges_sql(),
+        _encrypted_query_parameters(inputs.partition, inputs.cursor, EXPORT_PAGE_MAX_ROWS),
+        settings={
+            "max_execution_time": CH_EXPORT_QUERY_TIMEOUT_S,
+            "max_memory_usage": CH_EXPORT_QUERY_MAX_MEMORY_BYTES,
+        },
+    )
+    boundaries = [
+        ScoreCursor(team_id=rows[end - 1][0], session_id=rows[end - 1][1])
+        for end in range(ENCRYPTED_EXPORT_PAGE_ROWS, len(rows) + 1, ENCRYPTED_EXPORT_PAGE_ROWS)
+    ]
+    if len(rows) % ENCRYPTED_EXPORT_PAGE_ROWS:
+        boundaries.append(ScoreCursor(team_id=rows[-1][0], session_id=rows[-1][1]))
+    return EncryptedScorePlan(boundaries=boundaries, has_more=len(rows) == EXPORT_PAGE_MAX_ROWS)
+
+
+@activity.defn
+async def plan_encrypted_score_ranges_activity(inputs: EncryptedScorePlanInput) -> EncryptedScorePlan:
+    return await sync_to_async(_plan_encrypted_score_ranges, thread_sensitive=False)(inputs)
+
+
+def _fetch_encrypted_score_range(page: EncryptedScorePage) -> list[_ScoredRow]:
+    parameters = _encrypted_query_parameters(page.partition, page.cursor, ENCRYPTED_EXPORT_PAGE_ROWS)
+    parameters.update(upper_team_id=page.upper.team_id, upper_session_id=page.upper.session_id)
+    return cast(
+        list[_ScoredRow],
+        sync_execute(
+            export_sql.fetch_encrypted_score_range_sql(),
+            parameters,
+            settings={
+                "max_execution_time": CH_EXPORT_QUERY_TIMEOUT_S,
+                "max_memory_usage": CH_EXPORT_QUERY_MAX_MEMORY_BYTES,
+            },
+        ),
+    )
+
+
+@activity.defn
+async def publish_encrypted_score_manifest_activity(manifest: EncryptedScoreManifest) -> None:
+    await sync_to_async(_publish_encrypted_score_manifest, thread_sensitive=False)(manifest)
 
 
 @activity.defn
 async def export_encrypted_scores_page_activity(page: EncryptedScorePage) -> EncryptedScorePageResult:
     activity.heartbeat({"phase": "fetch", "page": page.page})
-    rows = await sync_to_async(_fetch_page, thread_sensitive=False)(
-        page.partition, (page.cursor_session_id, page.cursor_team_id), ENCRYPTED_EXPORT_PAGE_ROWS
-    )
-    raw_rows = [row for row in rows if uses_raw_session_identifiers(row[1])]
+    rows = await sync_to_async(_fetch_encrypted_score_range, thread_sensitive=False)(page)
     table = await sync_to_async(_encrypted_page_table, thread_sensitive=False)(
-        raw_rows, _score_key_reader(), lambda: activity.heartbeat({"phase": "encrypt", "page": page.page})
+        rows, _score_key_reader(), lambda: activity.heartbeat({"phase": "encrypt", "page": page.page})
     )
     sink = io.BytesIO()
     pq.write_table(table, sink, compression="snappy")
@@ -353,13 +413,7 @@ async def export_encrypted_scores_page_activity(page: EncryptedScorePage) -> Enc
     await sync_to_async(_upload, thread_sensitive=False)(key, body)
     next_page = None
     if len(rows) == ENCRYPTED_EXPORT_PAGE_ROWS:
-        next_page = EncryptedScorePage(
-            partition=partition,
-            export_id=page.export_id,
-            page=page.page + 1,
-            cursor_session_id=rows[-1][1],
-            cursor_team_id=rows[-1][0],
-        )
-    else:
-        await sync_to_async(_publish_encrypted_score_manifest, thread_sensitive=False)(page)
+        cursor = ScoreCursor(team_id=rows[-1][0], session_id=rows[-1][1])
+        if cursor != page.upper:
+            next_page = replace(page, page=page.page + 1, cursor=cursor)
     return EncryptedScorePageResult(rows=table.num_rows, bytes_written=len(body), next_page=next_page)

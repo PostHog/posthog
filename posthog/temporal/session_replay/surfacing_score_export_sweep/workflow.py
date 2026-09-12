@@ -16,10 +16,14 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.constants impo
     EXPORT_PARTITION_MAX_ATTEMPTS,
     LIST_PARTITIONS_ACTIVITY_TIMEOUT,
     MAX_CONCURRENT_EXPORT_PARTITIONS,
+    MAX_ENCRYPTED_PAGES_PER_RUN,
     WORKFLOW_NAME,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.types import (
+    EncryptedScoreExport,
+    EncryptedScoreManifest,
     EncryptedScorePage,
+    EncryptedScorePlanInput,
     ExportPartitionResult,
     ExportPartitionSpec,
     ExportScoresSweepInputs,
@@ -31,6 +35,8 @@ with workflow.unsafe.imports_passed_through():
         export_encrypted_scores_page_activity,
         export_scores_partition_activity,
         list_export_partitions_activity,
+        plan_encrypted_score_ranges_activity,
+        publish_encrypted_score_manifest_activity,
     )
     from posthog.temporal.session_replay.surfacing_score_export_sweep.metrics import record_tick_summary
 
@@ -97,18 +103,79 @@ class ExportSurfacingScoresWorkflow(PostHogWorkflow):
         )
         if paged:
             export_id = f"{workflow.info().start_time.strftime('%Y%m%dT%H%M%S%f')}-{workflow.info().run_id}"
-            page: EncryptedScorePage | None = EncryptedScorePage(partition=spec, export_id=export_id)
-            while page is not None:
-                exported = await workflow.execute_activity(
-                    export_encrypted_scores_page_activity,
-                    page,
+            exported = await workflow.execute_child_workflow(
+                ExportEncryptedScoresWorkflow.run,
+                EncryptedScoreExport(partition=spec, export_id=export_id),
+                id=f"ai-research-score-export/{export_id}/{spec.day}/{spec.chunk_id}",
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            result.rows += exported.rows
+            result.bytes_written += exported.bytes_written
+        return result
+
+
+@workflow.defn(name="ai-research-encrypted-score-export")
+class ExportEncryptedScoresWorkflow(PostHogWorkflow):
+    inputs_cls = EncryptedScoreExport
+
+    @workflow.run
+    async def run(self, inputs: EncryptedScoreExport) -> ExportPartitionResult:
+        cursor = inputs.cursor
+        boundaries = list(inputs.boundaries)
+        needs_plan = inputs.needs_plan
+        pages = inputs.pages
+        rows = inputs.rows
+        bytes_written = inputs.bytes_written
+        while boundaries or needs_plan:
+            if not boundaries:
+                plan = await workflow.execute_activity(
+                    plan_encrypted_score_ranges_activity,
+                    EncryptedScorePlanInput(partition=inputs.partition, cursor=cursor),
                     start_to_close_timeout=EXPORT_PARTITION_ACTIVITY_TIMEOUT,
-                    heartbeat_timeout=EXPORT_PARTITION_HEARTBEAT_TIMEOUT,
                     retry_policy=RetryPolicy(maximum_attempts=EXPORT_PARTITION_MAX_ATTEMPTS),
                 )
-                result.bytes_written += exported.bytes_written
-                page = exported.next_page
-        return result
+                boundaries = list(plan.boundaries)
+                needs_plan = plan.has_more
+                if not boundaries:
+                    break
+            upper = boundaries[0]
+            exported = await workflow.execute_activity(
+                export_encrypted_scores_page_activity,
+                EncryptedScorePage(
+                    partition=inputs.partition, export_id=inputs.export_id, page=pages, cursor=cursor, upper=upper
+                ),
+                start_to_close_timeout=EXPORT_PARTITION_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=EXPORT_PARTITION_HEARTBEAT_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=EXPORT_PARTITION_MAX_ATTEMPTS),
+            )
+            bytes_written += exported.bytes_written
+            rows += exported.rows
+            pages += 1
+            if exported.next_page is not None:
+                cursor = exported.next_page.cursor
+            else:
+                cursor = boundaries.pop(0)
+            if pages - inputs.pages >= MAX_ENCRYPTED_PAGES_PER_RUN and (boundaries or needs_plan):
+                workflow.continue_as_new(
+                    replace(
+                        inputs,
+                        cursor=cursor,
+                        boundaries=boundaries,
+                        needs_plan=needs_plan,
+                        pages=pages,
+                        rows=rows,
+                        bytes_written=bytes_written,
+                    )
+                )
+        await workflow.execute_activity(
+            publish_encrypted_score_manifest_activity,
+            EncryptedScoreManifest(partition=inputs.partition, export_id=inputs.export_id, pages=pages),
+            start_to_close_timeout=LIST_PARTITIONS_ACTIVITY_TIMEOUT,
+            retry_policy=RetryPolicy(maximum_attempts=EXPORT_PARTITION_MAX_ATTEMPTS),
+        )
+        return ExportPartitionResult(
+            day=inputs.partition.day, chunk_id=inputs.partition.chunk_id, rows=rows, bytes_written=bytes_written
+        )
 
 
 def _summarize(

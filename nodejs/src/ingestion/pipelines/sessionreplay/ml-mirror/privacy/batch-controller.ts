@@ -1,3 +1,5 @@
+import pLimit from 'p-limit'
+
 import { PipelineResult, PipelineResultType, ok } from '~/ingestion/framework/results'
 import { usesRawSessionIdentifiers } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 import {
@@ -17,6 +19,7 @@ export interface MlRecordingKey extends SessionKey {
 }
 
 export class MlPrivacyBatchController implements KeyStore, RecordingEncryptor {
+    private readonly publish = pLimit(8)
     private batch?: MlKeyBatch
     private deferred: Array<() => Promise<void>> = []
 
@@ -70,9 +73,7 @@ export class MlPrivacyBatchController implements KeyStore, RecordingEncryptor {
             return
         }
         await this.batch.commit()
-        for (const action of this.deferred) {
-            await action()
-        }
+        await Promise.all(this.deferred.map((action) => this.publish(action)))
         this.deferred = []
     }
 

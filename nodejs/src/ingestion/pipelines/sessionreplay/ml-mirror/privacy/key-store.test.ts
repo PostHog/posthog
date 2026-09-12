@@ -1,11 +1,20 @@
 import { BatchGetItemCommand, DynamoDBClient, TransactWriteItemsCommand } from '@aws-sdk/client-dynamodb'
 import { GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
+import { S3Client } from '@aws-sdk/client-s3'
+import { Message } from 'node-rdkafka'
+import { register } from 'prom-client'
 
+import { ok } from '~/ingestion/framework/results'
+import { BlockMetadataBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-batcher'
+import { BlockMetadataParquetStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-parquet-store'
+
+import { MlPrivacyBatchController } from './batch-controller'
 import { MlKeyEncryption } from './crypto'
 import { DynamoItem, MlPrivacyDynamoDB, encodeKey } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
 import { MlSessionIdentity, consentKeyId, distinctBlockId, imageKeyId, sessionKeyId, tableKeyString } from './schema'
+import { MlKafkaEncryption, encryptedKafkaValue } from './transport'
 
 const session: MlSessionIdentity = {
     teamId: 7,
@@ -157,5 +166,90 @@ describe('ML session key batches', () => {
         expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
         await next.commit()
         expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(0)
+    })
+
+    it('publishes a bounded concurrent batch only after privacy writes commit', async () => {
+        const identity = { ...session, sessionId: '01a09f92-e780-7000-8000-000000000001' }
+        const controller = new MlPrivacyBatchController(store, encryption)
+        await controller.prepare([identity])
+        let release!: () => void
+        const delivery = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        let started = 0
+        let firstWaveStarted!: () => void
+        const firstWave = new Promise<void>((resolve) => {
+            firstWaveStarted = resolve
+        })
+        const input = {
+            team: { teamId: identity.teamId },
+            headers: { session_id: identity.sessionId },
+            sessionKey: await controller.getKey(identity.sessionId, identity.teamId),
+        }
+        for (let index = 0; index < 20; index++) {
+            await controller.defer(input, (value) => {
+                expect(
+                    boundary.items.get(tableKeyString(sessionKeyId(identity.teamId, identity.sessionId)))?.wrapped_key
+                ).toBeDefined()
+                if (++started === 8) {
+                    firstWaveStarted()
+                }
+                return Promise.resolve(ok(value, [delivery]))
+            })
+        }
+        const committed = controller.commit()
+        await firstWave
+        expect(started).toBe(8)
+        release()
+        await committed
+        expect(started).toBe(20)
+    })
+    it('reports accepted, malformed and deleted encrypted metadata separately', async () => {
+        register.resetMetrics()
+        const deleted = { ...session, sessionId: '01994569-4380-7000-8000-000000000008' }
+        const batch = await store.prepare([session, deleted])
+        await batch.commit()
+        const messages = [session, deleted].map((identity, offset) => {
+            const encoded = encryptedKafkaValue(
+                batch.get(identity.teamId, identity.sessionId)!.session,
+                'metadata',
+                Buffer.from('{}')
+            )
+            return {
+                topic: 'metadata',
+                partition: 0,
+                offset,
+                value: encoded.value,
+                headers: Object.entries(encoded.headers).map(([name, value]) => ({ [name]: Buffer.from(value) })),
+            } as Message
+        })
+        boundary.items.delete(tableKeyString(sessionKeyId(deleted.teamId, deleted.sessionId)))
+        messages.push({ ...messages[0], offset: 2, value: Buffer.from('invalid') })
+        const upload = jest.fn().mockResolvedValue({})
+        const offsetsStore = jest.fn()
+        const batcher = new BlockMetadataBatcher(
+            new BlockMetadataParquetStore(
+                { send: upload } as unknown as S3Client,
+                'ml-bucket',
+                'block-metadata',
+                'pod'
+            ),
+            { offsetsStore },
+            { flushIntervalMs: 1000, maxRows: 1 },
+            0,
+            new MlKafkaEncryption(reader)
+        )
+        await batcher.handleBatch(messages, 0)
+        expect(upload).toHaveBeenCalledTimes(1)
+        expect(offsetsStore).toHaveBeenCalledWith([{ topic: 'metadata', partition: 0, offset: 3 }])
+        const accepted = await register.getSingleMetric('ml_mirror_parquet_sink_rows_parsed_total')!.get()
+        expect(accepted.values[0].value).toBe(1)
+        const rejected = await register.getSingleMetric('ml_mirror_parquet_sink_rows_rejected_total')!.get()
+        expect(rejected.values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ labels: { reason: 'privacy' }, value: 1 }),
+                expect.objectContaining({ labels: { reason: 'invalid_envelope' }, value: 1 }),
+            ])
+        )
     })
 })

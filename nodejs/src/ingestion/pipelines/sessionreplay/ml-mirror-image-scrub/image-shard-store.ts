@@ -1,6 +1,7 @@
 import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { ParquetSchema } from '@dsnp/parquetjs'
 import { randomUUID } from 'node:crypto'
+import pLimit from 'p-limit'
 
 import { logger } from '~/common/utils/logger'
 import { MlDataKey, encryptEnvelope } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/crypto'
@@ -74,6 +75,7 @@ function indexRowsToParquet(rows: IndexRow[], rawTeamIds: boolean): Promise<Buff
 }
 
 export class ImageShardStore {
+    private readonly publishLookup = pLimit(8)
     private seq = 0
     private readonly nodeId: string
 
@@ -101,16 +103,23 @@ export class ImageShardStore {
      * repeated request writes the same bytes to the same key, or reports the conflict that
      * writeUrlImage already reads as a result. Retrying is therefore safe for all three commands.
      */
-    private async send(command: PutObjectCommand | DeleteObjectCommand): Promise<void> {
+    private async send(command: PutObjectCommand | DeleteObjectCommand, deadlineMs = Infinity): Promise<void> {
         const startedAtMs = performance.now()
         for (let attempt = 1; ; attempt++) {
+            const remainingMs = deadlineMs - performance.now()
+            if (remainingMs <= 0) {
+                throw new Error('Image lookup upload budget exhausted')
+            }
             const controller = new AbortController()
             let timedOut = false
             let failure: unknown
-            const timer = setTimeout(() => {
-                timedOut = true
-                controller.abort()
-            }, this.writeTimeoutMs)
+            const timer = setTimeout(
+                () => {
+                    timedOut = true
+                    controller.abort()
+                },
+                Math.min(this.writeTimeoutMs, remainingMs)
+            )
             try {
                 await this.s3.send(command, { abortSignal: controller.signal })
                 return
@@ -121,6 +130,7 @@ export class ImageShardStore {
             }
             if (
                 attempt >= S3_WRITE_MAX_ATTEMPTS ||
+                performance.now() >= deadlineMs ||
                 performance.now() - startedAtMs >= S3_WRITE_RETRY_BUDGET_MS ||
                 !(timedOut || isTransientS3Failure(failure))
             ) {
@@ -212,6 +222,32 @@ export class ImageShardStore {
             // Reclaim the orphaned shard so a repeatedly-failing index write doesn't leak a fresh blob per replay.
             await this.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: shardKey })).catch(() => {})
             throw e
+        }
+        if (encryptionKey) {
+            const lookupDeadlineMs = performance.now() + S3_WRITE_RETRY_BUDGET_MS
+            await Promise.all(
+                rows.map((row) =>
+                    this.publishLookup(async () => {
+                        const lookupKey = `${prefix}/lookup/${row.hash}.encrypted`
+                        await this.send(
+                            new PutObjectCommand({
+                                Bucket: this.bucket,
+                                Key: lookupKey,
+                                Body: encryptEnvelope(
+                                    encryptionKey,
+                                    'image-location',
+                                    Buffer.from(
+                                        JSON.stringify({ shard: shardKey, offset: row.offset, length: row.length })
+                                    ),
+                                    lookupKey
+                                ),
+                                ContentType: 'application/octet-stream',
+                            }),
+                            lookupDeadlineMs
+                        )
+                    })
+                )
+            )
         }
         return { shard: shardKey, bytes: offset }
     }

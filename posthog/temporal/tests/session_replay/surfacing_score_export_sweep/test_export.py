@@ -5,7 +5,10 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 import pyarrow.parquet as pq
 from temporalio.testing import ActivityEnvironment
@@ -14,10 +17,13 @@ from posthog.ai_training_privacy_reader import TrainingDataKey, TrainingKeyIdent
 from posthog.temporal.session_replay.surfacing_score_export_sweep.activities import (
     _PARQUET_SCHEMA,
     _page_table,
+    _score_key_reader,
     export_days,
     export_encrypted_scores_page_activity,
     export_scores_partition_activity,
     list_export_partitions_activity,
+    plan_encrypted_score_ranges_activity,
+    publish_encrypted_score_manifest_activity,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.constants import (
     EXPORT_FLOOR_DAY,
@@ -29,9 +35,12 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.s3 import (
     score_export_object_key,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.types import (
+    EncryptedScoreManifest,
     EncryptedScorePage,
+    EncryptedScorePlanInput,
     ExportPartitionSpec,
     ExportScoresSweepInputs,
+    ScoreCursor,
 )
 
 
@@ -91,14 +100,14 @@ _FORMAT_CASES = json.loads(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["mixed", "raw_only", "legacy_only", "empty"])
+@pytest.mark.parametrize("mode", ["mixed", "raw_only", "legacy_only", "empty", "deleted"])
 @pytest.mark.parametrize("env_prefix", ["AI_RESEARCH_REPLAY_", "SESSION_RECORDING_ML_"])
 async def test_exports_sessions_to_the_same_format_as_the_mirror(mode: str, env_prefix: str) -> None:
     cases = [
         case
         for case in _FORMAT_CASES
         if mode == "mixed"
-        or (mode == "raw_only" and case["rawIdentifiers"])
+        or (mode in ("raw_only", "deleted") and case["rawIdentifiers"])
         or (mode == "legacy_only" and not case["rawIdentifiers"])
     ]
     started_at = datetime(2026, 9, 12, 12, 30, tzinfo=UTC)
@@ -118,6 +127,8 @@ async def test_exports_sessions_to_the_same_format_as_the_mirror(mode: str, env_
         )
         for row in rows
     }
+    if mode == "deleted":
+        keys.clear()
     reader = MagicMock()
     reader.read.side_effect = lambda locations: {location: keys[location] for location in locations if location in keys}
     activity_environment = ActivityEnvironment()
@@ -141,7 +152,7 @@ async def test_exports_sessions_to_the_same_format_as_the_mirror(mode: str, env_
             ExportPartitionSpec(day="2026-09-12", chunk_id=0, of_chunks=1),
         )
 
-    assert result.rows == len(rows)
+    assert result.rows == (0 if mode == "deleted" else len(rows))
     assert all(call.args == ("s3",) for call in client.call_args_list)
     uploads = client.return_value.put_object.call_args_list
     assert len(uploads) == 2
@@ -173,7 +184,7 @@ async def test_exports_sessions_to_the_same_format_as_the_mirror(mode: str, env_
                 "surfacing_score": 0.75,
             }
             for case in cases
-            if case["rawIdentifiers"] == raw_identifiers
+            if case["rawIdentifiers"] == raw_identifiers and mode != "deleted"
         ]
 
 
@@ -241,36 +252,58 @@ def test_legacy_key_uses_the_configured_wrapped_key_and_region(prefix: str) -> N
 
 
 @pytest.mark.asyncio
-async def test_encrypted_export_publishes_manifest_only_after_last_page() -> None:
+@time_machine.travel("2026-09-15 12:00:00Z", tick=False)
+@override_settings(AI_RESEARCH_REPLAY_PRIVACY_TABLE="privacy")
+async def test_plans_encrypted_exports_for_event_days_before_uuid_cutoff() -> None:
+    with patch.dict(os.environ, {"AI_RESEARCH_REPLAY_SCORE_EXPORT_S3_BUCKET": "ml-bucket"}):
+        plan = await ActivityEnvironment().run(list_export_partitions_activity, ExportScoresSweepInputs())
+    before_cutoff = [partition for partition in plan.partitions if partition.day < "2026-09-14"]
+    assert before_cutoff
+    assert all(partition.encrypted_enabled for partition in before_cutoff)
+
+
+@pytest.mark.asyncio
+async def test_encrypted_export_keeps_range_bounds_until_complete_and_skips_deleted_keys() -> None:
     session_id = next(case["sessionId"] for case in _FORMAT_CASES if case["rawIdentifiers"])
-    rows = [(7, session_id, datetime(2026, 9, 14, 12, tzinfo=UTC), 0.75)]
-    reader = MagicMock()
-    reader.read.return_value = {}
-    page = EncryptedScorePage(
-        partition=ExportPartitionSpec(day="2026-09-14", chunk_id=0, of_chunks=1), export_id="test-export"
-    )
+    upper = ScoreCursor(team_id=8, session_id=session_id)
+    rows = [(7, session_id, datetime(2026, 9, 12, 12, tzinfo=UTC), 0.75)]
+    partition = ExportPartitionSpec(day="2026-09-12", chunk_id=0, of_chunks=1)
+    page = EncryptedScorePage(partition=partition, export_id="test-export", upper=upper)
     environment = ActivityEnvironment()
     with (
+        override_settings(AI_RESEARCH_REPLAY_PRIVACY_TABLE="privacy", AI_RESEARCH_REPLAY_KMS_KEY_ARN="key"),
+        patch.dict(os.environ, {"AI_RESEARCH_REPLAY_SCORE_EXPORT_S3_BUCKET": "ml-bucket"}),
         patch("posthog.temporal.session_replay.surfacing_score_export_sweep.activities.ENCRYPTED_EXPORT_PAGE_ROWS", 1),
         patch(
-            "posthog.temporal.session_replay.surfacing_score_export_sweep.activities._fetch_page",
-            side_effect=[rows, []],
+            "posthog.temporal.session_replay.surfacing_score_export_sweep.activities.sync_execute",
+            side_effect=[[(8, session_id)], rows, []],
         ) as fetch,
-        patch(
-            "posthog.temporal.session_replay.surfacing_score_export_sweep.activities._score_key_reader",
-            return_value=reader,
-        ),
-        patch("posthog.temporal.session_replay.surfacing_score_export_sweep.activities._upload") as upload,
-        patch(
-            "posthog.temporal.session_replay.surfacing_score_export_sweep.activities._publish_encrypted_score_manifest"
-        ) as publish,
+        patch("posthog.temporal.session_replay.surfacing_score_export_sweep.activities.boto3_client") as client,
     ):
+        _score_key_reader.cache_clear()
+        client.return_value.batch_get_item.return_value = {"Responses": {"privacy": []}}
+        plan = await environment.run(plan_encrypted_score_ranges_activity, EncryptedScorePlanInput(partition=partition))
+        assert plan.boundaries == [upper]
+        assert not plan.has_more
         first = await environment.run(export_encrypted_scores_page_activity, page)
+        assert first.rows == 0
         assert first.next_page is not None
-        publish.assert_not_called()
-        assert pq.read_table(io.BytesIO(upload.call_args.args[1])).num_rows == 0
+        assert first.next_page.upper == upper
         last = await environment.run(export_encrypted_scores_page_activity, first.next_page)
+        assert last.rows == 0
         assert last.next_page is None
-        publish.assert_called_once_with(first.next_page)
-        assert fetch.call_args.args[1] == (session_id, 7)
-        assert upload.call_args_list[0].args[0] != upload.call_args_list[1].args[0]
+        uploads = client.return_value.put_object.call_args_list
+        assert len(uploads) == 2
+        assert all(call.kwargs["Key"].endswith(".parquet") for call in uploads)
+        assert pq.read_table(io.BytesIO(uploads[0].kwargs["Body"])).num_rows == 0
+        await environment.run(
+            publish_encrypted_score_manifest_activity,
+            EncryptedScoreManifest(partition=partition, export_id=page.export_id, pages=2),
+        )
+        manifest = client.return_value.put_object.call_args.kwargs
+        assert manifest["Key"].endswith("test-export.json")
+        assert json.loads(manifest["Body"])["pages"] == 2
+        assert fetch.call_args.args[1]["cursor_session_id"] == session_id
+        assert fetch.call_args.args[1]["cursor_team_id"] == 7
+        assert fetch.call_args.args[1]["upper_team_id"] == 8
+        _score_key_reader.cache_clear()

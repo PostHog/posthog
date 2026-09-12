@@ -52,11 +52,18 @@ export class BlockMetadataBatcher {
                   }
                   return { message, original: message, key: undefined, invalid: undefined }
               })
-        for (const { original, key } of decoded) {
+        MlParquetSinkMetrics.incRowsRejected('privacy', messages.length - decoded.length)
+        let encryptedRows = 0
+        for (const { original, key, invalid } of decoded) {
+            if (invalid) {
+                MlParquetSinkMetrics.incRowsRejected('invalid_envelope')
+            }
             if (key) {
                 this.encrypted.push(parseJSON(original.value!.toString()) as MlEncryptedEnvelope)
+                encryptedRows++
             }
         }
+        MlParquetSinkMetrics.incRowsParsed(encryptedRows)
         for (const row of parseBlockMetadataMessages(
             decoded.filter(({ key, invalid }) => !key && !invalid).map(({ message }) => message)
         )) {

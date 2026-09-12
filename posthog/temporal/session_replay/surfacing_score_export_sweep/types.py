@@ -43,12 +43,30 @@ class ExportScoresSweepResult:
 
 
 @frozen
+class ScoreCursor:
+    team_id: int = 0
+    session_id: str = ""
+
+
+@frozen
+class EncryptedScorePlanInput:
+    partition: ExportPartitionSpec
+    cursor: ScoreCursor = field(default_factory=ScoreCursor)
+
+
+@frozen
+class EncryptedScorePlan:
+    boundaries: list[ScoreCursor]
+    has_more: bool
+
+
+@frozen
 class EncryptedScorePage:
     partition: ExportPartitionSpec
     export_id: str
+    upper: ScoreCursor
     page: int = 0
-    cursor_session_id: str = ""
-    cursor_team_id: int = 0
+    cursor: ScoreCursor = field(default_factory=ScoreCursor)
 
 
 @frozen
@@ -56,3 +74,22 @@ class EncryptedScorePageResult:
     rows: int
     bytes_written: int
     next_page: EncryptedScorePage | None
+
+
+@frozen
+class EncryptedScoreManifest:
+    partition: ExportPartitionSpec
+    export_id: str
+    pages: int
+
+
+@frozen
+class EncryptedScoreExport:
+    partition: ExportPartitionSpec
+    export_id: str
+    cursor: ScoreCursor = field(default_factory=ScoreCursor)
+    boundaries: list[ScoreCursor] = field(default_factory=list)
+    needs_plan: bool = True
+    pages: int = 0
+    rows: int = 0
+    bytes_written: int = 0
