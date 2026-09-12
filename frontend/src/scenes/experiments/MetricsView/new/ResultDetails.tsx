@@ -121,6 +121,8 @@ export function ResultDetails({
         {
             key: 'total-users',
             title: 'Exposures',
+            tooltip:
+                "Exposures counted in this metric's analysis. The exposures panel at the top of the page runs its own query, so its total can differ.",
             render: (_, item) => humanFriendlyNumber(item.number_of_samples),
         },
         {
