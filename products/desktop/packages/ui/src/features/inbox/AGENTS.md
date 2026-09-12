@@ -175,6 +175,17 @@ List cards should prefer fields already present in the list response. Fetching p
 
 Report rows expose the same primary actions through a right-click menu. Reviewer data stays lazy until its submenu opens. Copy link lets users choose a web or Desktop link; opening a report remains the row's primary interaction.
 
+The list tabs offer multi-select, so several reports leave the inbox in one go.
+`useInboxReportListSelection` turns the gestures into `inboxReportSelectionStore` actions and hands each card a `ReportCardSelection`: a press and hold, the gutter checkbox, Cmd or Ctrl-click, and shift-click for a range.
+A hold that drags past `SELECTION_HOLD_MOVE_TOLERANCE_PX` cancels, so a scroll never selects.
+The checkbox is the discoverable affordance, so it appears on hover and stays pinned open once anything is selected.
+`resolveReportCardClickIntent` decides what a plain click means: it opens the report until something is selected, and toggles from then on.
+Escape clears the selection, and so does leaving the tab, since the hook prunes it to the rendered rows.
+
+`InboxBulkSelectionBar` is the only thing that makes a selection visible, and it renders inside `InboxReportListTab`.
+So a surface without the bar must not offer selection.
+The right-click menu is shared with `ReportsInboxView` and `InboxPane`, which draw no bar, so a Select item there would select with nothing to show for it.
+
 ## Backend Contracts
 
 The Inbox reads from PostHog Cloud's Self-driving backend, currently implemented in the legacy `products/signals/backend` Django app:
