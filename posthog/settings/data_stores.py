@@ -393,6 +393,14 @@ CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY: bool = get_from_env(
     "CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY", False, type_cast=str_to_bool
 )
 
+# Snuffle, the PromQL/LogQL bridge deployed next to the logs cluster, backs the Prometheus- and
+# Loki-compatible query endpoints. Leaving the URL empty turns those endpoints off. Snuffle passes
+# the Basic credential straight through to ClickHouse, so it defaults to the logs cluster user.
+SNUFFLE_URL: str = os.getenv("SNUFFLE_URL", "")
+SNUFFLE_USER: str = os.getenv("SNUFFLE_USER", CLICKHOUSE_LOGS_CLUSTER_USER)
+SNUFFLE_PASSWORD: str = os.getenv("SNUFFLE_PASSWORD", CLICKHOUSE_LOGS_CLUSTER_PASSWORD)
+SNUFFLE_TIMEOUT_SECONDS: int = get_from_env("SNUFFLE_TIMEOUT_SECONDS", 60, type_cast=int)
+
 CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLECTION", "msk_cluster")
 CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION: str = os.getenv(
     "CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION", "warpstream_ingestion"
