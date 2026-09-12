@@ -6,6 +6,7 @@ import type {
   DashboardRecord,
 } from "@posthog/core/canvas/dashboardSchemas";
 import { useHostTRPC } from "@posthog/host-router/react";
+import { getAuthIdentity, useAuthStore } from "@posthog/ui/features/auth/store";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { invalidateCanvasLifecycle } from "@posthog/ui/features/canvas/hooks/invalidateCanvasLifecycle";
 import { useDashboardEditStore } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
@@ -87,6 +88,7 @@ export function usePrimeCanvasView(): (id: string) => void {
   return useCallback(
     (id: string) => {
       if (!id) return;
+      const identity = getAuthIdentity(useAuthStore.getState().authState);
       const seed = (queryKey: readonly unknown[], value: unknown): void => {
         if (queryClient.getQueryState(queryKey)?.data === undefined) {
           queryClient.setQueryData(queryKey, value);
@@ -97,9 +99,22 @@ export function usePrimeCanvasView(): (id: string) => void {
           const view = await queryClient.fetchQuery(
             trpc.dashboards.view.queryOptions(
               { id },
-              { staleTime: CANVAS_VIEW_PRIME_STALE_MS },
+              // The payload carries the record, the source and a signed build
+              // URL, so it belongs to the account and project that asked for
+              // it: without the meta it survives a logout or project switch
+              // and this prime replays it to whoever signs in next.
+              {
+                staleTime: CANVAS_VIEW_PRIME_STALE_MS,
+                meta: AUTH_SCOPED_QUERY_META,
+              },
             ),
           );
+          // Clearing the cache cannot stop a fetch already in flight, so a
+          // prime that started before the switch still lands here with the
+          // old identity's canvas. Drop it rather than seed it.
+          if (getAuthIdentity(useAuthStore.getState().authState) !== identity) {
+            return;
+          }
           seed(trpc.dashboards.get.queryKey({ id }), view.record);
           // Only a settled, head-is-live lifecycle is seedable. With a build
           // in flight the real fetch must run or the poller that watches it
