@@ -145,6 +145,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         return {
             "LinkedIn API error (retryable, ",
             "LinkedIn API returned a malformed (non-JSON) response",
+            # PostHog's own egress proxy answering the CONNECT tunnel with a 429 (`requests.ProxyError`,
+            # a `ConnectionError` subclass `_call_finder` already retries in-process). Not LinkedIn's
+            # fault or the customer's — the proxy itself is throttling, which clears on its own, the
+            # same reasoning ClickHouse and Salesforce apply to a 502/503/504 tunnel gateway status.
+            "Tunnel connection failed: 429",
         }
 
     @property
