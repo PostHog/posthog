@@ -76,6 +76,21 @@ class TestExtractFailingChecks(SimpleTestCase):
         assert (failing == [{"key": "CI/unit tests", "details_url": "https://ci/1"}]) is expected_reported
 
 
+class TestGitHubPullRequestChecks(SimpleTestCase):
+    def test_reports_missing_checks_permission(self):
+        integration = MagicMock(kind="github", config={"permissions": {"contents": "read"}})
+        github = GitHubIntegration(integration)
+
+        with patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}):
+            result = github.get_pull_request_checks("example/legacy", 7)
+
+        assert result == {
+            "success": False,
+            "error": "GitHub App is missing permission to read check runs",
+            "error_code": "github_checks_permission_missing",
+        }
+
+
 class TestGitHubIntegrationModel(BaseTest):
     def setUp(self):
         super().setUp()

@@ -1790,6 +1790,17 @@ class PullRequestChecksResponseSerializer(serializers.Serializer):
     checks = PullRequestCheckSerializer(many=True, read_only=True)
 
 
+class PullRequestChecksPermissionErrorSerializer(serializers.Serializer):
+    """Response when the GitHub App cannot read pull request checks."""
+
+    code = serializers.CharField(read_only=True, help_text="Stable code for a missing GitHub Checks permission.")
+    error = serializers.CharField(read_only=True, help_text="What the GitHub App permission prevents.")
+    remediation_url = serializers.CharField(
+        read_only=True,
+        help_text="Project integrations settings where a project admin can reconnect GitHub.",
+    )
+
+
 class PullRequestCiStatus(TextChoices):
     """Coarse rollup of a pull request's checks, as mapped from GitHub's status check rollup."""
 
