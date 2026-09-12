@@ -61,6 +61,10 @@ export function monthKeyIndexId(identity: MlKeyIdentity, key: TableKey): TableKe
     return { pk: `month:${keySessionMonth(identity)}:shard:${sessionShard(id)}`, sk: `key:${id}` }
 }
 
+export function organizationTeamId(organizationId: string, teamId: number): TableKey {
+    return { pk: `organization:${organizationId}`, sk: `team:${teamId}` }
+}
+
 export function consentKeyId(organizationId: string): TableKey {
     return { pk: `organization:${organizationId}`, sk: 'consent' }
 }

@@ -4,6 +4,7 @@ import { S3Client } from '@aws-sdk/client-s3'
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 
+import { parseJSON } from '~/common/utils/json-parse'
 import { ok } from '~/ingestion/framework/results'
 import { BlockMetadataBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-batcher'
 import { BlockMetadataParquetStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-parquet-store'
@@ -38,10 +39,15 @@ class DynamoBoundary {
     public readonly items = new Map<string, DynamoItem>()
     public readSizes: number[] = []
     public writeSizes: number[] = []
+    public transactionConflicts = 0
+    private readonly pendingWrites = new Set<string>()
 
-    public send(command: BatchGetItemCommand | TransactWriteItemsCommand): Promise<object> {
+    public async send(command: BatchGetItemCommand | TransactWriteItemsCommand): Promise<object> {
         if (command instanceof BatchGetItemCommand) {
             const keys = command.input.RequestItems![table].Keys!
+            if (keys.some((key) => Buffer.byteLength(key.sk.S!) > 1024)) {
+                throw new Error('DynamoDB sort key exceeds 1024 bytes')
+            }
             this.readSizes.push(keys.length)
             return Promise.resolve({
                 Responses: {
@@ -53,33 +59,46 @@ class DynamoBoundary {
             })
         }
         const actions = command.input.TransactItems!
-        this.writeSizes.push(actions.length)
-        for (const action of actions) {
-            const operation = action.ConditionCheck ?? action.Put!
-            const key = 'Item' in operation ? operation.Item! : operation.Key!
-            const current = this.items.get(JSON.stringify([key.pk.S, key.sk.S]))
-            const condition = operation.ConditionExpression
-            const values = operation.ExpressionAttributeValues
-            const valid =
-                !condition ||
-                (condition === 'attribute_not_exists(pk)'
-                    ? !current
-                    : condition === 'allowed = :allowed AND granted_at = :grant'
-                      ? current?.allowed.BOOL === true && current?.granted_at.N === values![':grant'].N
-                      : condition === 'attribute_exists(wrapped_key) AND attribute_not_exists(deleted)'
-                        ? current?.wrapped_key?.B && !current?.deleted
-                        : false)
-            if (!valid) {
-                throw new Error('Conditional transaction failed')
-            }
+        const writes = actions.flatMap((action) =>
+            action.Put ? [JSON.stringify([action.Put.Item!.pk.S, action.Put.Item!.sk.S])] : []
+        )
+        if (writes.some((key) => this.pendingWrites.has(key))) {
+            this.transactionConflicts += 1
+            throw new Error('Conflicting transaction write')
         }
-        for (const action of actions) {
-            if (action.Put) {
-                const item = action.Put.Item!
-                this.items.set(JSON.stringify([item.pk.S, item.sk.S]), item)
+        writes.forEach((key) => this.pendingWrites.add(key))
+        try {
+            await Promise.resolve()
+            this.writeSizes.push(actions.length)
+            for (const action of actions) {
+                const operation = action.ConditionCheck ?? action.Put!
+                const key = 'Item' in operation ? operation.Item! : operation.Key!
+                const current = this.items.get(JSON.stringify([key.pk.S, key.sk.S]))
+                const condition = operation.ConditionExpression
+                const values = operation.ExpressionAttributeValues
+                const valid =
+                    !condition ||
+                    (condition === 'attribute_not_exists(pk)'
+                        ? !current
+                        : condition === 'allowed = :allowed AND granted_at = :grant'
+                          ? current?.allowed.BOOL === true && current?.granted_at.N === values![':grant'].N
+                          : condition === 'attribute_exists(wrapped_key) AND attribute_not_exists(deleted)'
+                            ? current?.wrapped_key?.B && !current?.deleted
+                            : false)
+                if (!valid) {
+                    throw new Error('Conditional transaction failed')
+                }
             }
+            for (const action of actions) {
+                if (action.Put) {
+                    const item = action.Put.Item!
+                    this.items.set(JSON.stringify([item.pk.S, item.sk.S]), item)
+                }
+            }
+            return {}
+        } finally {
+            writes.forEach((key) => this.pendingWrites.delete(key))
         }
-        return Promise.resolve({})
     }
 }
 
@@ -134,6 +153,22 @@ describe('ML session key batches', () => {
         expect(Math.max(...boundary.readSizes)).toBeLessThanOrEqual(100)
         expect(Math.max(...boundary.writeSizes)).toBeLessThanOrEqual(100)
         expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(1)
+    })
+
+    it('commits concurrent new sessions without rewriting their shared directory', async () => {
+        await (await store.prepare([session])).commit()
+        const identities = Array.from({ length: 120 }, (_, index) => ({
+            ...session,
+            sessionId: `01994569-4380-7000-8000-${(index + 100).toString(16).padStart(12, '0')}`,
+        }))
+        const batches = await Promise.all([store.prepare(identities.slice(0, 60)), store.prepare(identities.slice(60))])
+        jest.useFakeTimers()
+        const committed = Promise.all(batches.map((batch) => batch.commit()))
+        await jest.runAllTimersAsync()
+        await committed
+        const keys = await reader.read(identities.map((identity) => sessionKeyId(identity.teamId, identity.sessionId)))
+        expect(keys.size).toBe(identities.length)
+        expect(boundary.transactionConflicts).toBe(0)
     })
 
     it('indexes monthly keys atomically and blocks a month during a competing batch', async () => {
@@ -246,52 +281,66 @@ describe('ML session key batches', () => {
         await committed
         expect(started).toBe(20)
     })
-    it('reports accepted, malformed and deleted encrypted metadata separately', async () => {
-        register.resetMetrics()
-        const deleted = { ...session, sessionId: '01994569-4380-7000-8000-000000000008' }
-        const batch = await store.prepare([session, deleted])
-        await batch.commit()
-        const messages = [session, deleted].map((identity, offset) => {
-            const encoded = encryptedKafkaValue(
-                batch.get(identity.teamId, identity.sessionId)!.session,
-                'metadata',
-                Buffer.from('{}')
+    it.each(['invalid-json', 'oversized-session', 'invalid-session', 'invalid-month'])(
+        'reports accepted, malformed (%s) and deleted encrypted metadata separately',
+        async (malformed) => {
+            register.resetMetrics()
+            const deleted = { ...session, sessionId: '01994569-4380-7000-8000-000000000008' }
+            const batch = await store.prepare([session, deleted])
+            await batch.commit()
+            const messages = [session, deleted].map((identity, offset) => {
+                const encoded = encryptedKafkaValue(
+                    batch.get(identity.teamId, identity.sessionId)!.session,
+                    'metadata',
+                    Buffer.from('{}')
+                )
+                return {
+                    topic: 'metadata',
+                    partition: 0,
+                    offset,
+                    value: encoded.value,
+                    headers: Object.entries(encoded.headers).map(([name, value]) => ({ [name]: Buffer.from(value) })),
+                } as Message
+            })
+            boundary.items.delete(tableKeyString(sessionKeyId(deleted.teamId, deleted.sessionId)))
+            const invalidEnvelope = parseJSON(messages[0].value!.toString())
+            invalidEnvelope.context.sessionId =
+                malformed === 'oversized-session'
+                    ? 'a'.repeat(1025)
+                    : malformed === 'invalid-month'
+                      ? 'ffffffff-ffff-7000-8000-000000000007'
+                      : 'not-a-session'
+            messages.push({
+                ...messages[0],
+                offset: 2,
+                value: Buffer.from(malformed === 'invalid-json' ? 'invalid' : JSON.stringify(invalidEnvelope)),
+            })
+            const upload = jest.fn().mockResolvedValue({})
+            const offsetsStore = jest.fn()
+            const batcher = new BlockMetadataBatcher(
+                new BlockMetadataParquetStore(
+                    { send: upload } as unknown as S3Client,
+                    'ml-bucket',
+                    'block-metadata',
+                    'pod'
+                ),
+                { offsetsStore },
+                { flushIntervalMs: 1000, maxRows: 1 },
+                0,
+                new MlKafkaEncryption(reader)
             )
-            return {
-                topic: 'metadata',
-                partition: 0,
-                offset,
-                value: encoded.value,
-                headers: Object.entries(encoded.headers).map(([name, value]) => ({ [name]: Buffer.from(value) })),
-            } as Message
-        })
-        boundary.items.delete(tableKeyString(sessionKeyId(deleted.teamId, deleted.sessionId)))
-        messages.push({ ...messages[0], offset: 2, value: Buffer.from('invalid') })
-        const upload = jest.fn().mockResolvedValue({})
-        const offsetsStore = jest.fn()
-        const batcher = new BlockMetadataBatcher(
-            new BlockMetadataParquetStore(
-                { send: upload } as unknown as S3Client,
-                'ml-bucket',
-                'block-metadata',
-                'pod'
-            ),
-            { offsetsStore },
-            { flushIntervalMs: 1000, maxRows: 1 },
-            0,
-            new MlKafkaEncryption(reader)
-        )
-        await batcher.handleBatch(messages, 0)
-        expect(upload).toHaveBeenCalledTimes(1)
-        expect(offsetsStore).toHaveBeenCalledWith([{ topic: 'metadata', partition: 0, offset: 3 }])
-        const accepted = await register.getSingleMetric('ml_mirror_parquet_sink_rows_parsed_total')!.get()
-        expect(accepted.values[0].value).toBe(1)
-        const rejected = await register.getSingleMetric('ml_mirror_parquet_sink_rows_rejected_total')!.get()
-        expect(rejected.values).toEqual(
-            expect.arrayContaining([
-                expect.objectContaining({ labels: { reason: 'privacy' }, value: 1 }),
-                expect.objectContaining({ labels: { reason: 'invalid_envelope' }, value: 1 }),
-            ])
-        )
-    })
+            await batcher.handleBatch(messages, 0)
+            expect(upload).toHaveBeenCalledTimes(1)
+            expect(offsetsStore).toHaveBeenCalledWith([{ topic: 'metadata', partition: 0, offset: 3 }])
+            const accepted = await register.getSingleMetric('ml_mirror_parquet_sink_rows_parsed_total')!.get()
+            expect(accepted.values[0].value).toBe(1)
+            const rejected = await register.getSingleMetric('ml_mirror_parquet_sink_rows_rejected_total')!.get()
+            expect(rejected.values).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ labels: { reason: 'privacy' }, value: 1 }),
+                    expect.objectContaining({ labels: { reason: 'invalid_envelope' }, value: 1 }),
+                ])
+            )
+        }
+    )
 })

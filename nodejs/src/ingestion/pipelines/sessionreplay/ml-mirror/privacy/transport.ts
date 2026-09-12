@@ -90,6 +90,7 @@ export class MlKafkaEncryption {
                 ) {
                     throw new Error('Invalid ML encrypted payload context')
                 }
+                sessionStartMonth(context.sessionId)
                 envelopes.set(message, envelope)
             } catch {
                 invalid.add(message)
