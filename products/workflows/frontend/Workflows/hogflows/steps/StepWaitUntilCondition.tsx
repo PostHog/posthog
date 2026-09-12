@@ -1,8 +1,8 @@
 import { Node } from '@xyflow/react'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconCursor, IconPerson } from '@posthog/icons'
-import { LemonDivider, LemonLabel } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonLabel } from '@posthog/lemon-ui'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
@@ -22,6 +22,10 @@ export function StepWaitUntilConditionConfiguration({
     const { condition, events, max_wait_duration } = action.config
 
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
+    const { actionValidationErrorsById } = useValues(workflowLogic)
+    const validationResult = actionValidationErrorsById[action.id]
+    const conditionError = validationResult?.errors?.condition
+    const conditionWarning = validationResult?.warnings?.condition
 
     const { localName: localConditionName, handleNameChange } = useDebouncedNameInput(condition, (updatedCondition) =>
         partialSetWorkflowActionConfig(action.id, { condition: updatedCondition })
@@ -84,6 +88,11 @@ export function StepWaitUntilConditionConfiguration({
                     typeKey="workflow-wait-until-condition"
                     excludeGroupProperties
                 />
+                {(conditionError || conditionWarning) && (
+                    <LemonBanner type={conditionError ? 'error' : 'warning'}>
+                        {conditionError ?? conditionWarning}
+                    </LemonBanner>
+                )}
             </div>
 
             <LemonDivider />
