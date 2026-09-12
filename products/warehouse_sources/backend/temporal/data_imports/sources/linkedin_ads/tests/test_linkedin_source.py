@@ -64,6 +64,11 @@ class TestLinkedInAdsSource:
             'LinkedIn API error (retryable, 429): {"message":"Too many requests"}',
             'LinkedIn API error (retryable, 503): {"message":"Service Unavailable"}',
             "LinkedIn API returned a malformed (non-JSON) response: Expecting value: line 1 column 1 (char 0)",
+            # PostHog's own egress proxy throttling the CONNECT tunnel, surfaced by requests as a
+            # ProxyError once `_call_finder`'s tenacity retries are exhausted.
+            "HTTPSConnectionPool(host='api.linkedin.com', port=443): Max retries exceeded with url: "
+            "/rest/adAnalytics (Caused by ProxyError('Cannot connect to proxy.', "
+            "OSError('Tunnel connection failed: 429 Too Many Requests')))",
         ],
     )
     def test_retryable_errors_match_exhausted_transient_failures(self, observed_error):
@@ -76,6 +81,10 @@ class TestLinkedInAdsSource:
             'LinkedIn API error (404): {"status":404,"code":"RESOURCE_NOT_FOUND"}',
             'LinkedIn daily rate limit reached (429): {"message":"throttled"}',
             "Connection reset by peer",
+            # A deterministic proxy-auth rejection, not a transient tunnel gateway status — must stay
+            # reportable rather than being swallowed by the 429 tunnel pattern.
+            "Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: "
+            "407 Proxy Authentication Required'))",
         ],
     )
     def test_retryable_errors_does_not_match_unrelated(self, other_error):
