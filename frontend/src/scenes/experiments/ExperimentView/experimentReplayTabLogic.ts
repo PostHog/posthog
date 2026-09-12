@@ -238,6 +238,11 @@ const SESSION_CONTEXT_PREFETCH_LIMIT = 20
 // A launch this recent has too little traffic behind it for an empty list to mean anything.
 const TOO_EARLY_DAYS = 3
 
+// How long the playlist waits on the flag-scoped coverage scan. A cached or warm answer lands well
+// inside this; a cold one reads live events and can take much longer, and a skeleton held that long
+// is worse than the all-sessions list the tab can already render.
+const FLAG_COVERAGE_HOLD_MS = 2000
+
 // 'legacy' is a project whose retention predates the setting, so it holds the pre-setting 30 days.
 const RETENTION_PERIOD_DAYS: Record<SessionRecordingRetentionPeriod, number> = {
     legacy: 30,
@@ -313,6 +318,7 @@ export interface experimentReplayTabLogicValues {
     exposureScope: ExperimentReplayExposureScope
     filterContext: ExperimentRecordingsFilterContext
     filtersCustomized: boolean
+    flagCoverageHoldExpired: boolean
     inSessionExposure: ExperimentInSessionExposureApi | null
     inSessionExposureLoading: boolean
     linkedScanners: LinkedScanner[]
@@ -462,6 +468,9 @@ export interface experimentReplayTabLogicActions {
         payload?: any
         seenTogetherMap: Record<string, boolean>
     } // viewRecordingsLinkabilityLogic
+    flagCoverageHoldExpired: () => {
+        value: true
+    }
     listEmptyActionClicked: (action: ExperimentRecordingsEmptyAction) => {
         action: ExperimentRecordingsEmptyAction
     }
@@ -620,7 +629,8 @@ export interface experimentReplayTabLogicMeta {
             inSessionExposureLoading: boolean,
             linkabilityLoaded: boolean,
             seenTogetherMapLoading: boolean,
-            flagCoverageLoading: boolean
+            flagCoverageLoading: boolean,
+            flagCoverageHoldExpired: boolean
         ) => boolean
         exposureLinkable: (
             linkabilityLoaded: boolean,
@@ -802,6 +812,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         prefetchSessionContexts: (sessionIds: string[]) => ({ sessionIds }),
         reportTabViewed: true,
         scannerCrossSellClicked: true,
+        flagCoverageHoldExpired: true,
     }),
     loaders(({ values, props, actions }) => ({
         sessionBucket: [
@@ -945,6 +956,15 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         ],
     })),
     reducers({
+        // Set once the playlist has waited long enough on the coverage scan. Not reset when a later
+        // scan starts: by then the list is on screen, and blanking it to wait again would be the
+        // same defect.
+        flagCoverageHoldExpired: [
+            false,
+            {
+                flagCoverageHoldExpired: (): boolean => true,
+            },
+        ],
         // null = "All" (every exposed session, regardless of variant). Persisted (keyed per
         // experiment via the logic path) so the facet stays in step with the playlist across tab
         // switches — the playlist persists its own filters and rehydrates them on remount.
@@ -1139,7 +1159,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         ],
         // Holds the playlist while a persisted in-session choice waits on the checks: mounted
         // immediately, it would fire the heavy all-sessions listing only to discard it seconds
-        // later when the scope confirms and the filters flip to in_session.
+        // later when the scope confirms and the filters flip to in_session. The coverage scan only
+        // ever refuses the scope, which is the minority case, so its hold expires on a budget
+        // rather than keeping the tab empty for as long as a live-events scan can run.
         playlistHeldForChecks: [
             (s) => [
                 s.exposureScope,
@@ -1147,16 +1169,20 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 s.linkabilityLoaded,
                 s.seenTogetherMapLoading,
                 s.flagCoverageLoading,
+                s.flagCoverageHoldExpired,
             ],
             (
                 exposureScope: ExperimentReplayExposureScope,
                 inSessionExposureLoading: boolean,
                 linkabilityLoaded: boolean,
                 seenTogetherMapLoading: boolean,
-                flagCoverageLoading: boolean
+                flagCoverageLoading: boolean,
+                flagCoverageHoldExpired: boolean
             ): boolean =>
                 exposureScope === 'in_session' &&
-                (inSessionExposureLoading || flagCoverageLoading || (!linkabilityLoaded && seenTogetherMapLoading)),
+                (inSessionExposureLoading ||
+                    (flagCoverageLoading && !flagCoverageHoldExpired) ||
+                    (!linkabilityLoaded && seenTogetherMapLoading)),
         ],
         // Whether this experiment's exposure is ever seen carrying a session id. The flag-scoped
         // check answers it where it can; the project-wide event-name check only stands in while
@@ -1898,8 +1924,12 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             }
         },
     })),
-    afterMount(({ values, actions }) => {
+    afterMount(({ values, actions, cache }) => {
         actions.setDefaultTab(SessionRecordingSidebarTab.OVERVIEW)
+        cache.disposables.add(() => {
+            const holdTimer = window.setTimeout(() => actions.flagCoverageHoldExpired(), FLAG_COVERAGE_HOLD_MS)
+            return () => clearTimeout(holdTimer)
+        })
         // Resolve whether the in-session scope can answer before the viewer picks it, so the option
         // is disabled (not left to fail as a query error) when it can't, and the caption knows
         // whether evidence is the stamped-property fallback. A Postgres-only read on the backend.

@@ -442,6 +442,28 @@ describe('experimentReplayTabLogic', () => {
         pending.unmount()
     })
 
+    it('stops holding the playlist once the flag-scoped check outlasts its budget', async () => {
+        // That check reads live events, so a cold one can run for many seconds. The all-sessions
+        // list is ready and correct, and the check can only ever refuse the narrowing, so a
+        // skeleton must not wait on it for as long as the scan is allowed to take.
+        jest.useFakeTimers()
+        try {
+            ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockReturnValue(new Promise(() => {}))
+            const slow = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 57 } as Experiment })
+            slow.mount()
+            slow.actions.setExposureScope('in_session')
+
+            await expectLogic(slow).toDispatchActions(['loadInSessionExposureSuccess'])
+            expect(slow.values.playlistHeldForChecks).toBe(true)
+
+            jest.runAllTimers()
+            expect(slow.values.playlistHeldForChecks).toBe(false)
+            slow.unmount()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('disables in-session and stays on all sessions when the backend reports it unavailable', async () => {
         // The backend refuses in_session for experiments whose exposure can't be pinned to a
         // session (activation, or a custom event with no session-linked stand-in, or a fallback
