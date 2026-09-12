@@ -3766,14 +3766,16 @@ class SignalReportViewSet(
                 pr_number=pr_number,
             )
             return Response(
-                {
-                    "code": "github_checks_permission_missing",
-                    "error": (
-                        "GitHub can't read pull request checks. A project admin must reconnect GitHub and grant "
-                        "the Checks permission."
-                    ),
-                    "remediation_url": f"/project/{self.team.id}/settings/project-integrations",
-                },
+                PullRequestChecksPermissionErrorSerializer(
+                    {
+                        "code": "github_checks_permission_missing",
+                        "error": (
+                            "GitHub can't read pull request checks. A project admin must reconnect GitHub and grant "
+                            "the Checks permission."
+                        ),
+                        "remediation_url": f"/project/{self.team.id}/settings/project-integrations",
+                    }
+                ).data,
                 status=status.HTTP_403_FORBIDDEN,
             )
         if not result.get("success"):
