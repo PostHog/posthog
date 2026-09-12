@@ -865,12 +865,14 @@ class TestProperty(BaseTest):
     def test_selector_to_expr(self):
         self.assertEqual(
             self._selector_to_expr("div"),
-            clear_locations(elements_chain_match("(^|;)div[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(elements_chain_match('(^|;)div(?:[^;"]|"(?:\\\\.|[^"])*")*?($|;|:([^;^\\s]*(;|$|\\s)))')),
         )
         self.assertEqual(
             self._selector_to_expr("div > div"),
             clear_locations(
-                elements_chain_match("(^|;)div[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))div[^;]*?($|;|:([^;^\\s]*(;|$|\\s))).*")
+                elements_chain_match(
+                    '(^|;)div(?:[^;"]|"(?:\\\\.|[^"])*")*?($|;|:([^;^\\s]*(;|$|\\s)))div(?:[^;"]|"(?:\\\\.|[^"])*")*?($|;|:([^;^\\s]*(;|$|\\s))).*'
+                )
             ),
         )
         self.assertEqual(
@@ -878,20 +880,32 @@ class TestProperty(BaseTest):
             clear_locations(
                 parse_expr(
                     "{regex} and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0",
-                    {"regex": elements_chain_match('(^|;)a.*?href="boo".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
+                    {
+                        "regex": elements_chain_match(
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"])*")*?href="boo"(?:[^;"]|"(?:\\\\.|[^"])*")*?(?:[^;"]|"(?:\\\\.|[^"])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        )
+                    },
                 )
             ),
         )
         self.assertEqual(
             self._selector_to_expr(".class"),
-            clear_locations(elements_chain_match("(^|;).*?\\.class[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"])*")*?\\.class(?:[^;"]|"(?:\\\\.|[^"])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
         self.assertEqual(
             self._selector_to_expr("a#withid"),
             clear_locations(
                 parse_expr(
                     """{regex} and indexOf(elements_chain_ids, 'withid') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
-                    {"regex": elements_chain_match('(^|;)a.*?attr_id="withid".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
+                    {
+                        "regex": elements_chain_match(
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"])*")*?attr_id="withid"(?:[^;"]|"(?:\\\\.|[^"])*")*?(?:[^;"]|"(?:\\\\.|[^"])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        )
+                    },
                 )
             ),
         )
@@ -903,7 +917,7 @@ class TestProperty(BaseTest):
                     """{regex} and indexOf(elements_chain_ids, 'with-dashed-id') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
                     {
                         "regex": elements_chain_match(
-                            '(^|;)a.*?attr_id="with\\-dashed\\-id".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"])*")*?attr_id="with\\-dashed\\-id"(?:[^;"]|"(?:\\\\.|[^"])*")*?(?:[^;"]|"(?:\\\\.|[^"])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
                         )
                     },
                 )
@@ -933,7 +947,9 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".sm:[max-width:640px]"),
             clear_locations(
-                elements_chain_match("(^|;).*?\\.sm:\\[max\\-width:640px\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"])*")*?\\.sm:\\[max\\-width:640px\\](?:[^;"]|"(?:\\\\.|[^"])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
             ),
         )
 
@@ -941,7 +957,9 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".w-[calc(100%-2rem)]"),
             clear_locations(
-                elements_chain_match("(^|;).*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"])*")*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\](?:[^;"]|"(?:\\\\.|[^"])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
             ),
         )
 
@@ -950,7 +968,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr(".shadow-[0_4px_6px_rgba(0,0,0,0.1)]"),
             clear_locations(
                 elements_chain_match(
-                    "(^|;).*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))"
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"])*")*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\](?:[^;"]|"(?:\\\\.|[^"])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
                 )
             ),
         )
@@ -958,7 +976,11 @@ class TestProperty(BaseTest):
         # Test Tailwind fraction/opacity class with a slash
         self.assertEqual(
             self._selector_to_expr(".bg-yellow/50"),
-            clear_locations(elements_chain_match("(^|;).*?\\.bg\\-yellow/50[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"])*")*?\\.bg\\-yellow/50(?:[^;"]|"(?:\\\\.|[^"])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
 
     def test_cohort_filter_static(self):
