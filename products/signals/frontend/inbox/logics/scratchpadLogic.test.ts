@@ -205,6 +205,20 @@ describe('scratchpadLogic', () => {
         expect(logic.values.hasActiveFilters).toBe(false)
     })
 
+    // The span is the only filter the endpoint applies, so clearing has to refetch. Resetting the
+    // control alone leaves a narrowed response on screen with no filter shown, and an empty
+    // narrowed window then reads as a project whose scouts have written nothing.
+    it('refetches the full window when the filters are cleared', async () => {
+        logic.actions.setTimeFilter('1h')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(searchRequests.map((params) => params.get('date_from') !== null)).toEqual([true])
+
+        searchRequests = []
+        logic.actions.clearFilters()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(searchRequests.map((params) => params.get('date_from'))).toEqual([null])
+    })
+
     // Report-pipeline stages write to this keyspace under a `pipeline:` identity. The ledger's
     // Scout column already calls them what they are, so counting them as scouts would make the
     // header claim more scouts than wrote.

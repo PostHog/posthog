@@ -687,6 +687,14 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             }
         },
 
+        // Clearing resets the span through a reducer, and the span is the one filter the endpoint
+        // applies, so the loaded rows can still be a narrowed response. Refetch rather than only
+        // reset the control: the select reads as the default span after the reset, so picking that
+        // span again fires nothing and the reader has no way back to the full window.
+        clearFilters: () => {
+            actions.loadEntries()
+        },
+
         loadEntriesSuccess: () => {
             actions.resolveReportTitles()
         },
