@@ -25,6 +25,21 @@ def _run_or_skip_on_modal_outage(activity_environment, fn, input_data):
         raise
 
 
+def _fake_clone(sandbox, repository: str) -> None:
+    # In production, clone_repository runs before create_snapshot and leaves a real
+    # clone (with a token embedded in the origin URL) at this path. These tests call
+    # create_snapshot directly against a bare sandbox, so fake that prior step here to
+    # give the credential scrub something real to scrub.
+    org, repo = repository.lower().split("/")
+    repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+    result = sandbox.execute(
+        f"mkdir -p {repo_path} && cd {repo_path} && git init -q && "
+        f"git remote add origin https://x-access-token:fake-token@github.com/{org}/{repo}.git",
+        timeout_seconds=30,
+    )
+    assert result.exit_code == 0, result.stderr
+
+
 @pytest.mark.skipif(
     not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"),
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
@@ -49,6 +64,7 @@ class TestCreateSnapshotActivity:
         created_snapshot_external_id = None
         try:
             sandbox = Sandbox.create(config)
+            _fake_clone(sandbox, "test-owner/test-repo")
             context = self._create_context(github_integration, "test-owner/test-repo")
             input_data = CreateSnapshotInput(context=context, sandbox_id=sandbox.id)
 
@@ -94,6 +110,7 @@ class TestCreateSnapshotActivity:
         created_snapshot_external_id = None
         try:
             sandbox = Sandbox.create(config)
+            _fake_clone(sandbox, "new-owner/new-repo")
             context = self._create_context(github_integration, "new-owner/new-repo")
             input_data = CreateSnapshotInput(context=context, sandbox_id=sandbox.id)
 

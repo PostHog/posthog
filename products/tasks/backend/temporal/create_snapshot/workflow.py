@@ -30,6 +30,9 @@ class CreateSnapshotForRepositoryInput:
     github_integration_id: int
     repository: str
     team_id: int
+    # Provider the snapshot bakes and restores on. Defaulted for payload
+    # compatibility with pre-rollout callers and histories.
+    sandbox_backend: str = "modal"
 
 
 @dataclass
@@ -58,6 +61,7 @@ class CreateSnapshotForRepositoryWorkflow(PostHogWorkflow):
             github_integration_id=loaded["github_integration_id"],
             repository=loaded["repository"],
             team_id=loaded["team_id"],
+            sandbox_backend=loaded.get("sandbox_backend", "modal"),
         )
 
     @workflow.run
@@ -100,6 +104,7 @@ class CreateSnapshotForRepositoryWorkflow(PostHogWorkflow):
                 github_integration_id=input.github_integration_id,
                 repository=input.repository,
                 team_id=input.team_id,
+                sandbox_backend=input.sandbox_backend,
             ),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),

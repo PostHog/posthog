@@ -152,6 +152,7 @@ _PATCH_ID_CANCEL_SANDBOX_CREATION_ON_COMPLETION = "tasks-cancel-sandbox-creation
 _PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE = "tasks-continue-after-repository-clone-failure"
 _PATCH_ID_ASYNC_AGENT_SHADOW_RESULT = "tasks-async-agent-shadow-result"
 _PATCH_ID_AGENT_BOOT_INTERACTION_TELEMETRY = "tasks-agent-boot-interaction-telemetry"
+_PATCH_ID_HOGLAND_REPOSITORY_SNAPSHOTS = "tasks-hogland-repository-snapshots"
 
 
 class _TaskCompletedDuringSandboxCreation(Exception):
@@ -1701,9 +1702,22 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._boot_path = sandbox_output.boot_path
         self._image_source = sandbox_output.image_source
 
-        # TODO(tasks): Re-enable snapshot creation
-        # if sandbox_output.should_create_snapshot and self.context.repository and self.context.github_integration_id:
-        #     await self._trigger_snapshot_workflow()
+        # Hogland-only: bake a per-repo snapshot in a detached child workflow (its own
+        # golden sandbox, clone, snapshot) so the next run for this repo restores it
+        # instead of cold-cloning. Fire-and-forget — nothing here blocks the run.
+        # TODO(tasks): Re-enable snapshot creation for Modal runs too.
+        if (
+            self.context.sandbox_backend == "hogland"
+            and sandbox_output.should_create_snapshot
+            and self.context.repository
+            and self.context.github_integration_id
+            # Single-repo runs only: the bake covers one repo, and the lookup requires a
+            # snapshot to cover ALL of a run's repos, so a multi-repo run could never
+            # consume the result and would re-trigger a bake on every run.
+            and len(self.context.repositories) == 1
+            and workflow.patched(_PATCH_ID_HOGLAND_REPOSITORY_SNAPSHOTS)
+        ):
+            await self._trigger_snapshot_workflow()
 
         # See `_PATCH_ID_DROP_SLACK_POST_AFTER_PROVISIONING`: only replays of
         # pre-rollout histories still post here; new executions skip the
@@ -3113,20 +3127,35 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             workflow.logger.info("Skipping snapshot workflow — no repository configured")
             return
 
-        workflow_id = f"create-snapshot-for-repository-{github_integration_id}-{repository.replace('/', '-')}"
-
-        await workflow.start_child_workflow(
-            workflow="create-snapshot-for-repository",
-            arg=CreateSnapshotForRepositoryInput(
-                github_integration_id=github_integration_id,
-                repository=repository,
-                team_id=self.context.team_id,
-            ),
-            id=workflow_id,
-            task_queue=settings.TASKS_TASK_QUEUE,
-            parent_close_policy=ParentClosePolicy.ABANDON,  # This will allow the snapshot workflow to continue even if the task workflow fails or closes
-            retry_policy=RetryPolicy(maximum_attempts=1),
+        # Backend in the id: snapshots restore per provider, so a Modal bake must not
+        # dedupe away a hogland one. The id also serializes bakes per repo — a second
+        # run while one is in flight fails to start, which is the desired outcome.
+        workflow_id = (
+            f"create-snapshot-for-repository-{github_integration_id}"
+            f"-{repository.replace('/', '-')}-{self.context.sandbox_backend}"
         )
+
+        try:
+            await workflow.start_child_workflow(
+                workflow="create-snapshot-for-repository",
+                arg=CreateSnapshotForRepositoryInput(
+                    github_integration_id=github_integration_id,
+                    repository=repository,
+                    team_id=self.context.team_id,
+                    sandbox_backend=self.context.sandbox_backend,
+                ),
+                id=workflow_id,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                parent_close_policy=ParentClosePolicy.ABANDON,  # This will allow the snapshot workflow to continue even if the task workflow fails or closes
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except Exception as e:
+            # Snapshot creation is an optimization for the NEXT run; it must never
+            # fail this one. "Already started" just means a bake is underway.
+            workflow.logger.info(
+                "snapshot_workflow_not_started",
+                extra={"workflow_id": workflow_id, "error": str(e)},
+            )
 
     async def _post_slack_update(self, sandbox_cleaned: bool = False) -> None:
         if not self._slack_thread_context:
