@@ -82,6 +82,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import type { NodeApiSuspended } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
@@ -593,7 +594,6 @@ export interface OrganizationType extends OrganizationBasicType {
     is_ai_training_opted_in?: boolean
     is_ai_training_locked?: boolean
     is_ai_training_cta_shown?: boolean
-    is_hipaa?: boolean
     has_signed_baa?: boolean
     members_can_invite?: boolean
     members_can_create_projects?: boolean
@@ -1105,6 +1105,7 @@ export enum SavedInsightsTabs {
 export enum ReplayTabs {
     Home = 'home',
     Playlists = 'playlists',
+    Comments = 'comments',
     Templates = 'templates',
     Settings = 'settings',
 }
@@ -4764,7 +4765,6 @@ export enum DashboardPlacement {
 
 // Default mode is null
 export enum DashboardMode {
-    Edit = 'edit', // When the dashboard is being edited
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
 }
@@ -5175,6 +5175,8 @@ export interface CoreFilterDefinition {
     used_for_debug?: boolean
     /** Name of a single property on events of this name that UIs should display alongside the event. */
     primary_property?: string
+    /** Keep this event out of pickers that build a query someone saves and runs later. Surfaces that read live event data still offer it. */
+    hidden_in_query_builders?: boolean
 }
 
 export interface TileParams {
@@ -5585,6 +5587,7 @@ export const INTEGRATION_KINDS = [
     'linear',
     'github',
     'gitlab',
+    'helpscout',
     'meta-ads',
     'instagram',
     'clickup',
@@ -6142,6 +6145,7 @@ export type PromptFlag = {
 
 // Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
 export enum ActivityScope {
+    DATA_QUALITY_CHECK_SCHEDULE = 'DataQualityCheckSchedule',
     ACTION = 'Action',
     ALERT_CONFIGURATION = 'AlertConfiguration',
     ANNOTATION = 'Annotation',
@@ -6282,9 +6286,11 @@ export interface DataModelingNode {
     upstream_count: number
     downstream_count: number
     user_tag?: string
-    last_run_at?: string
+    last_run_at?: string | null
     last_run_status?: DataModelingJobStatus
+    last_run_error?: string | null
     sync_interval?: DataModelingSyncInterval
+    suspended?: NodeApiSuspended
 }
 
 export interface DataModelingEdge {
@@ -6336,8 +6342,7 @@ export interface DataWarehouseSavedQuery {
     is_incremental?: boolean
     /** Engine → suspension details. Only included when fetching a single saved query, not in list responses */
     suspended?: DataWarehouseSavedQueryApiSuspended
-    upstream_dependency_count?: number
-    downstream_dependency_count?: number
+    created_by?: UserBasicType | null
     created_at?: string
     run_history?: DataWarehouseSavedQueryRunHistory[]
     origin?: DataWarehouseSavedQueryOrigin
@@ -7425,6 +7430,7 @@ export type HogFunctionTypeType =
     | 'site_app'
     | 'transformation'
     | 'transformation_log'
+    | 'legacy_destination'
 
 export type HogFunctionType = {
     id: string
@@ -7857,7 +7863,10 @@ export interface FeaturePreviewGateConfig {
     offerRequestAccess?: boolean
     /**
      * Product intent recorded when a user joins the waitlist from the gate, so waitlist sign-ups
-     * count as product intent the same way opting in from the feature previews page does.
+     * count as product intent the same way opting in from the feature previews page does. When
+     * set, the gate also reads this product's setup-detection status to end the post-enrollment
+     * "turning it on" state as soon as the API agrees the flag is on, instead of waiting out a
+     * fixed timer.
      */
     productIntent?: ProductKey
 }

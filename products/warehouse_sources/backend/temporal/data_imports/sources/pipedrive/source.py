@@ -90,7 +90,7 @@ class PipedriveSource(
             name=SchemaExternalDataSourceType.PIPEDRIVE,
             category=DataWarehouseSourceCategory.CRM,
             label="Pipedrive",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Pipedrive API token to sync your Pipedrive CRM data into the PostHog Data warehouse.
 
 You can find your personal API token in Pipedrive under **Settings > Personal preferences > API**. The token inherits your user's permissions, so make sure your user can access the data you want to sync.""",

@@ -37,6 +37,8 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+
 from posthog.hogql.property import action_to_expr
 
 from products.actions.backend.models.action import Action
@@ -74,12 +76,33 @@ TARGET_RELATIVE_KINDS = frozenset({"active_not_performed_target", "ever_performe
 # population-agnostic.
 IDENTIFIED_USERS_ONLY = True
 
+# `is_identified` is a column on the persons table, not a person property, so it resolves
+# only while `person` on an events scan reaches the persons table through the lazy join.
+# A team on persons-on-events reads person columns off the event row, where the field does
+# not exist, and HogQL raises `Field not found: is_identified`. Every caller that executes
+# SQL from this module must pass these modifiers so the mode is the one the SQL is built
+# for, whatever mode the team is on.
+LABELER_QUERY_MODIFIERS = HogQLQueryModifiers(
+    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+)
+
 
 def _identified_users_and_clause() -> str:
     """`AND person.is_identified` fragment for an events-table WHERE, or '' when the
     v1 identified-only scope is disabled. The events table must be unaliased at the
     call site (or aliased so that ``person`` still resolves via the lazy join)."""
     return " AND person.is_identified" if IDENTIFIED_USERS_ONLY else ""
+
+
+# The product's own output event. Every live cadence writes one per scored person, so an
+# activity scan that counted it would keep a person eligible forever on nothing but their
+# own predictions, and would count the prediction as the first or last thing they did.
+PREDICTION_EVENT_NAME = "autoresearch_prediction"
+
+
+def _own_events_excluded_clause(alias: str = "") -> str:
+    """`AND event != '<prediction event>'` fragment for an events-table WHERE; pass ``"e."`` for an aliased scan."""
+    return f" AND {alias}event != '{PREDICTION_EVENT_NAME}'"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -236,7 +259,7 @@ def _members_within(instant: str, days_param: str, *, predicate: str = "", negat
     return (
         f"person_id {membership} (SELECT DISTINCT person_id FROM events"
         f" WHERE timestamp >= {instant} - toIntervalDay({{{days_param}}})"
-        f" AND timestamp < {instant}{predicate})"
+        f" AND timestamp < {instant}{_own_events_excluded_clause()}{predicate})"
     )
 
 
@@ -489,7 +512,7 @@ def _build_labeled_users_cte(
                 toInt(toUnixTimestamp(now() - toIntervalDay({{horizon}}))) AS cutoff_ts
             FROM events
             WHERE timestamp >= now() - toIntervalDay({{lookback}})
-              AND timestamp < now(){training_clause}{identified_clause}
+              AND timestamp < now(){_own_events_excluded_clause()}{training_clause}{identified_clause}
             GROUP BY person_id
             HAVING first_ts < cutoff_ts{limit_clause}
         ),
@@ -513,7 +536,7 @@ def _build_labeled_users_cte(
             FROM events e
             INNER JOIN user_t0 u ON e.person_id = u.person_id
             WHERE e.timestamp >= now() - toIntervalDay({{lookback}})
-              AND e.timestamp < now()
+              AND e.timestamp < now(){_own_events_excluded_clause("e.")}
             GROUP BY u.person_id, u.t0_ts{anchor_having}
         )
     """
@@ -608,7 +631,7 @@ def build_eligible_count_sql(
             countDistinctIf(person_id, {horizon_cond}) AS eligible_all
         FROM events
         WHERE timestamp >= now() - toIntervalDay({{lookback}})
-          AND timestamp < now(){training_clause}
+          AND timestamp < now(){_own_events_excluded_clause()}{training_clause}
     """
     values: dict[str, Any] = {
         "horizon": horizon_days,
@@ -668,7 +691,7 @@ def build_inference_anchors_sql(
             {cutoff_select} AS cutoff_ts
         FROM events
         WHERE timestamp >= {cutoff_expr} - toIntervalDay({{lookback}})
-          AND timestamp < {cutoff_expr}{inf_clause}{identified_clause}
+          AND timestamp < {cutoff_expr}{_own_events_excluded_clause()}{inf_clause}{identified_clause}
     """
     values: dict[str, Any] = {
         "lookback": lookback_days,

@@ -3,6 +3,7 @@ import { combineUrl, router } from 'kea-router'
 
 import { IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonSkeleton,
@@ -15,7 +16,9 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -34,7 +37,6 @@ import { Tagger } from './types'
 
 export const scene: SceneExport = {
     component: AIObservabilityTagsScene,
-    logic: llmTaggersLogic,
     productKey: ProductKey.AI_OBSERVABILITY,
 }
 
@@ -315,6 +317,24 @@ function AIObservabilityTagsContent(): JSX.Element {
 
 export function AIObservabilityTagsScene(): JSX.Element {
     const { searchParams } = useValues(router)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+
+    if (!receivedFeatureFlags) {
+        return (
+            <SceneContent>
+                <LemonSkeleton className="w-full h-96" />
+            </SceneContent>
+        )
+    }
+
+    if (!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGS]) {
+        return (
+            <SceneContent>
+                <LemonBanner type="warning">Taggers are not enabled for this project.</LemonBanner>
+            </SceneContent>
+        )
+    }
+
     return (
         <SceneContent>
             <SceneTitleSection

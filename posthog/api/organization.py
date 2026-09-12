@@ -206,7 +206,6 @@ class OrganizationSerializer(
             "is_ai_training_opted_in",
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
-            "is_hipaa",
             "has_signed_baa",
             "default_experiment_stats_method",
             "default_anonymize_ips",
@@ -233,7 +232,6 @@ class OrganizationSerializer(
             "is_pending_deletion",
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
-            "is_hipaa",
             "has_signed_baa",
         ]
         extra_kwargs = {

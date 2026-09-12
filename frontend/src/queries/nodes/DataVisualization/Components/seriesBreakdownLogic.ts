@@ -21,6 +21,7 @@ import type {
 } from '../../../schema/schema-general'
 import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { Column } from '../dataVisualizationLogic'
+import { humanizeEventColumnValue } from '../eventColumnLabels'
 
 /**
  * Sentinel used to key result customizations for null / undefined breakdown values.
@@ -395,9 +396,8 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                     }
 
                     return visibleBreakdownValues.map<AxisBreakdownSeries<number | null>>((value) => {
-                        const seriesName = multipleYSeries
-                            ? `${selectedYAxis.name} - ${value || '[No value]'}`
-                            : value || '[No value]'
+                        const valueLabel = humanizeEventColumnValue(breakdownColumn.name, value) || '[No value]'
+                        const seriesName = multipleYSeries ? `${selectedYAxis.name} - ${valueLabel}` : valueLabel
                         const breakdownValue = getBreakdownValueKey(value)
                         const customColorToken = resultCustomizations[breakdownValue]?.color
                         const customColor =
@@ -463,7 +463,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 return {
                     xData: {
                         column: xColumn,
-                        data: xData,
+                        data: xData.map((value) => humanizeEventColumnValue(xColumn.name, value)),
                     },
                     seriesData,
                     isUnaggregated,

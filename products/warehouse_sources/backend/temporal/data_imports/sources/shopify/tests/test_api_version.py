@@ -1,8 +1,10 @@
+from datetime import date
 from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
     ShopifyAuthMethodConfig,
@@ -32,6 +34,25 @@ class TestApiVersionResolution:
         # The default flip is covered by the (None -> 2026-07) resolution case below; this only
         # guards that the legacy version stays declared alongside the new one.
         assert set(ShopifySource.supported_versions) == {SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07}
+
+    def test_2025_10_is_deprecated_with_its_sunset_date(self) -> None:
+        # The in-product deprecation warning and the repin migration both key off this metadata,
+        # and the registry invariant test only checks generic invariants.
+        assert ShopifySource.deprecated_versions == (
+            VersionDeprecation(version=SHOPIFY_API_VERSION_2025_10, sunset_at=date(2026, 10, 16)),
+        )
+
+    @pytest.mark.parametrize(
+        "pin, deprecated",
+        [
+            (SHOPIFY_API_VERSION_2025_10, True),
+            (SHOPIFY_API_VERSION_2026_07, False),
+            # An unpinned source resolves to the default, which is never deprecated.
+            (None, False),
+        ],
+    )
+    def test_deprecation_lookup_per_pin(self, pin: str | None, deprecated: bool) -> None:
+        assert (ShopifySource().get_version_deprecation(pin) is not None) == deprecated
 
     @pytest.mark.parametrize(
         "pin, expected",

@@ -1,20 +1,27 @@
 import dataclasses
 from typing import Final, Literal
 
+from posthog.dataclasses import frozen
+
 # Shared by the workflow definition, the schedule, and the management command.
 CANARY_WORKFLOW_NAME = "experiment-precompute-canary"
 
-CanaryOutcome = Literal["pass", "divergence", "path_flip", "error", "skipped"]
+CanaryOutcome = Literal["pass", "divergence", "path_flip", "uncheckable", "error", "skipped"]
 
 OUTCOME_PASS: Final = "pass"
 OUTCOME_DIVERGENCE: Final = "divergence"
 OUTCOME_PATH_FLIP: Final = "path_flip"
+# The direct-scan ground truth cannot execute under the per-query byte cap, so correctness is
+# unverifiable for this metric. Stability was still checked. Kept separate from "error" so the
+# error gauge only counts unexpected failures.
+OUTCOME_UNCHECKABLE: Final = "uncheckable"
 OUTCOME_ERROR: Final = "error"
 OUTCOME_SKIPPED: Final = "skipped"
 ALL_OUTCOMES: tuple[CanaryOutcome, ...] = (
     OUTCOME_PASS,
     OUTCOME_DIVERGENCE,
     OUTCOME_PATH_FLIP,
+    OUTCOME_UNCHECKABLE,
     OUTCOME_ERROR,
     OUTCOME_SKIPPED,
 )
@@ -138,14 +145,17 @@ class CanaryVariantStats:
     number_of_samples: int
 
 
-@dataclasses.dataclass
+@frozen
 class CanaryRunSnapshot:
     """Per-variant aggregates from one execution of the metric query."""
 
     label: str  # "a" | "b" (forced precomputed) | "c" (forced direct scan)
     query_id: str  # client_query_id, for system.query_log forensics
-    is_precomputed: bool
+    is_precomputed: bool  # exposures side
     variants: dict[str, CanaryVariantStats]
+    # "precomputed" | "direct_scan" | "not_applicable". Defaulted so snapshots
+    # recorded before this field existed still decode during Temporal replay.
+    metric_events_path: str = "not_applicable"
 
 
 @dataclasses.dataclass(frozen=False)

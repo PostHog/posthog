@@ -4317,8 +4317,6 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_ai_training_cta_shown: boolean | null
-    /** @nullable */
-    readonly is_hipaa: boolean | null
     /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
     readonly has_signed_baa: boolean
     /** Default statistical method for new experiments in this organization.

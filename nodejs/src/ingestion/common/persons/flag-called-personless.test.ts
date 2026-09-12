@@ -1,6 +1,10 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { eventHasGroups, isFlagCalledPersonlessCandidate } from './flag-called-personless'
+import {
+    buildFlagCalledPersonlessMatcher,
+    eventHasGroups,
+    isFlagCalledPersonlessCandidate,
+} from './flag-called-personless'
 
 describe('flag-called-personless', () => {
     const enabledForAll = (): boolean => true
@@ -22,6 +26,20 @@ describe('flag-called-personless', () => {
             [{ $groups: { org: 'acme' } }, true],
         ])('properties %j -> %s', (properties, expected) => {
             expect(eventHasGroups(properties as PluginEvent['properties'])).toBe(expected)
+        })
+    })
+
+    describe('buildFlagCalledPersonlessMatcher', () => {
+        it.each<[string, string, number, boolean]>([
+            ['', '', 1, false],
+            ['*', '', 1, true],
+            ['*', '1', 1, false],
+            ['*', '1', 2, true],
+            ['1,2', '2', 1, true],
+            ['1,2', '2', 2, false],
+            ['*', '*', 1, false],
+        ])('allowlist %j, excluded %j, team %i -> %s', (allowlist, excluded, teamId, expected) => {
+            expect(buildFlagCalledPersonlessMatcher(allowlist, excluded)(teamId)).toBe(expected)
         })
     })
 

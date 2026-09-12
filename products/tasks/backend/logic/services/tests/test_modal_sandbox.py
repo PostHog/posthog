@@ -2,6 +2,7 @@ import json
 import shlex
 import asyncio
 import builtins
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -25,9 +26,16 @@ from products.tasks.backend.exceptions import (
     SandboxExecutionError,
     SandboxNetworkPolicyError,
     SandboxProvisionError,
+    SandboxTimeoutError,
     SnapshotCreationError,
     SnapshotFileLimitExceededError,
     SnapshotTimeoutError,
+)
+from products.tasks.backend.logic.services.agent_server_launcher import (
+    AGENT_SERVER_HEALTH_MAX_ATTEMPTS,
+    HOST_PRESSURE_PROBE_SCRIPT,
+    STARTUP_LOG_MAX_BYTES,
+    _egress_failure_reason,
 )
 from products.tasks.backend.logic.services.local_packages import LocalPackage
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
@@ -59,6 +67,7 @@ from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     SandboxConfig,
     SandboxTemplate,
+    health_check_timeout_seconds,
 )
 
 
@@ -490,6 +499,59 @@ class TestModalSandboxAgentServer:
         assert "--mcpServers <redacted>" in exc.value.context["command"]
         assert "--mcpServers <redacted>" in exc.value.context["error"]
 
+    def test_execute_raises_timeout_when_modal_reports_minus_one(self, mock_sandbox: Any):
+        process = MagicMock(returncode=-1)
+        process.wait.return_value = -1
+        process.stdout.read.return_value = ""
+        process.stderr.read.return_value = ""
+        mock_sandbox._sandbox.exec.return_value = process
+
+        with (
+            patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
+            pytest.raises(SandboxTimeoutError) as exc,
+        ):
+            mock_sandbox.execute("sleep 999", timeout_seconds=5)
+
+        assert exc.value.context["timeout_seconds"] == 5
+        capture_exception.assert_not_called()
+
+    def test_start_agent_server_launch_timeout_carries_startup_diagnostics(self, mock_sandbox: Any):
+        launch_timeout = SandboxTimeoutError(
+            "Execution timed out after 155 seconds",
+            {"sandbox_id": mock_sandbox.id},
+            cause=TimeoutError("exec returned -1"),
+            capture=False,
+        )
+
+        def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
+            if "./node_modules/.bin/agent-server" in command:
+                raise launch_timeout
+            if command.startswith("SECONDS=0"):
+                return ExecutionResult(stdout="", stderr="", exit_code=1, error=None)
+            if "agent-server.log" in command:
+                return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+            if "http_code=" in command:
+                return ExecutionResult(
+                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                )
+            return ExecutionResult(stdout='{"status":"ok","hasSession":false}', stderr="", exit_code=0, error=None)
+
+        mock_sandbox.execute = MagicMock(side_effect=_exec)
+
+        with (
+            patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
+            pytest.raises(SandboxTimeoutError) as exc,
+        ):
+            mock_sandbox.start_agent_server(repository=None, task_id="task-1", run_id="run-1")
+
+        assert exc.value.__cause__ is launch_timeout
+        assert "never reported hasSession=true" in exc.value.context["failure_reason"]
+        capture_exception.assert_called_once()
+        assert "never reported hasSession=true" in str(capture_exception.call_args.args[0])
+        assert exc.value.context["timeout_seconds"] == 30 + health_check_timeout_seconds(
+            AGENT_SERVER_HEALTH_MAX_ATTEMPTS
+        )
+
     def test_start_agent_server_success_without_domains_skips_agentsh(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
@@ -672,6 +734,7 @@ class TestModalSandboxAgentServer:
             provider="openai",
             model="gpt-5.3-codex",
             reasoning_effort="high",
+            service_tier="flex",
             context_window="1m",
             fast_mode=True,
             initial_permission_mode="plan",
@@ -685,6 +748,7 @@ class TestModalSandboxAgentServer:
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=high" in command
+        assert "POSTHOG_CODE_SERVICE_TIER=flex" in command
         assert "POSTHOG_CODE_CONTEXT_WINDOW=1m" in command
         assert "POSTHOG_CODE_FAST_MODE=true" in command
         assert "POSTHOG_CODE_INITIAL_PERMISSION_MODE=plan" in command
@@ -1329,18 +1393,50 @@ class TestStartupFailureDiagnostics:
         assert "poll=137" in diagnostics["failure_reason"]
         sandbox._sandbox.exec.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "probe_stdout, expected, unexpected",
+        [
+            (
+                "api.anthropic.com http_code=200 curl_exit=0\nmcp-eu.posthog.com http_code=000 curl_exit=7",
+                "egress blocked",
+                "timed out",
+            ),
+            (
+                "api.anthropic.com http_code=200\nmcp-eu.posthog.com http_code=000\nFAILED",
+                "egress blocked",
+                "timed out",
+            ),
+            (
+                "api.anthropic.com http_code=000 curl_exit=28\nmcp-eu.posthog.com http_code=000 curl_exit=28",
+                "timed out",
+                "egress blocked",
+            ),
+            (
+                "api.anthropic.com http_code=000 curl_exit=28\nmcp-eu.posthog.com http_code=000 curl_exit=7",
+                "egress blocked",
+                "timed out",
+            ),
+            (
+                "api.anthropic.com http_code=200 curl_exit=0\nmcp-eu.posthog.com  curl_exit=127",
+                "did not run",
+                "no egress block detected",
+            ),
+        ],
+        ids=[
+            "refused",
+            "legacy_image_without_curl_exit",
+            "every_host_timed_out",
+            "one_refused_one_timed_out",
+            "curl_never_ran",
+        ],
+    )
     @override_settings(SITE_URL="https://eu.posthog.com", SANDBOX_MCP_URL=None)
-    def test_reports_blocked_egress_host(self):
+    def test_reports_blocked_egress_host(self, probe_stdout: str, expected: str, unexpected: str):
         sandbox = self._sandbox()
 
         def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
-            if "printf" in command:
-                return ExecutionResult(
-                    stdout="api.anthropic.com http_code=200\nmcp-eu.posthog.com http_code=000",
-                    stderr="",
-                    exit_code=0,
-                    error=None,
-                )
+            if "http_code=" in command:
+                return ExecutionResult(stdout=probe_stdout, stderr="", exit_code=0, error=None)
             if "agent-server.log" in command:
                 return ExecutionResult(stdout="agent log tail", stderr="", exit_code=0, error=None)
             return ExecutionResult(stdout='{"status":"ok","hasSession":false}', stderr="", exit_code=0, error=None)
@@ -1352,14 +1448,18 @@ class TestStartupFailureDiagnostics:
             diagnostics = sandbox._diagnose_startup_failure(allowed_domains=["github.com"])
 
         assert diagnostics["sandbox_terminated"] == "false"
-        assert "egress blocked" in diagnostics["failure_reason"]
+        assert expected in diagnostics["failure_reason"]
+        assert unexpected not in diagnostics["failure_reason"]
         assert "mcp-eu.posthog.com" in diagnostics["failure_reason"]
+
+    def test_transfer_error_after_a_response_is_not_an_egress_failure(self):
+        assert _egress_failure_reason("api.anthropic.com http_code=200 curl_exit=56") is None
 
     def test_reports_alive_without_session_when_no_block(self):
         sandbox = self._sandbox()
 
         def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
-            if "printf" in command:
+            if "http_code=" in command:
                 return ExecutionResult(
                     stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
@@ -1373,6 +1473,72 @@ class TestStartupFailureDiagnostics:
 
         assert diagnostics["sandbox_terminated"] == "false"
         assert "never reported hasSession=true" in diagnostics["failure_reason"]
+        assert diagnostics["host_pressure"] == "ok"
+
+    def test_host_pressure_probe_failure_keeps_the_failure_reason(self):
+        sandbox = self._sandbox()
+
+        def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
+            if "http_code=" in command:
+                return ExecutionResult(
+                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                )
+            if "cpu_loop_ms" in command:
+                raise SandboxTimeoutError(
+                    "Execution timed out after 45 seconds",
+                    {"sandbox_id": "sb-diag"},
+                    cause=TimeoutError("exec returned -1"),
+                    capture=False,
+                )
+            return ExecutionResult(stdout="ok", stderr="", exit_code=0, error=None)
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "execute", side_effect=_exec),
+        ):
+            diagnostics = sandbox._diagnose_startup_failure(allowed_domains=None)
+
+        assert "never reported hasSession=true" in diagnostics["failure_reason"]
+        assert diagnostics["host_pressure"].startswith("unavailable:")
+
+    def test_host_pressure_probe_script_reports_every_measurement(self):
+        completed = subprocess.run(
+            ["bash", "-c", HOST_PRESSURE_PROBE_SCRIPT], capture_output=True, text=True, timeout=60, check=False
+        )
+
+        assert completed.returncode == 0
+        for key in ("loadavg=", "nproc=", "cpu_loop_ms=", "python_spawn_ms=", "cold_read_ms="):
+            assert key in completed.stdout
+
+    @pytest.mark.parametrize(
+        ("log_bytes", "expected_truncated"),
+        [(120, None), (STARTUP_LOG_MAX_BYTES, "true")],
+    )
+    def test_bounds_the_agent_server_log(self, log_bytes: int, expected_truncated: str | None):
+        sandbox = self._sandbox()
+        log_commands: list[str] = []
+
+        def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
+            if "agent-server.log" in command:
+                log_commands.append(command)
+                return ExecutionResult(stdout="x" * log_bytes, stderr="", exit_code=0, error=None)
+            if "http_code=" in command:
+                return ExecutionResult(
+                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                )
+            return ExecutionResult(stdout="ok", stderr="", exit_code=0, error=None)
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "execute", side_effect=_exec),
+        ):
+            diagnostics = sandbox._diagnose_startup_failure(allowed_domains=None)
+
+        assert log_commands == [
+            f"tail -c {STARTUP_LOG_MAX_BYTES} /tmp/agent-server.log 2>/dev/null || echo 'No log file'"
+        ]
+        assert len(diagnostics["log"]) == log_bytes
+        assert diagnostics.get("log_truncated") == expected_truncated
 
 
 class TestModalSandboxCreateAllowlist:
@@ -1921,24 +2087,52 @@ class TestResourceCreateKwargs:
         assert kwargs == {"cpu": (2.0, 8.0), "memory": (4096, 16384)}
 
     @pytest.mark.parametrize(
-        "config_kwargs, expected_cpu",
+        "config_kwargs, expected_cpu, expected_memory",
         [
-            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (4.0, 8.0)),
-            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6}, (6.0, 8.0)),
+            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (4.0, 8.0), (32768, 32768)),
+            (
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6},
+                (6.0, 8.0),
+                (32768, 32768),
+            ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6, "cpu_cores": 4},
                 (4.0, 4.0),
+                (32768, 32768),
             ),
-            ({"vm_runtime": True, "custom_image_name": "posthog-sandbox-custom-other"}, (0.5, 8.0)),
-            ({"custom_image_name": "posthog-dev-stack"}, (0.5, 8.0)),
+            ({"vm_runtime": True, "custom_image_name": "posthog-sandbox-custom-other"}, (0.5, 8.0), (16384, 16384)),
+            ({"custom_image_name": "posthog-dev-stack"}, (0.5, 8.0), (1024, 16384)),
+            (
+                {"template": SandboxTemplate.VM_BASE, "custom_image_name": "posthog-dev-stack"},
+                (4.0, 8.0),
+                (32768, 32768),
+            ),
+            (
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 16},
+                (4.0, 8.0),
+                (32768, 32768),
+            ),
+            (
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 48},
+                (4.0, 8.0),
+                (49152, 49152),
+            ),
+            (
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "burstable_resources": False},
+                8.0,
+                32768,
+            ),
         ],
     )
-    def test_dev_stack_image_raises_the_cpu_request_floor(
-        self, config_kwargs: dict[str, Any], expected_cpu: tuple[float, float]
+    def test_dev_stack_image_resource_floors(
+        self,
+        config_kwargs: dict[str, Any],
+        expected_cpu: float | tuple[float, float],
+        expected_memory: int | tuple[int, int],
     ) -> None:
-        config = SandboxConfig(name="t", memory_gb=16, burstable_resources=True, **{"cpu_cores": 8, **config_kwargs})
+        config = SandboxConfig(name="t", **{"cpu_cores": 8, "burstable_resources": True, **config_kwargs})
 
-        assert _resource_create_kwargs(config)["cpu"] == expected_cpu
+        assert _resource_create_kwargs(config) == {"cpu": expected_cpu, "memory": expected_memory}
 
     def test_vm_runtime_uses_equal_memory_request_and_limit(self):
         config = SandboxConfig(name="t", cpu_cores=4, memory_gb=16, burstable_resources=True, vm_runtime=True)

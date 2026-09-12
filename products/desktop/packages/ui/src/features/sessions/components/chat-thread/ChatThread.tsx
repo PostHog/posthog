@@ -6,9 +6,7 @@ import {
   ThumbsDown,
   ThumbsUp,
 } from "@phosphor-icons/react";
-import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import { buildTurnRatingMetric } from "@posthog/core/analytics/aiFeedback";
-import { useService } from "@posthog/di/react";
 import {
   Button,
   ChatBubble,
@@ -47,6 +45,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useSmoothedText } from "@posthog/ui/features/editor/components/useSmoothedText";
+import { hasUiAppResult } from "@posthog/ui/features/mcp-apps/hasUiAppResult";
 import type {
   BuildResult,
   ConversationItem,
@@ -101,11 +100,11 @@ import { isShowActionsItem } from "@posthog/ui/features/sessions/components/sess
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
 import { splitUserMessage } from "@posthog/ui/features/sessions/components/session-update/userMessageDisplay";
 import { useVisibleInjectedBlocks } from "@posthog/ui/features/sessions/components/session-update/useVisibleInjectedBlocks";
+import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
 import {
   CHAT_CONTENT_MAX_WIDTH,
   CHAT_CONTENT_PADDING_INLINE,
 } from "@posthog/ui/features/sessions/constants";
-import { DIFFS_HIGHLIGHTER_OPTIONS } from "@posthog/ui/features/sessions/diffHighlighterOptions";
 import { useAgentConversationItems } from "@posthog/ui/features/sessions/hooks/useAgentConversationItems";
 import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useConversationItems";
 import {
@@ -119,7 +118,10 @@ import {
   useTurnFeedback,
 } from "@posthog/ui/features/sessions/sessionViewStore";
 import { useThreadScrollRequest } from "@posthog/ui/features/sessions/threadNavigationStore";
-import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMessageTypes";
+import {
+  NO_ATTACHMENTS,
+  type UserMessageAttachment,
+} from "@posthog/ui/features/sessions/userMessageTypes";
 import {
   SessionTaskIdProvider,
   useSessionTaskId,
@@ -130,10 +132,6 @@ import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/com
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { track } from "@posthog/ui/shell/analytics";
-import {
-  DIFF_WORKER_FACTORY,
-  type DiffWorkerFactory,
-} from "@posthog/ui/shell/diffWorkerHost";
 import {
   createContext,
   type FocusEvent,
@@ -210,11 +208,29 @@ function isThoughtItem(item: ConversationItem): boolean {
 }
 
 /**
+ * An item that must render as its own row, never folded into a `ToolGroupItem`:
+ * a plan awaiting approval, a show-actions handoff, or a call whose result
+ * carries a UI app. The next standalone item type joins this predicate instead
+ * of widening the condition at the call site.
+ *
+ * A UI-app call cannot ride in a group, and `keepMounted` on the group body is
+ * not the fix. It would keep every collapsed run's body mounted thread-wide,
+ * and a chart inside a group still stays invisible until the user expands it:
+ * while the run is live the group reads "Thinking…", so a rendered chart would
+ * hide behind a collapsed panel. Keeping the chart outside the group is the
+ * rule that fixes both.
+ */
+function rendersStandalone(item: ConversationItem): boolean {
+  return isPlanItem(item) || isShowActionsItem(item) || hasUiAppResult(item);
+}
+
+/**
  * Collapse each contiguous run of ≥2 tool-call updates into a single `ToolGroupItem`. A run is
  * broken by any *visible* non-tool, non-thought item (prose, status) so groups follow reading
  * order; invisible updates (see {@link INVISIBLE_UPDATES}) are transparent and don't split a run.
  * A lone tool call passes through untouched as a single marker, and so do the thoughts around it:
- * thoughts ride along a run, they never make one.
+ * thoughts ride along a run, they never make one. A standalone item (see
+ * {@link rendersStandalone}) flushes the run and passes through alone.
  */
 /**
  * Item arrays for settled runs, keyed on the run's (stable) first item.
@@ -266,7 +282,7 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
-      if (isPlanItem(item) || isShowActionsItem(item)) {
+      if (rendersStandalone(item)) {
         flush();
         out.push(item);
         continue;
@@ -508,7 +524,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 function UserBubble({
   content,
   timestamp,
-  attachments = [],
+  attachments = NO_ATTACHMENTS,
   keyboardFocused = false,
 }: {
   content: string;
@@ -520,9 +536,14 @@ function UserBubble({
   // message (start-aligned, outlined, provenance chip) instead of masquerading
   // as something this run's user typed. The envelope boilerplate never renders;
   // only the sender-authored body flows into the normal pipeline below.
-  const { peerAgentMessage, blocks, displayContent } = useMemo(
-    () => splitUserMessage(content),
-    [content],
+  const {
+    peerAgentMessage,
+    blocks,
+    displayContent,
+    attachments: visibleAttachments,
+  } = useMemo(
+    () => splitUserMessage(content, attachments),
+    [content, attachments],
   );
   const visibleBlocks = useVisibleInjectedBlocks(blocks);
   // Provenance is never flag-gated: a peer message must not read as the user's.
@@ -536,7 +557,7 @@ function UserBubble({
       <ChatMessage align={peerAgentMessage ? "start" : "end"} className="group">
         <ChatMessageContent className="gap-1">
           {showHeaderChips && (
-            <ChatMessageHeader className="flex-wrap gap-1">
+            <ChatMessageHeader className="flex-wrap gap-1 px-0">
               {peerAgentMessage && (
                 <MentionChip
                   icon={<Robot size={12} />}
@@ -546,8 +567,13 @@ function UserBubble({
               <InjectedBlockChips blocks={visibleBlocks} taskId={taskId} />
             </ChatMessageHeader>
           )}
+          {visibleAttachments.length > 0 && (
+            <div className={peerAgentMessage ? "self-start" : "self-end"}>
+              <UserMessageAttachments attachments={visibleAttachments} />
+            </div>
+          )}
           {/* The brief is the whole message, so stripping it leaves nothing to put in a bubble. */}
-          {(!!displayContent || attachments.length > 0) && (
+          {!!displayContent && (
             <ChatBubble
               align={peerAgentMessage ? "start" : "end"}
               variant={peerAgentMessage ? "outline" : "default"}
@@ -557,10 +583,7 @@ function UserBubble({
               )}
             >
               <ChatBubbleContent>
-                <UserMessageBody
-                  content={displayContent}
-                  attachments={attachments}
-                />
+                <UserMessageBody content={displayContent} />
               </ChatBubbleContent>
             </ChatBubble>
           )}
@@ -1220,6 +1243,7 @@ interface SharedChatThreadProps {
   taskId?: string;
   footerState?: Omit<BuildResult, "items">;
   hasPendingPermission?: boolean;
+  currentWork?: string;
   /**
    * Chain index of the oldest loaded entry; 0 means the whole transcript is loaded. Above 0 the
    * thread renders windowed regardless of length, because only that body survives a prepend.
@@ -1328,20 +1352,12 @@ function ChatThreadRenderer({
   taskId,
   footerState,
   hasPendingPermission,
+  currentWork,
   promptRecallRef,
   olderHistoryCursor = 0,
   isLoadingOlderHistory,
   onLoadOlderHistory,
 }: ChatThreadRendererProps) {
-  const diffWorkerFactory = useService<DiffWorkerFactory>(DIFF_WORKER_FACTORY);
-  const diffsPoolOptions = useMemo(
-    () => ({
-      workerFactory: () => diffWorkerFactory(),
-      totalASTLRUCacheSize: 200,
-    }),
-    [diffWorkerFactory],
-  );
-
   const optimisticItems = useOptimisticItemsForTask(taskId);
   const isCloud = useSessionIsCloud(taskId);
 
@@ -1461,6 +1477,7 @@ function ChatThreadRenderer({
         taskId={taskId}
         footerState={footerState}
         hasPendingPermission={hasPendingPermission}
+        currentWork={currentWork}
       />
     </>
   );
@@ -1504,56 +1521,51 @@ function ChatThreadRenderer({
   );
 
   return (
-    <WorkerPoolContextProvider
-      poolOptions={diffsPoolOptions}
-      highlighterOptions={DIFFS_HIGHLIGHTER_OPTIONS}
-    >
-      <SessionTaskIdProvider taskId={taskId}>
-        <ChatThreadChromeProvider value={true}>
-          <ChatMessageScrollerProvider
-            // The windowed body owns following itself (anchorTo end + followOnAppend) — the
-            // engine's own follow would fight it, so it only auto-scrolls when non-virtualized.
-            autoScroll={!virtualized}
-            defaultScrollPosition="end"
-            // `scrollEdgeThreshold` is left at the engine's tight default on purpose. The engine
-            // re-enters "following-bottom" on *every* scroll event taken within the band, which
-            // overrides the free-scrolling its own wheel handler just set — so a wide band traps a
-            // reader scrolling up out of the bottom, and streamed content yanks them back each
-            // frame. `ThreadAutoFollow` is what keeps the thread pinned across the band's width;
-            // unlike the engine it only lets go on a real gesture.
-            scrollPreviousItemPeek={SCROLL_PREVIOUS_ITEM_PEEK}
-          >
-            {virtualized ? (
-              <VirtualThreadScrollBody
+    <SessionTaskIdProvider taskId={taskId}>
+      <ChatThreadChromeProvider value={true}>
+        <ChatMessageScrollerProvider
+          // The windowed body owns following itself (anchorTo end + followOnAppend) — the
+          // engine's own follow would fight it, so it only auto-scrolls when non-virtualized.
+          autoScroll={!virtualized}
+          defaultScrollPosition="end"
+          // `scrollEdgeThreshold` is left at the engine's tight default on purpose. The engine
+          // re-enters "following-bottom" on *every* scroll event taken within the band, which
+          // overrides the free-scrolling its own wheel handler just set — so a wide band traps a
+          // reader scrolling up out of the bottom, and streamed content yanks them back each
+          // frame. `ThreadAutoFollow` is what keeps the thread pinned across the band's width;
+          // unlike the engine it only lets go on a real gesture.
+          scrollPreviousItemPeek={SCROLL_PREVIOUS_ITEM_PEEK}
+        >
+          {virtualized ? (
+            <VirtualThreadScrollBody
+              items={items}
+              flatRows={flatRows}
+              renderRow={renderWindowedRow}
+              onUserInteract={clearKeyboardFocus}
+              footer={footer}
+              renderNav={renderNav}
+              resumeRef={threadResumeRef}
+              olderHistoryCursor={olderHistoryCursor}
+              isLoadingOlderHistory={isLoadingOlderHistory}
+              onLoadOlderHistory={onLoadOlderHistory}
+            />
+          ) : (
+            <>
+              <ThreadScrollBody
+                autoFollowRef={autoFollowRef}
                 items={items}
-                flatRows={flatRows}
-                renderRow={renderWindowedRow}
+                rows={rows}
+                renderItem={renderItem}
+                keyboardFocusedMessageId={keyboardFocusedMessageId}
                 onUserInteract={clearKeyboardFocus}
                 footer={footer}
-                renderNav={renderNav}
-                resumeRef={threadResumeRef}
-                olderHistoryCursor={olderHistoryCursor}
-                isLoadingOlderHistory={isLoadingOlderHistory}
-                onLoadOlderHistory={onLoadOlderHistory}
+                resumeStateRef={threadResumeRef}
               />
-            ) : (
-              <>
-                <ThreadScrollBody
-                  autoFollowRef={autoFollowRef}
-                  items={items}
-                  rows={rows}
-                  renderItem={renderItem}
-                  keyboardFocusedMessageId={keyboardFocusedMessageId}
-                  onUserInteract={clearKeyboardFocus}
-                  footer={footer}
-                  resumeStateRef={threadResumeRef}
-                />
-                {renderNav()}
-              </>
-            )}
-          </ChatMessageScrollerProvider>
-        </ChatThreadChromeProvider>
-      </SessionTaskIdProvider>
-    </WorkerPoolContextProvider>
+              {renderNav()}
+            </>
+          )}
+        </ChatMessageScrollerProvider>
+      </ChatThreadChromeProvider>
+    </SessionTaskIdProvider>
   );
 }

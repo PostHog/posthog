@@ -82,9 +82,11 @@ function ReasonBanner({
                     'data-attr': 'experiment-recordings-empty-retention-docs',
                 }}
             >
-                This experiment ended on {dayjs(context.endDate).format('MMM D, YYYY')}. This project keeps recordings
-                for {pluralize(context.retentionWindowDays, 'day')}, so the recordings from its run are no longer
-                stored.
+                {context.scannedWindowEnd
+                    ? `This filter only covers sessions up to ${dayjs(context.scannedWindowEnd).format('MMM D, YYYY')}.`
+                    : `This experiment ended on ${dayjs(context.endDate).format('MMM D, YYYY')}.`}{' '}
+                This project keeps recordings for {pluralize(context.retentionWindowDays, 'day')}, so those recordings
+                are no longer stored.
             </LemonBanner>
         )
     }
@@ -236,7 +238,21 @@ export function ExperimentRecordingsListEmptyState({ experiment }: { experiment:
                 would claim an answer the request has not given yet. The caption above the playlist
                 carries the wait. */}
             {hiddenRecordingsCount === 0 && !sessionBucketLoading && (
-                <ReasonBanner reason={listEmptyReason} context={listEmptyContext} onAction={runAction} />
+                <>
+                    <ReasonBanner reason={listEmptyReason} context={listEmptyContext} onAction={runAction} />
+                    {/* The reason above is a guess from an empty list, and this setting can empty the
+                        list on its own. The server removes the recordings it hides before it answers,
+                        so they never reach the browser and the count above stays zero for them.
+                        'any-user' hides what the whole project watched, so the copy has to say whose
+                        watching emptied the list. */}
+                    {recordingsAreHidden && (
+                        <p className="text-secondary text-xs">
+                            {hideViewedRecordings === 'any-user'
+                                ? 'Recordings anyone on your team has already watched are hidden, so this list can be empty for that reason alone.'
+                                : 'Recordings you have already watched are hidden, so this list can be empty for that reason alone.'}
+                        </p>
+                    )}
+                </>
             )}
         </div>
     )
