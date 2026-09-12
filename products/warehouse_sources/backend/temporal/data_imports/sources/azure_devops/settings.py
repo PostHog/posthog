@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # - pull_requests/commits/teams/team_members: $top/$skip offset paging
 # - work_item_revisions: body continuationToken + isLastBatch (reporting endpoint)
 # - repositories/pull request threads/reviewers: single response per parent
-@dataclass
+@dataclass(frozen=True)
 class AzureDevOpsEndpointConfig:
     name: str
     # Path template under https://dev.azure.com/{organization}. `{project}`,
