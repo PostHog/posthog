@@ -111,6 +111,53 @@ describe('SegmentDestinationExecutorService', () => {
             `)
         })
 
+        it.each([
+            [
+                'log a rejection carried in a 2xx body',
+                JSON.stringify({ code: 400, error: 'invalid email' }),
+                [
+                    'HTTP request completed with status 200 but the response reports a failure ({"code":400,"error":"invalid email"}).',
+                ],
+            ],
+            [
+                'report only the conventional error fields, not the whole body',
+                JSON.stringify({ ok: false, msg: 'rejected', account: { email: 'someone@example.com' } }),
+                [
+                    'HTTP request completed with status 200 but the response reports a failure ({"msg":"rejected"}).',
+                ],
+            ],
+            [
+                'stay quiet for a lookup response that carries a person record',
+                JSON.stringify({ success: true, data: { name: 'Someone', email: 'someone@example.com' } }),
+                [],
+            ],
+            ['stay quiet when a 2xx body is empty', '', []],
+        ])('should %s', async (_name, responseText, expectedLogs) => {
+            const fn = createHogFunction({
+                name: 'Plugin test',
+                template_id: 'segment-actions-amplitude',
+            })
+
+            const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
+
+            mockFetch.mockResolvedValue({
+                status: 200,
+                json: () => Promise.resolve(responseText === '' ? undefined : parseJSON(responseText)),
+                text: () => Promise.resolve(responseText),
+                headers: {},
+                dump: () => Promise.resolve(),
+            })
+
+            const result = await service.execute(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(
+                result.logs
+                    .map((x) => x.message)
+                    .filter((x) => typeof x === 'string' && x.startsWith('HTTP request completed'))
+            ).toEqual(expectedLogs)
+        })
+
         it('should handle non retryable fetch errors', async () => {
             jest.spyOn(amplitudeAction as any, 'perform')
 

@@ -49,6 +49,12 @@ export interface ModifiedResponse<T = unknown> extends Omit<Response, 'headers'>
 // Guards against recursing into a cyclic or pathologically deep payload
 const MAX_OMIT_EMPTY_VALUES_DEPTH = 10
 
+// A vendor rejection message is short, so this is enough to read one
+const MAX_LOGGED_RESPONSE_LENGTH = 256
+
+const truncateForLog = (text: string): string =>
+    text.length > MAX_LOGGED_RESPONSE_LENGTH ? `${text.slice(0, MAX_LOGGED_RESPONSE_LENGTH)}... [truncated]` : text
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> => {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
         return false
@@ -82,6 +88,79 @@ const omitEmptyValues = (value: unknown, depth = 0): unknown => {
         result[key] = omitEmptyValues(item, depth + 1)
     }
     return result
+}
+
+// Fields a vendor conventionally uses to report a rejection inside a 2xx body
+const REJECTION_SUMMARY_KEYS = [
+    'code',
+    'status',
+    'error',
+    'errors',
+    'message',
+    'msg',
+    'detail',
+    'failCount',
+    'failure',
+    'failures',
+]
+
+const ACCEPTED_STATUS_WORDS = ['ok', 'success', 'succeeded', 'accepted', 'queued', 'processed', 'sent', '200']
+
+const hasRejectionMarker = (body: Record<string, unknown>): boolean => {
+    if (body.success === false || body.ok === false) {
+        return true
+    }
+
+    for (const key of ['error', 'errors', 'failure', 'failures']) {
+        const value = body[key]
+        const isEmpty = value === undefined || value === null || value === '' || (Array.isArray(value) && !value.length)
+        if (!isEmpty) {
+            return true
+        }
+    }
+
+    if (typeof body.failCount === 'number' && body.failCount > 0) {
+        return true
+    }
+
+    return ['code', 'status', 'statusCode'].some((key) => {
+        const value = body[key]
+        if (typeof value === 'number') {
+            return value >= 400
+        }
+        return typeof value === 'string' && value !== '' && !ACCEPTED_STATUS_WORDS.includes(value.toLowerCase())
+    })
+}
+
+/**
+ * The conventional error fields of a 2xx body that reports a rejection, or null for a body that
+ * reports none.
+ *
+ * A success body often holds the person's own record, and every log entry is kept for 90 days, so
+ * the whole body must never be logged. Reading an allowlist of keys surfaces the rejection without
+ * copying the record.
+ */
+const summarizeRejection = (text: string): string | null => {
+    let body: unknown
+    try {
+        body = parseJSON(text)
+    } catch {
+        return null
+    }
+
+    if (!isPlainObject(body) || !hasRejectionMarker(body)) {
+        return null
+    }
+
+    const summary: Record<string, unknown> = {}
+    for (const key of REJECTION_SUMMARY_KEYS) {
+        const value = body[key]
+        if (value !== undefined && value !== null && value !== '') {
+            summary[key] = value
+        }
+    }
+
+    return JSON.stringify(summary)
 }
 
 const convertFetchResponse = <Data = unknown>(response: FetchResponse, text: string): ModifiedResponse<Data> => {
@@ -336,6 +415,20 @@ export class SegmentDestinationExecutorService {
                                 `Error executing function on event ${
                                     invocation.state.globals.event.uuid
                                 }: Request failed with status ${fetchResponse?.status} (${reportableResponseText})`
+                            )
+                        }
+                    } else {
+                        // A vendor can answer 2xx and still reject the event in the body, which
+                        // would otherwise end on a log line that reads like a clean delivery.
+                        const rejection = summarizeRejection(fetchResponseText)
+                        if (rejection) {
+                            addLog(
+                                'warn',
+                                `HTTP request completed with status ${
+                                    fetchResponse.status
+                                } but the response reports a failure (${truncateForLog(
+                                    redactSensitiveValues(rejection, sensitiveValues)
+                                )}).`
                             )
                         }
                     }

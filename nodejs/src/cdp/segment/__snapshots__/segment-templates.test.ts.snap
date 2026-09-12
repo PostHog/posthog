@@ -648,7 +648,7 @@ Last-Modified: 02.01.2024 10.30.43
           "type": "dictionary",
         },
         {
-          "default": "{person.properties.email ?? person.properties.email}",
+          "default": "{person.properties.email}",
           "description": "The field to be used to uniquely identify the Recipient in Acoustic. This field is required with Email preferred but not required.",
           "key": "uniqueRecipientId",
           "label": "UniqueRecipientId",
@@ -780,7 +780,7 @@ exports[`segment templates template segment-actions-airship matches expected res
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The identifier assigned in Airship as the Named User",
           "key": "named_user_id",
           "label": "Airship Named User ID",
@@ -860,7 +860,7 @@ exports[`segment templates template segment-actions-airship matches expected res
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The identifier assigned in Airship as the Named User",
           "key": "named_user_id",
           "label": "Airship Named User ID",
@@ -1033,7 +1033,7 @@ exports[`segment templates template segment-actions-algolia-insights matches exp
           "type": "string",
         },
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID associated with the user.",
           "key": "userToken",
           "label": "User Token",
@@ -1182,7 +1182,7 @@ exports[`segment templates template segment-actions-algolia-insights matches exp
           "type": "string",
         },
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID associated with the user.",
           "key": "userToken",
           "label": "User Token",
@@ -1349,7 +1349,7 @@ exports[`segment templates template segment-actions-algolia-insights matches exp
           "type": "string",
         },
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID associated with the user.",
           "key": "userToken",
           "label": "User Token",
@@ -1497,7 +1497,7 @@ exports[`segment templates template segment-actions-algolia-insights matches exp
           "type": "string",
         },
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID associated with the user.",
           "key": "userToken",
           "label": "User Token",
@@ -1627,7 +1627,7 @@ exports[`segment templates template segment-actions-algolia-insights matches exp
           "type": "string",
         },
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID associated with the user.",
           "key": "userToken",
           "label": "User Token",
@@ -1793,7 +1793,7 @@ exports[`segment templates template segment-actions-amplitude matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A readable ID specified by you. Must have a minimum length of 5 characters. Required unless device ID is present. **Note:** If you send a request with a user ID that is not in the Amplitude system yet, then the user tied to that ID will not be marked new until their first event.",
           "key": "user_id",
           "label": "User ID",
@@ -1802,7 +1802,7 @@ exports[`segment templates template segment-actions-amplitude matches expected r
           "type": "string",
         },
         {
-          "default": "{event.properties.$device_id ?? event.distinct_id}",
+          "default": "{event.properties.$device_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A device-specific identifier, such as the Identifier for Vendor on iOS. Required unless user ID is present. If a device ID is not sent with the event, it will be set to a hashed version of the user ID.",
           "key": "device_id",
           "label": "Device ID",
@@ -2270,7 +2270,7 @@ exports[`segment templates template segment-actions-amplitude matches expected r
           "type": "boolean",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A readable ID specified by you. Must have a minimum length of 5 characters. Required unless device ID is present. **Note:** If you send a request with a user ID that is not in the Amplitude system yet, then the user tied to that ID will not be marked new until their first event.",
           "key": "user_id",
           "label": "User ID",
@@ -2279,7 +2279,7 @@ exports[`segment templates template segment-actions-amplitude matches expected r
           "type": "string",
         },
         {
-          "default": "{event.properties.$device_id ?? event.distinct_id}",
+          "default": "{event.properties.$device_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A device-specific identifier, such as the Identifier for Vendor on iOS. Required unless user ID is present. If a device ID is not sent with the event, it will be set to a hashed version of the user ID.",
           "key": "device_id",
           "label": "Device ID",
@@ -2721,7 +2721,7 @@ exports[`segment templates template segment-actions-amplitude matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A readable ID specified by you. Must have a minimum length of 5 characters. Required unless device ID is present. **Note:** If you send a request with a user ID that is not in the Amplitude system yet, then the user tied to that ID will not be marked new until their first event.",
           "key": "user_id",
           "label": "User ID",
@@ -2730,7 +2730,7 @@ exports[`segment templates template segment-actions-amplitude matches expected r
           "type": "string",
         },
         {
-          "default": "{event.properties.$device_id ?? event.distinct_id}",
+          "default": "{event.properties.$device_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A device-specific identifier, such as the Identifier for Vendor on iOS. Required unless user ID is present. If a device ID is not sent with the event, it will be set to a hashed version of the user ID.",
           "key": "device_id",
           "label": "Device ID",
@@ -3189,7 +3189,7 @@ exports[`segment templates template segment-actions-amplitude matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A readable ID specified by you. Must have a minimum length of 5 characters. Required unless device ID is present. **Note:** If you send a request with a user ID that is not in the Amplitude system yet, then the user tied to that ID will not be marked new until their first event.",
           "key": "user_id",
           "label": "User ID",
@@ -3198,7 +3198,7 @@ exports[`segment templates template segment-actions-amplitude matches expected r
           "type": "string",
         },
         {
-          "default": "{event.properties.$device_id ?? event.distinct_id}",
+          "default": "{event.properties.$device_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A device-specific identifier, such as the Identifier for Vendor on iOS. Required unless user ID is present. If a device ID is not sent with the event, it will be set to a hashed version of the user ID.",
           "key": "device_id",
           "label": "Device ID",
@@ -3657,7 +3657,7 @@ exports[`segment templates template segment-actions-amplitude matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A UUID (unique user ID) specified by you. **Note:** If you send a request with a user ID that is not in the Amplitude system yet, then the user tied to that ID will not be marked new until their first event. Required unless device ID is present.",
           "key": "user_id",
           "label": "User ID",
@@ -3666,7 +3666,7 @@ exports[`segment templates template segment-actions-amplitude matches expected r
           "type": "string",
         },
         {
-          "default": "{event.properties.$device_id ?? event.distinct_id}",
+          "default": "{event.properties.$device_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A device specific identifier, such as the Identifier for Vendor (IDFV) on iOS. Required unless user ID is present.",
           "key": "device_id",
           "label": "Device ID",
@@ -4017,7 +4017,7 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
             "hashed_first_name": "{person.properties.hashed_first_name}",
             "hashed_last_name": "{person.properties.hashed_last_name}",
             "hashed_phone": "{person.properties.hashed_phone}",
-            "id": "{person.id ?? person.properties.id}",
+            "id": "{event.distinct_id ?? person.properties.id}",
             "last_name": "{person.properties.last_name}",
             "last_order_id": "{person.properties.last_order_id}",
             "last_order_name": "{person.properties.last_order_name}",
@@ -4175,12 +4175,12 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
-            "clientId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
+            "clientId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "fbc": "{event.properties.fbc}",
             "fbp": "{event.properties.fbp}",
             "ga": "{event.properties.ga}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Identifiers for the user",
           "key": "identifiers",
@@ -4212,11 +4212,11 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "dob": "{person.properties.birthday ?? person.properties.birthday}",
-            "email": "{person.properties.email ?? person.properties.email}",
-            "firstName": "{person.properties.first_name ?? person.properties.first_name}",
-            "lastName": "{person.properties.last_name ?? person.properties.last_name}",
-            "phone": "{person.properties.phone ?? person.properties.phone}",
+            "dob": "{person.properties.birthday}",
+            "email": "{person.properties.email}",
+            "firstName": "{person.properties.first_name}",
+            "lastName": "{person.properties.last_name}",
+            "phone": "{person.properties.phone}",
           },
           "description": "Customer details",
           "key": "customer",
@@ -4346,12 +4346,12 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
-            "clientId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
+            "clientId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "fbc": "{event.properties.fbc}",
             "fbp": "{event.properties.fbp}",
             "ga": "{event.properties.ga}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Identifiers for the user",
           "key": "identifiers",
@@ -4383,11 +4383,11 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "dob": "{person.properties.birthday ?? person.properties.birthday}",
-            "email": "{person.properties.email ?? person.properties.email}",
-            "firstName": "{person.properties.first_name ?? person.properties.first_name}",
-            "lastName": "{person.properties.last_name ?? person.properties.last_name}",
-            "phone": "{person.properties.phone ?? person.properties.phone}",
+            "dob": "{person.properties.birthday}",
+            "email": "{person.properties.email}",
+            "firstName": "{person.properties.first_name}",
+            "lastName": "{person.properties.last_name}",
+            "phone": "{person.properties.phone}",
           },
           "description": "Customer details",
           "key": "customer",
@@ -4517,12 +4517,12 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
-            "clientId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
+            "clientId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "fbc": "{event.properties.fbc}",
             "fbp": "{event.properties.fbp}",
             "ga": "{event.properties.ga}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Identifiers for the user",
           "key": "identifiers",
@@ -4554,11 +4554,11 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "dob": "{person.properties.birthday ?? person.properties.birthday}",
-            "email": "{person.properties.email ?? person.properties.email}",
-            "firstName": "{person.properties.first_name ?? person.properties.first_name}",
-            "lastName": "{person.properties.last_name ?? person.properties.last_name}",
-            "phone": "{person.properties.phone ?? person.properties.phone}",
+            "dob": "{person.properties.birthday}",
+            "email": "{person.properties.email}",
+            "firstName": "{person.properties.first_name}",
+            "lastName": "{person.properties.last_name}",
+            "phone": "{person.properties.phone}",
           },
           "description": "Customer details",
           "key": "customer",
@@ -4749,12 +4749,12 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
-            "clientId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
+            "clientId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "fbc": "{event.properties.fbc}",
             "fbp": "{event.properties.fbp}",
             "ga": "{event.properties.ga}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Identifiers for the user",
           "key": "identifiers",
@@ -4786,11 +4786,11 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "dob": "{person.properties.birthday ?? person.properties.birthday}",
-            "email": "{person.properties.email ?? person.properties.email}",
-            "firstName": "{person.properties.first_name ?? person.properties.first_name}",
-            "lastName": "{person.properties.last_name ?? person.properties.last_name}",
-            "phone": "{person.properties.phone ?? person.properties.phone}",
+            "dob": "{person.properties.birthday}",
+            "email": "{person.properties.email}",
+            "firstName": "{person.properties.first_name}",
+            "lastName": "{person.properties.last_name}",
+            "phone": "{person.properties.phone}",
           },
           "description": "Customer details",
           "key": "customer",
@@ -4981,12 +4981,12 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
-            "clientId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
+            "clientId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "fbc": "{event.properties.fbc}",
             "fbp": "{event.properties.fbp}",
             "ga": "{event.properties.ga}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Identifiers for the user",
           "key": "identifiers",
@@ -5018,11 +5018,11 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "dob": "{person.properties.birthday ?? person.properties.birthday}",
-            "email": "{person.properties.email ?? person.properties.email}",
-            "firstName": "{person.properties.first_name ?? person.properties.first_name}",
-            "lastName": "{person.properties.last_name ?? person.properties.last_name}",
-            "phone": "{person.properties.phone ?? person.properties.phone}",
+            "dob": "{person.properties.birthday}",
+            "email": "{person.properties.email}",
+            "firstName": "{person.properties.first_name}",
+            "lastName": "{person.properties.last_name}",
+            "phone": "{person.properties.phone}",
           },
           "description": "Customer details",
           "key": "customer",
@@ -5213,12 +5213,12 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
-            "clientId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
+            "clientId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "fbc": "{event.properties.fbc}",
             "fbp": "{event.properties.fbp}",
             "ga": "{event.properties.ga}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Identifiers for the user",
           "key": "identifiers",
@@ -5250,11 +5250,11 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "dob": "{person.properties.birthday ?? person.properties.birthday}",
-            "email": "{person.properties.email ?? person.properties.email}",
-            "firstName": "{person.properties.first_name ?? person.properties.first_name}",
-            "lastName": "{person.properties.last_name ?? person.properties.last_name}",
-            "phone": "{person.properties.phone ?? person.properties.phone}",
+            "dob": "{person.properties.birthday}",
+            "email": "{person.properties.email}",
+            "firstName": "{person.properties.first_name}",
+            "lastName": "{person.properties.last_name}",
+            "phone": "{person.properties.phone}",
           },
           "description": "Customer details",
           "key": "customer",
@@ -5445,12 +5445,12 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
-            "clientId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
+            "clientId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "fbc": "{event.properties.fbc}",
             "fbp": "{event.properties.fbp}",
             "ga": "{event.properties.ga}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Identifiers for the user",
           "key": "identifiers",
@@ -5482,11 +5482,11 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "dob": "{person.properties.birthday ?? person.properties.birthday}",
-            "email": "{person.properties.email ?? person.properties.email}",
-            "firstName": "{person.properties.first_name ?? person.properties.first_name}",
-            "lastName": "{person.properties.last_name ?? person.properties.last_name}",
-            "phone": "{person.properties.phone ?? person.properties.phone}",
+            "dob": "{person.properties.birthday}",
+            "email": "{person.properties.email}",
+            "firstName": "{person.properties.first_name}",
+            "lastName": "{person.properties.last_name}",
+            "phone": "{person.properties.phone}",
           },
           "description": "Customer details",
           "key": "customer",
@@ -5677,12 +5677,12 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
-            "clientId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
+            "clientId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "fbc": "{event.properties.fbc}",
             "fbp": "{event.properties.fbp}",
             "ga": "{event.properties.ga}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Identifiers for the user",
           "key": "identifiers",
@@ -5714,11 +5714,11 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "dob": "{person.properties.birthday ?? person.properties.birthday}",
-            "email": "{person.properties.email ?? person.properties.email}",
-            "firstName": "{person.properties.first_name ?? person.properties.first_name}",
-            "lastName": "{person.properties.last_name ?? person.properties.last_name}",
-            "phone": "{person.properties.phone ?? person.properties.phone}",
+            "dob": "{person.properties.birthday}",
+            "email": "{person.properties.email}",
+            "firstName": "{person.properties.first_name}",
+            "lastName": "{person.properties.last_name}",
+            "phone": "{person.properties.phone}",
           },
           "description": "Customer details",
           "key": "customer",
@@ -5909,12 +5909,12 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
-            "clientId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
+            "clientId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "fbc": "{event.properties.fbc}",
             "fbp": "{event.properties.fbp}",
             "ga": "{event.properties.ga}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Identifiers for the user",
           "key": "identifiers",
@@ -5946,11 +5946,11 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "dob": "{person.properties.birthday ?? person.properties.birthday}",
-            "email": "{person.properties.email ?? person.properties.email}",
-            "firstName": "{person.properties.first_name ?? person.properties.first_name}",
-            "lastName": "{person.properties.last_name ?? person.properties.last_name}",
-            "phone": "{person.properties.phone ?? person.properties.phone}",
+            "dob": "{person.properties.birthday}",
+            "email": "{person.properties.email}",
+            "firstName": "{person.properties.first_name}",
+            "lastName": "{person.properties.last_name}",
+            "phone": "{person.properties.phone}",
           },
           "description": "Customer details",
           "key": "customer",
@@ -6097,12 +6097,12 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
-            "clientId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
+            "clientId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "fbc": "{event.properties.fbc}",
             "fbp": "{event.properties.fbp}",
             "ga": "{event.properties.ga}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Identifiers for the user",
           "key": "identifiers",
@@ -6134,11 +6134,11 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "dob": "{person.properties.birthday ?? person.properties.birthday}",
-            "email": "{person.properties.email ?? person.properties.email}",
-            "firstName": "{person.properties.first_name ?? person.properties.first_name}",
-            "lastName": "{person.properties.last_name ?? person.properties.last_name}",
-            "phone": "{person.properties.phone ?? person.properties.phone}",
+            "dob": "{person.properties.birthday}",
+            "email": "{person.properties.email}",
+            "firstName": "{person.properties.first_name}",
+            "lastName": "{person.properties.last_name}",
+            "phone": "{person.properties.phone}",
           },
           "description": "Customer details",
           "key": "customer",
@@ -6282,12 +6282,12 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
-            "clientId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
+            "clientId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "fbc": "{event.properties.fbc}",
             "fbp": "{event.properties.fbp}",
             "ga": "{event.properties.ga}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Identifiers for the user",
           "key": "identifiers",
@@ -6319,11 +6319,11 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "dob": "{person.properties.birthday ?? person.properties.birthday}",
-            "email": "{person.properties.email ?? person.properties.email}",
-            "firstName": "{person.properties.first_name ?? person.properties.first_name}",
-            "lastName": "{person.properties.last_name ?? person.properties.last_name}",
-            "phone": "{person.properties.phone ?? person.properties.phone}",
+            "dob": "{person.properties.birthday}",
+            "email": "{person.properties.email}",
+            "firstName": "{person.properties.first_name}",
+            "lastName": "{person.properties.last_name}",
+            "phone": "{person.properties.phone}",
           },
           "description": "Customer details",
           "key": "customer",
@@ -6440,12 +6440,12 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
-            "clientId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
+            "clientId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "fbc": "{event.properties.fbc}",
             "fbp": "{event.properties.fbp}",
             "ga": "{event.properties.ga}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Identifiers for the user",
           "key": "identifiers",
@@ -6477,11 +6477,11 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "dob": "{person.properties.birthday ?? person.properties.birthday}",
-            "email": "{person.properties.email ?? person.properties.email}",
-            "firstName": "{person.properties.first_name ?? person.properties.first_name}",
-            "lastName": "{person.properties.last_name ?? person.properties.last_name}",
-            "phone": "{person.properties.phone ?? person.properties.phone}",
+            "dob": "{person.properties.birthday}",
+            "email": "{person.properties.email}",
+            "firstName": "{person.properties.first_name}",
+            "lastName": "{person.properties.last_name}",
+            "phone": "{person.properties.phone}",
           },
           "description": "Customer details",
           "key": "customer",
@@ -6598,12 +6598,12 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
-            "clientId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
+            "clientId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "fbc": "{event.properties.fbc}",
             "fbp": "{event.properties.fbp}",
             "ga": "{event.properties.ga}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Identifiers for the user",
           "key": "identifiers",
@@ -6635,11 +6635,11 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "dob": "{person.properties.birthday ?? person.properties.birthday}",
-            "email": "{person.properties.email ?? person.properties.email}",
-            "firstName": "{person.properties.first_name ?? person.properties.first_name}",
-            "lastName": "{person.properties.last_name ?? person.properties.last_name}",
-            "phone": "{person.properties.phone ?? person.properties.phone}",
+            "dob": "{person.properties.birthday}",
+            "email": "{person.properties.email}",
+            "firstName": "{person.properties.first_name}",
+            "lastName": "{person.properties.last_name}",
+            "phone": "{person.properties.phone}",
           },
           "description": "Customer details",
           "key": "customer",
@@ -6785,12 +6785,12 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
-            "clientId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
+            "clientId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "fbc": "{event.properties.fbc}",
             "fbp": "{event.properties.fbp}",
             "ga": "{event.properties.ga}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Identifiers for the user",
           "key": "identifiers",
@@ -6822,11 +6822,11 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
         },
         {
           "default": {
-            "dob": "{person.properties.birthday ?? person.properties.birthday}",
-            "email": "{person.properties.email ?? person.properties.email}",
-            "firstName": "{person.properties.first_name ?? person.properties.first_name}",
-            "lastName": "{person.properties.last_name ?? person.properties.last_name}",
-            "phone": "{person.properties.phone ?? person.properties.phone}",
+            "dob": "{person.properties.birthday}",
+            "email": "{person.properties.email}",
+            "firstName": "{person.properties.first_name}",
+            "lastName": "{person.properties.last_name}",
+            "phone": "{person.properties.phone}",
           },
           "description": "Customer details",
           "key": "customer",
@@ -7083,7 +7083,7 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
           "type": "string",
         },
         {
-          "default": "{person.id ?? person.properties.id}",
+          "default": "{event.distinct_id ?? person.properties.id}",
           "description": "A unique identifier for the customer.",
           "key": "customer_id",
           "label": "Customer ID",
@@ -7488,7 +7488,7 @@ exports[`segment templates template segment-actions-attentive matches expected r
         },
         {
           "default": {
-            "clientUserId": "{person.id}",
+            "clientUserId": "{event.distinct_id}",
             "email": "{person.properties.email ?? event.properties.email}",
             "phone": "{person.properties.phone ?? event.properties.phone}",
           },
@@ -7606,7 +7606,7 @@ exports[`segment templates template segment-actions-blend-ai matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.event ?? event.event}",
+          "default": "{event.event}",
           "description": "The name of event, page or screen",
           "key": "eventName",
           "label": "Event Name",
@@ -7645,8 +7645,8 @@ exports[`segment templates template segment-actions-blend-ai matches expected re
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
-            "userId": "{person.id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "User identifiers",
           "key": "identifiers",
@@ -7762,7 +7762,7 @@ exports[`segment templates template segment-actions-canny matches expected resul
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The unique identifier of the user.",
           "key": "userId",
           "label": "User ID",
@@ -7813,7 +7813,7 @@ exports[`segment templates template segment-actions-canny matches expected resul
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A distinct ID of an identified (logged in) user.",
           "key": "userId",
           "label": "User ID",
@@ -7955,7 +7955,7 @@ exports[`segment templates template segment-actions-canvas matches expected resu
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The anonymous ID associated with the user",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -8000,7 +8000,7 @@ exports[`segment templates template segment-actions-canvas matches expected resu
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user's id",
           "key": "user_id",
           "label": "User ID",
@@ -8073,7 +8073,7 @@ exports[`segment templates template segment-actions-canvas matches expected resu
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The anonymous ID associated with the user",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -8118,7 +8118,7 @@ exports[`segment templates template segment-actions-canvas matches expected resu
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user's id",
           "key": "user_id",
           "label": "User ID",
@@ -8200,7 +8200,7 @@ exports[`segment templates template segment-actions-canvas matches expected resu
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The anonymous ID associated with the user",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -8245,7 +8245,7 @@ exports[`segment templates template segment-actions-canvas matches expected resu
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user's id",
           "key": "user_id",
           "label": "User ID",
@@ -8327,7 +8327,7 @@ exports[`segment templates template segment-actions-canvas matches expected resu
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The anonymous ID associated with the user",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -8372,7 +8372,7 @@ exports[`segment templates template segment-actions-canvas matches expected resu
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user's id",
           "key": "user_id",
           "label": "User ID",
@@ -8454,7 +8454,7 @@ exports[`segment templates template segment-actions-canvas matches expected resu
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The anonymous ID associated with the user",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -8499,7 +8499,7 @@ exports[`segment templates template segment-actions-canvas matches expected resu
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user's id",
           "key": "user_id",
           "label": "User ID",
@@ -8625,7 +8625,7 @@ exports[`segment templates template segment-actions-clevertap matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID of the profile which you want to delete",
           "key": "identity",
           "label": "Identity",
@@ -8696,7 +8696,7 @@ exports[`segment templates template segment-actions-clevertap matches expected r
           "type": "dictionary",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The Id used to uniquely identify a person in CleverTap",
           "key": "identity",
           "label": "Identity",
@@ -8782,7 +8782,7 @@ exports[`segment templates template segment-actions-cloud-gwen matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user's id. (Format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)",
           "key": "userId",
           "label": "User ID",
@@ -8853,7 +8853,7 @@ exports[`segment templates template segment-actions-cloud-gwen matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user's id. (Format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)",
           "key": "userId",
           "label": "User ID",
@@ -9197,7 +9197,7 @@ exports[`segment templates template segment-actions-fullstory-cloud matches expe
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user's id",
           "key": "userId",
           "label": "User ID",
@@ -9295,7 +9295,7 @@ exports[`segment templates template segment-actions-fullstory-cloud matches expe
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user's id",
           "key": "uid",
           "label": "User ID",
@@ -9304,7 +9304,7 @@ exports[`segment templates template segment-actions-fullstory-cloud matches expe
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The user's anonymous id",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -9448,7 +9448,7 @@ exports[`segment templates template segment-actions-gameball matches expected re
           "type": "dictionary",
         },
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Unique identifier for the player in your database.",
           "key": "playerUniqueId",
           "label": "Player ID",
@@ -9517,7 +9517,7 @@ exports[`segment templates template segment-actions-gameball matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Unique identifier for the player in your database.",
           "key": "playerUniqueId",
           "label": "Player ID",
@@ -9741,7 +9741,7 @@ exports[`segment templates template segment-actions-gameball matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Unique identifier for the player in your database.",
           "key": "playerUniqueId",
           "label": "Player ID",
@@ -10045,7 +10045,7 @@ exports[`segment templates template segment-actions-hilo matches expected result
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An anonymous identifier",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -10083,7 +10083,7 @@ exports[`segment templates template segment-actions-hilo matches expected result
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -10134,7 +10134,7 @@ exports[`segment templates template segment-actions-hilo matches expected result
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An anonymous identifier",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -10172,7 +10172,7 @@ exports[`segment templates template segment-actions-hilo matches expected result
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -10223,7 +10223,7 @@ exports[`segment templates template segment-actions-hilo matches expected result
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An anonymous identifier",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -10261,7 +10261,7 @@ exports[`segment templates template segment-actions-hilo matches expected result
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -10312,7 +10312,7 @@ exports[`segment templates template segment-actions-hilo matches expected result
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An anonymous identifier",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -10341,7 +10341,7 @@ exports[`segment templates template segment-actions-hilo matches expected result
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -10392,7 +10392,7 @@ exports[`segment templates template segment-actions-hilo matches expected result
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An anonymous identifier",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -10430,7 +10430,7 @@ exports[`segment templates template segment-actions-hilo matches expected result
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -10534,7 +10534,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user id, to uniquely identify the user associated with the event",
           "key": "user_id",
           "label": "User id",
@@ -10563,7 +10563,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "User Anonymous id",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -10741,7 +10741,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The External ID of the user",
           "key": "user_id",
           "label": "User ID",
@@ -10815,7 +10815,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "User Anonymous id",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -11002,7 +11002,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "user_id",
           "label": "User ID",
@@ -11067,7 +11067,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "User Anonymous id",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -11379,7 +11379,7 @@ exports[`segment templates template segment-actions-insider-cloud matches expect
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "User's unique identifier. The UUID string is used as identifier when sending data to Insider. UUID is required if the Anonymous Id field is empty.",
           "key": "uuid",
           "label": "UUID",
@@ -11388,7 +11388,7 @@ exports[`segment templates template segment-actions-insider-cloud matches expect
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An Anonymous Identifier. The Anonymous Id string is used as identifier when sending data to Insider. Anonymous Id is required if the UUID field is empty.",
           "key": "segment_anonymous_id",
           "label": "Anonymous Id",
@@ -11583,7 +11583,7 @@ exports[`segment templates template segment-actions-iterable matches expected re
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A user ID that identifies a user profile in Iterable.",
           "key": "userId",
           "label": "User ID",
@@ -11699,7 +11699,7 @@ exports[`segment templates template segment-actions-iterable matches expected re
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A user ID that identifies a user profile in Iterable.",
           "key": "userId",
           "label": "User ID",
@@ -11784,7 +11784,7 @@ exports[`segment templates template segment-actions-iterable matches expected re
             "email": "{event.properties.email ?? person.properties.email}",
             "mergeNestedObjects": false,
             "phoneNumber": "{person.properties.phone}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Updates user data or adds a user if none exists",
           "key": "user",
@@ -11859,7 +11859,7 @@ exports[`segment templates template segment-actions-iterable matches expected re
             "email": "{event.properties.email ?? person.properties.email}",
             "mergeNestedObjects": false,
             "phoneNumber": "{person.properties.phone}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "Updates user data or adds a user if none exists",
           "key": "user",
@@ -12011,7 +12011,7 @@ exports[`segment templates template segment-actions-kameleoon matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Anonymous id",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -12020,7 +12020,7 @@ exports[`segment templates template segment-actions-kameleoon matches expected r
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -12029,7 +12029,7 @@ exports[`segment templates template segment-actions-kameleoon matches expected r
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.event}",
+          "default": "{event.event}",
           "description": "The event name",
           "key": "event",
           "label": "Event Name",
@@ -12136,7 +12136,7 @@ exports[`segment templates template segment-actions-kameleoon matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Anonymous id",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -12145,7 +12145,7 @@ exports[`segment templates template segment-actions-kameleoon matches expected r
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -12263,7 +12263,7 @@ exports[`segment templates template segment-actions-kameleoon matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Anonymous id",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -12272,7 +12272,7 @@ exports[`segment templates template segment-actions-kameleoon matches expected r
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -12379,7 +12379,7 @@ exports[`segment templates template segment-actions-kameleoon matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Anonymous id",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -12388,7 +12388,7 @@ exports[`segment templates template segment-actions-kameleoon matches expected r
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -12794,7 +12794,7 @@ exports[`segment templates template segment-actions-launchdarkly matches expecte
           "type": "string",
         },
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The unique LaunchDarkly context key. In most cases the Segment \`userId\` should be used.",
           "key": "user_key",
           "label": "Context Key",
@@ -12892,7 +12892,7 @@ exports[`segment templates template segment-actions-launchdarkly matches expecte
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user's unique key.",
           "key": "user_key",
           "label": "User key",
@@ -12901,7 +12901,7 @@ exports[`segment templates template segment-actions-launchdarkly matches expecte
           "type": "string",
         },
         {
-          "default": "{event.previousId ?? event.distinct_id}",
+          "default": "{event.previousId ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The user's unauthenticated identifier.",
           "key": "previous_key",
           "label": "Anonymous ID",
@@ -13033,7 +13033,7 @@ exports[`segment templates template segment-actions-launchpad matches expected r
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A unique ID for a known user. This will be used as the Distinct ID. This field is required if the Anonymous ID field is empty",
           "key": "userId",
           "label": "User ID",
@@ -13042,7 +13042,7 @@ exports[`segment templates template segment-actions-launchpad matches expected r
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A unique ID for an anonymous user. This will be used as the Distinct ID if the User ID field is empty. This field is required if the User ID field is empty",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -13160,7 +13160,7 @@ exports[`segment templates template segment-actions-launchpad matches expected r
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A unique ID for a known user. This will be used as the Distinct ID. This field is required if the Anonymous ID field is empty",
           "key": "userId",
           "label": "User ID",
@@ -13169,7 +13169,7 @@ exports[`segment templates template segment-actions-launchpad matches expected r
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A unique ID for an anonymous user. This will be used as the Distinct ID if the User ID field is empty. This field is required if the User ID field is empty",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -13287,7 +13287,7 @@ exports[`segment templates template segment-actions-launchpad matches expected r
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A unique ID for a known user. This will be used as the Distinct ID. This field is required if the Anonymous ID field is empty",
           "key": "userId",
           "label": "User ID",
@@ -13296,7 +13296,7 @@ exports[`segment templates template segment-actions-launchpad matches expected r
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A unique ID for an anonymous user. This will be used as the Distinct ID if the User ID field is empty. This field is required if the User ID field is empty",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -13414,7 +13414,7 @@ exports[`segment templates template segment-actions-launchpad matches expected r
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A unique ID for a known user. This will be used as the Distinct ID. This field is required if the Anonymous ID field is empty",
           "key": "userId",
           "label": "User ID",
@@ -13423,7 +13423,7 @@ exports[`segment templates template segment-actions-launchpad matches expected r
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A unique ID for an anonymous user. This will be used as the Distinct ID if the User ID field is empty. This field is required if the User ID field is empty",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -13514,7 +13514,7 @@ exports[`segment templates template segment-actions-launchpad matches expected r
           "type": "dictionary",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A unique ID for a known user. This will be used as the Distinct ID. This field is required if the Anonymous ID field is empty",
           "key": "userId",
           "label": "User ID",
@@ -13523,7 +13523,7 @@ exports[`segment templates template segment-actions-launchpad matches expected r
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A unique ID for an anonymous user. This will be used as the Distinct ID if the User ID field is empty. This field is required if the User ID field is empty",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -13636,7 +13636,7 @@ exports[`segment templates template segment-actions-livelike-cloud matches expec
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A unique identifier for a user.",
           "key": "segment_user_id",
           "label": "User ID",
@@ -13654,7 +13654,7 @@ exports[`segment templates template segment-actions-livelike-cloud matches expec
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Segment Anonymous ID.",
           "key": "anonymous_id",
           "label": "Segment Anonymous ID",
@@ -13752,7 +13752,7 @@ exports[`segment templates template segment-actions-livelike-cloud matches expec
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A unique identifier for a user.",
           "key": "segment_user_id",
           "label": "User ID",
@@ -13770,7 +13770,7 @@ exports[`segment templates template segment-actions-livelike-cloud matches expec
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Segment Anonymous ID.",
           "key": "anonymous_id",
           "label": "Segment Anonymous ID",
@@ -13868,7 +13868,7 @@ exports[`segment templates template segment-actions-livelike-cloud matches expec
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A unique identifier for a user.",
           "key": "segment_user_id",
           "label": "User ID",
@@ -13886,7 +13886,7 @@ exports[`segment templates template segment-actions-livelike-cloud matches expec
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Segment Anonymous ID.",
           "key": "anonymous_id",
           "label": "Segment Anonymous ID",
@@ -14282,7 +14282,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A distinct ID specified by you.",
           "key": "distinct_id",
           "label": "Distinct ID",
@@ -14291,7 +14291,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A distinct ID randomly generated prior to calling identify.",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -14300,7 +14300,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The distinct ID after calling identify.",
           "key": "user_id",
           "label": "User ID",
@@ -14624,7 +14624,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.event}",
+          "default": "{event.event}",
           "description": "The Event Original Name, if applicable",
           "key": "name",
           "label": "Event Original Name",
@@ -14739,7 +14739,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "boolean",
         },
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A distinct ID specified by you.",
           "key": "distinct_id",
           "label": "Distinct ID",
@@ -14748,7 +14748,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A distinct ID randomly generated prior to calling identify.",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -14757,7 +14757,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The distinct ID after calling identify.",
           "key": "user_id",
           "label": "User ID",
@@ -15081,7 +15081,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.event}",
+          "default": "{event.event}",
           "description": "The Event Original Name, if applicable",
           "key": "name",
           "label": "Event Original Name",
@@ -15214,7 +15214,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A distinct ID specified by you.",
           "key": "distinct_id",
           "label": "Distinct ID",
@@ -15223,7 +15223,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A distinct ID randomly generated prior to calling identify.",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -15232,7 +15232,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The distinct ID after calling identify.",
           "key": "user_id",
           "label": "User ID",
@@ -15556,7 +15556,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.event}",
+          "default": "{event.event}",
           "description": "The Event Original Name, if applicable",
           "key": "name",
           "label": "Event Original Name",
@@ -15671,7 +15671,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A distinct ID specified by you.",
           "key": "distinct_id",
           "label": "Distinct ID",
@@ -15680,7 +15680,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A distinct ID randomly generated prior to calling identify.",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -15689,7 +15689,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The distinct ID after calling identify.",
           "key": "user_id",
           "label": "User ID",
@@ -16013,7 +16013,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.event}",
+          "default": "{event.event}",
           "description": "The Event Original Name, if applicable",
           "key": "name",
           "label": "Event Original Name",
@@ -16128,7 +16128,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The unique user identifier set by you",
           "key": "user_id",
           "label": "User ID",
@@ -16137,7 +16137,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The generated anonymous ID for the user",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -16360,7 +16360,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "User Identifier for the platform. The length should not exceed 128 characters.",
           "key": "user_id",
           "label": "User ID",
@@ -16387,7 +16387,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Identifier for tracking users regardless of sign-in status. The length should not exceed 128 characters.",
           "key": "session_id",
           "label": "Session ID",
@@ -16608,7 +16608,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "User Identifier for the platform. The length should not exceed 128 characters.",
           "key": "user_id",
           "label": "User ID",
@@ -16635,7 +16635,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Identifier for tracking users regardless of sign-in status. The length should not exceed 128 characters.",
           "key": "session_id",
           "label": "Session ID",
@@ -16862,7 +16862,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "User Identifier for the platform. The length should not exceed 128 characters.",
           "key": "user_id",
           "label": "User ID",
@@ -16889,7 +16889,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Identifier for tracking users regardless of sign-in status. The length should not exceed 128 characters.",
           "key": "session_id",
           "label": "Session ID",
@@ -17101,7 +17101,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "User Identifier for the platform. The length should not exceed 128 characters.",
           "key": "user_id",
           "label": "User ID",
@@ -17128,7 +17128,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Identifier for tracking users regardless of sign-in status. The length should not exceed 128 characters.",
           "key": "session_id",
           "label": "Session ID",
@@ -17340,7 +17340,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "User Identifier for the platform. The length should not exceed 128 characters.",
           "key": "user_id",
           "label": "User ID",
@@ -17367,7 +17367,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Identifier for tracking users regardless of sign-in status. The length should not exceed 128 characters.",
           "key": "session_id",
           "label": "Session ID",
@@ -17570,7 +17570,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "User Identifier for the platform. The length should not exceed 128 characters.",
           "key": "user_id",
           "label": "User ID",
@@ -17597,7 +17597,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Identifier for tracking users regardless of sign-in status. The length should not exceed 128 characters.",
           "key": "session_id",
           "label": "Session ID",
@@ -17800,7 +17800,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "User Identifier for the platform. The length should not exceed 128 characters.",
           "key": "user_id",
           "label": "User ID",
@@ -17827,7 +17827,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Identifier for tracking users regardless of sign-in status. The length should not exceed 128 characters.",
           "key": "session_id",
           "label": "Session ID",
@@ -18042,7 +18042,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "User Identifier for the platform. The length should not exceed 128 characters.",
           "key": "user_id",
           "label": "User ID",
@@ -18069,7 +18069,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Identifier for tracking users regardless of sign-in status. The length should not exceed 128 characters.",
           "key": "session_id",
           "label": "Session ID",
@@ -18313,12 +18313,12 @@ exports[`segment templates template segment-actions-optimizely-data-platform mat
       "inputs_schema": [
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "email": "{event.properties.email ?? person.properties.email}",
-            "fs_user_id": "{person.id}",
+            "fs_user_id": "{event.distinct_id}",
             "optimizely_vuid": "{event.properties.optimizely_vuid ?? person.properties.optimizely_vuid}",
-            "userId": "{person.id}",
-            "web_user_id": "{person.id}",
+            "userId": "{event.distinct_id}",
+            "web_user_id": "{event.distinct_id}",
           },
           "description": "User identifier details to send to Optimizely. ",
           "key": "user_identifiers",
@@ -18425,12 +18425,12 @@ exports[`segment templates template segment-actions-optimizely-data-platform mat
       "inputs_schema": [
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "email": "{event.properties.email ?? person.properties.email}",
-            "fs_user_id": "{person.id}",
+            "fs_user_id": "{event.distinct_id}",
             "optimizely_vuid": "{event.properties.optimizely_vuid ?? person.properties.optimizely_vuid}",
-            "userId": "{person.id}",
-            "web_user_id": "{person.id}",
+            "userId": "{event.distinct_id}",
+            "web_user_id": "{event.distinct_id}",
           },
           "description": "User identifier details to send to Optimizely. ",
           "key": "user_identifiers",
@@ -18537,12 +18537,12 @@ exports[`segment templates template segment-actions-optimizely-data-platform mat
       "inputs_schema": [
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "email": "{event.properties.email ?? person.properties.email}",
-            "fs_user_id": "{person.id}",
+            "fs_user_id": "{event.distinct_id}",
             "optimizely_vuid": "{event.properties.optimizely_vuid ?? person.properties.optimizely_vuid}",
-            "userId": "{person.id}",
-            "web_user_id": "{person.id}",
+            "userId": "{event.distinct_id}",
+            "web_user_id": "{event.distinct_id}",
           },
           "description": "User identifier details to send to Optimizely. ",
           "key": "user_identifiers",
@@ -18649,12 +18649,12 @@ exports[`segment templates template segment-actions-optimizely-data-platform mat
       "inputs_schema": [
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "email": "{event.properties.email ?? person.properties.email}",
-            "fs_user_id": "{person.id}",
+            "fs_user_id": "{event.distinct_id}",
             "optimizely_vuid": "{event.properties.optimizely_vuid ?? person.properties.optimizely_vuid}",
-            "userId": "{person.id}",
-            "web_user_id": "{person.id}",
+            "userId": "{event.distinct_id}",
+            "web_user_id": "{event.distinct_id}",
           },
           "description": "User identifier details to send to Optimizely. ",
           "key": "user_identifiers",
@@ -18761,12 +18761,12 @@ exports[`segment templates template segment-actions-optimizely-data-platform mat
       "inputs_schema": [
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "email": "{event.properties.email ?? person.properties.email}",
-            "fs_user_id": "{person.id}",
+            "fs_user_id": "{event.distinct_id}",
             "optimizely_vuid": "{event.properties.optimizely_vuid ?? person.properties.optimizely_vuid}",
-            "userId": "{person.id}",
-            "web_user_id": "{person.id}",
+            "userId": "{event.distinct_id}",
+            "web_user_id": "{event.distinct_id}",
           },
           "description": "User identifier details to send to Optimizely. ",
           "key": "user_identifiers",
@@ -18864,12 +18864,12 @@ exports[`segment templates template segment-actions-optimizely-data-platform mat
       "inputs_schema": [
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "email": "{event.properties.email ?? person.properties.email}",
-            "fs_user_id": "{person.id}",
+            "fs_user_id": "{event.distinct_id}",
             "optimizely_vuid": "{event.properties.optimizely_vuid ?? person.properties.optimizely_vuid}",
-            "userId": "{person.id}",
-            "web_user_id": "{person.id}",
+            "userId": "{event.distinct_id}",
+            "web_user_id": "{event.distinct_id}",
           },
           "description": "User identifier details to send to Optimizely. ",
           "key": "user_identifiers",
@@ -18967,12 +18967,12 @@ exports[`segment templates template segment-actions-optimizely-data-platform mat
       "inputs_schema": [
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "email": "{event.properties.email ?? person.properties.email}",
-            "fs_user_id": "{person.id}",
+            "fs_user_id": "{event.distinct_id}",
             "optimizely_vuid": "{event.properties.optimizely_vuid ?? person.properties.optimizely_vuid}",
-            "userId": "{person.id}",
-            "web_user_id": "{person.id}",
+            "userId": "{event.distinct_id}",
+            "web_user_id": "{event.distinct_id}",
           },
           "description": "User identifier details to send to Optimizely. ",
           "key": "user_identifiers",
@@ -19070,12 +19070,12 @@ exports[`segment templates template segment-actions-optimizely-data-platform mat
       "inputs_schema": [
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "email": "{event.properties.email ?? person.properties.email}",
-            "fs_user_id": "{person.id}",
+            "fs_user_id": "{event.distinct_id}",
             "optimizely_vuid": "{event.properties.optimizely_vuid ?? person.properties.optimizely_vuid}",
-            "userId": "{person.id}",
-            "web_user_id": "{person.id}",
+            "userId": "{event.distinct_id}",
+            "web_user_id": "{event.distinct_id}",
           },
           "description": "User identifier details to send to Optimizely. ",
           "key": "user_identifiers",
@@ -19173,12 +19173,12 @@ exports[`segment templates template segment-actions-optimizely-data-platform mat
       "inputs_schema": [
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "email": "{event.properties.email ?? person.properties.email}",
-            "fs_user_id": "{person.id}",
+            "fs_user_id": "{event.distinct_id}",
             "optimizely_vuid": "{event.properties.optimizely_vuid ?? person.properties.optimizely_vuid}",
-            "userId": "{person.id}",
-            "web_user_id": "{person.id}",
+            "userId": "{event.distinct_id}",
+            "web_user_id": "{event.distinct_id}",
           },
           "description": "User identifier details to send to Optimizely. ",
           "key": "user_identifiers",
@@ -21687,7 +21687,7 @@ exports[`segment templates template segment-actions-pipedrive matches expected r
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "Value to find existing person by",
           "key": "match_value",
           "label": "Match value",
@@ -21942,7 +21942,7 @@ exports[`segment templates template segment-actions-pipedrive matches expected r
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "Value to find existing person by",
           "key": "person_match_value",
           "label": "Person match value",
@@ -22264,7 +22264,7 @@ exports[`segment templates template segment-actions-podscribe matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The anonymous ID associated with the user",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -22406,7 +22406,7 @@ exports[`segment templates template segment-actions-podscribe matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The anonymous ID associated with the user",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -22548,7 +22548,7 @@ exports[`segment templates template segment-actions-podscribe matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The anonymous ID associated with the user",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -22719,7 +22719,7 @@ exports[`segment templates template segment-actions-prodeology matches expected 
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The anonymous ID associated with the user",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -22728,7 +22728,7 @@ exports[`segment templates template segment-actions-prodeology matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -22799,7 +22799,7 @@ exports[`segment templates template segment-actions-prodeology matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An anonymous identifier",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -22808,7 +22808,7 @@ exports[`segment templates template segment-actions-prodeology matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -22908,7 +22908,7 @@ exports[`segment templates template segment-actions-prodeology matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An anonymous identifier",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -22917,7 +22917,7 @@ exports[`segment templates template segment-actions-prodeology matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -22997,7 +22997,7 @@ exports[`segment templates template segment-actions-prodeology matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Anonymous id",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -23006,7 +23006,7 @@ exports[`segment templates template segment-actions-prodeology matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -23139,7 +23139,7 @@ exports[`segment templates template segment-actions-pushwoosh matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The unique user identifier",
           "key": "external_id",
           "label": "External User ID",
@@ -23166,7 +23166,7 @@ exports[`segment templates template segment-actions-pushwoosh matches expected r
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.event}",
+          "default": "{event.event}",
           "description": "Event Name",
           "key": "name",
           "label": "Name",
@@ -23237,7 +23237,7 @@ exports[`segment templates template segment-actions-pushwoosh matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The unique user identifier",
           "key": "external_id",
           "label": "External User ID",
@@ -23503,7 +23503,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the user who viewed the item.",
           "key": "userId",
           "label": "User ID",
@@ -23599,7 +23599,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the user who viewed the item.",
           "key": "userId",
           "label": "User ID",
@@ -23695,7 +23695,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the user who added the item to the cart.",
           "key": "userId",
           "label": "User ID",
@@ -23786,7 +23786,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the user who added the item to the cart.",
           "key": "userId",
           "label": "User ID",
@@ -23855,7 +23855,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the user who purchased the item(s).",
           "key": "userId",
           "label": "User ID",
@@ -23942,7 +23942,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the user who bookmarked the item.",
           "key": "userId",
           "label": "User ID",
@@ -24029,7 +24029,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the user who bookmarked the item.",
           "key": "userId",
           "label": "User ID",
@@ -24098,7 +24098,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the user who bookmarked the item.",
           "key": "userId",
           "label": "User ID",
@@ -24185,7 +24185,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the user who viewed a portion of the item.",
           "key": "userId",
           "label": "User ID",
@@ -24290,7 +24290,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the user who viewed a portion of the item.",
           "key": "userId",
           "label": "User ID",
@@ -24398,7 +24398,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the user who viewed a portion of the item.",
           "key": "userId",
           "label": "User ID",
@@ -24506,7 +24506,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the user who viewed a portion of the item.",
           "key": "userId",
           "label": "User ID",
@@ -24611,7 +24611,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the user who viewed the item.",
           "key": "userId",
           "label": "User ID",
@@ -24707,7 +24707,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID of the target user that will be **kept** after the merge.",
           "key": "targetUserId",
           "label": "Target User ID",
@@ -24820,7 +24820,7 @@ exports[`segment templates template segment-actions-revx matches expected result
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.event}",
+          "default": "{event.event}",
           "description": "A unique identifier for your event.",
           "key": "event_name",
           "label": "Event name",
@@ -25121,7 +25121,7 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Anonymous id",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -25130,7 +25130,7 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -25230,7 +25230,7 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An anonymous identifier",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -25239,7 +25239,7 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -25330,7 +25330,7 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An anonymous identifier",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -25339,7 +25339,7 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -25415,7 +25415,7 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
           "type": "string",
         },
         {
-          "default": "{event.properties.title ?? event.properties.title}",
+          "default": "{event.properties.title}",
           "description": "The page title",
           "key": "title",
           "label": "Page Title",
@@ -25484,7 +25484,7 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An anonymous identifier",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -25493,7 +25493,7 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "userId",
           "label": "User ID",
@@ -25665,7 +25665,7 @@ exports[`segment templates template segment-actions-saleswings matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "Permanent identifier of a Segment user the event is attributed to.",
           "key": "userID",
           "label": "Segment User ID",
@@ -25674,7 +25674,7 @@ exports[`segment templates template segment-actions-saleswings matches expected 
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A pseudo-unique substitute for a Segment user ID the event is attributed to.",
           "key": "anonymousID",
           "label": "Segment Anonymous User ID",
@@ -25799,7 +25799,7 @@ exports[`segment templates template segment-actions-saleswings matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "Permanent identifier of a Segment user the event is attributed to.",
           "key": "userID",
           "label": "Segment User ID",
@@ -25808,7 +25808,7 @@ exports[`segment templates template segment-actions-saleswings matches expected 
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A pseudo-unique substitute for a Segment user ID the event is attributed to.",
           "key": "anonymousID",
           "label": "Segment Anonymous User ID",
@@ -25915,7 +25915,7 @@ exports[`segment templates template segment-actions-saleswings matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "Permanent identifier of a Segment user the event is attributed to.",
           "key": "userID",
           "label": "Segment User ID",
@@ -25924,7 +25924,7 @@ exports[`segment templates template segment-actions-saleswings matches expected 
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A pseudo-unique substitute for a Segment user ID the event is attributed to.",
           "key": "anonymousID",
           "label": "Segment Anonymous User ID",
@@ -26029,7 +26029,7 @@ exports[`segment templates template segment-actions-saleswings matches expected 
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "Permanent identifier of a Segment user the event is attributed to.",
           "key": "userID",
           "label": "Segment User ID",
@@ -26038,7 +26038,7 @@ exports[`segment templates template segment-actions-saleswings matches expected 
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A pseudo-unique substitute for a Segment user ID the event is attributed to.",
           "key": "anonymousID",
           "label": "Segment Anonymous User ID",
@@ -26427,7 +26427,7 @@ exports[`segment templates template segment-actions-sprig matches expected resul
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The userId of the identified user.",
           "key": "userId",
           "label": "User ID",
@@ -26478,7 +26478,7 @@ exports[`segment templates template segment-actions-sprig matches expected resul
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The userId of the identified user.",
           "key": "userId",
           "label": "User ID",
@@ -26558,7 +26558,7 @@ exports[`segment templates template segment-actions-sprig matches expected resul
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The userId of the identified user.",
           "key": "userId",
           "label": "User ID",
@@ -26644,7 +26644,7 @@ exports[`segment templates template segment-actions-stackadapt-cloud matches exp
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the user in Segment",
           "key": "user_id",
           "label": "Segment User ID",
@@ -26882,7 +26882,7 @@ exports[`segment templates template segment-actions-topsort matches expected res
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Identifier for tracking users regardless of sign-in status. The length should not exceed 128 characters.",
           "key": "opaqueUserId",
           "label": "Opaque User ID",
@@ -26971,7 +26971,7 @@ exports[`segment templates template segment-actions-topsort matches expected res
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Identifier for tracking users regardless of sign-in status. The length should not exceed 128 characters.",
           "key": "opaqueUserId",
           "label": "Opaque User ID",
@@ -27060,7 +27060,7 @@ exports[`segment templates template segment-actions-topsort matches expected res
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Identifier for tracking users regardless of sign-in status. The length should not exceed 128 characters.",
           "key": "opaqueUserId",
           "label": "Opaque User ID",
@@ -27138,7 +27138,7 @@ exports[`segment templates template segment-actions-topsort matches expected res
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Identifier for tracking users regardless of sign-in status. The length should not exceed 128 characters.",
           "key": "opaqueUserId",
           "label": "Opaque User ID",
@@ -27227,7 +27227,7 @@ exports[`segment templates template segment-actions-topsort matches expected res
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Identifier for tracking users regardless of sign-in status. The length should not exceed 128 characters.",
           "key": "opaqueUserId",
           "label": "Opaque User ID",
@@ -27362,7 +27362,7 @@ exports[`segment templates template segment-actions-usermaven matches expected r
           "type": "dictionary",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user id, to uniquely identify the user",
           "key": "user_id",
           "label": "User id",
@@ -27389,7 +27389,7 @@ exports[`segment templates template segment-actions-usermaven matches expected r
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "User Anonymous id",
           "key": "user_anonymous_id",
           "label": "Anonymous ID",
@@ -27576,7 +27576,7 @@ exports[`segment templates template segment-actions-usermaven matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user id, to uniquely identify the user",
           "key": "user_id",
           "label": "User id",
@@ -27632,7 +27632,7 @@ exports[`segment templates template segment-actions-usermaven matches expected r
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "User Anonymous id",
           "key": "user_anonymous_id",
           "label": "Anonymous ID",
@@ -27828,7 +27828,7 @@ exports[`segment templates template segment-actions-usermaven matches expected r
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user id, to uniquely identify the user",
           "key": "user_id",
           "label": "User id",
@@ -27866,7 +27866,7 @@ exports[`segment templates template segment-actions-usermaven matches expected r
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "User Anonymous id",
           "key": "user_anonymous_id",
           "label": "Anonymous ID",
@@ -28053,7 +28053,7 @@ exports[`segment templates template segment-actions-usermaven matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user id, to uniquely identify the user",
           "key": "user_id",
           "label": "User id",
@@ -28089,7 +28089,7 @@ exports[`segment templates template segment-actions-usermaven matches expected r
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "User Anonymous id",
           "key": "user_anonymous_id",
           "label": "Anonymous ID",
@@ -28311,7 +28311,7 @@ exports[`segment templates template segment-actions-usermotion matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A identifier for a known user.",
           "key": "userId",
           "label": "User ID",
@@ -28320,7 +28320,7 @@ exports[`segment templates template segment-actions-usermotion matches expected 
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An identifier for an anonymous user",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -28391,7 +28391,7 @@ exports[`segment templates template segment-actions-usermotion matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A identifier for a known user.",
           "key": "userId",
           "label": "User ID",
@@ -28400,7 +28400,7 @@ exports[`segment templates template segment-actions-usermotion matches expected 
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An identifier for an anonymous user",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -28471,7 +28471,7 @@ exports[`segment templates template segment-actions-usermotion matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A identifier for a known user.",
           "key": "userId",
           "label": "User ID",
@@ -28480,7 +28480,7 @@ exports[`segment templates template segment-actions-usermotion matches expected 
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An identifier for an anonymous user",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -28606,7 +28606,7 @@ exports[`segment templates template segment-actions-userpilot-cloud matches expe
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the logged-in user.",
           "key": "userId",
           "label": "User ID",
@@ -28748,7 +28748,7 @@ exports[`segment templates template segment-actions-userpilot-cloud matches expe
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id ?? event.distinct_id}",
+          "default": "{event.distinct_id ?? event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "The ID of the logged-in user.",
           "key": "userId",
           "label": "User ID",
@@ -29432,7 +29432,7 @@ exports[`segment templates template segment-actions-vwo-cloud matches expected r
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "An unique identifier for the user",
           "key": "userId",
           "label": "User ID",
@@ -29441,7 +29441,7 @@ exports[`segment templates template segment-actions-vwo-cloud matches expected r
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Anonymous ID for users",
           "key": "anonymousId",
           "label": "Anonymous ID",
@@ -29555,10 +29555,10 @@ exports[`segment templates template segment-actions-xtremepush matches expected 
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "email": "{person.properties.email}",
             "phone": "{person.properties.phone}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "The unique identifiers for the user",
           "key": "identifiers",
@@ -29658,10 +29658,10 @@ exports[`segment templates template segment-actions-xtremepush matches expected 
         },
         {
           "default": {
-            "anonymousId": "{event.distinct_id}",
+            "anonymousId": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
             "email": "{person.properties.email}",
             "phone": "{person.properties.phone}",
-            "userId": "{person.id}",
+            "userId": "{event.distinct_id}",
           },
           "description": "The unique identifiers for the user",
           "key": "identifiers",
@@ -29804,7 +29804,7 @@ exports[`segment templates template segment-calliper-cloud-actions matches expec
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A distinct ID of an unidentified (logged out) user. Device id is used if available",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -29813,7 +29813,7 @@ exports[`segment templates template segment-calliper-cloud-actions matches expec
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A distinct ID of an identified (logged in) user.",
           "key": "user_id",
           "label": "User ID",
@@ -30091,7 +30091,7 @@ exports[`segment templates template segment-calliper-cloud-actions matches expec
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "A distinct ID of an identified (logged in) user.",
           "key": "user_id",
           "label": "User ID",
@@ -30100,7 +30100,7 @@ exports[`segment templates template segment-calliper-cloud-actions matches expec
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "A distinct ID of an unidentified (logged out) user. Device id is used if available",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -30371,7 +30371,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An anonymous identifier for this user.",
           "key": "segmentAnonymousId",
           "label": "Anonymous ID",
@@ -30380,7 +30380,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The User ID associated with the user in Encharge.",
           "key": "userId",
           "label": "User ID",
@@ -30530,7 +30530,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "type": "dictionary",
         },
         {
-          "default": "{person.properties.email ?? person.properties.email}",
+          "default": "{person.properties.email}",
           "description": "The email address of the user.",
           "key": "email",
           "label": "Email",
@@ -30548,7 +30548,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An anonymous identifier for this user.",
           "key": "segmentAnonymousId",
           "label": "Anonymous ID",
@@ -30557,7 +30557,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The User ID associated with the user in Encharge.",
           "key": "userId",
           "label": "User ID",
@@ -30736,7 +30736,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "An anonymous identifier for this user.",
           "key": "segmentAnonymousId",
           "label": "Anonymous ID",
@@ -30745,7 +30745,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The User ID associated with the user in Encharge.",
           "key": "userId",
           "label": "User ID",
@@ -30884,7 +30884,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The new User ID to associate with the user in Encharge.",
           "key": "userId",
           "label": "User ID",
@@ -31000,7 +31000,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "type": "dictionary",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The User ID of the user to associate with the object. If no email or user ID is provided, no user will be created and associated.",
           "key": "userId",
           "label": "User ID",
@@ -31104,7 +31104,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The user id, to uniquely identify the user associated with the event",
           "key": "user_id",
           "label": "User id",
@@ -31166,7 +31166,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "User Anonymous id",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -31317,7 +31317,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The ID associated with the user",
           "key": "user_id",
           "label": "User ID",
@@ -31386,7 +31386,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "User Anonymous id",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -31528,7 +31528,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The External ID of the user",
           "key": "user_id",
           "label": "User ID",
@@ -31624,7 +31624,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
           "type": "dictionary",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "User Anonymous id",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -31952,7 +31952,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The identifier of the user who performed the event",
           "key": "user_id",
           "label": "User ID",
@@ -31961,7 +31961,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Anonymous ID of the user",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -32070,7 +32070,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The identifier of the user",
           "key": "user_id",
           "label": "User ID",
@@ -32079,7 +32079,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Anonymous ID of the user",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -32179,7 +32179,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
           "type": "string",
         },
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The identifier of the user",
           "key": "user_id",
           "label": "User ID",
@@ -32188,7 +32188,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
           "type": "string",
         },
         {
-          "default": "{event.distinct_id}",
+          "default": "{event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id}",
           "description": "Anonymous ID of the user",
           "key": "anonymous_id",
           "label": "Anonymous ID",
@@ -32343,7 +32343,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
         {
           "default": {
             "email": "{event.properties.email ?? person.properties.email}",
-            "source_id": "{person.id}",
+            "source_id": "{event.distinct_id}",
           },
           "description": "This is an object containing information about the [customer](https://docs.voucherify.io/reference/the-customer-object).",
           "key": "customer",
@@ -32387,7 +32387,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
           "type": "dictionary",
         },
         {
-          "default": "{event.event ?? event.event}",
+          "default": "{event.event}",
           "description": "The name of the event that will be saved as a [custom event](https://docs.voucherify.io/reference/the-custom-event-object) in Voucherify.",
           "key": "event",
           "label": "Event Name",
@@ -32449,7 +32449,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
         {
           "default": {
             "email": "{event.properties.email ?? person.properties.email}",
-            "source_id": "{person.id}",
+            "source_id": "{event.distinct_id}",
           },
           "description": "This is an object containing information about the [customer](https://docs.voucherify.io/reference/the-customer-object).",
           "key": "customer",
@@ -32493,7 +32493,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
           "type": "dictionary",
         },
         {
-          "default": "{event.event ?? event.event}",
+          "default": "{event.event}",
           "description": "The name of the event that will be saved as a [custom event](https://docs.voucherify.io/reference/the-custom-event-object) in Voucherify.",
           "key": "event",
           "label": "Event Name",
@@ -32555,7 +32555,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
         {
           "default": {
             "email": "{event.properties.email ?? person.properties.email}",
-            "source_id": "{person.id}",
+            "source_id": "{event.distinct_id}",
           },
           "description": "This is an object containing information about the [customer](https://docs.voucherify.io/reference/the-customer-object).",
           "key": "customer",
@@ -32599,7 +32599,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
           "type": "dictionary",
         },
         {
-          "default": "{event.event ?? event.event}",
+          "default": "{event.event}",
           "description": "The name of the event that will be saved as a [custom event](https://docs.voucherify.io/reference/the-custom-event-object) in Voucherify.",
           "key": "event",
           "label": "Event Name",
@@ -32659,7 +32659,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{person.id}",
+          "default": "{event.distinct_id}",
           "description": "The \`source_id\` which identifies the [customer](https://docs.voucherify.io/reference/the-customer-object) in Voucherify.",
           "key": "source_id",
           "label": "Source ID",
@@ -32810,7 +32810,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
         {
           "default": {
             "email": "{event.email}",
-            "source_id": "{person.id}",
+            "source_id": "{event.distinct_id}",
           },
           "description": "Object containing information about the [customer](https://docs.voucherify.io/reference/the-customer-object).",
           "key": "customer",
