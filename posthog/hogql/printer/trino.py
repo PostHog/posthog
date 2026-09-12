@@ -855,8 +855,17 @@ class TrinoPrinter(PostgresPrinter):
         return f"(NOT {self._visit_predicate(node.expr)})"
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> str:
-        if node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
-            return self._visit_membership(node.left, node.right, negated=node.op == ast.CompareOperationOp.NotIn)
+        if node.op in (
+            ast.CompareOperationOp.In,
+            ast.CompareOperationOp.NotIn,
+            ast.CompareOperationOp.GlobalIn,
+            ast.CompareOperationOp.GlobalNotIn,
+        ):
+            return self._visit_membership(
+                node.left,
+                node.right,
+                negated=node.op in (ast.CompareOperationOp.NotIn, ast.CompareOperationOp.GlobalNotIn),
+            )
         if (
             isinstance(self._resolve_type(node.left), ast.ArrayType)
             and isinstance(node.right, ast.Constant)

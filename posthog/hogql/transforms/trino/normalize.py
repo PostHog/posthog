@@ -336,6 +336,8 @@ class TrinoNormalizer(TraversingVisitor):
         node.array_join_list = None
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if node.join_type is not None and node.join_type.startswith("GLOBAL "):
+            node.join_type = node.join_type.removeprefix("GLOBAL ")
         if node.join_type in _ALL_JOIN_TYPES:
             node.join_type = _ALL_JOIN_TYPES[node.join_type]
         table_type = node.type
