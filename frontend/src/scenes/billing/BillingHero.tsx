@@ -20,18 +20,28 @@ import { billingProductLogic } from './billingProductLogic'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { PlanComparisonModal } from './PlanComparison'
 
-const PLAN_BADGES: Record<BillingPlan, string> = {
-    [BillingPlan.Free]: planFree,
-    [BillingPlan.Paid]: planPaid,
-    [BillingPlan.Teams]: planTeams, // Legacy
-    [BillingPlan.Boost]: planTeams, // TODO: Add Boost badge
-    [BillingPlan.Scale]: planTeams, // TODO: Add Scale badge
-    [BillingPlan.Enterprise]: planEnterprise,
+// Intrinsic sizes let the browser reserve layout for the badge before it loads, so the
+// above-the-fold hero paints without a shift while the plan image arrives.
+interface PlanBadge {
+    src: string
+    width: number
+    height: number
 }
 
-const STARTUP_PROGRAM_BADGES: Record<StartupProgramLabel, string> = {
-    [StartupProgramLabel.YC]: planYc,
-    [StartupProgramLabel.Startup]: planStartup,
+const badge = (src: string, width: number, height: number): PlanBadge => ({ src, width, height })
+
+const PLAN_BADGES: Record<BillingPlan, PlanBadge> = {
+    [BillingPlan.Free]: badge(planFree, 500, 450),
+    [BillingPlan.Paid]: badge(planPaid, 500, 450),
+    [BillingPlan.Teams]: badge(planTeams, 275, 197), // Legacy
+    [BillingPlan.Boost]: badge(planTeams, 275, 197), // TODO: Add Boost badge
+    [BillingPlan.Scale]: badge(planTeams, 275, 197), // TODO: Add Scale badge
+    [BillingPlan.Enterprise]: badge(planEnterprise, 1000, 900),
+}
+
+const STARTUP_PROGRAM_BADGES: Record<StartupProgramLabel, PlanBadge> = {
+    [StartupProgramLabel.YC]: badge(planYc, 500, 450),
+    [StartupProgramLabel.Startup]: badge(planStartup, 500, 450),
 }
 
 interface CopyVariation {
@@ -194,13 +204,19 @@ export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX
         <div className={`relative rounded-lg ${copyVariation.backgroundColor}`}>
             <div className="@container p-4 relative">
                 <img
-                    src={planBadge}
+                    src={planBadge.src}
+                    width={planBadge.width}
+                    height={planBadge.height}
                     alt={
                         startupProgramLabelCurrent
                             ? `${startupProgramLabelCurrent} plan badge`
                             : `${billingPlan} plan badge`
                     }
                     className="float-right w-[33cqw] min-w-32 max-w-48 ml-6 mb-4"
+                    // Above-the-fold hero visual and a likely LCP element: fetch it eagerly
+                    // and ahead of lower-priority requests. (lowercase fetchpriority: React 18
+                    // only forwards the attribute un-camelized.)
+                    {...{ fetchpriority: 'high' }}
                 />
                 {copyVariation.title && <h1 className="mb-0">{copyVariation.title}</h1>}
                 {copyVariation.subtitle && <h1 className="text-danger leading-tight">{copyVariation.subtitle}</h1>}
