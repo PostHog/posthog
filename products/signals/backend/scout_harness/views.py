@@ -1183,7 +1183,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to "
             "this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one "
             "or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a "
-            "report that was missing a qualifying reviewer or a repository can open a draft PR. "
+            "report that was missing a qualifying reviewer or a repository can open a draft PR. The response "
+            "carries the repository the report holds after the edit, and the call fails when a repository it "
+            "named did not land. "
             "Title/summary edits are best-effort: the pipeline may later re-research them."
         ),
         operation_id="signals_scout_edit_report",
@@ -1225,6 +1227,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "evidence_appended": result.evidence_appended,
                     "reviewers_set": result.reviewers_set,
                     "repository_set": result.repository_set,
+                    "repository": result.repository,
                     "charts_set": result.charts_set,
                     "metrics_set": result.metrics_set,
                     "suggested_prompts_set": result.suggested_prompts_set,
