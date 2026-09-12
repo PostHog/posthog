@@ -4,6 +4,10 @@ from posthoganalytics.ai.prompts import PromptResult, Prompts
 ONBOARDING_PROMPT_NAME = "posthog-desktop-onboarding-run"
 ONBOARDING_PROMPT_LABEL = "production"
 REQUIRED_ONBOARDING_PROMPT_PLACEHOLDERS = frozenset({"brief", "channel_id", "followup", "homepage"})
+# A template that never names the wiki publish tool predates the context wiki, so its save step
+# calls tools the MCP gate hides on a team that has one. Such a template is rejected the way a
+# missing placeholder is, and the session runs on the bundled prompt instead.
+CONTEXT_SAVE_TOOL = "task-context-wiki-page-update"
 
 BUNDLED_ONBOARDING_PROMPT = """\
 Write the first message someone sees in PostHog Desktop. They just installed it, they are looking at a space called #general, and this is the first thing they will ever read in the product.
@@ -137,9 +141,12 @@ Save it by reading the current context, then writing it back through `posthog:ex
 - **When the context wiki tools are there**, run `info task-context-wiki-channel-resolve`, then `call task-context-wiki-channel-resolve {"channel_id":"{{channel_id}}"}`. Use the path it returns exactly; never derive one from the space name.
   - When the page exists, read it with `task-context-wiki-page-retrieve`, then `call task-context-wiki-page-update` once with that path, the complete markdown, and `base_head` set to the `head_sha` you just read. Keep its frontmatter and everything in it that is still true.
   - When the page does not exist yet, `call task-context-wiki-page-update` once with that path and no `base_head`. Start the markdown with frontmatter that carries `channel_id: {{channel_id}}`, the `team_id` from that path, a one-line `summary`, and `status: active`.
+  - When an update comes back as a conflict, read the page again and publish once more. Stop after that second try.
 - **When those tools are absent**, run `info channel-instructions-retrieve`, then `call channel-instructions-retrieve {"id":"{{channel_id}}"}`, then `call channel-instructions-update` once with id `{{channel_id}}` and `base_version` set to the version you just read (0 if none exists).
 
 Either way the content you write is the existing markdown plus a `## Company` section. Never drop content that is already there.
+
+When neither set is there, or resolving the page fails, this workspace has nowhere to save it. Say that once, in one sentence, and carry on with the rest of the session. Do not retry and do not go looking for another tool.
 
 Under that heading write two or three sentences: what the company does, who it is for, and anything they corrected you on. Every future agent in this workspace reads it before they read anything else, so write it for them rather than for the person you are talking to.
 
@@ -158,6 +165,10 @@ def load_onboarding_prompt() -> PromptResult:
         label=ONBOARDING_PROMPT_LABEL,
         fallback=BUNDLED_ONBOARDING_PROMPT,
     )
+
+
+def onboarding_prompt_saves_context(template: str) -> bool:
+    return CONTEXT_SAVE_TOOL in template
 
 
 def missing_onboarding_prompt_placeholders(template: str) -> tuple[str, ...]:

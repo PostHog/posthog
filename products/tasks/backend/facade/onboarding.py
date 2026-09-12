@@ -34,6 +34,7 @@ from products.tasks.backend.facade.onboarding_prompt import (
     BUNDLED_ONBOARDING_PROMPT,
     load_onboarding_prompt,
     missing_onboarding_prompt_placeholders,
+    onboarding_prompt_saves_context,
     render_onboarding_prompt,
 )
 from products.tasks.backend.logic.services.model_catalogue import filter_unsupported_effort, runtime_adapter_for
@@ -216,10 +217,18 @@ def start_onboarding_session(
     )
     prompt = load_onboarding_prompt()
     missing_placeholders = missing_onboarding_prompt_placeholders(prompt.prompt)
+    fallback_reason = (
+        "missing_placeholders"
+        if missing_placeholders
+        else "cannot_save_context"
+        if not onboarding_prompt_saves_context(prompt.prompt)
+        else None
+    )
     prompt_template = prompt.prompt
-    if missing_placeholders:
+    if fallback_reason:
         logger.error(
-            "onboarding_prompt_missing_placeholders",
+            "onboarding_prompt_rejected",
+            reason=fallback_reason,
             missing_placeholders=missing_placeholders,
             prompt_source=prompt.source,
             prompt_version=prompt.version,
@@ -229,7 +238,7 @@ def start_onboarding_session(
             distinct_id=str(user.distinct_id),
             event="Onboarding prompt fallback used",
             properties={
-                "reason": "missing_placeholders",
+                "reason": fallback_reason,
                 "missing_placeholders": missing_placeholders,
                 "prompt_source": prompt.source,
                 "prompt_version": prompt.version,

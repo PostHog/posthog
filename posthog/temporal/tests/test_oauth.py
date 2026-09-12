@@ -17,6 +17,7 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     CONTEXT_LAYER_INTERNAL_SCOPE,
     INTERNAL_SCOPES,
+    LOOP_CONTEXT_INTERNAL_SCOPE,
     MCP_READ_SCOPES,
     MCP_WRITE_SCOPES,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
@@ -357,6 +358,8 @@ class TestHasWriteScopes(SimpleTestCase):
             ("custom_with_mcp_write", ["feature_flag:read", "feature_flag:write"], True),
             ("custom_read_only", ["feature_flag:read", "insight:read"], False),
             ("custom_with_non_mcp_write", ["task:write"], False),
+            ("custom_with_internal_write", ["insight:read", "task:write", CONTEXT_LAYER_INTERNAL_SCOPE], True),
+            ("custom_with_loop_context_write", ["task:write", LOOP_CONTEXT_INTERNAL_SCOPE], True),
             ("empty_custom", [], False),
         ]
     )

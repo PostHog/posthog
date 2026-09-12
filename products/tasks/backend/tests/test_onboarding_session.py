@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -70,8 +71,11 @@ class TestOnboardingSessionIdempotency(TestCase):
 
         self.assertEqual(feature_enabled.call_args.args[0], "posthog-desktop-onboarding-test-tools")
 
-    def _start(self, create_side_effect) -> tuple[UUID | None, int]:
+    def _start(self, create_side_effect, *, pin_prompt: bool = True) -> tuple[UUID | None, int]:
+        # The managed prompt is edited outside this repo, so pin the render to the bundled one.
+        pinned = SimpleNamespace(prompt=BUNDLED_ONBOARDING_PROMPT, source="bundled", version=None)
         with (
+            patch(f"{MODULE}.load_onboarding_prompt", return_value=pinned) if pin_prompt else nullcontext(),
             patch("posthoganalytics.feature_enabled", return_value=True),
             patch(f"{MODULE}.find_general_channel_id", return_value=self.channel_id),
             patch(f"{MODULE}.research_domain", return_value=NOT_CONFIGURED),
@@ -149,12 +153,7 @@ class TestOnboardingSessionIdempotency(TestCase):
             )
             return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
 
-        # The managed prompt is edited outside this repo, so pin the render to the bundled one.
-        with patch(
-            f"{MODULE}.load_onboarding_prompt",
-            return_value=SimpleNamespace(prompt=BUNDLED_ONBOARDING_PROMPT, source="bundled", version=None),
-        ):
-            started, create_calls = self._start(create_side_effect=succeed)
+        started, create_calls = self._start(create_side_effect=succeed)
 
         self.assertEqual(started, task_id)
         self.assertEqual(create_calls, 1)
@@ -216,7 +215,7 @@ class TestOnboardingSessionIdempotency(TestCase):
             ),
             patch(f"{MODULE}.posthoganalytics.capture") as capture,
         ):
-            started, _ = self._start(create_side_effect=succeed)
+            started, _ = self._start(create_side_effect=succeed, pin_prompt=False)
 
         self.assertEqual(started, task_id)
         fallback = next(
@@ -227,6 +226,29 @@ class TestOnboardingSessionIdempotency(TestCase):
             fallback.kwargs["properties"]["missing_placeholders"],
             ("brief", "channel_id", "followup", "homepage"),
         )
+
+    def test_a_managed_prompt_without_the_context_save_falls_back_to_the_bundled_prompt(self) -> None:
+        task_id = uuid4()
+        stale = BUNDLED_ONBOARDING_PROMPT.replace("task-context-wiki-page-update", "channel-instructions-update")
+
+        def succeed(**kwargs: Any) -> contracts.CreatedTaskDTO:
+            self.assertIn("call task-context-wiki-page-update", kwargs["description"])
+            return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
+
+        with (
+            patch(
+                f"{MODULE}.load_onboarding_prompt",
+                return_value=SimpleNamespace(prompt=stale, source="remote", version=19),
+            ),
+            patch(f"{MODULE}.posthoganalytics.capture") as capture,
+        ):
+            started, _ = self._start(create_side_effect=succeed, pin_prompt=False)
+
+        self.assertEqual(started, task_id)
+        fallback = next(
+            call for call in capture.call_args_list if call.kwargs["event"] == "Onboarding prompt fallback used"
+        )
+        self.assertEqual(fallback.kwargs["properties"]["reason"], "cannot_save_context")
 
     def test_domain_research_outcome_is_captured_for_the_started_session(self) -> None:
         task_id = uuid4()
