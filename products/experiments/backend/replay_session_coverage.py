@@ -43,6 +43,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     build_exposure_event_conditions,
     get_exposure_event_and_property,
+    get_test_accounts_filter,
     resolve_default_exposure_event,
 )
 from products.experiments.backend.models.experiment import Experiment
@@ -166,10 +167,15 @@ def resolve_flag_session_coverage(team: Team, experiment: Experiment) -> FlagSes
 
     tag_queries(product=Product.EXPERIMENTS, feature=Feature.QUERY, team_id=team.pk)
     window_start, window_end = window
+    # The surfaces this verdict steers drop test accounts when the criteria say so, so a scan that
+    # kept them would answer over a wider population than the list and read one internal browser
+    # session as coverage the real population doesn't have.
+    test_account_conditions = get_test_accounts_filter(team, experiment.exposure_criteria)
     exposure_covered = _has_session_linked_row(
         team,
         [
             *_window_bounds(window_start, window_end),
+            *test_account_conditions,
             *build_exposure_event_conditions(
                 experiment.exposure_criteria,
                 team,
@@ -188,6 +194,7 @@ def resolve_flag_session_coverage(team: Team, experiment: Experiment) -> FlagSes
             team,
             [
                 *_window_bounds(window_start, window_end),
+                *test_account_conditions,
                 # `notEmpty(ifNull(...))` rather than a `!=` comparison: HogQL reads a null as
                 # "not equal", so comparing an absent property to the empty string matches every
                 # event that never carried it.

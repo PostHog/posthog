@@ -41,10 +41,20 @@ class TestReplaySessionCoverage(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
         )
 
-    def _flag_call(self, distinct_id: str, flag_key: str, *, session_id: str | None, days_ago: int = 1) -> None:
+    def _flag_call(
+        self,
+        distinct_id: str,
+        flag_key: str,
+        *,
+        session_id: str | None,
+        days_ago: int = 1,
+        host: str | None = None,
+    ) -> None:
         properties: dict[str, str] = {"$feature_flag": flag_key, "$feature_flag_response": "test"}
         if session_id is not None:
             properties["$session_id"] = session_id
+        if host is not None:
+            properties["$host"] = host
         _create_event(
             team=self.team,
             event="$feature_flag_called",
@@ -120,6 +130,34 @@ class TestReplaySessionCoverage(ClickhouseTestMixin, APIBaseTest):
             distinct_id="someone",
             timestamp=timezone.now() - timedelta(days=1),
             properties={"$session_id": "0198f2e4-0000-7000-8000-000000000001"},
+        )
+        flush_persons_and_events()
+
+        coverage = resolve_flag_session_coverage(self.team, experiment)
+        assert coverage.exposure_event is False
+        assert coverage.flag_property is False
+
+    def test_evidence_from_a_filtered_test_account_does_not_count_as_coverage(self) -> None:
+        self.team.test_account_filters = [{"key": "$host", "value": "localhost", "operator": "is_not", "type": "event"}]
+        self.team.save()
+        _create_person(team_id=self.team.pk, distinct_ids=["internal"])
+        experiment = self._experiment("server-side-flag")
+        experiment.exposure_criteria = {"filterTestAccounts": True}
+        experiment.save()
+        # The only session-linked evidence of either kind belongs to an account the list drops.
+        self._flag_call(
+            "internal", "server-side-flag", session_id="0198f2e4-0000-7000-8000-000000000001", host="localhost"
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="internal",
+            timestamp=timezone.now() - timedelta(days=1),
+            properties={
+                "$session_id": "0198f2e4-0000-7000-8000-000000000001",
+                "$feature/server-side-flag": "test",
+                "$host": "localhost",
+            },
         )
         flush_persons_and_events()
 
