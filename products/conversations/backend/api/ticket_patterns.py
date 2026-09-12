@@ -9,6 +9,7 @@ from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -148,6 +149,13 @@ class PatternFilterSerializer(serializers.Serializer):
         return statuses
 
 
+class TicketPatternPagination(LimitOffsetPagination):
+    # Every row serializes its own evidence, so an uncapped ?limit= multiplies that per-row cost by
+    # whatever the caller asks for. The cap matches the project-wide default page size, so no caller
+    # that does not pass ?limit= sees any change.
+    max_limit = 100
+
+
 class TicketPatternViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -166,6 +174,7 @@ class TicketPatternViewSet(
     scope_object = "ticket"
     serializer_class = TicketPatternSerializer
     queryset = TicketPattern.objects.unscoped()
+    pagination_class = TicketPatternPagination
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         # Environment-scoped model: filter on the literal team id, never the canonical one.

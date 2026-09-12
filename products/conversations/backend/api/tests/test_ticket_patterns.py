@@ -70,6 +70,31 @@ class TestTicketPatternAPI(APIBaseTest):
         baseline = TicketTopicBaseline.objects.for_team(self.team.id).get(topic="login")
         assert getattr(baseline, counter) == 1
 
+    def test_an_oversized_limit_is_capped(self):
+        now = timezone.now()
+        TicketPattern.objects.for_team(self.team.id).bulk_create(
+            [
+                TicketPattern(
+                    team=self.team,
+                    fingerprint=f"terms:bulk{i}",
+                    topic=f"bulk{i}",
+                    title=f"pattern {i}",
+                    ticket_count=5,
+                    requester_count=5,
+                    peak_ticket_count=5,
+                    opened_at=now,
+                    last_seen_at=now,
+                )
+                for i in range(100)
+            ]
+        )
+
+        response = self.client.get(f"{self.base_url}?limit=1000")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert len(response.json()["results"]) == 100
+        assert response.json()["count"] == 101
+
     def test_confirm_records_severity_and_owner(self):
         response = self.client.post(self._url("confirm/"), {"severity": "critical"}, format="json")
 
