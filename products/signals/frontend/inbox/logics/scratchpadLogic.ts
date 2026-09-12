@@ -177,6 +177,7 @@ export interface scratchpadLogicValues {
     visibleBookkeepingCount: number
     visibleEntries: ScratchpadEntryApi[] | null
     windowEntries: ScratchpadEntryApi[] | null
+    windowGeneration: number
     windowStats: ScratchpadWindowStats
 }
 
@@ -444,6 +445,10 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 clearFilters: () => null,
             },
         ],
+        // Which first page the walked pages belong to. A page read against an earlier window can
+        // still answer after a reload started, and this is bumped at dispatch, so the listener
+        // sees the invalidation without waiting for the fresh page to arrive.
+        windowGeneration: [0, { loadEntries: (state: number) => state + 1 }],
         // Pages walked back past the 1,000-row cap with the endpoint's `date_to` cursor. A fresh
         // first page invalidates them: it may already carry rows these pages hold.
         olderEntries: [
@@ -469,6 +474,9 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             {
                 loadEntriesSuccess: (_, { entries }) => entries.length >= SCRATCHPAD_FETCH_LIMIT,
                 appendOlderEntries: (_, { hasMore }) => hasMore,
+                // A reload drops the walked pages, so the control goes with them until the fresh
+                // first page says whether anything older is left.
+                loadEntries: () => false,
             },
         ],
         // Which entry rows are open. Lives here rather than in the table's own state so the
@@ -729,6 +737,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             const teamId = teamLogic.values.currentTeamId
             const loaded = values.windowEntries ?? []
             const cursor = loaded[loaded.length - 1]?.updated_at
+            const generation = values.windowGeneration
             if (!teamId || !cursor) {
                 actions.loadOlderEntriesFailure()
                 return
@@ -740,6 +749,12 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                     date_to: cursor,
                     ...dateFromParam(values.timeFilter),
                 })
+                // The window this page was cursored from is gone if a reload started meanwhile.
+                // Appending would file its rows under a different first page, and the dedupe below
+                // was built from the old window, so it cannot drop keys the new page carries.
+                if (values.windowGeneration !== generation) {
+                    return
+                }
                 // Rows sharing the cursor timestamp fall outside an exclusive bound, so a page can
                 // still carry a key already on screen. Keys are unique per team, so drop by key.
                 const seen = new Set(loaded.map((entry) => entry.key))
