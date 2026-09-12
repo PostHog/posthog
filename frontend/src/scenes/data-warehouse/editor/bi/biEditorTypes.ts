@@ -165,6 +165,7 @@ const DEFAULT_DATE_FIELD_BY_TABLE: Record<string, string> = {
     heatmaps: 'timestamp',
     session_replay_events: 'start_time',
     raw_session_replay_events: 'min_first_timestamp',
+    'posthog.ai_events': 'timestamp',
 }
 
 const NUMERIC_FIELD_TYPES = new Set<DatabaseSerializedFieldType>(['integer', 'float', 'decimal'])
