@@ -118,7 +118,14 @@ def _has_matching_row(team: Team, where: list[ast.Expr]) -> Optional[bool]:
         response = execute_hogql_query(
             query,
             team=team,
-            settings=HogQLGlobalSettings(max_execution_time=COVERAGE_MAX_EXECUTION_SECONDS),
+            settings=HogQLGlobalSettings(
+                max_execution_time=COVERAGE_MAX_EXECUTION_SECONDS,
+                # Under a "break" timeout profile the kill returns an empty partial result instead
+                # of raising, which reads here as a confident absence and is then cached for ten
+                # minutes. Absence is the one answer this seam must never guess, so the kill throws
+                # and the caller reports the unknown.
+                timeout_overflow_mode="throw",
+            ),
         )
     except Exception:
         logger.warning("experiment replay session coverage scan failed", exc_info=True, extra={"team_id": team.pk})

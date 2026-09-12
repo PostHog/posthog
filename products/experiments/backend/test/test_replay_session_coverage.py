@@ -1,14 +1,21 @@
 from datetime import timedelta
+from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.experiments.backend import replay_session_coverage
 from products.experiments.backend.models.experiment import Experiment
-from products.experiments.backend.replay_session_coverage import COVERAGE_WINDOW_DAYS, resolve_flag_session_coverage
+from products.experiments.backend.replay_session_coverage import (
+    COVERAGE_MAX_EXECUTION_SECONDS,
+    COVERAGE_WINDOW_DAYS,
+    resolve_flag_session_coverage,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -205,6 +212,32 @@ class TestReplaySessionCoverage(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         assert resolve_flag_session_coverage(self.team, experiment).exposure_event is expected
+
+    def test_a_scan_killed_on_time_raises_rather_than_answering_from_a_partial_read(self) -> None:
+        # Under a "break" timeout profile the kill returns an empty partial result rather than
+        # raising, which would read as a confident absence and be cached as one.
+        _create_person(team_id=self.team.pk, distinct_ids=["someone"])
+        experiment = self._experiment("server-side-flag")
+        self._flag_call("someone", "server-side-flag", session_id=None)
+        flush_persons_and_events()
+
+        seen_settings: list[Any] = []
+        real_execute = replay_session_coverage.execute_hogql_query
+
+        def record_settings(query: Any, **kwargs: Any) -> Any:
+            seen_settings.append(kwargs.get("settings"))
+            return real_execute(query, **kwargs)
+
+        with patch.object(replay_session_coverage, "execute_hogql_query", side_effect=record_settings):
+            coverage = resolve_flag_session_coverage(self.team, experiment)
+
+        assert coverage.exposure_event is False
+        assert seen_settings and all(
+            settings is not None
+            and settings.max_execution_time == COVERAGE_MAX_EXECUTION_SECONDS
+            and settings.timeout_overflow_mode == "throw"
+            for settings in seen_settings
+        )
 
     @parameterized.expand(
         [
