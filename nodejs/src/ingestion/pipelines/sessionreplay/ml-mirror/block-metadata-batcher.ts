@@ -1,8 +1,8 @@
-import { parseJSON } from '~/common/utils/json-parse'
 /** Accumulates block-metadata across Kafka batches and flushes one Parquet object per time/row threshold. */
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
 
 import { findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { parseBlockMetadataMessages } from './block-metadata-message'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'

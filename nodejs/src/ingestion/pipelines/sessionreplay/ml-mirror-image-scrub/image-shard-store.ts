@@ -6,7 +6,6 @@ import { logger } from '~/common/utils/logger'
 import { MlDataKey, encryptEnvelope } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/crypto'
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
-
 export interface ScrubbedImage {
     consentGrantedAt?: number
     teamId?: string
