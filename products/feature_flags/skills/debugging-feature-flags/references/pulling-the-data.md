@@ -97,6 +97,14 @@ ORDER BY timestamp DESC
 LIMIT 100
 ```
 
+**Escape every value you substitute into a placeholder.** `<flag-key>` and `<distinct_id>` land
+inside single-quoted SQL literals, and `posthog:execute-sql` takes no bound parameters — so a value
+carrying a `'` closes the literal early and the rest is parsed as SQL. A `distinct_id` is whatever
+the SDK sent, and it usually arrives via the ticket, so it is exactly the value you must not paste
+raw: `x' OR 1=1 --` silently widens the predicate from one user to every user in the project, and
+you then diagnose the customer's problem against someone else's history. HogQL escapes a quote as
+`\'` and a backslash as `\\` inside a literal; apply that before substituting.
+
 If the flag records **no** `$feature_flag_called` at all despite being read, that's the "no usage"
 catalog in the SKILL (events disabled, bulk/payload accessor, or local eval without per-call events)
 — not evidence the flag isn't evaluating.
