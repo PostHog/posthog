@@ -11,11 +11,16 @@ import {
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { dayjs } from 'lib/dayjs'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
+import {
+    ExperimentExposureCriteria,
+    ExperimentExposureQueryResponse,
+    SampleRatioMismatch,
+} from '~/queries/schema/schema-general'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
 
@@ -23,11 +28,20 @@ import { experimentLogic } from '../experimentLogic'
 import { getActivationConfig, isDefaultExposureConfig } from '../exposureContract'
 import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
-import { buildExposureSeries } from './exposuresTransforms'
+import { buildExposureSeries, getSrmStatus, type SrmStatus } from './exposuresTransforms'
 import { VariantTag } from './VariantTag'
 
 const srmFailureTooltipText =
     "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."
+
+const srmBorderlineTooltipText =
+    'The distribution of users across variants is further from your configured rollout percentages than random variation usually explains, but not far enough to be conclusive. Check your randomization and exposure capture before you rely on the results.'
+
+const srmDailyDriftTooltipText =
+    'Totals match your configured rollout percentages, but on at least one day the split was further off than random variation usually explains. Look for anything that changed on that day, such as a new SDK release or a cached page.'
+
+const srmHealthyTooltipText =
+    'No sample ratio mismatch detected. The difference between actual and expected exposures is within normal random variation, on the totals and on every day.'
 
 // Below this, a load looks like any other; above it, the user has no way to tell a slow query
 // from a stuck one, so we start showing elapsed time and a way to retry.
@@ -123,6 +137,63 @@ function getExposureCriteriaLabel(
     return `Custom (${displayName})`
 }
 
+interface SrmStatusDisplay {
+    status: SrmStatus
+    icon: JSX.Element
+    labelClassName: string
+    label: string
+    tooltip: string
+    detail: string
+}
+
+function getSrmStatusDisplay(sampleRatioMismatch: SampleRatioMismatch): SrmStatusDisplay {
+    const status = getSrmStatus(sampleRatioMismatch)
+    const cumulativeDetail = `(p = ${sampleRatioMismatch.p_value.toFixed(3)})`
+
+    switch (status) {
+        case 'mismatch':
+            return {
+                status,
+                icon: <IconWarning className="text-sm" />,
+                labelClassName: 'text-warning font-semibold',
+                label: 'Sample ratio mismatch detected',
+                tooltip: srmFailureTooltipText,
+                detail: `(p = ${sampleRatioMismatch.p_value.toExponential(2)})`,
+            }
+        case 'borderline':
+            return {
+                status,
+                icon: <IconInfo className="text-sm" />,
+                labelClassName: 'text-secondary',
+                label: 'Exposure distribution is worth checking',
+                tooltip: srmBorderlineTooltipText,
+                detail: cumulativeDetail,
+            }
+        case 'dailyDrift': {
+            const daily = sampleRatioMismatch.daily
+            return {
+                status,
+                icon: <IconInfo className="text-sm" />,
+                labelClassName: 'text-secondary',
+                label: 'Exposure distribution drifts from day to day',
+                tooltip: srmDailyDriftTooltipText,
+                detail: daily
+                    ? `(p = ${daily.p_value.toFixed(3)} on ${dayjs(daily.date).format('MMM D')})`
+                    : cumulativeDetail,
+            }
+        }
+        case 'healthy':
+            return {
+                status,
+                icon: <IconCheckCircle className="text-sm" />,
+                labelClassName: 'text-success',
+                label: 'Exposure distribution matches rollout percentages',
+                tooltip: srmHealthyTooltipText,
+                detail: cumulativeDetail,
+            }
+    }
+}
+
 export function Exposures(): JSX.Element {
     const {
         exposures,
@@ -167,8 +238,8 @@ export function Exposures(): JSX.Element {
     const multipleTreatmentLabel =
         resolvedHandling === 'first_seen' ? 'using first seen variant' : 'excluded from analysis'
 
-    // Detect sample ratio mismatch (p < 0.001 is significant)
-    const hasSRM = exposures?.sample_ratio_mismatch != null && exposures.sample_ratio_mismatch.p_value < 0.001
+    const srmDisplay = exposures?.sample_ratio_mismatch ? getSrmStatusDisplay(exposures.sample_ratio_mismatch) : null
+    const hasSRM = srmDisplay?.status === 'mismatch'
 
     const handleCollapseChange = useCallback((activeKey: string | null) => {
         const isOpen = activeKey === 'cumulative-exposures'
@@ -458,37 +529,17 @@ export function Exposures(): JSX.Element {
                                             },
                                         ]}
                                     />
-                                    {exposures?.sample_ratio_mismatch != null && (
+                                    {srmDisplay && (
                                         <div className="flex items-center gap-1 text-xs mt-2">
-                                            {hasSRM ? (
-                                                <>
-                                                    <Tooltip title={srmFailureTooltipText}>
-                                                        <span className="flex items-center gap-1 text-warning cursor-pointer">
-                                                            <IconWarning className="text-sm" />
-                                                            <span className="font-semibold">
-                                                                Sample ratio mismatch detected
-                                                            </span>
-                                                        </span>
-                                                    </Tooltip>
-                                                    <span className="text-muted">
-                                                        (p = {exposures.sample_ratio_mismatch.p_value.toExponential(2)})
-                                                    </span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Tooltip title="No sample ratio mismatch detected. The difference between actual and expected exposures is within normal random variation.">
-                                                        <span className="flex items-center gap-1 text-success cursor-pointer">
-                                                            <IconCheckCircle className="text-sm" />
-                                                            <span>
-                                                                Exposure distribution matches rollout percentages
-                                                            </span>
-                                                        </span>
-                                                    </Tooltip>
-                                                    <span className="text-muted">
-                                                        (p = {exposures.sample_ratio_mismatch.p_value.toFixed(3)})
-                                                    </span>
-                                                </>
-                                            )}
+                                            <Tooltip title={srmDisplay.tooltip}>
+                                                <span
+                                                    className={`flex items-center gap-1 cursor-pointer ${srmDisplay.labelClassName}`}
+                                                >
+                                                    {srmDisplay.icon}
+                                                    <span>{srmDisplay.label}</span>
+                                                </span>
+                                            </Tooltip>
+                                            <span className="text-muted">{srmDisplay.detail}</span>
                                         </div>
                                     )}
                                 </div>

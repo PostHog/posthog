@@ -71,9 +71,16 @@ asymmetric exclusion bias, not a UI bug.
 
 ## A2 — Sample ratio mismatch (SRM) [HIGH]
 
-Open the Exposures tab. PostHog runs a chi-squared test once total exposures ≥ 100 and flags SRM at
-**p < 0.001**. The `$multiple` bucket is **excluded** from the SRM check (so a high `$multiple` share is
-_not_ what triggers SRM — it's that the visible variants don't match the configured rollout).
+Open the Exposures tab. PostHog runs a chi-squared test once total exposures ≥ 100 and reports it in
+three tiers: **p < 0.001** is SRM, **0.001 ≤ p < 0.05** reads as worth checking (real evidence, not
+conclusive), and **p ≥ 0.05** reads as healthy. The `$multiple` bucket is **excluded** from the SRM check
+(so a high `$multiple` share is _not_ what triggers SRM — it's that the visible variants don't match the
+configured rollout).
+
+PostHog also runs the same test on each day separately, on days with ≥ 100 exposures, and reports the
+worst day with a Bonferroni correction. A variant that runs hot for a few days and cold for the rest
+can land on healthy cumulative totals, so the daily result is what names the day the split broke. Use
+that date to find the change that caused it.
 
 **Verify directly.** The exposure-shape query from Step 1.5 already gives the counts. Compare observed
 vs expected (using `parameters.feature_flag_variants[].rollout_percentage`) and apply χ². Treat
@@ -193,6 +200,30 @@ conditions via MCP, only read them, so most fixes are precise guidance not direc
 
     <!-- Source for maintainers: docs at https://posthog.com/docs/experiments/troubleshooting#diagnosing-sample-ratio-mismatch-srm
     (item 4). Tagged [LOW] until directly verified. -->
+
+11. **Origin-side page caching.** A CDN or an origin page cache serves one user's rendered page to the
+    next user. Where the variant is decided server-side, or the flag payload is bootstrapped into the
+    HTML, the cached copy carries that variant to everyone who hits the cache, and the exposure event
+    can be suppressed on a cache hit. Cross-origin setups, where the cache sits in front of the app,
+    are the common shape.
+
+    _Detect:_ the daily SRM p-value in the Exposures tab names the day the skew starts, which usually
+    matches a deploy or a cache configuration change. Then break first-exposure variant down by
+    `$pathname` — a cached route skews while uncached routes sit near the configured split.
+
+    _Fix path:_ exclude the flag-reading route from the cache, add the variant to the cache key, or
+    move the flag read to the client after hydration. Infrastructure change — guide the user.
+
+12. **SDK-version drift across the fleet.** Different parts of a fleet run different PostHog SDK
+    versions, and the versions do not capture exposures the same way. The arm served by the population
+    on the capturing version collects exposures the other structurally cannot.
+
+    _Detect:_ break exposures down by `$lib` and `$lib_version`. A variant share that tracks a version
+    boundary, rather than being spread evenly across versions, is the signal. A partial rollout of a
+    new SDK release also shows up as a start date on the daily SRM result.
+
+    _Fix path:_ move the fleet onto one SDK version, then treat the mixed-version window as
+    contaminated. Deployment change — guide the user.
 
 ## A3 — Identity fragmentation (users in both control and test) [MEDIUM]
 

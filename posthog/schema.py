@@ -1081,6 +1081,14 @@ class CustomEventConversionGoal(BaseModel):
     customEventName: str
 
 
+class DailySampleRatioMismatch(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date: str
+    p_value: float
+
+
 class DangerousOperationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2743,6 +2751,10 @@ class RevenueCurrencyPropertyConfig(BaseModel):
 class SampleRatioMismatch(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    daily: DailySampleRatioMismatch | None = Field(
+        default=None,
+        description="Absent when no single day had enough exposures to test.",
     )
     expected: dict[str, float]
     p_value: float

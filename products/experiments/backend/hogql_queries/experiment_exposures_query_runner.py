@@ -32,7 +32,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     ensure_precomputed,
 )
-from products.experiments.backend.analysis_health import evaluate_bias_risk
+from products.experiments.backend.analysis_health import evaluate_bias_risk, evaluate_daily_srm
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -197,11 +197,17 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         tag_queries(experiment_exposures_path="direct_scan")
         return builder.get_exposure_timeseries_query()
 
-    def _calculate_srm(self, total_exposures: dict[str, int]) -> SampleRatioMismatch | None:
+    def _calculate_srm(
+        self, total_exposures: dict[str, int], daily_counts: dict[str, dict[str, int]]
+    ) -> SampleRatioMismatch | None:
         """
         Calculate Sample Ratio Mismatch using chi-squared goodness-of-fit test.
         Compares observed variant distribution against expected (from rollout percentages).
         Returns None if insufficient data.
+
+        `daily_counts` maps a variant key to its per-day (not cumulative) exposure
+        counts. It feeds the second, day-by-day test that catches a variant which
+        drifts within the window but ends on a healthy cumulative total.
         """
         multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
         variants_config = multivariate_data.get("variants", [])
@@ -282,6 +288,10 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         return SampleRatioMismatch(
             expected=expected_counts,
             p_value=float(p_value),
+            daily=evaluate_daily_srm(
+                daily_counts=daily_counts,
+                expected_ratios={key: rollout_percentages[key] for key in expected_counts},
+            ),
         )
 
     def _evaluate_bias_risk(self, total_exposures: dict[str, int]) -> BiasRisk | None:
@@ -373,7 +383,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         for variant, series in variant_series.items():
             total_exposures[variant] = int(series.exposure_counts[-1]) if series.exposure_counts else 0
 
-        sample_ratio_mismatch = self._calculate_srm(total_exposures)
+        sample_ratio_mismatch = self._calculate_srm(total_exposures, variant_data)
         bias_risk = self._evaluate_bias_risk(total_exposures)
 
         return ExperimentExposureQueryResponse(

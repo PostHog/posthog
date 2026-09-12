@@ -5852,9 +5852,22 @@ export interface ExperimentExposureTimeSeries {
     exposure_counts: number[]
 }
 
+/**
+ * The worst single day of the day-by-day chi-squared test. A variant can drift for
+ * a few days and still land on a healthy cumulative total, so this catches drift the
+ * cumulative test cannot. The p-value carries a Bonferroni correction over the days
+ * that were tested.
+ */
+export interface DailySampleRatioMismatch {
+    date: string
+    p_value: number
+}
+
 export interface SampleRatioMismatch {
     expected: Record<string, number>
     p_value: number
+    /** Absent when no single day had enough exposures to test. */
+    daily?: DailySampleRatioMismatch
 }
 
 /**

@@ -1402,6 +1402,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(response.sample_ratio_mismatch.expected["control"], 50.0)
         self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
 
+        # The daily test runs on the one day that carries every exposure
+        assert response.sample_ratio_mismatch.daily is not None
+        self.assertEqual(response.sample_ratio_mismatch.daily.date, "2024-01-02")
+        self.assertEqual(response.sample_ratio_mismatch.daily.p_value, 1.0)
+
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_srm_calculation_detects_significant_mismatch(self, _name, use_precomputation):
@@ -1469,6 +1474,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # Expected counts should be 50/50 of total (100)
         self.assertEqual(response.sample_ratio_mismatch.expected["control"], 50.0)
         self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
+
+        # The 90/10 day carries the skew, so the daily test must find it too
+        assert response.sample_ratio_mismatch.daily is not None
+        self.assertEqual(response.sample_ratio_mismatch.daily.date, "2024-01-02")
+        self.assertLess(response.sample_ratio_mismatch.daily.p_value, 0.001)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
@@ -1548,7 +1558,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # 100 total exposed users at 50:50 = perfectly balanced for the adjusted rollouts.
         total_exposures = {"control": 50, "test": 50}
 
-        result = runner._calculate_srm(total_exposures)
+        result = runner._calculate_srm(total_exposures, daily_counts={})
 
         assert result is not None
         # Holdout is dropped from rollout_percentages → not in result.expected
@@ -1598,7 +1608,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # disabled variant has 0% rollout, so in practice would have 0 samples
         total_exposures = {"control": 50, "test": 50}
 
-        result = runner._calculate_srm(total_exposures)
+        result = runner._calculate_srm(total_exposures, daily_counts={})
 
         assert result is not None
         # Only control and test should be in expected
@@ -1624,7 +1634,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # test variant has 0 samples but 50% expected rollout
         total_exposures = {"control": 100, "test": 0}
 
-        result = runner._calculate_srm(total_exposures)
+        result = runner._calculate_srm(total_exposures, daily_counts={})
 
         assert result is not None
         # Should detect severe mismatch (100/0 vs expected 50/50)
@@ -1688,7 +1698,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # Without fix: This raises ValueError from scipy.chisquare
         # With fix: Should handle gracefully by excluding disabled from total
-        result = runner._calculate_srm(total_exposures)
+        result = runner._calculate_srm(total_exposures, daily_counts={})
 
         # Should successfully calculate SRM for control and test only
         self.assertIsNotNone(result)
@@ -1763,7 +1773,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             # "variant_c" is missing because it has 0 exposures!
         }
 
-        result = runner._calculate_srm(total_exposures)
+        result = runner._calculate_srm(total_exposures, daily_counts={})
 
         self.assertIsNotNone(result)
         assert result is not None  # for mypy
