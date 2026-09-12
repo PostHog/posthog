@@ -572,6 +572,17 @@ class TestLiveQueryProgress(BaseTest):
             ):
                 assert get_live_query_progress(recalc) is None
 
+    def test_returns_none_when_clickhouse_returns_no_rows(self):
+        # skip_unavailable_shards and the 2s cap can cut the merge short and yield zero rows instead of one
+        # all-null row. That empty result must read as None, not raise IndexError and 500 the detail endpoint.
+        recalc = self._recalc("in_progress")
+        with team_scope(self.team.id, canonical=True):
+            with patch(
+                "products.experiments.backend.recalculation.sync_execute",
+                return_value=[],
+            ):
+                assert get_live_query_progress(recalc) is None
+
 
 @pytest.mark.django_db(transaction=True)
 class TestLiveQueryProgressFinishedQueries(BaseTest, ClickhouseTestMixin):
