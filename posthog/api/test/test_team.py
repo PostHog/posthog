@@ -1484,6 +1484,13 @@ def team_api_test_factory():
             other_org_membership.save()
             return other_org, other_org_membership
 
+        def _create_user_that_stays_in_source_organization(self) -> User:
+            outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
+            outsider.current_team = self.team
+            outsider.current_organization = self.organization
+            outsider.save()
+            return outsider
+
         def test_cant_change_organization_if_not_admin_of_target_org(self):
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.MEMBER)
             res = self.client.post(
@@ -1533,22 +1540,18 @@ def team_api_test_factory():
             self.user.current_team = self.team
             self.user.current_organization = self.organization
             self.user.save()
-            # This user stays behind in the source organization
-            outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
-            outsider.current_team = self.team
-            outsider.current_organization = self.organization
-            outsider.save()
+            outsider = self._create_user_that_stays_in_source_organization()
 
             res = self.client.post(
                 f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
             )
             assert res.status_code == status.HTTP_200_OK, res.json()
 
-            # A member of the target organization keeps the project and follows it across
+            # A member of the target organization keeps the project and follows it across.
             self.user.refresh_from_db()
             assert self.user.current_team == self.team
             assert self.user.current_organization == other_org
-            # Everyone else loses the pointer instead of keeping a project they cannot reach
+            # Everyone else loses the pointer instead of keeping a project they cannot reach.
             outsider.refresh_from_db()
             assert outsider.current_team_id is None and outsider.current_organization_id is None
 
@@ -1563,28 +1566,26 @@ def team_api_test_factory():
             )
             assert res.status_code == status.HTTP_200_OK, res.json()
 
-            # The losing organization keeps a readable record even though it can no longer reach the project
+            # The losing organization keeps a readable record even though it can no longer reach the project.
             source_project_logs = ActivityLog.objects.filter(
                 organization_id=source_org.id, scope="Project", item_id=str(self.project.pk)
             )
             assert source_project_logs.count() == 1
             source_project_log = source_project_logs.get()
             assert source_project_log.detail is not None
-            # The row names the project that left, not action text, so the losing org can read it
+            # The row names the project that left, not action text, so the losing org can read it.
             assert source_project_log.detail["name"] == self.project.name
 
-            # And one entry per environment that left, so the source org sees which ones moved
+            # And one entry per environment that left, so the source org sees which ones moved.
             source_team_logs = ActivityLog.objects.filter(
                 organization_id=source_org.id, scope="Team", item_id=str(self.team.pk)
             )
             assert source_team_logs.count() == 1
 
-            # The receiving organization still gets its arrival entry
+            # The receiving organization still gets its arrival entry.
             assert ActivityLog.objects.filter(organization_id=other_org.id, scope="Project").count() == 1
 
         def test_change_organization_to_same_organization_is_rejected(self):
-            # organization_id arrives from the request body as a string, so a same-org request must
-            # still be caught by the guard, or it writes false move entries in the activity log.
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
@@ -1597,7 +1598,7 @@ def team_api_test_factory():
 
             assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
             assert res.json()["detail"] == "Project is already in the target organization."
-            # A no-op move must not write audit rows
+            # A no-op move must not write audit rows.
             assert ActivityLog.objects.count() == logs_before
 
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
