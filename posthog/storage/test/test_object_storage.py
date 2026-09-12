@@ -336,7 +336,7 @@ class _AlwaysFailingClient:
     def __getattr__(self, operation_name: str):
         def fail(*args, **kwargs):
             raise ClientError(
-                {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}},  # type: ignore[arg-type]
+                {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}},
                 operation_name,
             )
 
