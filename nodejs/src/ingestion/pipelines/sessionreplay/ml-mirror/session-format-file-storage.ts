@@ -5,22 +5,23 @@ import {
     WriteSessionResult,
 } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-file-storage'
 
-import { usesRawSessionIdentifiers } from './session-identifier-format'
+import { sessionStartMonth, usesRawSessionIdentifiers } from './session-identifier-format'
 
 class SessionFormatFileWriter implements SessionBatchFileWriter {
-    private readonly writers = new Map<boolean, SessionBatchFileWriter>()
+    private readonly writers = new Map<string, SessionBatchFileWriter>()
 
     constructor(
         private readonly legacyStorage: SessionBatchFileStorage,
-        private readonly rawStorage: SessionBatchFileStorage
+        private readonly rawStorage: (month?: string) => SessionBatchFileStorage
     ) {}
 
     public writeSession(data: WriteSessionData): Promise<WriteSessionResult> {
         const rawIdentifiers = usesRawSessionIdentifiers(data.sessionId)
-        let writer = this.writers.get(rawIdentifiers)
+        const partition = rawIdentifiers ? sessionStartMonth(data.sessionId) : 'legacy'
+        let writer = this.writers.get(partition)
         if (!writer) {
-            writer = (rawIdentifiers ? this.rawStorage : this.legacyStorage).newBatch()
-            this.writers.set(rawIdentifiers, writer)
+            writer = (rawIdentifiers ? this.rawStorage(partition) : this.legacyStorage).newBatch()
+            this.writers.set(partition, writer)
         }
         return writer.writeSession(data)
     }
@@ -38,7 +39,7 @@ class SessionFormatFileWriter implements SessionBatchFileWriter {
 export class SessionFormatFileStorage implements SessionBatchFileStorage {
     constructor(
         private readonly legacyStorage: SessionBatchFileStorage,
-        private readonly rawStorage: SessionBatchFileStorage
+        private readonly rawStorage: (month?: string) => SessionBatchFileStorage
     ) {}
 
     public newBatch(): SessionBatchFileWriter {
@@ -46,7 +47,7 @@ export class SessionFormatFileStorage implements SessionBatchFileStorage {
     }
 
     public async checkHealth(): Promise<boolean> {
-        const health = await Promise.all([this.legacyStorage.checkHealth(), this.rawStorage.checkHealth()])
+        const health = await Promise.all([this.legacyStorage.checkHealth(), this.rawStorage().checkHealth()])
         return health.every(Boolean)
     }
 }

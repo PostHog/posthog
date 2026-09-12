@@ -11,6 +11,7 @@ import { MlParquetSinkMetrics } from './metrics'
 import { rowsToParquetBuffer } from './parquet-writer'
 import { MlEncryptedEnvelope } from './privacy/crypto'
 import { replayIndexPartitions, replayIndexToParquetBuffer } from './replay-index'
+import { sessionStartMonth } from './session-identifier-format'
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
@@ -47,6 +48,19 @@ export class BlockMetadataParquetStore {
         if (envelopes.length === 0) {
             return
         }
+        const months = new Map<string, MlEncryptedEnvelope[]>()
+        for (const envelope of envelopes) {
+            const month = sessionStartMonth(envelope.context.sessionId ?? '')
+            const group = months.get(month) ?? []
+            group.push(envelope)
+            months.set(month, group)
+        }
+        for (const [month, group] of months) {
+            await this.writeEncryptedMonth(month, group)
+        }
+    }
+
+    private async writeEncryptedMonth(month: string, envelopes: MlEncryptedEnvelope[]): Promise<void> {
         let body: Buffer
         try {
             const schema = new ParquetSchema({
@@ -69,7 +83,7 @@ export class BlockMetadataParquetStore {
             await this.s3Client.send(
                 new PutObjectCommand({
                     Bucket: this.bucket,
-                    Key: this.objectKey(`${this.prefix}/v2`, new Date().toISOString().slice(0, 10)),
+                    Key: `${this.prefix}/v2/${month}/part-${this.nodeId}-${Date.now()}-${++this.seq}.parquet`,
                     Body: body,
                     ContentType: 'application/vnd.apache.parquet',
                 }),

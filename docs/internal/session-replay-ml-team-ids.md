@@ -102,14 +102,14 @@ Legacy dataset retirement needs a separate storage operation before claiming del
 
 | Dataset                   | Default path                                                | Encryption key                          |
 | ------------------------- | ----------------------------------------------------------- | --------------------------------------- |
-| Replay blocks             | `rrweb_2/`                                                  | Session                                 |
-| Metadata catalog          | `block-metadata/v2/dt=<arrival-date>/`                      | Each row's payload uses its session key |
-| Inline image shards       | `scrubbed-images/v2/<team>/<grant>/shards/`                 | Team and consent period                 |
-| Inline image lookups      | `scrubbed-images/v2/<team>/<grant>/lookup/<hash>.encrypted` | Team and consent period                 |
-| Inline image indexes      | `scrubbed-images/v2/<team>/<grant>/index/`                  | Team and consent period                 |
-| URL images                | `scrubbed-images/v2/<team>/<grant>/url/<hash>`              | Team and consent period                 |
-| Score pages               | `score/v2/dt=<session-date>/`                               | Each row's payload uses its session key |
-| Completed score manifests | `score/v2-manifests/dt=<session-date>/`                     | No payload data or keys                 |
+| Replay blocks             | `rrweb_2/<month>/`                                                  | Session                                 |
+| Metadata catalog          | `block-metadata/v2/<month>/`                      | Each row's payload uses its session key |
+| Inline image shards       | `scrubbed-images/v2/<month>/<team>/<grant>/shards/`                 | Team and consent period                 |
+| Inline image lookups      | `scrubbed-images/v2/<month>/<team>/<grant>/lookup/<hash>.encrypted` | Team and consent period                 |
+| Inline image indexes      | `scrubbed-images/v2/<month>/<team>/<grant>/index/`                  | Team and consent period                 |
+| URL images                | `scrubbed-images/v2/<month>/<team>/<grant>/url/<hash>`              | Team and consent period                 |
+| Score pages               | `score/v2/<month>/dt=<event-date>/`                               | Each row's payload uses its session key |
+| Completed score manifests | `score/v2-manifests/<month>/dt=<event-date>/`                     | No payload data or keys                 |
 
 Metadata catalogs expose raw `team_id`, `session_id`, `consent_granted_at`, `format_version`, and an encrypted `payload`.
 Distinct IDs, URLs, block locations, and replay indexes are inside that payload.
@@ -125,13 +125,13 @@ Both accounts must authorize the reader role.
 Readers have key-read and decrypt permissions; they cannot create keys or change deletion state.
 
 Use metadata block locations and byte ranges to fetch recordings, then decrypt before decompressing.
-Include all relevant metadata arrival dates when collecting a session with late blocks.
+Read metadata from the session start month, including blocks that arrive in later months.
 Score export plans team/session ID ranges with one bulk ClickHouse query, then fetches and encrypts bounded pages within those ranges.
 Both score and deletion scans use the range bounds.
 Each partition runs in a child workflow that continues with a new history after 100 pages, retaining its progress and export ID.
 Activities have bounded timeouts and retries; a long sweep prevents the daily schedule from starting an overlapping sweep.
 The partition publishes a manifest only after its last page succeeds.
-Use the newest completed manifest for each date and hash partition; a recursive score scan can include partial or superseded exports.
+Use the newest completed manifest for each session month, event date and hash partition; a recursive score scan can include partial or superseded exports.
 
 Join analytics on both raw team and session IDs, or on team and distinct IDs.
 Remove identifiers from model inputs.
@@ -139,8 +139,8 @@ Resolve image references before training because they contain team IDs.
 
 ## Images and Kafka
 
-V2 references are `image:v2:<team>:<grant>:<hash>` and `imageurl:v2:<team>:<grant>:<hash>`.
-Images do not deduplicate across teams or consent periods.
+V2 references are `image:v2:<team>:<grant>:<month>:<hash>` and `imageurl:v2:<team>:<grant>:<month>:<hash>`.
+Images do not deduplicate across teams, consent periods or session months.
 Source messages use session keys; stored scrubbed images use team image keys.
 Inline images have an encrypted lookup for each reference, published after the shard and its index.
 Readers fetch that lookup directly; a missing image does not require a scan of the team's image history.
@@ -172,3 +172,10 @@ When both aliases are set, the `AI_RESEARCH_REPLAY_*` value takes precedence, in
 The wrapped HMAC secret keeps the single name `SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY` in both the environment and secret store.
 It has no new alias.
 Renaming configuration must not rotate that key.
+
+All v2 S3 datasets use a `YYYY-MM` directory derived from the session UUIDv7 start timestamp in UTC.
+A session that crosses a month boundary stays in its start month, including late blocks and image fetches.
+Image references and image-fetch history keys include that month, so a fetch in one month does not suppress another month.
+Robots.txt and TDM reservation policy caches remain shared by origin across all months.
+Metadata and score writers split batches that contain multiple session months.
+Score manifests cover completed pages within each session month; event-date subdirectories remain below that month.

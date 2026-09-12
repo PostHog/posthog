@@ -4,6 +4,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import { MlDataKey, MlKeyEncryption, decryptEnvelope, encryptEnvelope } from './crypto'
 import { TrainingEncryptionVector } from './test-vectors'
+import { validateImageOwner } from './transport'
 
 const key: MlDataKey = {
     identity: {
@@ -44,6 +45,20 @@ describe('ML payload encryption', () => {
         }
     )
 
+    it('binds image months to the encrypted session start month', () => {
+        const timestamp = Date.parse('2026-09-30T23:59:59.999Z').toString(16).padStart(12, '0')
+        const sessionKey = {
+            ...key,
+            identity: {
+                ...key.identity,
+                sessionId: `${timestamp.slice(0, 8)}-${timestamp.slice(8)}-7000-8000-000000000007`,
+            },
+        }
+        const ref = `imageurl:v2:${key.identity.teamId}:${key.identity.consentGrantedAt}:2026-09:aaaaaaaaaaaaaaaaaaaaaa`
+        expect(() => validateImageOwner(ref, sessionKey)).not.toThrow()
+        expect(() => validateImageOwner(ref.replace('2026-09', '2026-10'), sessionKey)).toThrow('ownership mismatch')
+    })
+
     it('decrypts the shared Python encryption vector', () => {
         expect(
             decryptEnvelope(
@@ -64,7 +79,7 @@ describe('ML payload encryption', () => {
                 key,
                 'image-source',
                 Buffer.alloc(20 * 1024 * 1024),
-                'imageurl:v2:7:1789380000000:aaaaaaaaaaaaaaaaaaaaaa'
+                'imageurl:v2:7:1789380000000:2026-09:aaaaaaaaaaaaaaaaaaaaaa'
             ).length
         ).toBeLessThan(40 * 1024 * 1024 + 64 * 1024)
     })

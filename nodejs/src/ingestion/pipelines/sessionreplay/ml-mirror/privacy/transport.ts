@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
+import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
 import { MlDataKey, MlEncryptedEnvelope, MlKeyReadExpiredError, decryptEnvelope, encryptEnvelope } from './crypto'
 import { MlKeyReader } from './reader'
@@ -50,7 +51,8 @@ export function validateImageOwner(ref: string, key: MlDataKey | undefined): voi
             !parsed ||
             parsed.version !== 2 ||
             parsed.teamId !== String(key.identity.teamId) ||
-            parsed.consentGrantedAt !== key.identity.consentGrantedAt
+            parsed.consentGrantedAt !== key.identity.consentGrantedAt ||
+            parsed.sessionMonth !== sessionStartMonth(key.identity.sessionId ?? '')
         ) {
             throw new Error('ML image reference ownership mismatch')
         }
