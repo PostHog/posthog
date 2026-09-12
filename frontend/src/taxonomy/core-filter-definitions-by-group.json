@@ -3667,6 +3667,10 @@
             "label": "Duration (ms, unprefixed)",
             "type": "Numeric"
         },
+        "emits_signals": {
+            "description": "Whether the scanner pushed each finding into the Signals inbox.",
+            "label": "Emits signals (Replay Vision)"
+        },
         "epik": {
             "description": "Pinterest Click ID",
             "label": "epik"
@@ -3841,6 +3845,14 @@
             "description": "Reddit Click ID",
             "label": "rdt_cid"
         },
+        "recording_distinct_id": {
+            "description": "Distinct ID of the person in the recording. The event's own distinct ID is a synthetic scanner actor, so use this property to reach the observed person.",
+            "label": "Observed distinct ID (Replay Vision)"
+        },
+        "recording_subject_email": {
+            "description": "Email of the person in the recording, captured when the scan ran.",
+            "label": "Observed subject email (Replay Vision)"
+        },
         "referring_application": {
             "description": "The namespace of the app that made the request.",
             "examples": [
@@ -3858,6 +3870,29 @@
                 10.0
             ],
             "label": "Revenue"
+        },
+        "scanner_id": {
+            "description": "Scanner that produced the observation.",
+            "label": "Scanner ID (Replay Vision)"
+        },
+        "scanner_name": {
+            "description": "Scanner name as it was configured when the scan ran. Renaming the scanner does not rewrite past observations.",
+            "label": "Scanner name (Replay Vision)"
+        },
+        "scanner_type": {
+            "description": "Which kind of analysis ran. Monitors answer a yes/no question, classifiers assign tags, scorers return a number, and summarizers describe the session.",
+            "examples": [
+                "monitor",
+                "classifier",
+                "scorer",
+                "summarizer"
+            ],
+            "label": "Scanner type (Replay Vision)"
+        },
+        "scanner_version": {
+            "description": "Version of the scanner config that produced the observation. Editing a scanner bumps this, so breaking down by it separates results from before and after a prompt change.",
+            "label": "Scanner version (Replay Vision)",
+            "type": "Numeric"
         },
         "sccid": {
             "description": "Snapchat Click ID",
@@ -4215,6 +4250,11 @@
         "$rageclick": {
             "description": "A user has rapidly and repeatedly clicked in a single place.",
             "label": "Rageclick"
+        },
+        "$recording_observed": {
+            "description": "One Replay Vision scanner finished analyzing one session recording. Emitted once per scanner and session, minutes to months after the recording itself, so it describes a session rather than happening inside one. The scanner's output is flattened into `scanner_output_*` properties, and the observed session is named by `session_id`.",
+            "label": "Recording observed (Replay Vision)",
+            "primary_property": "scanner_name"
         },
         "$screen": {
             "description": "When a user loads a screen in a mobile app.",
@@ -8827,6 +8867,10 @@
             "label": "Email address",
             "type": "String"
         },
+        "emits_signals": {
+            "description": "Whether the scanner pushed each finding into the Signals inbox.",
+            "label": "Emits signals (Replay Vision)"
+        },
         "epik": {
             "description": "Pinterest Click ID Data from the last time this user was seen.",
             "label": "Latest epik"
@@ -9001,6 +9045,14 @@
             "description": "Reddit Click ID Data from the last time this user was seen.",
             "label": "Latest rdt_cid"
         },
+        "recording_distinct_id": {
+            "description": "Distinct ID of the person in the recording. The event's own distinct ID is a synthetic scanner actor, so use this property to reach the observed person.",
+            "label": "Observed distinct ID (Replay Vision)"
+        },
+        "recording_subject_email": {
+            "description": "Email of the person in the recording, captured when the scan ran.",
+            "label": "Observed subject email (Replay Vision)"
+        },
         "referring_application": {
             "description": "The namespace of the app that made the request.",
             "examples": [
@@ -9018,6 +9070,29 @@
                 10.0
             ],
             "label": "Revenue"
+        },
+        "scanner_id": {
+            "description": "Scanner that produced the observation.",
+            "label": "Scanner ID (Replay Vision)"
+        },
+        "scanner_name": {
+            "description": "Scanner name as it was configured when the scan ran. Renaming the scanner does not rewrite past observations.",
+            "label": "Scanner name (Replay Vision)"
+        },
+        "scanner_type": {
+            "description": "Which kind of analysis ran. Monitors answer a yes/no question, classifiers assign tags, scorers return a number, and summarizers describe the session.",
+            "examples": [
+                "monitor",
+                "classifier",
+                "scorer",
+                "summarizer"
+            ],
+            "label": "Scanner type (Replay Vision)"
+        },
+        "scanner_version": {
+            "description": "Version of the scanner config that produced the observation. Editing a scanner bumps this, so breaking down by it separates results from before and after a prompt change.",
+            "label": "Scanner version (Replay Vision)",
+            "type": "Numeric"
         },
         "sccid": {
             "description": "Snapchat Click ID Data from the last time this user was seen.",
