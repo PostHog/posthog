@@ -80,19 +80,15 @@ def accessible_observations(
     experiment targeting (every observation predating this feature) is unrestricted here and stays
     subject to the scanner and session-recording gates the caller already passed.
 
-    One experiment query for the whole page, not one per row.
+    One experiment query for the whole page, not one per row. The accessible set comes from the
+    team's experiments, which are few and indexed. The snapshot path on observations has no index,
+    so discovering experiment ids from the observations themselves scans the whole scanner or team.
     """
-    snapshot_experiment_ids = {
-        eid
-        for eid in observations.values_list(
-            "scanner_snapshot__experiment_targeting__experiment_id", flat=True
-        ).distinct()
-        if eid is not None
-    }
-    accessible = _accessible_experiment_ids(access, team_id, snapshot_experiment_ids)
-    if accessible == snapshot_experiment_ids:
-        return observations
+    accessible = set(
+        access.filter_queryset_by_access_level(Experiment.objects.filter(team_id=team_id)).values_list("id", flat=True)
+    )
     # Keep rows whose snapshot names no experiment (untargeted, unrestricted) OR an accessible one.
+    # A snapshot naming an experiment that is deleted or belongs to another team is never accessible.
     # Phrased positively rather than `.exclude(path__in=inaccessible)`: on a nullable JSON path, exclude
     # negates to `NOT (path IN (...))`, which is NULL — and therefore false — for untargeted rows, so it
     # would wrongly drop them. `isnull` OR membership is null-safe. The lookup keys are written as

@@ -427,3 +427,34 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.assertTrue(observation_reads, "expected the dock read to query the observation table")
         for sql in observation_reads:
             self.assertIn("session_id", sql, sql)
+
+    def test_detail_read_never_scans_the_observation_table(self) -> None:
+        # The experiment gate's snapshot path has no index, so an observation read that is not bound to
+        # the row or to a keyset scans the team's whole observation history. Assert every observation-table
+        # read on a detail request is bound to the row itself or is a single-row neighbor lookup.
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("session_recording", "editor")
+        scanner = self._create_scanner(name="detail")
+        observation = ReplayObservation.objects.create(
+            scanner=scanner, session_id="sess-1", scanner_snapshot=snapshot_for(scanner)
+        )
+        ReplayObservation.objects.create(scanner=scanner, session_id="sess-2", scanner_snapshot=snapshot_for(scanner))
+        urls = {
+            "flat": f"/api/environments/{self.team.id}/vision/observations/{observation.id}/",
+            "nested": f"{self.observations_url(str(scanner.id))}{observation.id}/",
+        }
+
+        self.client.force_login(self.other_user)
+        for label, url in urls.items():
+            with self.subTest(label):
+                self.client.get(url)  # warm request-scoped caches so the capture is the read itself.
+                with CaptureQueriesContext(connection) as queries:
+                    self.assertEqual(self.client.get(url).status_code, 200)
+
+                observation_reads = [
+                    q["sql"] for q in queries.captured_queries if 'FROM "replay_vision_replayobservation"' in q["sql"]
+                ]
+                self.assertTrue(observation_reads, "expected the detail read to query the observation table")
+                for sql in observation_reads:
+                    self.assertNotIn("SELECT DISTINCT", sql, sql)
+                    self.assertTrue(observation.id.hex in sql or sql.endswith("LIMIT 1"), sql)
