@@ -256,7 +256,7 @@ function ExpandedEntry({ entry }: { entry: ScratchpadEntryApi }): JSX.Element {
                 <span className="flex-1" />
                 {entry.created_by_run_url && (
                     <Link to={entry.created_by_run_url} className="shrink-0">
-                        Open the run that last wrote it
+                        Open the run that created it
                     </Link>
                 )}
             </div>
