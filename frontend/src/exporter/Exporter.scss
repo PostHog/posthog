@@ -16,10 +16,12 @@ body.ExporterBody {
         max-height: 100vh;
     }
 
-    // A shared canvas is an app in an iframe: it takes the viewport and scrolls its own content.
+    // A shared canvas is an app in an iframe: it takes the viewport below the header bar and scrolls its own
+    // content, with no rim around it.
     &--canvas {
         height: 100vh;
         max-height: 100vh;
+        padding: 0;
 
         .SharedCanvas {
             display: flex;
@@ -33,6 +35,17 @@ body.ExporterBody {
             width: 100%;
             min-height: 0;
             border: 0;
+        }
+    }
+
+    // A shared file sits under the same header bar; the body pads itself.
+    &--artifact {
+        padding: 0;
+
+        .SharedArtifact {
+            display: flex;
+            flex: 1;
+            flex-direction: column;
         }
     }
 

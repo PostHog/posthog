@@ -2,9 +2,7 @@ import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { themeLogic } from 'lib/logic/themeLogic'
-import { urls } from 'scenes/urls'
 
 import { SharedCanvasPayload } from '../types'
 
@@ -28,15 +26,9 @@ export function artifactUrlWithTheme(artifactUrl: string, theme: CanvasTheme): s
 export default function ExporterCanvasScene({
     canvas,
     forcedTheme,
-    accessToken,
-    canCopy = true,
 }: {
     canvas: SharedCanvasPayload
     forcedTheme: CanvasTheme | null
-    /** The share token, which the "open a copy" flow hands to the fork endpoint. */
-    accessToken?: string
-    /** False on the surfaces that carry no PostHog branding: embeds and white-labeled shares. */
-    canCopy?: boolean
 }): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const portRef = useRef<MessagePort | null>(null)
@@ -94,47 +86,25 @@ export default function ExporterCanvasScene({
         portRef.current?.postMessage({ channel: CANVAS_CHANNEL, type: 'set-theme', theme })
     }, [theme])
 
-    // A copy starts from the build the link shows, so the endpoint refuses a link whose build is gone.
-    const openCopy =
-        canCopy && canvas.allow_forking && canvas.published && accessToken ? (
-            <div className="SharedCanvas-actions flex justify-end px-4 py-2">
-                {/* The copy flow lives in the signed-in app, so this is a full page load, not a client-side route. */}
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    to={urls.codeCanvasFork(accessToken)}
-                    disableClientSideRouting
-                >
-                    Open a copy in PostHog Desktop
-                </LemonButton>
-            </div>
-        ) : null
-
     if (!artifactUrl) {
         return (
-            <>
-                {openCopy}
-                <LemonBanner type="info" className="m-4">
-                    {canvas.published
-                        ? "This canvas can't be shown right now. Try again later."
-                        : 'The shared version of this canvas is no longer available. Ask its owner to share it again.'}
-                </LemonBanner>
-            </>
+            <LemonBanner type="info" className="m-4">
+                {canvas.published
+                    ? "This canvas can't be shown right now. Try again later."
+                    : 'The shared version of this canvas is no longer available. Ask its owner to share it again.'}
+            </LemonBanner>
         )
     }
 
     return (
-        <>
-            {openCopy}
-            <iframe
-                ref={iframeRef}
-                title={canvas.name || 'Canvas'}
-                sandbox="allow-scripts"
-                src={artifactUrlWithTheme(artifactUrl, theme)}
-                referrerPolicy="no-referrer"
-                className="SharedCanvas-frame"
-                style={{ colorScheme: theme }}
-            />
-        </>
+        <iframe
+            ref={iframeRef}
+            title={canvas.name || 'Canvas'}
+            sandbox="allow-scripts"
+            src={artifactUrlWithTheme(artifactUrl, theme)}
+            referrerPolicy="no-referrer"
+            className="SharedCanvas-frame"
+            style={{ colorScheme: theme }}
+        />
     )
 }
