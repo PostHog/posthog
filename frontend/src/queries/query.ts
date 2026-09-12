@@ -84,9 +84,10 @@ export function parseErrorMessage(errorMessage: string | undefined): { message: 
 
     // Matches the list format too, because the brackets sit outside the part we read.
     // Python repr switches to double quotes when the message holds an apostrophe, so take either.
-    const match = errorMessage.match(/ErrorDetail\(string=(['"])([\s\S]*?)\1,\s*code=(['"])([^'"]*)\3\)/)
+    // Each quote style gets its own negated class, so a long unmatched input cannot rescan the tail.
+    const match = errorMessage.match(/ErrorDetail\(string=(?:'([^']*)'|"([^"]*)"),\s*code=(['"])([^'"]*)\3\)/)
     if (match) {
-        return { message: match[2], code: match[4] }
+        return { message: match[1] ?? match[2], code: match[4] }
     }
 
     // Fallback: return original string unchanged
