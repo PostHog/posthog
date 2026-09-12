@@ -2,6 +2,9 @@ import type { UserBasicType } from '~/types'
 
 import {
     type ReportChartApi,
+    type SignalReportPullRequestApi,
+    type SignalReportAssigneeApi,
+    type SignalReportAssignmentPrStateEnumApi,
     type SignalReportRefundApi,
     type SignalReportStateRequestApi,
     type SignalScoutRunSummaryApi,
@@ -31,7 +34,10 @@ export interface SignalReviewerUserInfo {
 }
 
 export interface EnrichedReviewer {
-    github_login: string
+    /** Null for a reviewer with no linked GitHub account — they are identified by `user` instead. */
+    github_login: string | null
+    /** Null on entries written before reviewers carried one; `user` still resolves from the login. */
+    user_uuid?: string | null
     github_name: string | null
     relevant_commits: RelevantCommit[]
     user: SignalReviewerUserInfo | null
@@ -63,6 +69,8 @@ export const ACTIONABLE_ACTIONABILITY_VALUES: SignalReportActionability[] = [
 ]
 
 export interface SignalReport {
+    pull_requests?: readonly SignalReportPullRequestApi[]
+    assignee?: SignalReportAssigneeApi | null
     id: string
     title: string | null
     summary: string | null
@@ -76,7 +84,7 @@ export interface SignalReport {
     is_suggested_reviewer: boolean
     /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
     charts?: ReportChartApi[]
-    /** Questions the report's author suggests asking about it, offered above the "Ask AI" box. */
+    /** Prompts the report's author suggests sending about it (questions or next-step actions), offered above the "Ask AI" box. */
     suggested_prompts?: string[]
     /** Count of signals at the time the latest research run kicked off. */
     signals_at_run?: number
@@ -95,6 +103,14 @@ export interface SignalReport {
     /** Whether that implementation PR is merged, per the GitHub webhook. Status doesn't imply it: a
      * resolved report may have been resolved directly, without a merged PR. */
     implementation_pr_merged?: boolean
+    /** Latest known state of that PR: unknown, draft, open, closed, or merged. */
+    implementation_pr_state?: SignalReportAssignmentPrStateEnumApi | null
+    /** Link to the tracker issue self-driving opened for this report's PR. Null when the project tracks no issues. */
+    tracker_issue_url?: string | null
+    /** How that issue reads in its provider, for example '#12' or 'ENG-123'. */
+    tracker_issue_reference?: string | null
+    /** Why the tracker issue could not be opened, for a project that wants one. Null when it exists. */
+    tracker_issue_error?: string | null
     /** Reason code from the latest dismissal artefact (when archived). See dismissalReasons. */
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */
@@ -368,6 +384,9 @@ export interface SignalUserAutonomyConfig {
     slack_notification_integration_id?: number | null
     slack_notification_channel?: string | null
     slack_notification_min_priority?: SignalReportPriority | null
+    github_assign_on_pull_request?: boolean
+    /** Whether PRs for reports suggesting this user open ready for review. Null follows the project default. */
+    github_open_pull_request_ready?: boolean | null
     created_at?: string
     updated_at?: string
 }
@@ -384,8 +403,14 @@ export interface SignalTeamConfig {
     default_slack_notification_channel?: string | null
     /** Per-repo base-branch overrides for auto-started PRs, keyed by 'org/repo'. */
     autostart_base_branches?: Record<string, string>
+    /** Integration self-driving opens a tracker issue in for each PR it makes. Null turns tracker issues off. */
+    issue_tracking_integration?: number | null
+    /** Where those issues land: github {repository}, linear {team_id}, jira {project_key}, plus an optional 'label'. */
+    issue_tracking_config?: Record<string, string>
     /** Daily cap on new reports surfacing to the inbox (project-timezone day). Null means unlimited. */
     max_reports_per_day?: number | null
+    /** Whether self-driving PRs open ready for review instead of draft. A reviewer's own setting overrides it. */
+    default_open_pull_request_ready?: boolean
     /** Read-only: reports that first became visible today (project timezone). Never send in a patch. */
     reports_generated_today?: number
     /** Read-only: whether the daily report limit is reached, pausing new report generation until local midnight. Never send in a patch. */

@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -50,7 +50,7 @@ class ActivityLogTestBase(BaseTest):
         )
 
 
-@freeze_time("2025-06-15T12:00:00Z")
+@time_machine.travel("2025-06-15T12:00:00Z", tick=False)
 class TestActivityLogContext(ActivityLogTestBase):
     def _create_context(self) -> ActivityLogContext:
         return ActivityLogContext(team=self.team, user=self.user)
@@ -355,7 +355,7 @@ class TestActivityLogContext(ActivityLogTestBase):
         assert "name: a -> b" in result
 
 
-@freeze_time("2025-06-15T12:00:00Z")
+@time_machine.travel("2025-06-15T12:00:00Z", tick=False)
 class TestActivityLogContextPagination(ActivityLogTestBase):
     def _create_context(self) -> ActivityLogContext:
         return ActivityLogContext(team=self.team, user=self.user)
@@ -412,7 +412,7 @@ class TestActivityLogContextPagination(ActivityLogTestBase):
         assert "end of results" in result
 
 
-@freeze_time("2025-06-15T12:00:00Z")
+@time_machine.travel("2025-06-15T12:00:00Z", tick=False)
 class TestActivityLogContextDatetimeFilter(ActivityLogTestBase):
     def _create_context(self) -> ActivityLogContext:
         return ActivityLogContext(team=self.team, user=self.user)
@@ -491,7 +491,7 @@ class TestActivityLogContextDatetimeFilter(ActivityLogTestBase):
         assert "'before' filter 'also-invalid' is not a valid ISO 8601 datetime and was ignored" in result
 
 
-@freeze_time("2025-06-15T12:00:00Z")
+@time_machine.travel("2025-06-15T12:00:00Z", tick=False)
 class TestActivityLogContextTruncation(ActivityLogTestBase):
     def _create_context(self) -> ActivityLogContext:
         return ActivityLogContext(team=self.team, user=self.user)
@@ -549,7 +549,7 @@ class TestActivityLogContextTruncation(ActivityLogTestBase):
         assert "..." in result
 
 
-@freeze_time("2025-06-15T12:00:00Z")
+@time_machine.travel("2025-06-15T12:00:00Z", tick=False)
 class TestActivityLogContextVisibility(ActivityLogTestBase):
     def _create_context(self, user=None) -> ActivityLogContext:
         return ActivityLogContext(team=self.team, user=user or self.user)
@@ -713,7 +713,7 @@ class TestActivityLogContextVisibility(ActivityLogTestBase):
         assert result == ACTIVITY_LOG_NO_RESULTS
 
 
-@freeze_time("2025-06-15T12:00:00Z")
+@time_machine.travel("2025-06-15T12:00:00Z", tick=False)
 class TestActivityLogContextHumanization(ActivityLogTestBase):
     def _create_context(self) -> ActivityLogContext:
         return ActivityLogContext(team=self.team, user=self.user)
@@ -782,7 +782,7 @@ class TestActivityLogContextHumanization(ActivityLogTestBase):
         assert "active: True -> False" in result
 
 
-@freeze_time("2025-06-15T12:00:00Z")
+@time_machine.travel("2025-06-15T12:00:00Z", tick=False)
 class TestActivityLogContextFormatting(ActivityLogTestBase):
     async def test_timestamp_format(self):
         await self._create_log(

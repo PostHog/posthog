@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconPencil, IconX } from '@posthog/icons'
+import { IconCheck, IconInfo, IconPencil, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonColorGlyph,
@@ -44,11 +44,14 @@ import type {
 import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
 import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
+import { AccountPinnedPropertiesExpansion } from './AccountPinnedPropertiesExpansion'
 import { AccountColumnDisplayConfig, LEGACY_ROLE_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, customPropertySavingKey, savingRoleKey } from './accountsLogic'
 import { AccountsTableNameCell } from './AccountsTableNameCell'
 import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
+import { accountsViewsLogic } from './accountsViewsLogic'
+import { useAccountColumnAutoSizing } from './useAccountColumnAutoSizing'
 
 // Shape the name renderer uses from the keyed AccountsTableRow identity fields.
 type AccountNameCellData = { name: string; external_id: string | null; id: string; logo_domain: string | null }
@@ -59,6 +62,9 @@ const COLUMN_WIDTHS = {
     notebook_count: '80px',
     relationship: '220px',
 } as const
+
+// Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
+const ignoreDataTableQueryChange = (): void => {}
 
 function useGetCell(): (record: unknown, column: string) => unknown {
     const { accountsTableQueryPlan } = useValues(accountsLogic)
@@ -353,7 +359,7 @@ function CanonicalTimestampCell({
 }
 
 export function isCustomPropertyEditable(definition: CustomPropertyDefinitionApi): boolean {
-    return !definition.is_canonical && !definition.source && definition.references.length === 0
+    return !definition.is_canonical && !definition.source
 }
 
 type CustomPropertyDraft = boolean | string
@@ -639,6 +645,11 @@ function CustomPropertyCell({
     return (
         <div className="flex min-w-0 items-center gap-1">
             <span className="min-w-0 truncate">{renderedValue}</span>
+            {definition.has_workflow_reference && (
+                <Tooltip title="A workflow is configured to update this property. If it runs again, it will overwrite any value you set manually.">
+                    <IconInfo className="text-warning shrink-0" />
+                </Tooltip>
+            )}
             {isEditable && accountId && (
                 <LemonButton
                     type="tertiary"
@@ -719,14 +730,23 @@ const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
 function useContextColumns(): Record<string, QueryContextColumn> {
     const { visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, displayByAlias } =
         useValues(accountsColumnConfigLogic)
+    const { columnWidths } = useValues(accountsViewsLogic)
+    const { setColumnWidth, reportColumnResize } = useActions(accountsViewsLogic)
     return useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {}
         for (const key of visibleColumnNames) {
+            const resizeHandlers = {
+                resizable: true,
+                onResize: (width: number) => setColumnWidth(key, width),
+                onResizeEnd: reportColumnResize,
+            }
             const definition = aliasToDefinition[key]
             if (definition) {
                 const display = displayByAlias[key]
                 columns[key] = {
                     renderTitle: () => <SortableColumnHeader column={key} label={definition.name} />,
+                    width: columnWidths[key],
+                    ...resizeHandlers,
                     render: ({ record }) => (
                         <CustomPropertyCell
                             record={record}
@@ -743,7 +763,8 @@ function useContextColumns(): Record<string, QueryContextColumn> {
             if (relationshipDefinition) {
                 columns[key] = {
                     renderTitle: () => <SortableColumnHeader column={key} label={relationshipDefinition.name} />,
-                    width: COLUMN_WIDTHS.relationship,
+                    width: columnWidths[key] ?? COLUMN_WIDTHS.relationship,
+                    ...resizeHandlers,
                     render: ({ record }) => (
                         <RelationshipCell record={record} column={key} definition={relationshipDefinition} />
                     ),
@@ -754,12 +775,21 @@ function useContextColumns(): Record<string, QueryContextColumn> {
             const label = template?.label ?? key
             columns[key] = {
                 renderTitle: () => <SortableColumnHeader column={key} label={label} />,
-                width: template?.width,
+                width: columnWidths[key] ?? template?.width,
+                ...resizeHandlers,
                 render: template?.render ?? (({ record }) => <DefaultAccountCell record={record} column={key} />),
             }
         }
         return columns
-    }, [visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, displayByAlias])
+    }, [
+        visibleColumnNames,
+        aliasToDefinition,
+        aliasToRelationshipDefinition,
+        displayByAlias,
+        columnWidths,
+        setColumnWidth,
+        reportColumnResize,
+    ])
 }
 
 function useExpandable(): QueryContext<DataTableNode>['expandable'] {
@@ -768,9 +798,6 @@ function useExpandable(): QueryContext<DataTableNode>['expandable'] {
     const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
     const accountSceneEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]
     return useMemo(() => {
-        if (accountSceneEnabled) {
-            return undefined
-        }
         return {
             noIndent: true,
             expandedRowClassName: '[&>td]:overflow-visible!',
@@ -792,9 +819,14 @@ function useExpandable(): QueryContext<DataTableNode>['expandable'] {
             },
             expandedRowRender: ({ result }) => {
                 const cell = getNameCell(result)
-                return cell ? (
+                if (!cell) {
+                    return null
+                }
+                return accountSceneEnabled ? (
+                    <AccountPinnedPropertiesExpansion accountId={cell.id} />
+                ) : (
                     <AccountNotebooksExpansion accountId={cell.id} externalId={cell.external_id ?? ''} />
-                ) : null
+                )
             },
         }
     }, [accountSceneEnabled, expandedAccountIds, toggleAccountExpanded])
@@ -840,59 +872,63 @@ const SKELETON_COLUMNS: LemonTableColumns<{ key: number }> = [
     })),
 ]
 
-function AccountsTableSkeleton({ expandable }: { expandable: boolean }): JSX.Element {
+function AccountsTableSkeleton(): JSX.Element {
     return (
         <LemonTable
             className="DataTable"
             columns={SKELETON_COLUMNS}
             dataSource={Array.from({ length: SKELETON_ROW_COUNT }, (_, key) => ({ key }))}
             rowKey="key"
-            expandable={
-                expandable
-                    ? {
-                          noIndent: true,
-                          expandedRowRender: () => null,
-                          rowExpandable: () => true,
-                      }
-                    : undefined
-            }
+            expandable={{
+                noIndent: true,
+                expandedRowRender: () => null,
+                rowExpandable: () => true,
+            }}
         />
     )
 }
 
 export function AccountsTable(): JSX.Element {
     const { accountsDataTableQuery, accountsQuerySource, sortedRowsTransformer } = useValues(accountsLogic)
+    const { columnWidths } = useValues(accountsViewsLogic)
     const { responseLoading, response } = useValues(
         dataNodeLogic({
             key: ACCOUNTS_TABLE_DATA_NODE_KEY,
-            query: accountsQuerySource ?? accountsDataTableQuery.source,
+            query: accountsQuerySource,
         } as DataNodeLogicProps)
     )
-    const { featureFlags } = useValues(featureFlagLogic)
-    const contextColumns = useContextColumns()
+    const {
+        tableRef,
+        columns: contextColumns,
+        hasAutoSizedColumns,
+    } = useAccountColumnAutoSizing(useContextColumns(), response, responseLoading)
     const expandable = useExpandable()
-    const accountSceneEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]
+    const dataTableContext = useMemo<QueryContext<DataTableNode>>(
+        () => ({
+            columns: contextColumns,
+            tableLayout: 'fixed',
+            tableStyle:
+                hasAutoSizedColumns || Object.keys(columnWidths).length > 0 ? { width: 'max-content' } : undefined,
+            expandable,
+            dataTableRowsTransformer: sortedRowsTransformer,
+            dataNodeLogicKey: ACCOUNTS_TABLE_DATA_NODE_KEY,
+            emptyStateHeading: 'There are no matching accounts for this query',
+            emptyStateDetail: 'Try adjusting the filters or refreshing',
+        }),
+        [contextColumns, columnWidths, hasAutoSizedColumns, expandable, sortedRowsTransformer]
+    )
     // A null source means the query is still waiting on the relationship
     // definitions — same skeleton as the initial fetch, not an empty table.
     if ((responseLoading || !accountsQuerySource) && !response) {
-        return <AccountsTableSkeleton expandable={!accountSceneEnabled} />
+        return <AccountsTableSkeleton />
     }
     return (
-        <div className="@container">
+        <div ref={tableRef} className="@container">
             <DataTable
                 uniqueKey="customer-analytics-accounts-table"
                 query={accountsDataTableQuery}
-                setQuery={() => {
-                    // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
-                }}
-                context={{
-                    columns: contextColumns,
-                    expandable,
-                    dataTableRowsTransformer: sortedRowsTransformer,
-                    dataNodeLogicKey: ACCOUNTS_TABLE_DATA_NODE_KEY,
-                    emptyStateHeading: 'There are no matching accounts for this query',
-                    emptyStateDetail: 'Try adjusting the filters or refreshing',
-                }}
+                setQuery={ignoreDataTableQueryChange}
+                context={dataTableContext}
                 readOnly
             />
         </div>

@@ -6,7 +6,7 @@ import { App } from 'scenes/App'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 
@@ -53,7 +53,7 @@ const TASKS: Task[] = [
         title: 'Add retention graph export',
         description: 'Let users download the retention graph as a CSV from the insight menu.',
         origin_product: OriginProduct.USER_CREATED,
-        runtime: RuntimeEnumApi.Acp,
+        runtime: TaskRuntimeEnumApi.Acp,
         repository: 'PostHog/posthog',
         github_integration: 1,
         signal_report: null,
@@ -71,7 +71,7 @@ const TASKS: Task[] = [
         title: 'Fix cohort empty state in query builder',
         description: 'Handle an empty cohort gracefully instead of throwing in the query builder.',
         origin_product: OriginProduct.USER_CREATED,
-        runtime: RuntimeEnumApi.Acp,
+        runtime: TaskRuntimeEnumApi.Acp,
         repository: 'PostHog/posthog',
         github_integration: 1,
         signal_report: null,
@@ -89,7 +89,7 @@ const TASKS: Task[] = [
         title: 'Investigate slow dashboard load',
         description: 'Profile the dashboard scene and find the slowest tiles on first paint.',
         origin_product: OriginProduct.USER_CREATED,
-        runtime: RuntimeEnumApi.Acp,
+        runtime: TaskRuntimeEnumApi.Acp,
         repository: 'PostHog/posthog',
         github_integration: 1,
         signal_report: null,
@@ -131,7 +131,7 @@ const meta: Meta = {
                 // Exact ids (not `:id`) so they never shadow the `repositories` action route.
                 '/api/projects/:team_id/tasks/task-3/': TASKS[2],
                 '/api/projects/:team_id/tasks/task-3/runs/': { count: 0, next: null, previous: null, results: [] },
-                '/api/environments/:team_id/integrations/': { results: [] },
+                '/api/projects/:team_id/integrations/': { results: [] },
             },
         }),
     ],
@@ -166,7 +166,7 @@ export const NewTaskWithRepository: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/integrations/': { results: [GITHUB_INTEGRATION] },
+                '/api/projects/:team_id/integrations/': { results: [GITHUB_INTEGRATION] },
                 '/api/environments/:team_id/integrations/1/github_repos': {
                     repositories: [
                         { id: 1, name: 'posthog', full_name: 'PostHog/posthog' },
@@ -204,7 +204,7 @@ export const Loading: Story = {
                     return HttpResponse.json(listResponse([]))
                 },
                 '/api/projects/:team_id/tasks/repositories/': { repositories: [] },
-                '/api/environments/:team_id/integrations/': { results: [] },
+                '/api/projects/:team_id/integrations/': { results: [] },
             },
         }),
     ],
@@ -218,7 +218,7 @@ export const ListLoadError: Story = {
                 '/api/projects/:team_id/tasks/': () =>
                     HttpResponse.json({ detail: 'Could not load tasks.' }, { status: 500 }),
                 '/api/projects/:team_id/tasks/repositories/': { repositories: [] },
-                '/api/environments/:team_id/integrations/': { results: [] },
+                '/api/projects/:team_id/integrations/': { results: [] },
             },
         }),
     ],
@@ -319,7 +319,7 @@ export const Empty: Story = {
             get: {
                 '/api/projects/:team_id/tasks/': listResponse([]),
                 '/api/projects/:team_id/tasks/repositories/': { repositories: [] },
-                '/api/environments/:team_id/integrations/': { results: [] },
+                '/api/projects/:team_id/integrations/': { results: [] },
             },
         }),
     ],

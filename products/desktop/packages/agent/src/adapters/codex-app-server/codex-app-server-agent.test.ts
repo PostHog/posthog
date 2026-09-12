@@ -259,6 +259,42 @@ describe("CodexAppServerAgent", () => {
     });
   });
 
+  it.each([
+    { serviceTier: "flex", expected: { serviceTier: "flex" } },
+    { serviceTier: undefined, expected: {} },
+  ])(
+    "sends serviceTier $serviceTier on thread/start",
+    async ({ serviceTier, expected }) => {
+      const stub = makeStubRpc({
+        initialize: {},
+        "thread/start": { thread: { id: "thr_1" } },
+      });
+      const { client } = makeFakeClient();
+      const agent = new CodexAppServerAgent(client, {
+        processOptions: { binaryPath: "/bundle/codex" },
+        model: "gpt-5.5",
+        serviceTier,
+        rpcFactory: stub.factory,
+      });
+
+      await agent.initialize(init);
+      await agent.newSession({
+        cwd: "/repo",
+        _meta: { environment: "cloud" },
+      } as unknown as NewSessionRequest);
+
+      const threadStart = stub.requests.find(
+        (r) => r.method === "thread/start",
+      );
+      expect(threadStart?.params).toMatchObject(expected);
+      // Unset must omit the key entirely: an explicit null clears the tier codex
+      // would otherwise take from its own config.
+      expect(Object.hasOwn(threadStart?.params as object, "serviceTier")).toBe(
+        serviceTier !== undefined,
+      );
+    },
+  );
+
   it("surfaces subagent activity while isolating its lifecycle state", async () => {
     const stub = makeStubRpc({
       initialize: {},
@@ -706,6 +742,40 @@ describe("CodexAppServerAgent", () => {
         sessionUpdate: "user_message_chunk",
         content: { type: "text", text: "/goal" },
       },
+    });
+  });
+
+  it("does not echo hidden retry blocks into conversation history", async () => {
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [
+        { type: "text", text: "visible" },
+        {
+          type: "text",
+          text: "hidden retry",
+          _meta: { ui: { hidden: true } },
+        },
+      ],
+    } as unknown as PromptRequest);
+    stub.emit("turn/completed", { turn: { status: "completed" } });
+    await done;
+
+    const userMessages = (
+      sessionUpdates as Array<{
+        update?: { sessionUpdate?: string; content?: unknown };
+      }>
+    ).filter((update) => update.update?.sessionUpdate === "user_message_chunk");
+    expect(userMessages).toHaveLength(1);
+    expect(userMessages[0]?.update).toMatchObject({
+      content: { type: "text", text: "visible" },
     });
   });
 
@@ -1355,6 +1425,70 @@ describe("CodexAppServerAgent", () => {
 
     expect(permissionOptions[0].map((o) => o.kind)).toContain("allow_always");
     expect(decision).toEqual({ decision: "acceptForSession" });
+  });
+
+  it.each([
+    { action: "allow", kind: "allow_always", label: "Allow" },
+    { action: "deny", kind: "reject_always", label: "Block" },
+  ])(
+    "preserves the native network $action decision",
+    async ({ action, kind, label }) => {
+      const { agent, stub, permissionOptions } = makeApprovalAgent("network_1");
+      await agent.initialize(init);
+      await agent.newSession({ cwd: "/repo" } as unknown as NewSessionRequest);
+
+      const amendment = {
+        applyNetworkPolicyAmendment: {
+          network_policy_amendment: { host: "example.com", action },
+        },
+      };
+      const decision = await stub.invokeRequest(
+        "item/commandExecution/requestApproval",
+        {
+          itemId: "network-1",
+          command: "curl https://example.com",
+          networkApprovalContext: { host: "example.com", protocol: "https" },
+          availableDecisions: ["accept", amendment, "decline"],
+        },
+      );
+
+      expect(permissionOptions[0]).toContainEqual({
+        optionId: "network_1",
+        kind,
+        name: `${label} example.com for future requests`,
+        _meta: { preservePermissionMode: true },
+      });
+      expect((decision as { decision: unknown }).decision).toBe(amendment);
+    },
+  );
+
+  it.each([
+    null,
+    { network_policy_amendment: null },
+    { network_policy_amendment: { host: "example.com", action: "unknown" } },
+    { network_policy_amendment: { action: "allow" } },
+  ])("does not grant an invalid network decision %j", async (payload) => {
+    const { agent, stub, permissionOptions } = makeApprovalAgent("network_1");
+    await agent.initialize(init);
+    await agent.newSession({ cwd: "/repo" } as unknown as NewSessionRequest);
+
+    const decision = await stub.invokeRequest(
+      "item/commandExecution/requestApproval",
+      {
+        itemId: "network-1",
+        command: "curl https://example.com",
+        availableDecisions: [
+          "accept",
+          { applyNetworkPolicyAmendment: payload },
+          "decline",
+        ],
+      },
+    );
+
+    expect(permissionOptions[0].map((option) => option.optionId)).not.toContain(
+      "network_1",
+    );
+    expect(decision).toEqual({ decision: "decline" });
   });
 
   it("omits Allow-always when codex offers no remember decision for a command", async () => {
@@ -2262,7 +2396,7 @@ describe("CodexAppServerAgent", () => {
     stub.emit("error", { willRetry: false, error: { message: "boom" } });
 
     await expect(done).rejects.toThrow(
-      "The agent stopped before completing this request. Please try again.",
+      "The agent stopped before completing this request: boom",
     );
   });
 
@@ -2348,6 +2482,44 @@ describe("CodexAppServerAgent", () => {
         content: {
           type: "text",
           text: "This request was blocked by a safety policy. Revise the request and try again.",
+        },
+      },
+    });
+  });
+
+  it("renders ChatGPT's own usage-limit message instead of the generic fallback", async () => {
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("error", {
+      willRetry: false,
+      error: {
+        message:
+          "You've hit your usage limit. To continue using Codex and get access to GPT-5.3-Codex, start a free trial of Plus today (https://chatgpt.com/explore/plus), or try again at Oct 2nd, 2026 9:53 AM.",
+        codexErrorInfo: "usageLimitExceeded",
+      },
+    });
+    stub.emit("turn/completed", {
+      turn: { id: "turn_1", status: "failed" },
+    });
+
+    expect((await done).stopReason).toBe("refusal");
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "You've hit your usage limit. To continue using Codex and get access to GPT-5.3-Codex, start a free trial of Plus today (https://chatgpt.com/explore/plus), or try again at Oct 2nd, 2026 9:53 AM.",
         },
       },
     });
@@ -2472,6 +2644,198 @@ describe("CodexAppServerAgent", () => {
     vi.useRealTimers();
   });
 
+  it("keeps the retried cause when the retries run out", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    const rejection = expect(done).rejects.toMatchObject({
+      data: expect.objectContaining({
+        classification: "upstream_provider_failure",
+        result: "API Error: 503",
+      }),
+    });
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+    // A retried error carries the only text; turn/completed has none of its own.
+    stub.emit("error", {
+      turnId: "turn_1",
+      willRetry: true,
+      error: { message: "API Error: 503 Service Unavailable" },
+    });
+    stub.emit("turn/completed", {
+      turn: { id: "turn_1", status: "failed" },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await rejection;
+    expect(sessionUpdates).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          update: expect.objectContaining({
+            sessionUpdate: "agent_message_chunk",
+          }),
+        }),
+      ]),
+    );
+    vi.useRealTimers();
+  });
+
+  it("surfaces the completion's own fatal cause when it is the only one", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    const rejection = expect(done).rejects.toMatchObject({
+      data: expect.objectContaining({
+        classification: "upstream_provider_failure",
+        result: "API Error: 502",
+      }),
+    });
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+    // codex reports the cause only on the completion — no error notification arrived.
+    stub.emit("turn/completed", {
+      turn: {
+        id: "turn_1",
+        status: "failed",
+        error: { message: "API Error: 502 Bad Gateway" },
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await rejection;
+    expect(sessionUpdates).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          update: expect.objectContaining({
+            sessionUpdate: "agent_message_chunk",
+          }),
+        }),
+      ]),
+    );
+    vi.useRealTimers();
+  });
+
+  it("prefers the completion's terminal cause over a stale retry message", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    const rejection = expect(done).rejects.toMatchObject({
+      data: expect.objectContaining({
+        classification: "upstream_provider_failure",
+        result: "API Error: 500",
+      }),
+    });
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+    // A retry reports one cause; the turn then dies for a different terminal reason.
+    stub.emit("error", {
+      turnId: "turn_1",
+      willRetry: true,
+      error: { message: "API Error: 503 Service Unavailable" },
+    });
+    stub.emit("turn/completed", {
+      turn: {
+        id: "turn_1",
+        status: "failed",
+        error: { message: "API Error: 500 Internal Server Error" },
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await rejection;
+    expect(sessionUpdates).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          update: expect.objectContaining({
+            sessionUpdate: "agent_message_chunk",
+          }),
+        }),
+      ]),
+    );
+    vi.useRealTimers();
+  });
+
+  it("does not attribute a pre-steer retry cause to a steered turn", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+    // turn_1 hits a transient provider error that codex will retry.
+    stub.emit("error", {
+      turnId: "turn_1",
+      willRetry: true,
+      error: { message: "API Error: 503 Service Unavailable" },
+    });
+    // A steer rotates the active turn id to turn_2 (the continuation turn).
+    stub.emit("turn/started", { turn: { id: "turn_2" } });
+    // turn_2 then fails through a bare completion with no cause of its own.
+    stub.emit("turn/completed", {
+      turn: { id: "turn_2", status: "failed" },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+    // turn_1's transient cause must not be reported as turn_2's failure.
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request. Please try again.",
+        },
+      },
+    });
+    expect(sessionUpdates).not.toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request: API Error: 503 Service Unavailable",
+        },
+      },
+    });
+    vi.useRealTimers();
+  });
+
   it("does not let an ID-less failed completion refuse a later prompt", async () => {
     vi.useFakeTimers();
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
@@ -2491,7 +2855,7 @@ describe("CodexAppServerAgent", () => {
     });
     stub.emit("error", { willRetry: false, error: { message: "boom" } });
     await expect(first).rejects.toThrow(
-      "The agent stopped before completing this request. Please try again.",
+      "The agent stopped before completing this request: boom",
     );
 
     const second = agent.prompt({
@@ -2525,6 +2889,67 @@ describe("CodexAppServerAgent", () => {
     await expect(done).rejects.toThrow(
       "The agent stopped before completing this request. Please try again.",
     );
+  });
+
+  it("carries the app-server cause and its classification on a fatal error", async () => {
+    // The display carries the app-server's cause, and the error data carries its
+    // classification so the host can tell a transient upstream cut from a real
+    // agent error. Without the classification the host skips its bounded turn
+    // retry and the run dies.
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, extNotifications } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("thread/tokenUsage/updated", {
+      tokenUsage: {
+        total: { inputTokens: 10, outputTokens: 5 },
+        last: { inputTokens: 10, outputTokens: 5 },
+      },
+    });
+    stub.emit("item/completed", {
+      item: { type: "fileChange", id: "edit-1", changes: [] },
+    });
+    stub.emit("error", {
+      willRetry: false,
+      error: { message: "unexpected status 503 Service Unavailable: retry" },
+    });
+
+    const err = await done.then(
+      () => {
+        throw new Error("prompt resolved instead of rejecting");
+      },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(RequestError);
+    // Exact match: the client renders this sentence, so a stray "Internal
+    // error: " prefix from RequestError.internalError() would be a regression a
+    // substring assertion could not catch.
+    expect((err as RequestError).message).toBe(
+      "The agent stopped before completing this request: unexpected status 503 Service Unavailable: retry",
+    );
+    expect((err as RequestError).data).toMatchObject({
+      classification: "upstream_provider_failure",
+      result: "unexpected status 503",
+      madeProgress: true,
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+      },
+    });
+    expect(
+      extNotifications.filter(
+        (notification) => notification.method === "_posthog/turn_complete",
+      ),
+    ).toHaveLength(0);
   });
 
   it("rejects the prompt when the fatal error is a gateway billing denial", async () => {
@@ -2643,7 +3068,7 @@ describe("CodexAppServerAgent", () => {
     stub.emit("error", { willRetry: false, error: { message: "boom" } });
     stub.emit("turn/completed", { turn: { status: "failed" } });
     await expect(done).rejects.toThrow(
-      "The agent stopped before completing this request. Please try again.",
+      "The agent stopped before completing this request: boom",
     );
 
     // Structured output is gated on a clean end_turn: a failed turn records nothing.
@@ -3784,7 +4209,7 @@ describe("CodexAppServerAgent", () => {
     });
     stub.emit("error", { willRetry: false, error: { message: "boom" } });
     await expect(done).rejects.toThrow(
-      "The agent stopped before completing this request. Please try again.",
+      "The agent stopped before completing this request: boom",
     );
 
     expect(

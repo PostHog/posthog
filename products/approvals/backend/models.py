@@ -33,8 +33,8 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     action_key = models.CharField(max_length=128)
     action_version = models.IntegerField(default=1)
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, related_name="+")
     resource_type = models.CharField(max_length=64)
     resource_id = models.CharField(max_length=128, null=True, blank=True)
 
@@ -146,16 +146,8 @@ class ApprovalPolicyManager(models.Manager):
 class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     """Defines when an action requires approval and who can approve"""
 
-    organization = models.ForeignKey(
-        "posthog.Organization",
-        on_delete=models.CASCADE,
-    )
-    team = models.ForeignKey(
-        "posthog.Team",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-    )
+    organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, blank=True, related_name="+")
 
     action_key = models.CharField(max_length=128)
 
@@ -224,10 +216,14 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             try:
                 from products.access_control.backend.models.role import RoleMembership
 
-                role_user_ids = RoleMembership.objects.filter(
-                    role_id__in=approver_roles,
-                    role__organization=self.organization,
-                ).values_list("user_id", flat=True)
+                role_user_ids = (
+                    RoleMembership.objects.filter(
+                        role_id__in=approver_roles,
+                        role__organization=self.organization,
+                    )
+                    .valid_for_authorization()
+                    .values_list("user_id", flat=True)
+                )
                 user_ids.update(role_user_ids)
             except ImportError:
                 pass

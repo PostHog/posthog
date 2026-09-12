@@ -19,8 +19,10 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from posthog.schema import ProductKey
 
+from posthog.api import project_tags
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin
 
 # These are imported from team.py for now. They are part of the legacy /api/environments/ surface and are
 # expected to move project-side (or to a neutral module) in a later PR once /api/environments/ is retired —
@@ -34,9 +36,12 @@ from posthog.api.team import (
     EvaluationContextSuggestionResponseSerializer,
     EventIngestionRestrictionSerializer,
     TeamCustomerAnalyticsConfigSerializer,
+    TeamFeatureFlagPolicyConfigSerializer,
+    TeamLogsConfigSerializer,
     TeamMarketingAnalyticsConfigSerializer,
     TeamRevenueAnalyticsConfigSerializer,
     TeamSerializer,
+    TeamTracingConfigSerializer,
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _format_serializer_errors,
@@ -44,6 +49,7 @@ from posthog.api.team import (
     handle_conversations_token_on_update,
     handle_experiments_config,
     handle_logs_config,
+    handle_tracing_config,
     report_conversations_settings_changes,
     team_event_ingestion_restrictions_view,
     validate_secret_token_generation,
@@ -197,6 +203,7 @@ def update_team_marketing_analytics_config(team: Team, validated_data: dict[str,
         ),
         "attribution_window_days": team.marketing_analytics_config.attribution_window_days,
         "attribution_mode": team.marketing_analytics_config.attribution_mode,
+        "filter_test_accounts": team.marketing_analytics_config.filter_test_accounts,
     }
 
     marketing_serializer = TeamMarketingAnalyticsConfigSerializer(
@@ -214,6 +221,7 @@ def update_team_marketing_analytics_config(team: Team, validated_data: dict[str,
         "sources_map": validated_data.get("sources_map", {}),
         "attribution_window_days": validated_data.get("attribution_window_days"),
         "attribution_mode": validated_data.get("attribution_mode"),
+        "filter_test_accounts": validated_data.get("filter_test_accounts"),
     }
 
     capture_team_config_diff(team, "marketing_analytics_config", old_config, new_config, context=context)
@@ -265,6 +273,31 @@ def update_team_workflows_config(team: Team, validated_data: dict[str, Any], *, 
 
     new_config = {field: getattr(team.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields}
     capture_team_config_diff(team, "workflows_config", old_config, new_config, context=context)
+
+
+def update_team_feature_flag_policy_config(team: Team, validated_data: dict[str, Any], *, context: dict) -> None:
+    user_access_control = context.get("user_access_control")
+    old_config = {
+        field: getattr(team.feature_flag_policy_config, field)
+        for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
+    }
+
+    serializer = TeamFeatureFlagPolicyConfigSerializer(
+        team.feature_flag_policy_config,
+        data=validated_data,
+        partial=True,
+        context={**context, "user_access_control": user_access_control},
+    )
+    if not serializer.is_valid():
+        raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+    serializer.save()
+
+    new_config = {
+        field: getattr(team.feature_flag_policy_config, field)
+        for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
+    }
+    capture_team_config_diff(team, "feature_flag_policy_config", old_config, new_config, context=context)
 
 
 def verify_team_session_recording_retention_period(team: Team, new_retention_period: str) -> None:
@@ -522,19 +555,35 @@ def team_evaluation_context_suggestions_view(team: Team, request: request.Reques
     return response.Response({"success": True, "name": context_name, "hidden_from_suggestions": hidden})
 
 
-class ProjectSerializer(serializers.ModelSerializer):
+class ProjectSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+    """The project as the app context serves it, which is where the frontend reads it on page load.
+
+    projectLogic bootstraps `currentProject` from the app context and only calls the API when that
+    is missing, so a field left out here is invisible to the app until something refetches.
+    """
+
+    tags = project_tags.tags_field()
+
     class Meta:
         model = Project
         # Keep this serializer narrow; legacy Team-compatible fields live on ProjectBackwardCompatSerializer.
-        fields = ["id", "organization_id", "name", "product_description", "created_at", "is_pending_deletion"]
+        fields = ["id", "organization_id", "name", "product_description", "created_at", "is_pending_deletion", "tags"]
         read_only_fields = ["id", "organization_id", "created_at", "is_pending_deletion"]
 
 
 class ProjectBackwardCompatSerializer(
+    TaggedItemSerializerMixin,
     UserAccessControlSerializerMixin,
     ProjectBackwardCompatBasicSerializer,
     UserPermissionsSerializerMixin,
 ):
+    """A project and its settings, including the settings that live on its passthrough Team.
+
+    This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+    onto /api/projects/ never loses a field.
+    """
+
+    tags = project_tags.tags_field()
     effective_membership_level = serializers.SerializerMethodField()  # Compat with TeamSerializer
     has_group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
     group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
@@ -543,7 +592,11 @@ class ProjectBackwardCompatSerializer(
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
     managed_viewsets = serializers.SerializerMethodField()  # Compat with TeamSerializer
     events_retention_enforced = serializers.SerializerMethodField(
-        help_text="Whether events data retention is currently enforced for this team (cohort/flag gated)."
+        help_text=(
+            "Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: "
+            "neither you nor PostHog support can turn enforcement off, and the retention window itself only "
+            "changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031"
+        )
     )  # Compat with TeamSerializer
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
@@ -563,6 +616,7 @@ class ProjectBackwardCompatSerializer(
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     workflows_config = TeamWorkflowsConfigSerializer(required=False)  # Compat with TeamSerializer
+    feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)  # Compat with TeamSerializer
     # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
     # admin-only-fields-on-creation gate in validate_team_attrs and blocks members allowed to create projects.
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, required=False)  # Compat with TeamSerializer
@@ -595,6 +649,7 @@ class ProjectBackwardCompatSerializer(
             "organization",
             "name",
             "product_description",
+            "tags",
             "created_at",
             "effective_membership_level",  # Compat with TeamSerializer
             "has_group_types",  # Compat with TeamSerializer
@@ -668,6 +723,7 @@ class ProjectBackwardCompatSerializer(
             "marketing_analytics_config",  # Compat with TeamSerializer
             "customer_analytics_config",  # Compat with TeamSerializer
             "workflows_config",  # Compat with TeamSerializer
+            "feature_flag_policy_config",  # Compat with TeamSerializer
             "base_currency",  # Compat with TeamSerializer
             "capture_dead_clicks",  # Compat with TeamSerializer
             "cookieless_server_hash_mode",  # Compat with TeamSerializer
@@ -781,6 +837,7 @@ class ProjectBackwardCompatSerializer(
             "marketing_analytics_config",
             "customer_analytics_config",
             "workflows_config",
+            "feature_flag_policy_config",
             "event_retention_months",
         }
 
@@ -832,7 +889,10 @@ class ProjectBackwardCompatSerializer(
             "event_retention_months": {
                 "help_text": (
                     "The team's events data retention window in months (plan-derived, synced from billing). When "
-                    "retention enforcement is active for the team, queries do not return events older than this many months."
+                    "retention enforcement is active for the team, queries do not return events older than this many "
+                    "months. Read-only: this value follows your plan's data retention entitlement, so neither you nor "
+                    "PostHog support can change it unless your organization is on the enterprise plan. Background and "
+                    "discussion: https://github.com/PostHog/posthog/issues/17031"
                 )
             },
             "data_attributes": {
@@ -908,6 +968,10 @@ class ProjectBackwardCompatSerializer(
     @staticmethod
     def validate_workflows_config(value):
         return TeamSerializer.validate_workflows_config(value)
+
+    @staticmethod
+    def validate_feature_flag_policy_config(value):
+        return TeamSerializer.validate_feature_flag_policy_config(value)
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
         team = project.passthrough_team
@@ -1057,8 +1121,11 @@ class ProjectBackwardCompatSerializer(
             "marketing_analytics_config",
             "customer_analytics_config",
             "workflows_config",
+            "feature_flag_policy_config",
         ):
             validated_data.pop(config_field, None)
+
+        tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
 
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
@@ -1107,9 +1174,19 @@ class ProjectBackwardCompatSerializer(
             detail=Detail(name=str(team.name)),
         )
 
+        # Replacing tags is several inserts, deletes and an orphan cleanup. Without a transaction a
+        # failure part way through leaves the project holding a mix of old and new tags.
+        with transaction.atomic():
+            self._attempt_set_tags(tags, project)
+
         return project
 
     def update(self, instance: Project, validated_data: dict[str, Any]) -> Project:
+        # Unlike the other taggable serializers, this update() never delegates to super().update():
+        # the passthrough loop below setattr()s everything left in validated_data onto the Project
+        # or its Team. So tags come out here and are written at the end.
+        tags = validated_data.pop("tags", None)
+
         team = instance.passthrough_team
         team_before_update = team.__dict__.copy()
         project_before_update = instance.__dict__.copy()
@@ -1125,6 +1202,9 @@ class ProjectBackwardCompatSerializer(
             update_team_customer_analytics_config(team, config_data, context=config_context)
         if config_data := validated_data.pop("workflows_config", None):
             update_team_workflows_config(team, config_data, context=config_context)
+
+        if config_data := validated_data.pop("feature_flag_policy_config", None):
+            update_team_feature_flag_policy_config(team, config_data, context=config_context)
 
         if "session_recording_retention_period" in validated_data:
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])
@@ -1283,11 +1363,18 @@ class ProjectBackwardCompatSerializer(
             team,
         )
 
+        # As in create(): the tag replacement is all-or-nothing.
+        with transaction.atomic():
+            self._attempt_set_tags(tags, instance)
+
         return instance
 
 
 @extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
+    list=extend_schema(
+        parameters=project_tags.LIST_FILTER_PARAMETERS,
+    ),
     retrieve=extend_schema(
         description=("Retrieve a project and its settings."),
     ),
@@ -1312,7 +1399,14 @@ class ProjectViewSet(
 
     scope_object: APIScopeObjectOrNotSupported = "project"
     serializer_class = ProjectBackwardCompatSerializer
-    queryset = Project.objects.all().select_related("organization").prefetch_related("teams")
+    queryset = (
+        Project.objects.all()
+        .select_related("organization")
+        .prefetch_related(
+            "teams",
+            project_tags.prefetch(),
+        )
+    )
     lookup_field = "id"
     ordering = "-created_by"
     filter_backends = [PhraseSearchFilter]
@@ -1324,6 +1418,7 @@ class ProjectViewSet(
         queryset = queryset.filter(id__in=visible_teams_ids)
         if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
             queryset = queryset.filter(organization_id__in=scoped_organizations)
+        queryset = project_tags.filter_queryset(queryset, self.request.query_params)
         return queryset
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
@@ -1335,6 +1430,26 @@ class ProjectViewSet(
         super().perform_create(serializer)
         project = cast(Project, serializer.instance)
         self._notify_org_admins_of_member_project_creation(project)
+        if "tags" in serializer.initial_data:
+            project_tags.report_change(
+                user=cast(User, self.request.user),
+                project=project,
+                tags_before=set(),
+                tags_after=project_tags.current_names(project),
+            )
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        project = cast(Project, serializer.instance)
+        # Read the old names before saving: the tag write replaces the prefetch this reads from.
+        tags_before = project_tags.current_names(project) if "tags" in serializer.initial_data else None
+        super().perform_update(serializer)
+        if tags_before is not None:
+            project_tags.report_change(
+                user=cast(User, self.request.user),
+                project=project,
+                tags_before=tags_before,
+                tags_after=project_tags.current_names(project),
+            )
 
     def _notify_org_admins_of_member_project_creation(self, project: Project) -> None:
         """When a member (below admin) creates a project, notify org admins/owners in-app. Best-effort."""
@@ -1445,10 +1560,9 @@ class ProjectViewSet(
         return project
 
     # :KLUDGE: Exposed for compatibility reasons for permission classes.
-    @property
-    def team(self):
-        project = self.get_object()
-        return project.teams.get(id=project.id)
+    @cached_property
+    def team(self) -> Team:
+        return self.get_object().passthrough_team
 
     def perform_destroy(self, project: Project):
         from ee.billing.billing_manager import BillingManager
@@ -1612,6 +1726,18 @@ class ProjectViewSet(
         project = self.get_object()
         return response.Response({"is_generating_demo_data": project.passthrough_team.get_is_generating_demo_data()})
 
+    @extend_schema(
+        methods=["GET"],
+        request=None,
+        responses={200: TeamLogsConfigSerializer},
+        extensions={"x-product": "logs"},
+    )
+    @extend_schema(
+        methods=["PATCH"],
+        request=TeamLogsConfigSerializer,
+        responses={200: TeamLogsConfigSerializer},
+        extensions={"x-product": "logs"},
+    )
     @action(
         methods=["GET", "PATCH"],
         detail=True,
@@ -1625,6 +1751,32 @@ class ProjectViewSet(
         resolves alongside the legacy /api/environments/:id/logs_config/ alias."""
         project = self.get_object()
         return handle_logs_config(request, project.passthrough_team)
+
+    @extend_schema(
+        methods=["GET"],
+        request=None,
+        responses={200: TeamTracingConfigSerializer},
+        extensions={"x-product": "tracing"},
+    )
+    @extend_schema(
+        methods=["PATCH"],
+        request=TeamTracingConfigSerializer,
+        responses={200: TeamTracingConfigSerializer},
+        extensions={"x-product": "tracing"},
+    )
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberStrictManagementPermission],
+        url_path="tracing_config",
+    )
+    def tracing_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage tracing product configuration for this project's canonical environment.
+        Members can read; writing requires project admin, matching the admin-only
+        settings UI. Mirrors the env-router action so /api/projects/:id/tracing_config/
+        resolves alongside the legacy /api/environments/:id/tracing_config/ alias."""
+        project = self.get_object()
+        return handle_tracing_config(request, project.passthrough_team)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
@@ -1813,62 +1965,108 @@ class ProjectViewSet(
         user = cast(User, request.user)
 
         target_organization_id = request.data.get("organization_id")
-        current_organization = project.organization
-
-        try:
-            target_organization = Organization.objects.get(pk=target_organization_id)
-            current_organization_membership = OrganizationMembership.objects.get(
-                user=user, organization=current_organization
-            )
-            target_organization_membership = OrganizationMembership.objects.get(
-                user=user, organization=target_organization
-            )
-
-            if (
-                current_organization_membership.level < OrganizationMembership.Level.ADMIN
-                or target_organization_membership.level < OrganizationMembership.Level.ADMIN
-            ):
-                raise exceptions.ValidationError(
-                    "You must be an admin of both the source and target organizations to move a project."
-                )
-
-        except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
-            raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
-
-        if project.organization_id == target_organization_id:
-            raise exceptions.ValidationError("Project is already in the target organization.")
-
-        teams = list(project.teams.all())
 
         with transaction.atomic():
-            project.organization_id = target_organization_id
+            # Lock the project row so concurrent moves serialize: each request re-reads the
+            # organization and teams only after the previous move has committed, so snapshots
+            # never go stale and no departure is recorded twice.
+            try:
+                project = Project.objects.select_for_update().get(pk=project.pk)
+            except Project.DoesNotExist:
+                raise exceptions.NotFound("Project not found.")
+
+            current_organization = project.organization
+
+            try:
+                target_organization = Organization.objects.get(pk=target_organization_id)
+                current_organization_membership = OrganizationMembership.objects.get(
+                    user=user, organization=current_organization
+                )
+                target_organization_membership = OrganizationMembership.objects.get(
+                    user=user, organization=target_organization
+                )
+
+                if (
+                    current_organization_membership.level < OrganizationMembership.Level.ADMIN
+                    or target_organization_membership.level < OrganizationMembership.Level.ADMIN
+                ):
+                    raise exceptions.ValidationError(
+                        "You must be an admin of both the source and target organizations to move a project."
+                    )
+
+            except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
+                raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
+
+            # Compare resolved UUIDs: target_organization_id comes off the request body as a string, so
+            # comparing it to the UUID organization_id never matches and would let a same-org request through.
+            if project.organization_id == target_organization.id:
+                raise exceptions.ValidationError("Project is already in the target organization.")
+
+            teams = list(project.teams.all())
+            was_impersonated = is_impersonated(request)
+            project_change = Change(
+                type="Project",
+                action="changed",
+                field="organization_id",
+                before=str(current_organization.id),
+                after=str(target_organization.id),
+            )
+
+            project.organization_id = target_organization.id
             project.save()
 
+            # Record the arrival for the receiving organization.
             log_activity(
                 organization_id=cast(UUIDT, target_organization_id),
                 team_id=project.pk,
                 user=user,
-                was_impersonated=is_impersonated(request),
+                was_impersonated=was_impersonated,
                 scope="Project",
                 item_id=project.pk,
                 activity="updated",
-                detail=Detail(
-                    name="moved to another organization",
-                    changes=[
-                        Change(
-                            type="Project",
-                            action="changed",
-                            field="organization_id",
-                            before=str(current_organization.id),
-                            after=str(target_organization.id),
-                        )
-                    ],
-                ),
+                detail=Detail(name="moved to another organization", changes=[project_change]),
+            )
+
+            # Record the departure for the losing organization. Its members can no longer reach the
+            # project, so this org-scoped entry is their only readable record of who moved it and where.
+            log_activity(
+                organization_id=current_organization.id,
+                team_id=None,
+                user=user,
+                was_impersonated=was_impersonated,
+                scope="Project",
+                item_id=project.pk,
+                activity="updated",
+                # Name the project itself; the losing org can no longer resolve it any other way.
+                detail=Detail(name=str(project.name), changes=[project_change]),
             )
 
             for team in teams:
-                team.organization_id = target_organization_id
+                team.organization_id = target_organization.id
                 team.save()
+
+                # One departure entry per environment, so the losing org sees which ones left.
+                log_activity(
+                    organization_id=current_organization.id,
+                    team_id=None,
+                    user=user,
+                    was_impersonated=was_impersonated,
+                    scope="Team",
+                    item_id=team.pk,
+                    activity="updated",
+                    detail=Detail(
+                        name=str(team.name),
+                        changes=[
+                            Change(
+                                type="Team",
+                                action="changed",
+                                field="organization_id",
+                                before=str(current_organization.id),
+                                after=str(target_organization.id),
+                            )
+                        ],
+                    ),
+                )
 
             self._reconcile_current_project_of_affected_users(teams, target_organization)
 

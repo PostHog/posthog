@@ -1220,6 +1220,75 @@ class TestSnowflakeIntegration:
         assert expected_error_message in response.json()["detail"]
 
 
+class TestAzureBlobIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @pytest.mark.parametrize(
+        "connection_string",
+        [
+            "DefaultEndpointsProtocol=https;AccountName=my-storage-account;AccountKey=my-key;EndpointSuffix=core.windows.net",
+            "DefaultEndpointsProtocol=https;AccountName=my-storage-account;AccountKey=my-key;EndpointSuffix=core.usgovcloudapi.net",
+            "AccountName=my-storage-account;AccountKey=my-key",
+            "AccountName=my-storage-account;AccountKey=YQ==; BlobEndpoint=https://example.com;EndpointSuffix=169.254.169.254",
+        ],
+    )
+    @override_settings(FORCE_URL_VALIDATION=True)
+    @patch("posthog.models.integration.azure_blob.is_url_allowed")
+    def test_create_azure_blob_integration(
+        self, mock_is_url_allowed: MagicMock, connection_string: str, client: HttpClient
+    ) -> None:
+        # Required mock otherwise we need a valid hostname for tests
+        mock_is_url_allowed.return_value = (True, None)
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "azure-blob",
+                "config": {"connection_string": connection_string},
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.integration_id == "my-storage-account"
+
+    @pytest.mark.parametrize(
+        "connection_string",
+        [
+            "UseDevelopmentStorage=true;AccountName=devstoreaccount1",
+            "AccountName=my-storage-account;AccountKey=my-key;BlobEndpoint=http://169.254.169.254/",
+            # Attacker-controlled DefaultEndpointsProtocol is interpolated raw into the derived
+            # endpoint by the SDK, so the derived URL must be validated, not assumed https.
+            "DefaultEndpointsProtocol=http://169.254.169.254/latest/meta-data?x=;AccountName=a;AccountKey=YQ==;EndpointSuffix=core.windows.net",
+            "DefaultEndpointsProtocol=http;AccountName=a;AccountKey=YQ==",
+            "AccountName=a;AccountKey=YQ==;BlobEndpoint=http://example.com",
+        ],
+    )
+    @override_settings(FORCE_URL_VALIDATION=True)
+    def test_create_azure_blob_integration_rejects_internal_endpoints(self, connection_string, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "azure-blob",
+                "config": {"connection_string": connection_string},
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Integration.objects.filter(team=self.team, kind="azure-blob").exists()
+
+
 class TestIntegrationAPIKeyAccess:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):
@@ -6703,3 +6772,31 @@ class TestPosthogConnectionListScoping:
     def test_creator_still_sees_their_connection(self, client: HttpClient):
         client.force_login(self.owner)
         assert self.connection.id in self._list_ids(client)
+
+
+class TestIntegrationSerializerFilesWriteRequestable(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("slack_requests_files_write", "slack", "chat:write,files:write", True),
+            ("slack_does_not_request_files_write", "slack", "chat:write", False),
+            ("non_slack_is_never_requestable", "github", "chat:write,files:write", False),
+        ]
+    )
+    def test_files_write_requestable(self, _name, kind, requested_scope, expected):
+        config = {"team": {"name": "Test Workspace"}} if kind == "slack" else {"installation_id": "12345"}
+        integration = Integration.objects.create(team=self.team, kind=kind, config=config)
+        with (
+            patch(
+                "posthog.models.integration.oauth.get_instance_settings",
+                return_value={
+                    "SLACK_APP_CLIENT_ID": "test-client-id",
+                    "SLACK_APP_CLIENT_SECRET": "test-client-secret",
+                    "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
+                },
+            ),
+            patch("posthog.api.integration.POSTHOG_SLACK_SCOPE", requested_scope),
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["files_write_requestable"] is expected

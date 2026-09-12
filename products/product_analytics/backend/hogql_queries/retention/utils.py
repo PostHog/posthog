@@ -4,7 +4,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
-from posthog.hogql_queries.insights.utils.breakdowns import strip_user_aliases
+from posthog.hogql_queries.utils.breakdowns import strip_user_aliases
 
 
 def breakdown_extract_expr(property_name: str, breakdown_type: str, group_type_index: int | None = None) -> ast.Expr:

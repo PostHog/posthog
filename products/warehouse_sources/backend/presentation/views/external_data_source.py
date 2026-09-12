@@ -108,9 +108,11 @@ from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
+    ExternalDataDestination,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
+    ExternalDataSourceDestination,
     PendingSourceCredential,
     auto_enable_new_schemas,
     latest_completed_job_prefetch,
@@ -118,6 +120,7 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.source_management import (
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
     DEFAULT_LAG_WARNING_THRESHOLD_MB,
     PREVIEW_DEFAULT_ROWS,
@@ -133,6 +136,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     DocsFetchError,
     ExternalWebhookInfo,
     FieldType,
+    HostNotAllowedError,
     IntegrationAccountListingError,
     MySQLSource,
     OAuthMixin,
@@ -142,6 +146,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     SQLSource,
     SSLRequiredError,
+    TemporaryHostResolutionError,
     WebhookSource,
     build_default_schemas,
     build_default_sync_settings,
@@ -152,6 +157,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_integration_accounts,
     get_cdc_adapter,
     get_primary_key_columns,
+    new_source_requires_ssl,
     purge_buffer_prefix,
     repair_cdc_source,
     source_requires_ssl,
@@ -163,6 +169,11 @@ from products.warehouse_sources.backend.facade.types import (
     DataWarehouseManagedViewSetKind,
     ExternalDataSourceType,
     ManagedWarehouseSQLMode,
+)
+from products.warehouse_sources.backend.presentation.views.destination_links import (
+    DestinationLinkSerializer,
+    SourceDestinationsSerializer,
+    set_source_destinations,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     ExternalDataSchemaListSerializer,
@@ -230,6 +241,16 @@ def _hide_noncanonical_managed_warehouse_sources(
     return queryset.exclude(hidden_sources)
 
 
+# Failures to reach the source database that only the customer can fix. Handlers return them as a
+# 400 without capturing, so they stay out of error tracking.
+_EXPECTED_CONNECTION_ERRORS = (
+    OperationalError,
+    BaseSSHTunnelForwarderError,
+    SSLRequiredError,
+    HostNotAllowedError,
+    TemporaryHostResolutionError,
+)
+
 REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "timeout": "Connection timed out while fetching schemas from the source.",
     "timed out": "Connection timed out while fetching schemas from the source.",
@@ -246,6 +267,9 @@ REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "forbidden": "The source credentials do not have permission to fetch schemas.",
     "ssl/tls connection is required": "SSL/TLS is required to connect to the source.",
     "could not establish session to ssh gateway": "Could not establish an SSH tunnel to the source.",
+    # Raised by the connect-time host check of every SQL source; the map is matched on lowercased text.
+    "database host not allowed": DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    "temporary failure resolving": "Could not resolve the source host right now. Try again in a moment.",
 }
 
 
@@ -909,6 +933,15 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "`null` on legacy rows and means billable."
         ),
     )
+    destination_ids = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=(
+            "Destinations this run delivered to, snapshotted when it started. Empty on runs that "
+            "predate destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts "
+            "the rows read from the source once, not once per destination."
+        ),
+    )
 
     class Meta:
         model = ExternalDataJob
@@ -924,6 +957,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "workflow_run_id",
             "cdc_write_mode",
             "billable",
+            "destination_ids",
         ]
         read_only_fields = [
             "id",
@@ -937,6 +971,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "workflow_run_id",
             "cdc_write_mode",
             "billable",
+            "destination_ids",
         ]
 
     def get_cdc_write_mode(self, instance: ExternalDataJob) -> str | None:
@@ -1444,12 +1479,27 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         source_config: Config = source.parse_config(new_job_inputs)
         validated_job_inputs = source_config.to_dict()
+
+        # The settings form resubmits the whole connection config on every save, so changing an
+        # unrelated setting (auto-syncing new tables, the prefix, the description) re-probed the
+        # live connection too — and a momentarily unreachable database then failed the whole save,
+        # leaving nothing to do but retry. Compare the parsed config against what's stored so the
+        # probe below only runs when the connection actually changed. Direct query sources still
+        # probe on every save: the same call refreshes their schemas and connection metadata.
+        try:
+            stored_job_inputs = source.parse_config(existing_job_inputs).to_dict()
+        except Exception:
+            # A stored config that no longer parses can't be compared, so treat it as changed and
+            # let the probe run rather than skipping validation on a config we can't read.
+            stored_job_inputs = None
+        connection_config_changed = stored_job_inputs is None or stored_job_inputs != validated_job_inputs
+
         for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
             if key in existing_job_inputs:
                 validated_job_inputs[key] = existing_job_inputs[key]
         validated_data["job_inputs"] = validated_job_inputs
 
-        if job_inputs_were_submitted:
+        if job_inputs_were_submitted and (connection_config_changed or instance.is_direct_query):
             effective_api_version = source.resolve_api_version(instance.api_version)
             try:
                 if isinstance(source, (PostgresSource, MySQLSource)):
@@ -1616,6 +1666,14 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text=(
             "Whether a synced source should also be live-queryable via direct connection. "
             "Defaults to false; ignored for pure direct-query sources."
+        ),
+    )
+    destination_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text=(
+            "Destinations every table on this source writes to. Set here rather than afterwards, "
+            "so the opening sync already carries them. Omit to write to the PostHog warehouse only."
         ),
     )
 
@@ -1963,6 +2021,19 @@ class IntegrationAccountsResponseSerializer(serializers.Serializer):
     )
 
 
+class AccountPickerManagementPermission(TeamMemberAdminManagementPermission):
+    """Admin gate for the account picker, with a message the customer can act on.
+
+    The base message names no next step. Free entry stays open on the account field, so a
+    member who cannot list accounts can still finish the source by filling the account in.
+    """
+
+    message = (
+        "You need admin access to this project to list the accounts this connection can reach. "
+        "Ask an admin to finish the setup, or fill in the account yourself."
+    )
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class ResolvedStoredCredential:
     payload: dict = dataclasses.field(repr=False)
@@ -1990,6 +2061,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "store_credentials",
         "source_prefix",
         "revenue_analytics_config",
+        "destinations",
         "create_webhook",
         "update_webhook_inputs",
         "delete_webhook",
@@ -2067,7 +2139,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 APIScopePermission(),
                 AccessControlPermission(),
                 TeamMemberAccessPermission(),
-                TeamMemberAdminManagementPermission(),
+                AccountPickerManagementPermission(),
             ]
         raise NotImplementedError()
 
@@ -2233,6 +2305,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
+            destination_ids=serializer.validated_data.get("destination_ids"),
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
         if resolved.credential is not None and response.status_code == status.HTTP_201_CREATED:
@@ -2360,6 +2433,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         created_via: str,
         direct_query_enabled: bool = False,
         skip_credential_validation: bool = False,
+        destination_ids: list | None = None,
     ) -> Response:
         # `skip_credential_validation` is set only by the `setup` action, which has already run the
         # full config + credential gate (including the SSRF host check) before discovering schemas.
@@ -2625,7 +2699,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                                 schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
                                 if schema_name is not None:
                                     pk_columns_by_table[schema_name] = primary_key_columns
-                except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+                except _EXPECTED_CONNECTION_ERRORS as e:
                     # Connecting to the user's database to detect CDC primary keys is expected to
                     # fail when the host, port, credentials, or SSH tunnel are wrong, or the server
                     # requires/refuses SSL. Surface it as a 400, but don't capture it — these are
@@ -2914,6 +2988,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             if should_sync and new_source_model.supports_scheduled_sync:
                 active_schemas.append(schema_model)
+
+        # Attach destinations before any schedule starts. Extraction snapshots the set onto the
+        # run, so a source whose destinations arrive after its first sync began writes that run
+        # to the warehouse alone, and reaching the others costs a full resync.
+        if destination_ids:
+            try:
+                set_source_destinations(
+                    team_id=self.team_id,
+                    source_id=new_source_model.pk,
+                    destination_ids=destination_ids,
+                )
+            except Exception as e:
+                # The source is already created and its tables are configured. Losing that over a
+                # destination set the user can still fix on the Destinations tab is the worse trade.
+                logger.exception(
+                    "Could not attach destinations to a new source",
+                    exc_info=e,
+                    source_id=new_source_model.pk,
+                )
 
         # Create all sync schedules over a single shared Temporal connection. Creating them
         # one call at a time reconnects to Temporal on every iteration, which does not scale
@@ -3384,7 +3477,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             if isinstance(source, (PostgresSource, MySQLSource)):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                    cast(Any, source_config), self.team_id, access_method
+                    cast(Any, source_config),
+                    self.team_id,
+                    access_method,
+                    require_ssl=new_source_requires_ssl(source_config),
                 )
             elif isinstance(source, CustomSource):
                 # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
@@ -3861,7 +3957,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             if isinstance(source, (PostgresSource, MySQLSource)):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                    cast(Any, source_config), self.team_id, access_method
+                    cast(Any, source_config),
+                    self.team_id,
+                    access_method,
+                    require_ssl=new_source_requires_ssl(source_config),
                 )
             elif isinstance(source, CustomSource):
                 # Create-time validation for an integration-backed manifest may only use an unbound integration
@@ -4057,8 +4156,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 tables=tables,
                 slot_name=slot_name,
                 publication_name=publication_name,
+                team_id=self.team_id,
             )
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Probing a user-supplied database to validate it is expected to fail when the host,
             # credentials, or SSH tunnel are wrong or the server drops the connection. Surface it
             # to the wizard as a 400, but don't capture it — these are user/upstream connection
@@ -4127,7 +4227,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
             )
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Probing the source's database to validate it is expected to fail when the host,
             # credentials, or SSH tunnel are wrong, the server requires/refuses SSL, or it drops the
             # connection. Surface it as a 400, but don't capture it — these are user/upstream
@@ -4202,7 +4302,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
             )
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
             # requires/refuses SSL, dropped connection). Surface as a 400 without capturing — see the
             # check_cdc_prerequisites_for_source handler above.
@@ -4406,7 +4506,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return Response(status=status.HTTP_409_CONFLICT, data={"message": str(e)})
         except CDCRepairError as e:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Expected user/upstream connection failure — surface as a 400 without capturing,
             # mirroring the enable_cdc handler.
             return Response(
@@ -4487,7 +4587,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # back into the same deterministic failure.
         try:
             live_status = adapter.get_status(instance)
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={
@@ -4946,6 +5046,64 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         serializer = DirectConnectionSourceOptionSerializer(options, many=True)
         return Response(status=status.HTTP_200_OK, data=serializer.data)
+
+    @extend_schema(
+        request=DestinationLinkSerializer,
+        responses={200: SourceDestinationsSerializer},
+    )
+    @action(methods=["GET", "PATCH"], detail=True)
+    def destinations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Read or replace the destinations every table on this source syncs to.
+
+        A table with its own override ignores this set until the override is cleared.
+        """
+        source = self.get_object()
+
+        if request.method == "GET":
+            attached = [
+                str(link.destination_id)
+                for link in ExternalDataSourceDestination.objects.for_team(self.team_id)
+                .filter(source_id=source.id, enabled=True)
+                .exclude(destination__deleted=True)
+            ]
+            # A source nobody configured has no links but is not syncing nowhere: it syncs to the
+            # PostHog warehouse. Report where it actually goes, or the picker shows every
+            # destination off and saving from that state silently drops the warehouse.
+            # Looked up rather than resolved, because `resolve_destinations` creates the
+            # warehouse row on demand and a GET must not write.
+            if not attached:
+                warehouse = (
+                    ExternalDataDestination.objects.for_team(self.team_id)
+                    .filter(type=ExternalDataDestination.Type.POSTHOG_WAREHOUSE, deleted=False)
+                    .first()
+                )
+                attached = [str(warehouse.id)] if warehouse else []
+            return Response(
+                status=status.HTTP_200_OK, data=SourceDestinationsSerializer({"destination_ids": attached}).data
+            )
+
+        serializer = DestinationLinkSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # Editor on the source isn't enough on its own: this replaces the destination set every
+        # table without its own override inherits, and (like `destroy`) never resolves a schema
+        # through DRF's object permissions, so a table locked below the source would otherwise be
+        # rerouted to a destination its editor never had access to.
+        schemas = list(
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(team_id=self.team_id, source_id=source.id)
+            .select_related("table")
+        )
+        self._assert_can_write_schemas(schemas)
+
+        attached = set_source_destinations(
+            team_id=self.team_id,
+            source_id=source.id,
+            destination_ids=serializer.validated_data["destination_ids"],
+        )
+        return Response(
+            status=status.HTTP_200_OK, data=SourceDestinationsSerializer({"destination_ids": attached}).data
+        )
 
     @action(methods=["PATCH"], detail=True)
     def revenue_analytics_config(self, request: Request, *args: Any, **kwargs: Any) -> Response:

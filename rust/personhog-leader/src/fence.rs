@@ -173,7 +173,6 @@ pub async fn rebuild_partition_fences(
         if partition_for_person(team_id as i64, person_id, num_partitions) != partition {
             continue;
         }
-        let op_id: Uuid = row.get("op_id");
         let op_type: String = row.get("op_type");
         fences.insert(
             PersonCacheKey {
@@ -181,7 +180,7 @@ pub async fn rebuild_partition_fences(
                 person_id,
             },
             FenceState {
-                op_id,
+                op_id: row.get("op_id"),
                 op_type: LifecycleOpType::from_op_type_str(&op_type),
             },
         );
@@ -324,6 +323,7 @@ pub async fn mark_status(
     team_id: i64,
     person_id: i64,
 ) -> Result<Option<String>, sqlx::Error> {
+    let mut conn = crate::pg::acquire_timed(pool, "mark_status").await?;
     sqlx::query_scalar(
         "SELECT status FROM lifecycle_op_person \
          WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role <> 'target'",
@@ -331,7 +331,7 @@ pub async fn mark_status(
     .bind(op_id)
     .bind(team_id as i32)
     .bind(person_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
 }
 
@@ -350,6 +350,7 @@ pub async fn target_mark_status(
     team_id: i64,
     person_id: i64,
 ) -> Result<Option<String>, sqlx::Error> {
+    let mut conn = crate::pg::acquire_timed(pool, "target_mark_status").await?;
     sqlx::query_scalar(
         "SELECT status FROM lifecycle_op_person \
          WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role = 'target'",
@@ -357,6 +358,6 @@ pub async fn target_mark_status(
     .bind(op_id)
     .bind(team_id as i32)
     .bind(person_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
 }

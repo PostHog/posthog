@@ -13,7 +13,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import DomainNameValidator
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import Count, Q, QuerySet
 from django.http import HttpResponse
 from django.http.response import HttpResponseBase
@@ -46,10 +46,9 @@ from posthog.rate_limit import (
     MCPProxyBurstThrottle,
     MCPProxySustainedThrottle,
 )
-from posthog.security.url_validation import is_url_allowed
 
 from ..agents import sync_built_in_agents
-from ..facade.api import resolve_member_tool_states
+from ..facade.api import check_mcp_url_policy, resolve_member_tool_states
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
 from ..models import (
     AGENT_GRANT_SCOPE_CHOICES,
@@ -76,6 +75,7 @@ from ..oauth import (
     oauth_resource,
     register_dcr_client,
     requested_oauth_scopes,
+    resolve_template_oauth_credentials,
     select_token_endpoint_auth_method,
 )
 from ..policy import GatewayCaller, PolicyContext, ResolvedPolicy, is_policy_state_allowed
@@ -199,13 +199,21 @@ def _template_uses_dcr(template: MCPServerTemplate) -> bool:
     detects this implicitly — the user-facing ``auth_type`` stays ``"oauth"``
     so neither the API nor the UI needs to know about DCR as a concept.
 
-    Operators seed a DCR template by populating (name, url, oauth_metadata,
-    icon, category, docs_url) and leaving ``oauth_credentials`` empty.
+    A catalog credential source also identifies a shared client without copying
+    its secret into the template row.
     """
     if template.auth_type != "oauth":
         return False
     credentials = template.oauth_credentials or {}
-    return not credentials.get("client_id")
+    return not template.oauth_credentials_source and not credentials.get("client_id")
+
+
+def _template_shared_client_id(template: MCPServerTemplate) -> str:
+    credentials = resolve_template_oauth_credentials(template)
+    client_id = credentials.get("client_id", "")
+    if not client_id:
+        raise ValueError("Template OAuth client is not configured")
+    return client_id
 
 
 # The domain becomes a path segment of img.logo.dev/{domain} and part of the icon cache key.
@@ -379,6 +387,11 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
         return request.user.id == obj.user_id
 
 
+class MCPInstallationScope(models.TextChoices):
+    PERSONAL = "personal", "personal"
+    SHARED = "shared", "shared"
+
+
 class InstallCustomSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=200)
     url = serializers.URLField(max_length=2048)
@@ -392,7 +405,7 @@ class InstallCustomSerializer(serializers.Serializer):
     install_source = serializers.ChoiceField(choices=["posthog", "posthog-code"], required=False, default="posthog")
     posthog_code_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
     scope = serializers.ChoiceField(
-        choices=["personal", "shared"],
+        choices=MCPInstallationScope.choices,
         required=False,
         default="personal",
         help_text=(
@@ -425,7 +438,8 @@ class InstallCustomSerializer(serializers.Serializer):
     )
 
     def validate_url(self, value: str) -> str:
-        allowed, error = is_url_allowed(value)
+        team = self.context.get("team")
+        allowed, error = check_mcp_url_policy(value, getattr(team, "id", None))
         if not allowed:
             raise serializers.ValidationError(f"URL not allowed: {error}")
         return value
@@ -442,7 +456,7 @@ class InstallTemplateSerializer(serializers.Serializer):
     install_source = serializers.ChoiceField(choices=["posthog", "posthog-code"], required=False, default="posthog")
     posthog_code_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
     scope = serializers.ChoiceField(
-        choices=["personal", "shared"],
+        choices=MCPInstallationScope.choices,
         required=False,
         default="personal",
         help_text=(
@@ -982,18 +996,23 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _validate_mcp_url_or_error_response(self, mcp_url: str) -> Response | None:
-        allowed, reason = is_url_allowed(mcp_url)
+        allowed, reason = check_mcp_url_policy(mcp_url, self.team_id)
         if not allowed:
             logger.warning("SSRF blocked MCP server URL", url=mcp_url, reason=reason)
             return Response({"detail": "Server URL blocked by security policy"}, status=status.HTTP_400_BAD_REQUEST)
         return None
 
     def _register_dcr_client_or_raise(
-        self, metadata: dict, redirect_uri: str, *, server_url: str = ""
+        self,
+        metadata: dict,
+        redirect_uri: str,
+        *,
+        server_url: str = "",
+        scope_allowlist: list[str] | tuple[str, ...] | None = None,
     ) -> DcrClientRegistration:
         log_context = {"error": ""} if not server_url else {"server_url": server_url, "error": ""}
         try:
-            return register_dcr_client(metadata, redirect_uri)
+            return register_dcr_client(metadata, redirect_uri, scope_allowlist)
         except ValueError as e:
             log_context["error"] = str(e)
             logger.warning("DCR not supported", **log_context)
@@ -1015,6 +1034,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         redirect_uri: str,
         state_token: str,
         code_challenge: str,
+        scope_allowlist: list[str] | tuple[str, ...] | None = None,
     ) -> str:
         query_params = {
             "client_id": client_id,
@@ -1024,7 +1044,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
         }
-        if scopes := requested_oauth_scopes(metadata):
+        try:
+            scopes = requested_oauth_scopes(metadata, scope_allowlist)
+        except ValueError as exc:
+            raise OAuthAuthorizeURLError(str(exc)) from exc
+        if scopes:
             query_params["scope"] = " ".join(scopes)
         if resource := oauth_resource(metadata):
             query_params["resource"] = resource
@@ -1445,6 +1469,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     metadata,
                     redirect_uri,
                     server_url=template.url,
+                    scope_allowlist=template.oauth_scope_allowlist,
                 )
             except DCRNotSupportedError:
                 if created:
@@ -1480,7 +1505,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 team_id=self.team_id,
             )
         else:
-            # Shared-creds template: admin-seeded metadata + shared client_id.
+            # Shared-creds template: trusted metadata + shared client_id.
             if not template.oauth_metadata:
                 if created:
                     installation.delete()
@@ -1489,8 +1514,15 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             metadata = template.oauth_metadata
-            # _template_uses_dcr guarantees client_id is present here.
-            client_id = template.oauth_credentials["client_id"]
+            try:
+                client_id = _template_shared_client_id(template)
+            except ValueError:
+                if created:
+                    installation.delete()
+                return Response(
+                    {"detail": "Template OAuth client is not configured"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         pkce = generate_pkce()
         token = secrets.token_urlsafe(32)
@@ -1512,6 +1544,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 redirect_uri=redirect_uri,
                 state_token=token,
                 code_challenge=pkce.code_challenge,
+                scope_allowlist=template.oauth_scope_allowlist,
             )
         except OAuthAuthorizeURLError as exc:
             logger.warning(
@@ -1540,6 +1573,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
     @validated_request(
         InstallCustomSerializer,
+        include_serializer_context=True,
         responses={
             200: OpenApiResponse(response=OAuthRedirectResponseSerializer),
             201: OpenApiResponse(response=MCPServerInstallationSerializer),
@@ -1563,7 +1597,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         user_client_secret = (data.get("client_secret") or "").strip()
         scope = data.get("scope", "personal")
         self._require_admin_for_shared_scope(scope)
-        self._require_custom_servers_allowed()
+        # Connecting to a server a teammate already registered is not adding
+        # one, so the team's custom-server setting does not apply.
+        if not MCPGatewayServer.objects.for_team(self.team_id).filter(url=url).exists():
+            self._require_custom_servers_allowed()
         self._validate_gateway_options(data)
 
         install_source = data.get("install_source", "posthog")
@@ -1903,8 +1940,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             if not template.oauth_metadata:
                 return Response({"detail": "Template missing OAuth metadata"}, status=status.HTTP_400_BAD_REQUEST)
             metadata = template.oauth_metadata
-            # _template_uses_dcr guarantees client_id is present here.
-            client_id = template.oauth_credentials["client_id"]
+            try:
+                client_id = _template_shared_client_id(template)
+            except ValueError:
+                return Response(
+                    {"detail": "Template OAuth client is not configured"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         redirect_uri = _get_oauth_redirect_uri()
         pkce = generate_pkce()
@@ -1926,6 +1968,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 redirect_uri=redirect_uri,
                 state_token=token,
                 code_challenge=pkce.code_challenge,
+                scope_allowlist=template.oauth_scope_allowlist,
             )
         except OAuthAuthorizeURLError as exc:
             logger.warning(

@@ -114,13 +114,21 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub max_concurrent_requests: usize,
 
+    /// Leader property writes in flight per get-or-create batch (0 acts as 1).
+    #[envconfig(default = "8")]
+    pub property_write_concurrency: usize,
+
+    /// Leader calls in flight per lifecycle saga step (0 acts as 1).
+    #[envconfig(default = "8")]
+    pub lifecycle_leader_call_concurrency: usize,
+
     /// How long one claim of a lifecycle op lasts before another instance
     /// may steal it (seconds).
     #[envconfig(default = "15")]
     pub lifecycle_lease_secs: u64,
 
-    /// How long a DeletePersons call keeps driving (or waiting on another
-    /// driver's lease) before returning UNAVAILABLE (seconds).
+    /// Seconds one lifecycle call drives (or waits on another driver's
+    /// lease) before returning UNAVAILABLE; callers need a larger deadline.
     #[envconfig(default = "30")]
     pub lifecycle_execute_timeout_secs: u64,
 
@@ -132,21 +140,23 @@ pub struct Config {
     #[envconfig(default = "5")]
     pub lifecycle_attempt_alert_threshold: i32,
 
-    /// Run the background sweeper + GC loop for abandoned lifecycle ops.
-    /// One sweeper per fleet is enough; every instance running it is also
-    /// fine (the lease arbitrates), so this is a plain per-pod toggle.
-    #[envconfig(default = "false")]
+    /// Run the sweeper + GC loop for abandoned lifecycle ops; the lease
+    /// arbitrates, so any number of instances may run it.
+    #[envconfig(default = "true")]
     pub lifecycle_sweeper_enabled: bool,
 
     /// Interval between sweeper passes (seconds).
     #[envconfig(default = "30")]
     pub lifecycle_sweep_interval_secs: u64,
 
-    /// How long completed op rows are retained for op_id idempotency before
-    /// GC (hours). The durable deletion shield is the person tombstone row,
-    /// not the op row.
+    /// Hours completed op rows are kept for op_id idempotency before GC.
     #[envconfig(default = "24")]
     pub lifecycle_op_retention_hours: u64,
+
+    /// Rows one GC pass may delete, so a post-backlog sweep never holds
+    /// locks for long; the next pass continues.
+    #[envconfig(default = "10000")]
+    pub lifecycle_gc_batch_limit: i64,
 }
 
 /// The paired table set identity operates on: the person table plus the
@@ -264,6 +274,7 @@ impl Config {
             execute_timeout: Duration::from_secs(self.lifecycle_execute_timeout_secs),
             poll_interval: Duration::from_millis(self.lifecycle_poll_interval_ms),
             attempt_alert_threshold: self.lifecycle_attempt_alert_threshold,
+            gc_batch_limit: self.lifecycle_gc_batch_limit,
         }
     }
 

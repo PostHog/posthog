@@ -2,7 +2,7 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
@@ -14,13 +14,21 @@ from rest_framework import status
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
 from posthog.api.tagged_item import set_tags_on_object
+from posthog.cdp.templates.fixtures import template_slack
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
 from posthog.models import User
+from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.alerts.backend.destinations import AlertDelivery
+from products.alerts.backend.destinations import AlertDelivery, count_active_alert_destinations
+from products.alerts.backend.insight_alert_destinations import (
+    INSIGHT_ALERT_EVENT_IDS,
+    MAX_DESTINATIONS_PER_ALERT,
+    SLACK_TEMPLATE_ID,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.product_analytics.backend.facade.models import Insight
@@ -88,6 +96,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "snoozed_until": None,
             "skip_weekend": False,
             "schedule_restriction": None,
+            "schedule_start_time": None,
             "last_value": None,
             "investigation_agent_enabled": False,
             "investigation_gates_notifications": False,
@@ -1142,6 +1151,41 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "alert name",
                 True,
             ),
+            (
+                "unchanged_interval_preserves_schedule",
+                {"calculation_interval": "weekly"},
+                status.HTTP_200_OK,
+                "weekly",
+                "alert name",
+                False,
+            ),
+            (
+                "condition_change_resets_schedule",
+                {
+                    "condition": {"type": AlertConditionType.RELATIVE_INCREASE},
+                    "threshold": {"configuration": {"type": InsightThresholdType.PERCENTAGE, "bounds": {"upper": 100}}},
+                },
+                status.HTTP_200_OK,
+                "weekly",
+                "alert name",
+                True,
+            ),
+            (
+                "config_change_resets_schedule",
+                {"config": {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True}},
+                status.HTTP_200_OK,
+                "weekly",
+                "alert name",
+                True,
+            ),
+            (
+                "skip_weekend_change_resets_schedule",
+                {"skip_weekend": True},
+                status.HTTP_200_OK,
+                "weekly",
+                "alert name",
+                True,
+            ),
         ]
     )
     def test_patch_calculation_interval(
@@ -1162,6 +1206,12 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "name": "alert name",
             "calculation_interval": "weekly",
         }
+        if "condition" in patch_payload:
+            time_series_insight_data = deepcopy(self.default_insight_data)
+            time_series_insight_data["query"]["trendsFilter"] = {"display": "ActionsLineGraph"}
+            creation_request["insight"] = self.client.post(
+                f"/api/projects/{self.team.id}/insights", data=time_series_insight_data
+            ).json()["id"]
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
         assert alert["calculation_interval"] == "weekly"
         scheduled_check = datetime(2027, 1, 1, tzinfo=UTC)
@@ -1178,7 +1228,128 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             assert response.json()["name"] == expected_name
 
         persisted_alert = AlertConfiguration.objects.get(id=alert["id"])
-        assert persisted_alert.next_check_at == (None if clears_next_check else scheduled_check)
+        if clears_next_check:
+            assert persisted_alert.next_check_at is not None
+            assert persisted_alert.next_check_at <= datetime.now(UTC)
+        else:
+            assert persisted_alert.next_check_at == scheduled_check
+
+    @parameterized.expand(
+        [
+            ("real_time", "real_time", "2026-03-18T09:35:00+00:00"),
+            ("every_15_minutes", "every_15_minutes", "2026-03-18T09:35:00+00:00"),
+            ("hourly", "hourly", "2026-03-18T09:35:00+00:00"),
+            ("daily", "daily", "2026-03-18T09:35:00+00:00"),
+            ("weekly", "weekly", "2026-03-23T09:35:00+00:00"),
+            ("monthly", "monthly", "2026-04-01T09:35:00+00:00"),
+        ]
+    )
+    @time_machine.travel("2026-03-18T09:30:00Z", tick=False)
+    def test_create_alert_with_schedule_start_time(
+        self, _name: str, calculation_interval: str, expected_next_check_at: str
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
+            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"},
+        ]
+        self.organization.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "name": "scheduled alert",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "calculation_interval": calculation_interval,
+                "schedule_start_time": "09:35",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["schedule_start_time"] == "09:35"
+        assert datetime.fromisoformat(
+            response.json()["next_check_at"].replace("Z", "+00:00")
+        ) == datetime.fromisoformat(expected_next_check_at)
+
+    @parameterized.expand(
+        [
+            ("real_time", "real_time"),
+            ("every_15_minutes", "every_15_minutes"),
+            ("hourly", "hourly"),
+            ("daily", "daily"),
+            ("weekly", "weekly"),
+            ("monthly", "monthly"),
+        ]
+    )
+    @time_machine.travel("2026-03-18T09:00:00Z", tick=False)
+    def test_patch_schedule_start_time_keeps_the_current_next_check(
+        self, _name: str, calculation_interval: str
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
+            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"},
+        ]
+        self.organization.save()
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "name": "scheduled alert",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "calculation_interval": calculation_interval,
+                "schedule_start_time": "09:30",
+            },
+            format="json",
+        ).json()
+        scheduled_check = datetime(2026, 3, 18, 9, 30, tzinfo=UTC)
+        AlertConfiguration.objects.filter(id=alert["id"]).update(next_check_at=scheduled_check)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            {"schedule_start_time": "08:35"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["schedule_start_time"] == "08:35"
+        assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == scheduled_check
+
+    @time_machine.travel("2026-03-18T09:00:00Z", tick=False)
+    def test_patch_schedule_start_time_with_schedule_restriction_keeps_the_current_next_check(self) -> None:
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "name": "scheduled alert",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "calculation_interval": "hourly",
+                "schedule_start_time": "09:30",
+            },
+            format="json",
+        ).json()
+        scheduled_check = datetime(2026, 3, 18, 10, 30, tzinfo=UTC)
+        AlertConfiguration.objects.filter(id=alert["id"]).update(next_check_at=scheduled_check)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            {
+                "schedule_start_time": "09:35",
+                "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == scheduled_check
 
     def test_create_alert_with_schedule_restriction(self) -> None:
         creation_request = {
@@ -1225,7 +1396,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "name": "snap next",
             "calculation_interval": "hourly",
         }
-        with freeze_time("2026-04-06T14:00:00Z"):
+        with time_machine.travel("2026-04-06T14:00:00Z", tick=False):
             alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request, format="json").json()
             AlertConfiguration.objects.filter(pk=alert["id"]).update(
                 next_check_at=datetime(2026, 4, 6, 15, 30, tzinfo=UTC),
@@ -1562,7 +1733,19 @@ class TestAlertSimulate(APIBaseTest):
         assert isinstance(data["scores"], list)
         assert len(data["scores"]) == 34
 
-    def test_simulate_missing_detector_config_returns_400(self) -> None:
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
+    def test_simulate_uses_default_detector_config(self, mock_simulate) -> None:
+        mock_simulate.return_value = {
+            "data": [],
+            "dates": [],
+            "scores": [],
+            "triggered_indices": [],
+            "triggered_dates": [],
+            "interval": "day",
+            "total_points": 0,
+            "anomaly_count": 0,
+        }
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/simulate",
             {
@@ -1570,7 +1753,59 @@ class TestAlertSimulate(APIBaseTest):
                 "series_index": 0,
             },
         )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        detector_config = mock_simulate.call_args.kwargs["detector_config"]
+        assert detector_config["type"] == "zscore"
+        assert detector_config["threshold"] == 0.95
+        assert detector_config["window"] == 90
+        assert detector_config["preprocessing"]["diffs_n"] == 1
+
+    def test_simulate_null_detector_config_returns_400(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": self.insight["id"],
+                "detector_config": None,
+            },
+        )
+
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_simulate_unknown_insight_short_id_returns_not_found_error(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": "not-a-real-short-id",
+                "detector_config": {"type": "zscore"},
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "does_not_exist"
+
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
+    def test_simulate_accepts_insight_short_id(self, mock_simulate) -> None:
+        mock_simulate.return_value = {
+            "data": [],
+            "dates": [],
+            "scores": [],
+            "triggered_indices": [],
+            "triggered_dates": [],
+            "interval": "day",
+            "total_points": 0,
+            "anomaly_count": 0,
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": self.insight["short_id"],
+                "detector_config": {"type": "zscore"},
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert mock_simulate.call_args.kwargs["insight"].id == self.insight["id"]
 
     def test_simulate_invalid_detector_config_returns_400(self) -> None:
         response = self.client.post(
@@ -2178,6 +2413,13 @@ class TestAlertAPIKeyAccess(APIBaseTest):
                 status.HTTP_403_FORBIDDEN,
                 "alert:write",
             ),
+            (
+                ["alert:read"],
+                "post",
+                "/{alert_id}/destinations/",
+                status.HTTP_403_FORBIDDEN,
+                "alert:write",
+            ),
         ]
     )
     def test_alert_api_key_access(self, scopes, http_method, endpoint_suffix, expected_status, error_scope):
@@ -2420,3 +2662,125 @@ class TestAlertRealTimeInterval(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "limit of 1 real-time alerts" in str(response.json())
+
+
+class TestAlertDestinations(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Destination creation looks the template up by id through the HogFunction serializer.
+        sync_template_to_db(template_slack)
+        # No query on the insight, so this module does not drive another product's query runner.
+        self.insight = Insight.objects.create(team=self.team, name="Signups", created_by=self.user)
+        self.alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            name="Signups dropped",
+            created_by=self.user,
+        )
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"authed_user": {"id": "u"}},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        self.url = f"/api/projects/{self.team.id}/alerts/{self.alert.id}/destinations/"
+
+    def _slack_payload(self, **overrides: Any) -> dict[str, Any]:
+        return {
+            "type": "slack",
+            "slack_workspace_id": self.integration.id,
+            "slack_channel_id": "C123",
+            "slack_channel_name": "product-alerts",
+            **overrides,
+        }
+
+    def _active_destination_count(self) -> int:
+        return count_active_alert_destinations(
+            team_id=self.team.id, alert_id=str(self.alert.id), allowed_event_ids=INSIGHT_ALERT_EVENT_IDS
+        )
+
+    def test_alert_write_key_alone_attaches_a_slack_destination(self) -> None:
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Scout key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["alert:write"],
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            self.url, self._slack_payload(), format="json", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        hog_function_ids = response.json()["hog_function_ids"]
+        assert len(hog_function_ids) == 1
+        assert self._active_destination_count() == 1
+
+        hog_function = HogFunction.objects.get(id=hog_function_ids[0])
+        assert hog_function.template_id == SLACK_TEMPLATE_ID
+        assert hog_function.name == "Signups dropped: Slack #product-alerts"
+        assert (hog_function.inputs or {})["channel"]["value"] == "C123"
+        assert (hog_function.inputs or {})["slack_workspace"]["value"] == self.integration.id
+        assert (hog_function.filters or {})["events"] == [{"id": "$insight_alert_firing", "type": "events"}]
+        assert (hog_function.filters or {})["properties"] == [
+            {"key": "alert_id", "value": str(self.alert.id), "operator": "exact", "type": "event"}
+        ]
+        # The Slack snooze handler finds its alert through these two ids.
+        actions = next(block for block in (hog_function.inputs or {})["blocks"]["value"] if _is_actions_block(block))
+        assert actions["block_id"] == "insight_alert_snooze:{event.properties.alert_id}"
+        assert any(element.get("action_id") == "insight_alert_snooze" for element in actions["elements"])
+
+    @parameterized.expand(
+        [
+            ("webhook_url_instead_of_slack", {"type": "webhook", "webhook_url": "https://example.com/hook"}, "type"),
+            ("channel_missing", {"slack_channel_id": ""}, "slack_channel_id"),
+            ("workspace_not_connected", {"slack_workspace_id": 987654}, "slack_workspace_id"),
+        ]
+    )
+    def test_destination_request_is_refused(self, _name: str, overrides: dict, field: str) -> None:
+        response = self.client.post(self.url, self._slack_payload(**overrides), format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == field
+        assert self._active_destination_count() == 0
+
+    def test_another_teams_slack_workspace_is_refused(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_integration = Integration.objects.create(
+            team=other_team, kind="slack", integration_id="T999", config={}, sensitive_config={}
+        )
+
+        response = self.client.post(
+            self.url, self._slack_payload(slack_workspace_id=other_integration.id), format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert self._active_destination_count() == 0
+
+    def test_destination_is_removed_again(self) -> None:
+        created = self.client.post(self.url, self._slack_payload(), format="json")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        response = self.client.post(
+            f"{self.url}delete/", {"hog_function_ids": created.json()["hog_function_ids"]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert self._active_destination_count() == 0
+
+    def test_an_alert_stops_taking_destinations_at_the_cap(self) -> None:
+        for index in range(MAX_DESTINATIONS_PER_ALERT):
+            response = self.client.post(self.url, self._slack_payload(slack_channel_id=f"C{index}"), format="json")
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        response = self.client.post(self.url, self._slack_payload(slack_channel_id="C-one-too-many"), format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert self._active_destination_count() == MAX_DESTINATIONS_PER_ALERT
+
+
+def _is_actions_block(block: Any) -> bool:
+    return isinstance(block, dict) and block.get("type") == "actions"

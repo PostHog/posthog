@@ -183,9 +183,25 @@ class RelevantCommit(BaseModel):
 
 
 class SuggestedReviewerEntry(BaseModel):
-    """One reviewer in a `suggested_reviewers` artefact's content list."""
+    """One reviewer in a `suggested_reviewers` artefact's content list.
 
-    github_login: str = Field(description="GitHub login identifying the reviewer (stored lowercased).")
+    A reviewer is a PostHog user; a GitHub login is an attribute some of them have. An entry carries
+    `user_uuid`, `github_login`, or both, and readers match on either — so a teammate who never
+    connected GitHub still routes a report. Entries written before `user_uuid` existed carry a login
+    alone, and read-time enrichment resolves those the way it always did.
+    """
+
+    github_login: str | None = Field(
+        default=None,
+        description=(
+            "GitHub login identifying the reviewer (stored lowercased). Null when the reviewer has "
+            "no linked GitHub account."
+        ),
+    )
+    user_uuid: str | None = Field(
+        default=None,
+        description="UUID of the PostHog user this entry routes to. Null on entries written before reviewers carried one.",
+    )
     github_name: str | None = Field(default=None, description="Optional human-readable display name.")
     relevant_commits: list[RelevantCommit] = Field(
         default_factory=list,
@@ -204,15 +220,45 @@ class SuggestedReviewerEntry(BaseModel):
             "could name a privileged teammate as owner and have an implementation agent run as them."
         ),
     )
+    source_skill: str | None = Field(
+        default=None,
+        description=(
+            "Name of the scout skill whose run wrote this entry, stamped server-side at the write. "
+            "Autostart unions this skill's current owners into its identity exclusion, so the "
+            "exclusion holds even when the run's best-effort edit tally was lost — the provenance "
+            "commits atomically with the pick itself. None for entries no scout wrote (pipeline, "
+            "custom agent, human edits)."
+        ),
+    )
 
     @field_validator("github_login")
     @classmethod
-    def github_login_must_not_be_empty(cls, v: str) -> str:
+    def github_login_must_not_be_empty(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         # Strip on the way in: read-time enrichment and autostart look logins up with
         # `login.lower()` and no strip, so a padded login would persist but never match.
         return v.strip()
+
+    @field_validator("user_uuid")
+    @classmethod
+    def user_uuid_must_be_a_uuid(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        # Canonicalize rather than keep the caller's spelling: readers match this value with a jsonb
+        # containment filter, where a differently-formatted UUID for the same user never hits.
+        try:
+            return str(UUID(v.strip()))
+        except (ValueError, AttributeError):
+            raise ValueError("must be a UUID")
+
+    @model_validator(mode="after")
+    def must_identify_a_reviewer(self) -> SuggestedReviewerEntry:
+        if not self.github_login and not self.user_uuid:
+            raise ValueError("must carry a github_login, a user_uuid, or both")
+        return self
 
 
 class SuggestedReviewers(RootModel[list[SuggestedReviewerEntry]]):
@@ -225,6 +271,19 @@ class ChannelAssignment(BaseModel):
     channel_id: UUID | None = Field(description="Channel UUID, or null to leave the report unassigned.")
 
 
+# Reason code shared by the dismissal writer (the state API) and the corrections reader
+# (`repo_corrections`), defined here so the two cannot drift apart.
+DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
+# Bounds shared by the state API and this schema, so the generic artefact endpoint cannot store a
+# dismissal the state API would reject. Readers scan these rows in bulk (`repo_corrections`), so an
+# unbounded row is a cost on every repository selection, not just on the write.
+DISMISSAL_NOTE_MAX_LENGTH = 4000
+DISMISSAL_REASON_MAX_LENGTH = 128
+# GitHub caps owners at 39 and repositories at 100 characters.
+DISMISSAL_REPOSITORY_MAX_LENGTH = 512
+DISMISSAL_IDENTITY_MAX_LENGTH = 128
+
+
 class Dismissal(BaseModel):
     """Content schema for a `dismissal` artefact: feedback captured when a report is dismissed/snoozed.
 
@@ -232,12 +291,37 @@ class Dismissal(BaseModel):
     rows and readers; new rows also carry attribution on the artefact row itself.
     """
 
-    reason: str | None = Field(default=None, description="Caller-owned dismissal reason code.")
-    note: str | None = Field(default=None, description="Free-form dismissal note.")
+    reason: str | None = Field(
+        default=None, max_length=DISMISSAL_REASON_MAX_LENGTH, description="Caller-owned dismissal reason code."
+    )
+    note: str | None = Field(
+        default=None, max_length=DISMISSAL_NOTE_MAX_LENGTH, description="Free-form dismissal note."
+    )
+    selected_repository: str | None = Field(
+        default=None,
+        max_length=DISMISSAL_REPOSITORY_MAX_LENGTH,
+        description=(
+            "Repository the pipeline had selected when the report was dismissed, in 'owner/repo' "
+            "format. Recorded on wrong-repo dismissals so selection mistakes are queryable without "
+            "joining the repo_selection artefact history."
+        ),
+    )
+    corrected_repository: str | None = Field(
+        default=None,
+        max_length=DISMISSAL_REPOSITORY_MAX_LENGTH,
+        description=(
+            "Repository the dismisser said the report should have targeted, in 'owner/repo' format. "
+            "Fed back into future repository selection for the project."
+        ),
+    )
     user_id: int | None = Field(default=None, description="ID of the dismissing user, when known.")
-    user_uuid: str | None = Field(default=None, description="UUID of the dismissing user, when known.")
+    user_uuid: str | None = Field(
+        default=None, max_length=DISMISSAL_IDENTITY_MAX_LENGTH, description="UUID of the dismissing user, when known."
+    )
     slack_user_id: str | None = Field(
-        default=None, description="Slack user who dismissed via a Slack action, when that's where the click came from."
+        default=None,
+        max_length=DISMISSAL_IDENTITY_MAX_LENGTH,
+        description="Slack user who dismissed via a Slack action, when that's where the click came from.",
     )
 
 
@@ -533,6 +617,20 @@ class CodeReview(BaseModel):
     )
 
 
+class WorkClaim(BaseModel):
+    display_name: str | None = Field(
+        default=None, description="Server-generated actor label at claim time. Null for older claims."
+    )
+
+
+class WorkRelease(BaseModel):
+    reason: Literal["released", "taken_over"] = Field(description="Why ownership ended.")
+
+
+class PullRequestLink(BaseModel):
+    url: str = Field(description="Canonical GitHub pull request URL.")
+
+
 # ── Type mapping ─────────────────────────────────────────────────────────────────
 
 # Content models that describe the report's current state (latest row of each type wins) vs
@@ -547,7 +645,17 @@ StatusArtefactContent = (
     | ChannelAssignment
 )
 LogArtefactContent = (
-    CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange | CodeReview | RelatedTo
+    CodeReference
+    | Commit
+    | TaskRunArtefact
+    | NoteArtefact
+    | TitleChange
+    | SummaryChange
+    | CodeReview
+    | RelatedTo
+    | WorkClaim
+    | WorkRelease
+    | PullRequestLink
 )
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
@@ -571,6 +679,9 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "summary_change": SummaryChange,
     "code_review": CodeReview,
     "related_to": RelatedTo,
+    "work_claim": WorkClaim,
+    "work_release": WorkRelease,
+    "pull_request": PullRequestLink,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
@@ -586,7 +697,16 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
-    {"video_segment", "title_change", "summary_change", "code_review"}
+    {
+        "task_run",
+        "video_segment",
+        "title_change",
+        "summary_change",
+        "code_review",
+        "work_claim",
+        "work_release",
+        "pull_request",
+    }
 )
 
 

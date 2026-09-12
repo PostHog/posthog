@@ -54,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
     APPEND_ONLY_INCREMENTAL_FIELDS as STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS,
     DEFAULT_OFF_ENDPOINTS as STRIPE_DEFAULT_OFF_ENDPOINTS,
     ENDPOINTS as STRIPE_ENDPOINTS,
+    WAREHOUSE_PARENT_FANOUT,
     WEBHOOK_ONLY_ENDPOINTS as STRIPE_WEBHOOK_ONLY_ENDPOINTS,
     WEBHOOK_SYNC_ONLY_ENDPOINTS as STRIPE_WEBHOOK_SYNC_ONLY_ENDPOINTS,
 )
@@ -264,6 +265,9 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Order matters: the finalization activity shows the message of the *first* pattern that
+        # matches, so keys that carry actionable copy come before the catch-alls that surface
+        # Stripe's own text.
         return {
             "401 Client Error: Unauthorized for url: https://api.stripe.com": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
             "403 Client Error: Forbidden for url: https://api.stripe.com": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
@@ -273,18 +277,6 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # include PostHog's egress IPs. This is a customer-side key configuration that retrying
             # can never satisfy, so stop retrying. Match the stable phrase, not the appended IP.
             "does not allow requests from your IP address": "Your Stripe API key restricts requests by IP address and is blocking PostHog. Remove the IP restriction on your restricted key in Stripe (or allowlist PostHog's IP addresses), then try again.",
-            # Surface Stripe's raw permission message — it names the specific scope that's missing
-            # (e.g. "Having the 'rak_payment_method_read' permission would allow this request to
-            # continue"), which is more actionable than a generic "check your permissions" toast.
-            # `_clean_stripe_error_message` collapses the redacted-key asterisk run before the
-            # message reaches this layer, so it stays toast-sized.
-            #
-            # NOTE: this `"PermissionError"` key only matches the refresh-schemas path, which compares
-            # against `f"{type(error).__name__}: {message}"`. The import/sync path compares against
-            # `str(exc)` only — and `StripeError.__str__` returns `"Request <id>: <message>"` with no
-            # class name — so the type-name key never matches a 403 raised mid-sync. Match Stripe's
-            # stable permission-denied message text directly so a misconfigured key stops retrying.
-            "PermissionError": None,
             # Restricted key is missing a read scope for the endpoint being synced (e.g. "Prices Read"
             # / 'plan_read'). The customer must add the scope in Stripe — retrying won't help. Surface
             # Stripe's raw message (None) since it names the exact scope to enable.
@@ -311,6 +303,24 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             "Integration not found": "The linked Stripe integration no longer exists. Please reconnect your Stripe account.",
             "Stripe access token not found": "Stripe OAuth access token is missing. Please reconnect your Stripe account.",
             "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.": "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.",
+            # Stripe's own `invalid_request_error` body with no usable detail, seen when listing a
+            # specific customer's nested resources (e.g. payment methods). It is a 400-class error,
+            # so retrying replays the identical request against the same customer and fails
+            # identically every time. Stripe's own message isn't actionable, so surface a message
+            # that points at the account rather than showing the raw string.
+            "error_details_unknown": "Stripe rejected a request for one of your resources without a specific reason. Check your Stripe account for any restrictions or contact Stripe support, then try again.",
+            # Catch-all for every other `stripe.PermissionError`, surfacing Stripe's raw permission
+            # message (None) because it names the specific scope that's missing (e.g. "Having the
+            # 'rak_payment_method_read' permission would allow this request to continue").
+            # `_clean_stripe_error_message` collapses the redacted-key asterisk run before the
+            # message reaches this layer, so it stays toast-sized.
+            #
+            # Last on purpose. The message this is matched against carries the failing exception
+            # class (Temporal renders a wrapped activity failure as `<ExceptionClass>: <message>`),
+            # so this key matches every permission failure raised mid-sync — including the ones the
+            # keys above already explain. Ordered any earlier it wins the first-match and strands
+            # those failures on Stripe's raw text.
+            "PermissionError": None,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -490,7 +500,13 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> WebhookCreationResult:
         api_key = self._get_api_key(config, team_id)
-        return create_webhook(api_key, config.stripe_account_id, webhook_url, auth_method=config.auth_method.selection)
+        return create_webhook(
+            api_key,
+            config.stripe_account_id,
+            webhook_url,
+            api_version=self.resolve_api_version(api_version),
+            auth_method=config.auth_method.selection,
+        )
 
     def get_desired_webhook_events(
         self, config: StripeSourceConfig, eligible_schema_names: list[str]
@@ -543,4 +559,16 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             resumable_source_manager=resumable_source_manager,
             webhook_source_manager=webhook_source_manager,
             api_version=self.resolve_api_version(inputs.api_version),
+            team_id=inputs.team_id,
+            source_id=inputs.source_id,
+            # Both are required for the warehouse parent path, and both default to off, so a
+            # conversion that declares a parent without threading these silently keeps polling
+            # the parent API while the fan-out telemetry reports otherwise.
+            use_warehouse_parent=inputs.fanout_warehouse_reuse,
         )
+
+    def get_required_parent_schemas(self, schema_name: str) -> list[str]:
+        # These sweeps run from the SDK rather than a DependentEndpointConfig, so the dependency
+        # is read off the same declaration the resolve and the sweep read rather than derived.
+        converted = WAREHOUSE_PARENT_FANOUT.get(schema_name)
+        return [converted.schema] if converted else []

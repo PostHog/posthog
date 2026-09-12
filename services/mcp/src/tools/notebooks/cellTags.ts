@@ -241,8 +241,49 @@ export function directDependents(
     return dependents
 }
 
-export function uniqueDataframeName(base: string, cells: CellTagBlock[]): string {
-    const used = new Set(cells.map((cell) => cell.returnVariable.toLowerCase()).filter(Boolean))
+/**
+ * Cells whose code reads one of the given notebook variables: a SQL cell as a bare `{name}`
+ * placeholder, a Python cell as a plain global. The Python scan is a word-boundary match, so a
+ * false positive only reports an extra cell to re-run.
+ */
+export function variableReaders(
+    cells: CellTagBlock[],
+    variableNames: string[]
+): { node_id: string; dataframe_name?: string }[] {
+    const names = variableNames.filter((name) => DATAFRAME_NAME_REGEX.test(name))
+    if (!names.length) {
+        return []
+    }
+    const sqlReference = new RegExp(`\\{(?:${names.join('|')})\\}`)
+    const pythonReference = new RegExp(`\\b(?:${names.join('|')})\\b`)
+    const readers: { node_id: string; dataframe_name?: string }[] = []
+    for (const cell of cells) {
+        if (!cell.nodeId || (cell.tagName !== 'SQLV2' && cell.tagName !== 'PythonV2')) {
+            continue
+        }
+        const reference = cell.tagName === 'SQLV2' ? sqlReference : pythonReference
+        if (reference.test(cell.code)) {
+            readers.push({
+                node_id: cell.nodeId,
+                ...(cell.returnVariable ? { dataframe_name: cell.returnVariable } : {}),
+            })
+        }
+    }
+    return readers
+}
+
+/**
+ * A frame name no cell and no notebook variable already holds. A Python cell reads a variable and
+ * a dataframe out of one kernel namespace, so an auto-assigned `df` on a notebook that declares
+ * `df` would shadow the variable — the collision notebooks-set-variables refuses from the other
+ * side.
+ */
+export function uniqueDataframeName(base: string, cells: CellTagBlock[], variableNames: string[] = []): string {
+    const used = new Set(
+        [...cells.map((cell) => cell.returnVariable), ...variableNames]
+            .map((name) => name.toLowerCase())
+            .filter(Boolean)
+    )
     if (!used.has(base.toLowerCase())) {
         return base
     }

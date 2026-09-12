@@ -10,8 +10,9 @@
 //! wrong deployment accepts traffic no restriction there governs, which is
 //! silent rather than loud, so the split is asserted directly here.
 //!
-//! The pipeline-level gate in `events::analytics` covers the other half: an
-//! event name off the AI allowlist arriving on a path that IS registered.
+//! The pipeline-level gates cover the other half — an event name off the AI
+//! allowlist arriving on a path that IS registered: `events::analytics` for the
+//! v0 paths, `v1::analytics::process` for `/i/v1/ai/events`.
 
 #[path = "common/integration_utils.rs"]
 mod integration_utils;
@@ -19,7 +20,7 @@ mod integration_utils;
 use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 use capture::config::CaptureMode;
-use integration_utils::build_router_for_mode;
+use integration_utils::{build_router_for_mode, build_router_for_mode_with_v1_sink};
 use rstest::rstest;
 use serde_json::json;
 
@@ -100,7 +101,6 @@ async fn assert_answer(mode: CaptureMode, path: &str, expected: Answer) {
 #[case::analytics_capture("/capture", Answer::Absent)]
 #[case::analytics_track("/track", Answer::Absent)]
 #[case::analytics_engage("/engage", Answer::Absent)]
-#[case::analytics_v1("/i/v1/analytics/events", Answer::Absent)]
 #[tokio::test]
 async fn ai_mode_registers_only_the_ai_paths(#[case] path: &str, #[case] expected: Answer) {
     assert_answer(CaptureMode::Ai, path, expected).await;
@@ -146,4 +146,98 @@ async fn import_mode_registers_only_the_analytics_paths(
     #[case] expected: Answer,
 ) {
     assert_answer(CaptureMode::Import, path, expected).await;
+}
+
+// ---------------------------------------------------------------------------
+// v1 endpoints
+// ---------------------------------------------------------------------------
+
+/// Post a real v1 batch to `path` on a router built for `mode` with a v1 sink
+/// wired, and pin what comes back.
+///
+/// Unlike the v0 cases above, the payload is one the endpoint fully accepts, so
+/// [`Answer::Served`] is the 200 a completed publish returns rather than a status
+/// from some earlier validation step. The event is an `$ai_generation`, which
+/// both endpoints accept: the analytics endpoint diverts it to the AI lane by
+/// name, and the AI endpoint's non-AI gate lets it through.
+async fn assert_v1_answer(mode: CaptureMode, path: &str, expected: Answer) {
+    let mut event = capture::v1::test_utils::valid_event();
+    event.event = "$ai_generation".to_string();
+    let payload = capture::v1::test_utils::batch_payload(&[event]);
+
+    let status = TestClient::new(build_router_for_mode_with_v1_sink(mode))
+        .post(path)
+        .body(payload)
+        .header("Authorization", "Bearer phc_route_surface_token")
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .header("PostHog-Sdk-Info", "posthog-rs/1.0.0")
+        .header("PostHog-Attempt", "1")
+        .header("PostHog-Request-Id", uuid::Uuid::new_v4().to_string())
+        .header("PostHog-Request-Timestamp", "2026-03-19T14:30:00Z")
+        .header("User-Agent", "test-agent/1.0")
+        .send()
+        .await
+        .status();
+
+    assert_eq!(
+        status,
+        expected.status(),
+        "{mode:?} answered {path} with {status}, expected {expected:?}"
+    );
+}
+
+/// capture-ai serves the v1 contract on its own path only. It must not also
+/// serve `/i/v1/analytics/events`: that endpoint accepts any event name and its
+/// traffic is governed by analytics restrictions, which capture-ai does not load.
+#[rstest]
+#[case::ai_events("/i/v1/ai/events", Answer::Served(StatusCode::OK))]
+#[case::ai_events_trailing_slash("/i/v1/ai/events/", Answer::Served(StatusCode::OK))]
+#[case::analytics_events("/i/v1/analytics/events", Answer::Absent)]
+#[case::analytics_events_trailing_slash("/i/v1/analytics/events/", Answer::Absent)]
+#[tokio::test]
+async fn ai_mode_serves_only_the_v1_ai_endpoint(#[case] path: &str, #[case] expected: Answer) {
+    assert_v1_answer(CaptureMode::Ai, path, expected).await;
+}
+
+/// The mirror image: the analytics deployments keep the analytics endpoint and
+/// never register the AI one. They still ingest `$ai_*` events, which divert to
+/// the AI lane by event name on the analytics path.
+#[rstest]
+#[case::events_analytics(
+    CaptureMode::Events,
+    "/i/v1/analytics/events",
+    Answer::Served(StatusCode::OK)
+)]
+#[case::events_ai(CaptureMode::Events, "/i/v1/ai/events", Answer::Absent)]
+#[case::events_ai_trailing_slash(CaptureMode::Events, "/i/v1/ai/events/", Answer::Absent)]
+#[case::import_analytics(
+    CaptureMode::Import,
+    "/i/v1/analytics/events",
+    Answer::Served(StatusCode::OK)
+)]
+#[case::import_ai(CaptureMode::Import, "/i/v1/ai/events", Answer::Absent)]
+#[case::recordings_analytics(CaptureMode::Recordings, "/i/v1/analytics/events", Answer::Absent)]
+#[case::recordings_ai(CaptureMode::Recordings, "/i/v1/ai/events", Answer::Absent)]
+#[tokio::test]
+async fn non_ai_modes_never_serve_the_v1_ai_endpoint(
+    #[case] mode: CaptureMode,
+    #[case] path: &str,
+    #[case] expected: Answer,
+) {
+    assert_v1_answer(mode, path, expected).await;
+}
+
+/// Without a v1 sink the paths stay unregistered on every mode, which is what
+/// makes the sink-wired assertions above say something about the mode gating
+/// rather than about sink presence.
+#[rstest]
+#[case::ai(CaptureMode::Ai, "/i/v1/ai/events")]
+#[case::events(CaptureMode::Events, "/i/v1/analytics/events")]
+#[tokio::test]
+async fn v1_paths_stay_unregistered_without_a_v1_sink(
+    #[case] mode: CaptureMode,
+    #[case] path: &str,
+) {
+    assert_answer(mode, path, Answer::Absent).await;
 }

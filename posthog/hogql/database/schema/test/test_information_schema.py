@@ -12,17 +12,19 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.database.schema.information_schema import (
+    DeniedTableMatcher,
     _bound_table_names,
     _certification_key,
     _classify_table,
     _pushdown_table_filter,
     _warehouse_metadata,
+    references_denied_table,
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 
 from products.data_modeling.backend.facade.models import (
@@ -53,6 +55,31 @@ def _in(field: str, values: list[str]) -> ast.CompareOperation:
         left=_field(field),
         right=ast.Tuple(exprs=[ast.Constant(value=v) for v in values]),
     )
+
+
+class TestDeniedTableMatcher(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("mixed_case", ["Orders"], ["oRDERS"], True),
+            ("qualified_reference", ["Orders"], ["warehouse.ORDERS"], True),
+            ("qualified_denial", ["Warehouse.Orders"], ["ORDERS"], True),
+            ("shared_leaf", ["warehouse.orders"], ["other.orders"], True),
+            ("later_reference", ["orders"], ["customers", "orders"], True),
+            ("distinct_leaf", ["warehouse.orders"], ["warehouse.customers"], False),
+            ("partial_name", ["orders"], ["archived_orders"], False),
+            ("empty_denial", [], ["orders"], False),
+            ("empty_references", ["orders"], [], False),
+            ("missing_references", ["orders"], None, False),
+        ]
+    )
+    def test_repeated_matches_preserve_existing_denial_rules(
+        self, _name: str, denied: list[str], references: list[str] | None, expected: bool
+    ) -> None:
+        matcher = DeniedTableMatcher(iter(denied))
+
+        assert matcher.matches(references) is expected
+        assert matcher.matches(references) is expected
+        assert references_denied_table(references, set(denied)) is expected
 
 
 class TestInformationSchemaPushdown(APIBaseTest):
@@ -265,23 +292,32 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         }
         assert {"trace_id", "span_id"}.issubset(columns)
 
-    def test_billing_usage_records_is_listed_only_for_allowlisted_teams(self):
+    def test_billing_usage_records_is_listed_only_for_allowlisted_organizations(self):
         # The table has no per-product access scope, so the allowlist is the only thing keeping it
-        # out of every other project's catalog.
-        def listed_tables() -> set[str]:
+        # out of every other organization's catalog.
+        def listed_tables(team: Team) -> set[str]:
             return {
                 row[0]
                 for row in execute_hogql_query(
-                    "SELECT table_name FROM system.information_schema.tables", team=self.team
+                    "SELECT table_name FROM system.information_schema.tables", team=team
                 ).results
                 or []
             }
 
-        with override_settings(BILLING_USAGE_RECORDS_HOGQL_TEAM_IDS=set()):
-            assert "posthog.billing_usage_records" not in listed_tables()
+        same_organization_team = Team.objects.create(organization=self.organization, name="same organization")
+        other_organization = Organization.objects.create(name="other organization")
+        other_organization_team = Team.objects.create(organization=other_organization, name="other organization")
 
-        with override_settings(BILLING_USAGE_RECORDS_HOGQL_TEAM_IDS={self.team.pk}):
-            assert "posthog.billing_usage_records" in listed_tables()
+        with override_settings(BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS=set()):
+            assert "posthog.billing_usage_records" not in listed_tables(self.team)
+
+        with override_settings(BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS={self.organization.id}):
+            assert "posthog.billing_usage_records" in listed_tables(self.team)
+            assert "posthog.billing_usage_records" in listed_tables(same_organization_team)
+            assert "posthog.billing_usage_records" not in listed_tables(other_organization_team)
+
+        with override_settings(BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS={"*"}):
+            assert "posthog.billing_usage_records" in listed_tables(other_organization_team)
 
             usage_columns = {
                 row[0]

@@ -3,7 +3,13 @@ import pLimit from 'p-limit'
 
 import { logger } from '~/common/utils/logger'
 
-import { FetchCandidate, MAX_HOPS, UrlDropReason, parseCollectedUrlsRecord } from './collected-urls-record'
+import {
+    FetchCandidate,
+    MAX_HOPS,
+    UrlDropReason,
+    UrlSkipReason,
+    parseCollectedUrlsRecord,
+} from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, UrlCrawlHistoryItem, configurationCacheKey } from './crawl-history'
 import { mergeDuplicateFetchCandidates } from './fetch-candidate-queue'
 import {
@@ -17,6 +23,7 @@ import {
 import { FrontierDeadLetterReason, FrontierDeadLetterSink } from './frontier-dead-letter-sink'
 import { FrontierPublisher, RepublishBatch } from './frontier-publisher'
 import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
+import { ImageFetchProcessingMetrics } from './processing-metrics'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
 
 const ONE_HOUR_MS = 60 * 60 * 1000
@@ -56,6 +63,7 @@ export class UrlFetchConsumer {
         const startedAt = process.hrtime.bigint()
         const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
         const drops = new Map<UrlDropReason, number>()
+        const skips = new Map<UrlSkipReason, number>()
         const rejectedRecords: RejectedFrontierRecord[] = []
         const candidatesByRef = new Map<string, FetchCandidate>()
         let dedupedInBatch = 0
@@ -64,6 +72,7 @@ export class UrlFetchConsumer {
         let originCandidateCounts: number[] = []
         let registrableDomainCandidateCounts: number[] = []
         const activeBatchId = ImageFetchConsumerMetrics.startBatch()
+        const stage = ImageFetchProcessingMetrics.start('batch_parse')
 
         try {
             for (const message of messages) {
@@ -83,6 +92,9 @@ export class UrlFetchConsumer {
                         message,
                         reasons: parsed.rejected.map((rejected) => rejected.reason),
                     })
+                }
+                for (const { reason } of parsed.skipped) {
+                    skips.set(reason, (skips.get(reason) ?? 0) + 1)
                 }
                 for (const candidate of parsed.candidates) {
                     const partitionCandidate = { ...candidate, sourcePartitions: [message.partition] }
@@ -130,7 +142,9 @@ export class UrlFetchConsumer {
             }
 
             if (this.options.dryRun || candidates.length === 0) {
+                stage.move('batch_dead_letter')
                 await this.parkRejectedRecords(rejectedRecords, drops)
+                this.countSkippedJobs(skips)
                 return
             }
 
@@ -141,8 +155,10 @@ export class UrlFetchConsumer {
                     configurationCacheKey(origin, 'tdmrep'),
                 ]),
             ]
+            stage.move('batch_history_read')
             const stored = await this.runCrawlHistoryOperation('read', keys.length, () => this.crawlHistory.read(keys))
 
+            stage.move('batch_filter')
             const fetchable: FetchCandidate[] = []
             const notReady: FetchCandidate[] = []
             for (const candidate of candidates) {
@@ -169,7 +185,9 @@ export class UrlFetchConsumer {
             ImageFetchConsumerMetrics.incFetchable(fetchable.length)
 
             const republishBatch = this.publisher.createRepublishBatch(republishDeadlineAtMonotonicMs)
+            stage.move('batch_fetch')
             const attempts = await this.runner!.run(fetchable, stored, republishBatch)
+            stage.move('batch_prepare_republish')
             attempts.push(
                 ...(await Promise.all(
                     notReady.map((candidate) => this.republishNotReady(republishBatch, candidate, nowMs))
@@ -183,9 +201,12 @@ export class UrlFetchConsumer {
                 }
             }
             if (updates.length > 0) {
+                stage.move('batch_history_write')
                 await this.runCrawlHistoryOperation('write', updates.length, () => this.crawlHistory.write(updates))
             }
+            stage.move('batch_republish_flush')
             const republishResult = await republishBatch.flush()
+            stage.move('batch_finalize')
             for (const attempt of attempts) {
                 if (attempt.lost || (!attempt.finished && republishResult.failedUrls > 0)) {
                     continue
@@ -206,8 +227,11 @@ export class UrlFetchConsumer {
             if (lost > 0) {
                 throw new Error(`the image fetch lane could not account for ${lost} URLs`)
             }
+            stage.move('batch_dead_letter')
             await this.parkRejectedRecords(rejectedRecords, drops)
+            this.countSkippedJobs(skips)
         } finally {
+            stage.finish()
             ImageFetchConsumerMetrics.finishBatch(activeBatchId)
             this.recordMetrics(
                 drops,
@@ -229,6 +253,13 @@ export class UrlFetchConsumer {
                 error: error instanceof Error ? error.name : 'unknown',
             })
             return { ok: false, reason: 'malformed' }
+        }
+    }
+
+    /** Runs after the batch's durable work, so a batch that fails and is redelivered counts its skips once. */
+    private countSkippedJobs(skips: Map<UrlSkipReason, number>): void {
+        for (const [reason, count] of skips) {
+            ImageFetchConsumerMetrics.incSkipped(reason, count)
         }
     }
 
