@@ -36,15 +36,15 @@ export function StepFooterCell({
                 title={
                     conversionRate != null
                         ? 'Users who completed this step, with conversion rate relative to the first step'
-                        : 'Users who completed this step'
+                        : 'Users at this step'
                 }
             >
                 <div className="flex items-center gap-1.5">
                     <IconTrendingFlat className="text-success shrink-0" />
                     <span>
-                        {pluralize(count, 'user')}{' '}
+                        <span>{pluralize(count, 'user')}</span>
                         {conversionRate != null && (
-                            <span className="text-secondary">({percentage(conversionRate, 2)})</span>
+                            <span className="text-secondary"> ({percentage(conversionRate, 2)})</span>
                         )}
                     </span>
                 </div>
