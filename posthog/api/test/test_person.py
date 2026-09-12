@@ -27,6 +27,7 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
 import posthog.models.person.deletion
+from posthog.api.capture import CaptureInternalError
 from posthog.api.person import tag_client_query_id
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
@@ -1382,6 +1383,39 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
             process_person_profile=True,
         )
+
+    PATCH_PROPERTIES = ("patch", "", {"properties": {"foo": "bar"}})
+    POST_UPDATE_PROPERTY = ("post", "/update_property", {"key": "foo", "value": "bar"})
+
+    @parameterized.expand(
+        [
+            ("patch_transport_error", PATCH_PROPERTIES, CaptureInternalError("boom"), 502),
+            ("patch_upstream_status", PATCH_PROPERTIES, CaptureInternalError("boom", status_code=503), 503),
+            ("update_property_transport_error", POST_UPDATE_PROPERTY, CaptureInternalError("boom"), 502),
+            ("update_property_unexpected_error", POST_UPDATE_PROPERTY, Exception("boom"), 502),
+        ]
+    )
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_set_person_properties_reports_capture_failure(
+        self, _name, request_shape, exception, expected_status, mock_capture
+    ) -> None:
+        method, suffix, payload = request_shape
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever"},
+            immediate=True,
+        )
+        mock_capture.side_effect = exception
+
+        response = getattr(self.client, method)(
+            f"/api/person/{person.uuid}{suffix}",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(self._get_person_activity(str(person.uuid))["results"], [])
 
     @mock.patch("posthog.api.person.capture_internal")
     def test_delete_person_property_by_numeric_id(self, mock_capture) -> None:
