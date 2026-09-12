@@ -115,6 +115,14 @@ export interface TaskCreateProperties {
   space_context_mode: SpaceContextMode;
 }
 
+export interface LocalChangesWarningActionProperties {
+  action: "cancel" | "continue" | "stash_and_continue";
+  result?: "success" | "failure";
+  staged_file_count: number;
+  unstaged_file_count: number;
+  untracked_file_count: number;
+}
+
 export interface TaskViewProperties {
   task_id: string;
 }
@@ -1545,6 +1553,7 @@ export const ANALYTICS_EVENTS = {
   TASK_RUN_STOPPED: "Task run stopped",
   PROMPT_SENT: "Prompt sent",
   AGENT_TURN_FEEDBACK: "Agent turn feedback",
+  LOCAL_CHANGES_WARNING_ACTION: "Local changes warning action",
 
   // Claude Code session import
   CLAUDE_SESSIONS_SHOWN: "Claude Code sessions shown",
@@ -1761,6 +1770,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.TASK_RUN_STOPPED]: TaskRunStoppedProperties;
   [ANALYTICS_EVENTS.PROMPT_SENT]: PromptSentProperties;
   [ANALYTICS_EVENTS.AGENT_TURN_FEEDBACK]: AgentTurnFeedbackProperties;
+  [ANALYTICS_EVENTS.LOCAL_CHANGES_WARNING_ACTION]: LocalChangesWarningActionProperties;
 
   // Claude Code session import
   [ANALYTICS_EVENTS.CLAUDE_SESSIONS_SHOWN]: ClaudeSessionsShownProperties;

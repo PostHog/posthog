@@ -2,6 +2,10 @@ import { z } from "zod";
 
 export const directoryPathInput = z.object({ directoryPath: z.string() });
 
+export const getChangedFilesHeadInput = directoryPathInput.extend({
+  includeAgentFiles: z.boolean().optional(),
+});
+
 export const diffStatsInput = z.object({ directoryPath: z.string().min(1) });
 
 export const diffStatsSchema = z.object({

@@ -373,11 +373,14 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
 
   async getChangedFilesHead(
     directoryPath: string,
-    signal?: AbortSignal,
+    options?: { includeAgentFiles?: boolean; signal?: AbortSignal },
   ): Promise<ChangedFile[]> {
     const files = await getChangedFilesDetailed(directoryPath, {
-      excludePatterns: [".claude", "CLAUDE.local.md"],
-      abortSignal: signal,
+      excludePatterns: options?.includeAgentFiles
+        ? undefined
+        : [".claude", "CLAUDE.local.md"],
+      throwOnError: options?.includeAgentFiles,
+      abortSignal: options?.signal,
     });
     type HeadChangedFile = Omit<ChangedFile, "patch">;
     const filteredFiles: Array<HeadChangedFile | null> = await Promise.all(

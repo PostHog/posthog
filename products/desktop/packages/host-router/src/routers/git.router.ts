@@ -235,7 +235,10 @@ export const gitRouter = router({
     .output(getChangedFilesHeadOutput)
     .query(({ ctx, input, signal }) =>
       getWorkspaceClient(ctx.container).git.getChangedFilesHead.query(
-        { directoryPath: input.directoryPath },
+        {
+          directoryPath: input.directoryPath,
+          includeAgentFiles: input.includeAgentFiles,
+        },
         { signal },
       ),
     ),

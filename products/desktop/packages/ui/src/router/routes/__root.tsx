@@ -62,6 +62,7 @@ import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useSidebarData } from "@posthog/ui/features/sidebar/useSidebarData";
 import { useVisualTaskOrder } from "@posthog/ui/features/sidebar/useVisualTaskOrder";
 import { ExistingWorktreeDialog } from "@posthog/ui/features/task-detail/components/ExistingWorktreeDialog";
+import { LocalChangesDialogHost } from "@posthog/ui/features/task-detail/components/LocalChangesDialogHost";
 import { RemoteBranchCheckoutDialog } from "@posthog/ui/features/task-detail/components/RemoteBranchCheckoutDialog";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { TourOverlay } from "@posthog/ui/features/tour/components/TourOverlay";
@@ -511,6 +512,7 @@ function RootLayout() {
           onFinished={handleFeedbackFinished}
         />
         <ExistingWorktreeDialog />
+        <LocalChangesDialogHost />
         <CanvasConnectorPermissionDialog />
         <HedgehogMode />
       </Flex>
