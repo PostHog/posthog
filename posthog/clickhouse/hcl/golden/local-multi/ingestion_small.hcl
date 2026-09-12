@@ -1767,6 +1767,9 @@ database "posthog" {
     column "snapshot_mode" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
     }
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
     column "_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime)"
     }
@@ -2663,8 +2666,9 @@ SELECT
   groupUniqArrayArray(ai_tags_freeform) AS ai_tags_freeform,
   max(ai_highlighted) AS ai_highlighted,
   max(surfacing_score) AS surfacing_score,
-  argMinState(snapshot_mode, first_timestamp) AS snapshot_mode
-FROM posthog.kafka_session_replay_events
+  argMinState(snapshot_mode, first_timestamp) AS snapshot_mode,
+  argMinState(CAST(replay.snapshot_mode, 'Nullable(String)'), first_timestamp) AS snapshot_mode_v2
+FROM posthog.kafka_session_replay_events AS replay
 GROUP BY
   session_id, team_id
 SQL
@@ -2737,6 +2741,9 @@ SQL
     }
     column "snapshot_mode" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    }
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "_timestamp" {
       type = "Nullable(DateTime)"

@@ -1,1 +1,1 @@
-0320_metric_series2_last_seen_index
+0321_add_snapshot_mode_v2_to_session_replay_events

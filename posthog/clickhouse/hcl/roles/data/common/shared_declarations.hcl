@@ -1169,8 +1169,12 @@ SQL
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
+    # Deprecated for reads: use snapshot_mode_v2 to avoid LowCardinality aggregate-state errors.
     column "snapshot_mode" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    }
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -1496,8 +1500,12 @@ SQL
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
+    # Deprecated for reads: use snapshot_mode_v2 to avoid LowCardinality aggregate-state errors.
     column "snapshot_mode" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    }
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     order_by     = ["toDate(min_first_timestamp)", "team_id", "session_id"]
     partition_by = "toYYYYMM(min_first_timestamp)"
