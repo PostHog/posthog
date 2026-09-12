@@ -294,6 +294,7 @@ export type SidebarNavItem =
   | "contexts"
   | "activity"
   | "canvases"
+  | "files"
   | "configure"
   | "loops"
   | "more";
@@ -1218,6 +1219,13 @@ export interface DashboardActionProperties {
   success?: boolean;
 }
 
+export interface SpaceFileActionProperties {
+  action_type: "open" | "create" | "save" | "task_draft_opened";
+  file_id?: string;
+  channel_id: string;
+  success: boolean;
+}
+
 export type CanvasPromptSurface = "json" | "freeform";
 
 export interface CanvasPromptSentProperties {
@@ -1714,6 +1722,7 @@ export const ANALYTICS_EVENTS = {
   CANVAS_RENDERED: "Canvas rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CONTEXT_ACTION: "Context action",
+  SPACE_FILE_ACTION: "Space file action",
 
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
@@ -1926,6 +1935,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
+  [ANALYTICS_EVENTS.SPACE_FILE_ACTION]: SpaceFileActionProperties;
 
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;

@@ -26,6 +26,7 @@ export const LOOPS_HOG_FLOWS_FLAG = featureFlagKeys.LOOPS_HOG_FLOWS_FLAG;
 export const DESKTOP_HOME_FLAG = featureFlagKeys.DESKTOP_HOME_FLAG;
 export const SAVED_SEARCHES_RAIL_FLAG =
   featureFlagKeys.SAVED_SEARCHES_RAIL_FLAG;
+export const SPACE_FILES_FLAG = featureFlagKeys.SPACE_FILES_FLAG;
 export const TASKS_PREWARM_SANDBOX_FLAG =
   featureFlagKeys.TASKS_PREWARM_SANDBOX_FLAG;
 export const GLM_MODEL_FLAG = featureFlagKeys.GLM_MODEL_FLAG;

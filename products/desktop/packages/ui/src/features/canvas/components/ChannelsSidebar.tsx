@@ -48,6 +48,7 @@ import {
   useSidebarPeekStore,
 } from "@posthog/ui/features/sidebar/sidebarPeekStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { SpaceFilesPane } from "@posthog/ui/features/space-files/SpaceFilesPane";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { ErrorBoundary } from "@posthog/ui/primitives/ErrorBoundary";
 import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
@@ -190,6 +191,9 @@ function RailPaneBody({
   if (railPane === "inbox") return <InboxPane className="min-h-0 flex-1" />;
   if (railPane === "canvases") {
     return <CanvasesPane className="min-h-0 flex-1" />;
+  }
+  if (railPane === "files") {
+    return <SpaceFilesPane className="min-h-0 flex-1" />;
   }
   if (feedId) {
     return <TaskFeedPane feedId={feedId} className="min-h-0 flex-1" />;

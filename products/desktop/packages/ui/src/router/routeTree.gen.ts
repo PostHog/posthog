@@ -38,6 +38,7 @@ import { Route as AgentsSplatRouteImport } from './routes/agents.$'
 import { Route as ShellSkillsRouteImport } from './routes/_shell/skills'
 import { Route as ShellNewRouteImport } from './routes/_shell/new'
 import { Route as ShellMcpServersRouteImport } from './routes/_shell/mcp-servers'
+import { Route as ShellFilesRouteImport } from './routes/_shell/files'
 import { Route as ShellCommandCenterRouteImport } from './routes/_shell/command-center'
 import { Route as ShellCanvasesRouteImport } from './routes/_shell/canvases'
 import { Route as ShellActivityRouteImport } from './routes/_shell/activity'
@@ -213,6 +214,11 @@ const ShellMcpServersRoute = ShellMcpServersRouteImport.update({
   path: '/mcp-servers',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellFilesRoute = ShellFilesRouteImport.update({
+  id: '/files',
+  path: '/files',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellCommandCenterRoute = ShellCommandCenterRouteImport.update({
   id: '/command-center',
   path: '/command-center',
@@ -384,6 +390,7 @@ export interface FileRoutesByFullPath {
   '/activity': typeof ShellActivityRoute
   '/canvases': typeof ShellCanvasesRoute
   '/command-center': typeof ShellCommandCenterRoute
+  '/files': typeof ShellFilesRoute
   '/mcp-servers': typeof ShellMcpServersRoute
   '/new': typeof ShellNewRoute
   '/skills': typeof ShellSkillsRoute
@@ -442,6 +449,7 @@ export interface FileRoutesByTo {
   '/activity': typeof ShellActivityRoute
   '/canvases': typeof ShellCanvasesRoute
   '/command-center': typeof ShellCommandCenterRoute
+  '/files': typeof ShellFilesRoute
   '/mcp-servers': typeof ShellMcpServersRoute
   '/new': typeof ShellNewRoute
   '/skills': typeof ShellSkillsRoute
@@ -499,6 +507,7 @@ export interface FileRoutesById {
   '/_shell/activity': typeof ShellActivityRoute
   '/_shell/canvases': typeof ShellCanvasesRoute
   '/_shell/command-center': typeof ShellCommandCenterRoute
+  '/_shell/files': typeof ShellFilesRoute
   '/_shell/mcp-servers': typeof ShellMcpServersRoute
   '/_shell/new': typeof ShellNewRoute
   '/_shell/skills': typeof ShellSkillsRoute
@@ -562,6 +571,7 @@ export interface FileRouteTypes {
     | '/activity'
     | '/canvases'
     | '/command-center'
+    | '/files'
     | '/mcp-servers'
     | '/new'
     | '/skills'
@@ -620,6 +630,7 @@ export interface FileRouteTypes {
     | '/activity'
     | '/canvases'
     | '/command-center'
+    | '/files'
     | '/mcp-servers'
     | '/new'
     | '/skills'
@@ -676,6 +687,7 @@ export interface FileRouteTypes {
     | '/_shell/activity'
     | '/_shell/canvases'
     | '/_shell/command-center'
+    | '/_shell/files'
     | '/_shell/mcp-servers'
     | '/_shell/new'
     | '/_shell/skills'
@@ -954,6 +966,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellMcpServersRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/files': {
+      id: '/_shell/files'
+      path: '/files'
+      fullPath: '/files'
+      preLoaderRoute: typeof ShellFilesRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/command-center': {
       id: '/_shell/command-center'
       path: '/command-center'
@@ -1171,6 +1190,7 @@ interface ShellRouteChildren {
   ShellActivityRoute: typeof ShellActivityRoute
   ShellCanvasesRoute: typeof ShellCanvasesRoute
   ShellCommandCenterRoute: typeof ShellCommandCenterRoute
+  ShellFilesRoute: typeof ShellFilesRoute
   ShellMcpServersRoute: typeof ShellMcpServersRoute
   ShellNewRoute: typeof ShellNewRoute
   ShellSkillsRoute: typeof ShellSkillsRoute
@@ -1198,6 +1218,7 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellActivityRoute: ShellActivityRoute,
   ShellCanvasesRoute: ShellCanvasesRoute,
   ShellCommandCenterRoute: ShellCommandCenterRoute,
+  ShellFilesRoute: ShellFilesRoute,
   ShellMcpServersRoute: ShellMcpServersRoute,
   ShellNewRoute: ShellNewRoute,
   ShellSkillsRoute: ShellSkillsRoute,

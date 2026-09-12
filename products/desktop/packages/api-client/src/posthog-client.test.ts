@@ -8,6 +8,7 @@ import {
   PostHogAPIClient,
   ScoutRequestError,
   SESSION_LOGS_PAGE_TIMEOUT_MS,
+  SpaceFileConflictError,
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
@@ -29,6 +30,129 @@ describe("PostHogAPIClient", () => {
     expect(url.pathname).toBe("/api/projects/42/signals/scout/runs/");
     expect(url.searchParams.get("skill_name")).toBe("signals-scout-example");
   });
+  describe("space files", () => {
+    it("lists every page and uses the generated file endpoints", async () => {
+      const fetch = vi.fn<FetchImplementation>((input, init) => {
+        const url = input as URL;
+        if (init?.method === "GET") {
+          const offset = Number(url.searchParams.get("offset") ?? "0");
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                count: 2,
+                results: [
+                  {
+                    id: `file-${offset + 1}`,
+                    channel_id: "space-1",
+                    name: `todo-${offset + 1}.md`,
+                    version: 1,
+                    created_at: "2026-01-01T00:00:00Z",
+                    updated_at: "2026-01-01T00:00:00Z",
+                  },
+                ],
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          );
+        }
+        return Promise.resolve(new Response(null, { status: 204 }));
+      });
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.listSpaceFiles()).resolves.toHaveLength(2);
+      expect(fetch.mock.calls.map(([url]) => (url as URL).pathname)).toEqual([
+        "/api/projects/42/space_files/",
+        "/api/projects/42/space_files/",
+      ]);
+    });
+
+    it("creates and retrieves a file", async () => {
+      const record = {
+        id: "file-1",
+        channel_id: "space-1",
+        name: "todo.md",
+        content: "# TODO",
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      };
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(record), {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(record), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.createSpaceFile({
+          channel_id: "space-1",
+          name: "todo.md",
+          content: "# TODO",
+        }),
+      ).resolves.toMatchObject(record);
+      await expect(client.getSpaceFile("file-1")).resolves.toMatchObject(
+        record,
+      );
+      expect(fetch.mock.calls.map(([url]) => (url as URL).pathname)).toEqual([
+        "/api/projects/42/space_files/",
+        "/api/projects/42/space_files/file-1/",
+      ]);
+    });
+
+    it("maps a stale update to a typed conflict error", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ detail: "File changed", current_version: 3 }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      const error = await client
+        .updateSpaceFile("file-1", { content: "# Draft", baseVersion: 2 })
+        .catch((cause: unknown) => cause);
+
+      expect(error).toBeInstanceOf(SpaceFileConflictError);
+      expect(error).toMatchObject({ currentVersion: 3 });
+      expect(fetch.mock.calls[0][0]).toMatchObject({
+        pathname: "/api/projects/42/space_files/file-1/",
+      });
+      expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+        content: "# Draft",
+        base_version: 2,
+      });
+    });
+  });
+
   describe("updateTaskChannelAutoArchive", () => {
     it("rejects a successful response that did not save the setting", async () => {
       const fetch = vi.fn().mockResolvedValue(

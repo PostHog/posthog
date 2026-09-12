@@ -33,6 +33,7 @@ describe("railPaneForPath", () => {
   it.each([
     ["/", "home"],
     ["/activity", "activity"],
+    ["/files", "files"],
     ["/command-center", "command-center"],
     ["/inbox", "inbox"],
     ["/reports/$reportId", "reports"],
@@ -78,6 +79,7 @@ describe("railPaneForHref", () => {
     ["/reports/report-1?from=%2Fspaces%2Fchan-1", "spaces"],
     ["/reports/report-1", "reports"],
     ["/inbox?item=1", "inbox"],
+    ["/files?file=file-1", "files"],
   ] as const)("puts %s on %s", (href, pane) => {
     expect(railPaneForHref(href)).toBe(pane);
   });
@@ -156,12 +158,16 @@ describe("railPaneHasSidebar", () => {
     },
   );
 
-  it.each(["spaces", "activity", "feeds", "inbox"] as const)(
-    "gives %s a column",
-    (pane) => {
-      expect(railPaneHasSidebar(pane)).toBe(true);
-    },
-  );
+  it.each([
+    "spaces",
+    "activity",
+    "canvases",
+    "files",
+    "feeds",
+    "inbox",
+  ] as const)("gives %s a column", (pane) => {
+    expect(railPaneHasSidebar(pane)).toBe(true);
+  });
 });
 
 describe("RAIL_PANE_ROOT", () => {

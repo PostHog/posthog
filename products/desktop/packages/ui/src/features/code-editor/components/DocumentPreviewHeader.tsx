@@ -102,6 +102,7 @@ export function DocumentPreviewHeader({
                 size="sm"
                 variant="primary"
                 loading={saving}
+                disabled={saving}
                 onClick={onSave}
               >
                 Save
