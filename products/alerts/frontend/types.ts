@@ -117,6 +117,7 @@ export interface AlertTypeBase {
     config: AlertConfig
     skip_weekend?: boolean
     schedule_restriction?: ScheduleRestriction | null
+    schedule_start_time?: string | null
     detector_config?: DetectorConfig | null
     investigation_agent_enabled?: boolean
     investigation_gates_notifications?: boolean

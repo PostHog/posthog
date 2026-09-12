@@ -13,6 +13,7 @@ function calendarAnchor(localDate: Dayjs, hour: number, timezone: string): Dayjs
 export function approximateNextAlertRun(
     interval: AlertCalculationInterval,
     timezone: string,
+    scheduleStartTime: string | null | undefined = null,
     now: Dayjs = dayjs()
 ): Dayjs {
     let localNow: Dayjs
@@ -23,13 +24,26 @@ export function approximateNextAlertRun(
         localNow = now.utc()
     }
 
+    const scheduleStartMinute = scheduleStartTime ? Number(scheduleStartTime.split(':')[1]) : undefined
+    const nextRunFromScheduleStartMinute = (cadenceMinutes: number): Dayjs | null => {
+        if (scheduleStartMinute === undefined || scheduleStartMinute < 0 || scheduleStartMinute > 59) {
+            return null
+        }
+
+        let candidate = localNow.startOf('hour').minute(scheduleStartMinute).second(0).millisecond(0)
+        while (!candidate.isAfter(localNow)) {
+            candidate = candidate.add(cadenceMinutes, 'minutes')
+        }
+        return candidate
+    }
+
     switch (interval) {
         case AlertCalculationInterval.REAL_TIME:
             return localNow.add(2, 'minutes')
         case AlertCalculationInterval.EVERY_15_MINUTES:
-            return localNow.add(15, 'minutes')
+            return nextRunFromScheduleStartMinute(15) ?? localNow.add(15, 'minutes')
         case AlertCalculationInterval.HOURLY:
-            return localNow.add(1, 'hour')
+            return nextRunFromScheduleStartMinute(60) ?? localNow.add(1, 'hour')
         case AlertCalculationInterval.DAILY:
             return calendarAnchor(localNow.add(1, 'day'), 1, timezone)
         case AlertCalculationInterval.WEEKLY: {
@@ -54,6 +68,7 @@ export function normalizeScheduleRestrictionForCompare(
 export type SchedulingSnapshot = {
     calculation_interval: AlertCalculationInterval
     schedule_restriction?: ScheduleRestriction | null
+    schedule_start_time?: string | null
     skip_weekend?: boolean | null
     config?: { check_ongoing_interval?: boolean } | null
 }
@@ -78,6 +93,9 @@ export function isNextPlannedEvaluationStale(
         return true
     }
     if (Boolean(form.skip_weekend) !== Boolean(saved.skip_weekend)) {
+        return true
+    }
+    if (form.schedule_start_time !== saved.schedule_start_time) {
         return true
     }
     if (Boolean(form.config?.check_ongoing_interval) !== Boolean(saved.config?.check_ongoing_interval)) {

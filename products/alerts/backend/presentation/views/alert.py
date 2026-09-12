@@ -463,7 +463,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     schedule_start_time = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.",
+        help_text="Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.",
     )
     snoozed_until = RelativeDateTimeField(
         allow_null=True,
@@ -701,7 +701,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             schedule_start_time_changed = validated_data["schedule_start_time"] != instance.schedule_start_time
 
         instance = super().update(instance, validated_data)
-        if schedule_restriction_changed and not schedule_start_time_changed:
+        if schedule_restriction_changed or schedule_start_time_changed:
             instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
             instance.save(update_fields=["next_check_at"])
 

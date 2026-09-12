@@ -21,7 +21,27 @@ describe('alertSchedulingStale', () => {
         ])('matches the backend anchor for %s', (interval, expected) => {
             const now = dayjs.utc('2026-07-24T16:00:00.000Z')
 
-            expect(approximateNextAlertRun(interval, 'America/Toronto', now).toISOString()).toBe(expected)
+            expect(approximateNextAlertRun(interval, 'America/Toronto', null, now).toISOString()).toBe(expected)
+        })
+
+        it.each([
+            [
+                AlertCalculationInterval.EVERY_15_MINUTES,
+                '00:55',
+                '2026-07-24T16:30:00.000Z',
+                '2026-07-24T16:55:00.000Z',
+            ],
+            [
+                AlertCalculationInterval.EVERY_15_MINUTES,
+                '00:55',
+                '2026-07-24T16:55:00.000Z',
+                '2026-07-24T17:10:00.000Z',
+            ],
+            [AlertCalculationInterval.HOURLY, '00:55', '2026-07-24T16:30:00.000Z', '2026-07-24T16:55:00.000Z'],
+        ])('uses %s schedule start time %s', (interval, scheduleStartTime, nowValue, expected) => {
+            const now = dayjs.utc(nowValue)
+
+            expect(approximateNextAlertRun(interval, 'UTC', scheduleStartTime, now).toISOString()).toBe(expected)
         })
     })
 
@@ -89,6 +109,17 @@ describe('alertSchedulingStale', () => {
                     calculation_interval: AlertCalculationInterval.DAILY,
                     schedule_restriction: null,
                     skip_weekend: true,
+                    config: { check_ongoing_interval: false },
+                },
+                true,
+            ],
+            [
+                'schedule_start_time',
+                {
+                    calculation_interval: AlertCalculationInterval.DAILY,
+                    schedule_restriction: null,
+                    schedule_start_time: '08:30',
+                    skip_weekend: false,
                     config: { check_ongoing_interval: false },
                 },
                 true,
