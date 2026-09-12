@@ -205,6 +205,12 @@ class TicketPatternViewSet(
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return super().list(request, *args, **kwargs)
 
+    def _locked(self, pattern: TicketPattern) -> TicketPattern:
+        # get_object() read the row in its own autocommit transaction, so re-read it under a row lock
+        # inside the transaction. Without that, two overlapping decisions both see an open pattern,
+        # both save, and both count feedback on the topic baseline.
+        return TicketPattern.objects.for_team(self.team_id).select_for_update().get(pk=pattern.pk)
+
     def _transition(self, pattern: TicketPattern, new_status: str) -> None:
         if pattern.status != TicketPatternStatus.OPEN:
             raise serializers.ValidationError({"status": f"Only an open pattern can be {new_status}."})
@@ -241,6 +247,7 @@ class TicketPatternViewSet(
         body.is_valid(raise_exception=True)
         pattern = self.get_object()
         with transaction.atomic():
+            pattern = self._locked(pattern)
             self._transition(pattern, TicketPatternStatus.CONFIRMED)
             pattern.severity = body.validated_data.get("severity", pattern.severity)
             if body.validated_data["take_ownership"]:
@@ -257,6 +264,7 @@ class TicketPatternViewSet(
         body.is_valid(raise_exception=True)
         pattern = self.get_object()
         with transaction.atomic():
+            pattern = self._locked(pattern)
             self._transition(pattern, TicketPatternStatus.DISMISSED)
             reason = body.validated_data.get("reason", "").strip()
             if reason:
