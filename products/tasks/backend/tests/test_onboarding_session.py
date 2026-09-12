@@ -149,8 +149,7 @@ class TestOnboardingSessionIdempotency(TestCase):
             )
             return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
 
-        # Pinned to the bundled prompt: the managed one is edited outside this repo, so
-        # reading it here would assert on whatever it happens to say today.
+        # The managed prompt is edited outside this repo, so pin the render to the bundled one.
         with patch(
             f"{MODULE}.load_onboarding_prompt",
             return_value=SimpleNamespace(prompt=BUNDLED_ONBOARDING_PROMPT, source="bundled", version=None),

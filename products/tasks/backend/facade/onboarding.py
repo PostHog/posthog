@@ -47,9 +47,8 @@ ONBOARDING_SESSION_TITLE = "Getting set up"
 ONBOARDING_SESSION_PAID_MODEL = "claude-opus-4-8"
 ONBOARDING_SESSION_FREE_MODEL = "@cf/zai-org/glm-5.2"
 ONBOARDING_SESSION_EFFORT = "medium"
-# `context_layer_internal:write` reaches only this session's own channel page, which is the
-# one thing the prompt asks it to save. The channel-instructions tools it falls back to are
-# hidden on a team with the context wiki, so without it the save has no route at all.
+# `context_layer_internal:write` is what keeps the context wiki tools in this session's
+# toolset. It reaches one page: a task run may write only its own channel's context page.
 ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write", CONTEXT_LAYER_INTERNAL_SCOPE]
 
 SPACES_FLAGS = ("code-spaces-layout", "project-bluebird")
