@@ -31,7 +31,13 @@ export function DesktopHandoff({ status, onRetry, description, view }: DesktopHa
 
     return (
         <BridgePage view={view}>
-            <div className="flex flex-col items-center gap-4 text-center max-w-lg mx-auto">
+            {/* The status swap is timed, not user-driven, so without a live region a screen reader never hears it. */}
+            <div
+                className="flex flex-col items-center gap-4 text-center max-w-lg mx-auto"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+            >
                 <IconLaptop className="text-5xl shrink-0" />
                 {status === 'stalled' ? (
                     <>
