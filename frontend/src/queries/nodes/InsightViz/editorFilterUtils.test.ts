@@ -87,6 +87,17 @@ describe('editorFilterUtils', () => {
             const group = { type: FilterLogicalOperator.And, values: [] }
             expect(getFiltersSummary(group)).toBeNull()
         })
+
+        it('handles a group whose values key is absent', () => {
+            // A query shape from a URL can omit values, which the required type does not model
+            const group = { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And }] } as any
+            expect(getFiltersSummary(group)).toBeNull()
+        })
+
+        it('handles a PropertyGroupFilter whose top-level values key is absent', () => {
+            const group = { type: FilterLogicalOperator.And } as any
+            expect(getFiltersSummary(group)).toBeNull()
+        })
     })
 
     describe('getBreakdownSummary', () => {

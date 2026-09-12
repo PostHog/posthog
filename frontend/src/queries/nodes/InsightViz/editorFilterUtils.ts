@@ -33,7 +33,9 @@ export function getFiltersSummary(
     }
     const filters: AnyPropertyFilter[] = Array.isArray(properties)
         ? properties
-        : properties.values.flatMap((group) => group.values.filter((v): v is AnyPropertyFilter => 'key' in v))
+        : (properties.values ?? []).flatMap((group) =>
+              (group.values ?? []).filter((v): v is AnyPropertyFilter => 'key' in v)
+          )
     if (filters.length === 0) {
         return null
     }
