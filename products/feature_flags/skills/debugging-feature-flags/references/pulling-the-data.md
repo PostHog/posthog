@@ -195,9 +195,20 @@ value is an argument and there is no shell to escape for.
 
 When `curl` is all you have, put the body in a **file** and let `curl` read it as data. Write that
 file with your file-writing tool rather than a shell redirect, and let a JSON serializer escape the
-value instead of quoting it by hand:
+value instead of quoting it by hand.
 
-`/tmp/flags-body.json`
+The body carries the customer's `distinct_id` and the project API key, so give it a **unique path you
+own, readable only by you, and delete it when you are done** — including when a request fails. A fixed
+`/tmp` name is world-readable by default and collides with whatever other investigation is running on
+the same box:
+
+```bash
+BODY="$(mktemp -t flags-body-XXXXXX.json)"   # unique path
+chmod 600 "$BODY"                            # yours only
+trap 'rm -f "$BODY"' EXIT                    # gone even if curl fails
+```
+
+Then write this into `$BODY`:
 
 ```json
 { "token": "<project_api_key>", "distinct_id": "<distinct_id>" }
@@ -211,11 +222,11 @@ URL='https://<region>.i.posthog.com/flags/?v=2'
 
 # A — no verdict: `-A ''` sends no user agent, like an older SDK build, a hand-rolled
 #     caller, or a header-stripping proxy.
-curl -s -X POST "$URL" -A '' -H 'Content-Type: application/json' --data-binary @/tmp/flags-body.json
+curl -s -X POST "$URL" -A '' -H 'Content-Type: application/json' --data-binary @"$BODY"
 # B — client: posthog-js classifies as client-side (so does a browser Mozilla/… string).
-curl -s -X POST "$URL" -H 'User-Agent: posthog-js/<version>' -H 'Content-Type: application/json' --data-binary @/tmp/flags-body.json
+curl -s -X POST "$URL" -H 'User-Agent: posthog-js/<version>' -H 'Content-Type: application/json' --data-binary @"$BODY"
 # C — server: posthog-node classifies as server-side.
-curl -s -X POST "$URL" -H 'User-Agent: posthog-node/<version>' -H 'Content-Type: application/json' --data-binary @/tmp/flags-body.json
+curl -s -X POST "$URL" -H 'User-Agent: posthog-node/<version>' -H 'Content-Type: application/json' --data-binary @"$BODY"
 ```
 
 **Compare A against the arm matching the flag's own `evaluation_runtime`** — B for a `client` flag, C
