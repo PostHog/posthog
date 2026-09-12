@@ -1022,9 +1022,12 @@ class APIScopePermission(ScopeBasePermission):
                 requested_team = get_team_from_view(view)
                 # The organization is derived from the requested project, so the project is the
                 # fact the caller can act on. Without it they read this as a separate org endpoint.
-                project_clause = (
-                    f"The requested project (ID {requested_team.id}) belongs to it. " if requested_team else ""
-                )
+                if requested_team:
+                    project_clause = f"The requested project (ID {requested_team.id}) belongs to it. "
+                    next_action = "Use a key scoped to the organization that owns the project."
+                else:
+                    project_clause = ""
+                    next_action = "Use a key scoped to the requested organization."
                 report_scope_denial(
                     request,
                     view,
@@ -1036,7 +1039,7 @@ class APIScopePermission(ScopeBasePermission):
                     f"API key does not have access to the requested organization: ID {organization.id}{name_clause}. "
                     f"{project_clause}"
                     f"This key is scoped to {describe_scoped_organizations(scoped_organizations)}. "
-                    "Use a key scoped to the organization that owns the project."
+                    f"{next_action}"
                 )
 
     def _check_organization_personal_api_key_restrictions(self, request, view) -> None:

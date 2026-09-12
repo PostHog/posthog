@@ -1641,6 +1641,19 @@ class TestScopedKeyDenialMessages(BaseTest):
         self.assertIn(f"project (ID {self.member_org_team.id})", detail)
         self.assertIn(f"'{self.organization.name}' (ID {self.organization.id})", detail)
 
+    def test_organization_denial_on_an_org_route_does_not_mention_a_project(self):
+        key = self._key(scoped_organizations=[str(self.organization.id)])
+
+        response = self.client.get(
+            f"/api/organizations/{self.member_org_team.organization_id}/domains/",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        detail = response.json()["detail"]
+        self.assertNotIn("project", detail)
+        self.assertIn("Use a key scoped to the requested organization.", detail)
+
     @parameterized.expand(
         [
             ("project", True, "second_team", "project_not_in_key_scope"),
