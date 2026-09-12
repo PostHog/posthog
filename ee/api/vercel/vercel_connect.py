@@ -241,7 +241,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         production_team = teams_by_id[production_team_id]
 
         with transaction.atomic():
-            OrganizationIntegration.objects.create(
+            org_integration = OrganizationIntegration.objects.create(
                 organization=organization,
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                 integration_id=installation_id,
@@ -295,9 +295,22 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             logger.error(
                 "Failed to import resource to Vercel",
                 error=import_result.error,
+                status_code=import_result.status_code,
+                error_detail=import_result.error_detail,
                 installation_id=installation_id,
                 resource_id=str(production_resource.pk),
                 integration="vercel",
+            )
+            with transaction.atomic():
+                org_integration.delete()
+                for resource in resources.values():
+                    resource.delete()
+            if import_result.status_code is not None:
+                raise exceptions.ValidationError(
+                    f"Vercel rejected the link (HTTP {import_result.status_code}). Start the link again from Vercel."
+                )
+            raise exceptions.ValidationError(
+                f"Vercel did not accept the link ({import_result.error}). Start the link again from Vercel."
             )
 
         VercelIntegration.bulk_sync_feature_flags_to_vercel(production_team)

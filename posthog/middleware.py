@@ -34,6 +34,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
+from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
@@ -1092,11 +1093,19 @@ class OAuthCoopMiddleware:
                 return True
         return False
 
+    @staticmethod
+    def _is_social_auth_path(path: str) -> bool:
+        parts = path.strip("/").split("/")
+        if len(parts) != 2 or parts[0] not in ("login", "complete"):
+            return False
+        return parts[1] in load_backends(settings.AUTHENTICATION_BACKENDS)
+
     def __call__(self, request):
         response = self.get_response(request)
-        if self._matches_oauth_prefix(request.path, self.OAUTH_PATH_PREFIXES):
+        path = request.path
+        if self._matches_oauth_prefix(path, self.OAUTH_PATH_PREFIXES) or self._is_social_auth_path(path):
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"
-        elif request.path == "/login" or request.path == "/login/":
+        elif path in ("/login", "/login/", "/signup", "/signup/"):
             next_url = request.GET.get("next", "")
             normalized = posixpath.normpath(next_url) if next_url.startswith("/") else next_url
             if self._matches_oauth_prefix(normalized, self.OAUTH_PATH_PREFIXES):

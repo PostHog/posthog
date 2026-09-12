@@ -587,6 +587,69 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             kind=Integration.IntegrationKind.VERCEL,
         ).exists()
 
+    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_failed_import_rolls_back_and_returns_400(self, mock_client_class, mock_vercel_integration):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.import_resource.return_value = OperationResult(
+            success=False, error="HTTP error", status_code=403, error_detail="Forbidden"
+        )
+        session_token = _seed_session()
+
+        response = self.client.post(
+            self.url,
+            {
+                "session": session_token,
+                "organization_id": str(self.organization.id),
+                "environment_mapping": {"production": self.team.pk},
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "403" in response.json()["detail"]
+        assert not OrganizationIntegration.objects.filter(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+        ).exists()
+        assert not Integration.objects.filter(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+        ).exists()
+        mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_not_called()
+
+    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_failed_import_without_status_returns_400(self, mock_client_class, mock_vercel_integration):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.import_resource.return_value = OperationResult(
+            success=False, error="Network error", status_code=None, error_detail="boom"
+        )
+        session_token = _seed_session()
+
+        response = self.client.post(
+            self.url,
+            {
+                "session": session_token,
+                "organization_id": str(self.organization.id),
+                "environment_mapping": {"production": self.team.pk},
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not OrganizationIntegration.objects.filter(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+        ).exists()
+        assert not Integration.objects.filter(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+        ).exists()
+        mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_not_called()
+
 
 @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
 class TestVercelConnectEndToEnd(VercelConnectTestBase):
