@@ -256,6 +256,11 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     )
                     .filter(
                         (x) =>
+                            !['template-source-cloudflare-worker', 'template-source-http-server-logs'].includes(x.id) ||
+                            !!featureFlags[FEATURE_FLAGS.CDP_HTTP_LOG_SOURCES]
+                    )
+                    .filter(
+                        (x) =>
                             x.id !== 'template-native-push' ||
                             !!featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS]
                     )
