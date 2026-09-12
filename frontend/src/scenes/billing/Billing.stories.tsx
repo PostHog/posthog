@@ -67,6 +67,25 @@ export const _Billing: Story = {
     },
 }
 
+export const BillingServiceUnavailable: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': () => [
+                    503,
+                    {
+                        type: 'server_error',
+                        code: 'billing_service_unavailable',
+                        detail: 'Billing is taking longer than usual to answer. Try again in a moment.',
+                    },
+                ],
+            },
+        })
+
+        return <Billing />
+    },
+}
+
 export const BillingOnStartupPlan: Story = {
     render: () => {
         useStorybookMocks({

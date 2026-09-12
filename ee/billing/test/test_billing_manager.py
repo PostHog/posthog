@@ -26,7 +26,9 @@ from ee.billing.billing_manager import (
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER,
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION,
     BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER,
+    BILLING_STATUS_REQUEST_TIMEOUT,
     BillingManager,
+    BillingServiceUnavailable,
     FundingStatusUnavailable,
     OrganizationFundingStatus,
     PrepaidCreditState,
@@ -117,6 +119,72 @@ class TestFundingStatusParsing(SimpleTestCase):
             _parse_funding_status(payload)
 
 
+class TestGetBillingStatusRequest(BaseTest):
+    def setUp(self):
+        super().setUp()
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        self.manager = BillingManager(license)
+
+    @parameterized.expand([("overview", "_get_billing"), ("product_fallback", "_get_products")])
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_the_status_request_carries_a_timeout(self, _name, method_name, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200, json=MagicMock(return_value={"customer": {}, "products": []})
+        )
+
+        getattr(self.manager, method_name)(self.organization)
+
+        assert mock_get.call_args.kwargs["timeout"] == BILLING_STATUS_REQUEST_TIMEOUT
+
+    @parameterized.expand(
+        [
+            ("overview_read_timeout", "_get_billing", requests.ReadTimeout, "read_timeout"),
+            ("overview_connect_timeout", "_get_billing", requests.ConnectTimeout, "connect_timeout"),
+            ("overview_unreachable", "_get_billing", requests.ConnectionError, "connection_error"),
+            ("overview_tls_failure", "_get_billing", requests.exceptions.SSLError, "tls_error"),
+            ("product_fallback_read_timeout", "_get_products", requests.ReadTimeout, "read_timeout"),
+            ("product_fallback_unreachable", "_get_products", requests.ConnectionError, "connection_error"),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_a_request_that_never_answers_is_unavailable(self, _name, method_name, error_class, reason, mock_get):
+        mock_get.side_effect = error_class()
+
+        with self.assertRaises(BillingServiceUnavailable) as context:
+            getattr(self.manager, method_name)(self.organization)
+
+        assert context.exception.reason == reason
+
+    @parameterized.expand([("request_timeout", 408), ("bad_gateway", 502), ("gateway_timeout", 504)])
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_a_transient_status_with_an_empty_body_is_unavailable(self, _name, status_code, mock_get):
+        # Billing answers a slow request with an empty body, so reading it as JSON fails.
+        mock_get.return_value = MagicMock(
+            status_code=status_code, text="", json=MagicMock(side_effect=requests.JSONDecodeError("", "", 0))
+        )
+
+        with self.assertRaises(BillingServiceUnavailable) as context:
+            self.manager._get_billing(self.organization)
+
+        assert str(status_code) in str(context.exception)
+        assert context.exception.reason == f"status_{status_code}"
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_a_rejected_request_is_not_unavailable(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=400, text="", json=MagicMock(return_value={"code": "bad_request"})
+        )
+
+        with self.assertRaises(Exception) as context:
+            self.manager._get_billing(self.organization)
+
+        assert not isinstance(context.exception, BillingServiceUnavailable)
+
+
 class TestBillingManager(BaseTest):
     @patch(
         "ee.billing.billing_manager.http_session.get",
@@ -131,7 +199,10 @@ class TestBillingManager(BaseTest):
         BillingManager(license=None).get_billing(organization)
         assert billing_patch_request_mock.call_count == 1
         billing_patch_request_mock.assert_called_with(
-            "https://billing.posthog.com/api/products-v2", params={"plan": "standard"}, headers={}
+            "https://billing.posthog.com/api/products-v2",
+            params={"plan": "standard"},
+            headers={},
+            timeout=BILLING_STATUS_REQUEST_TIMEOUT,
         )
 
     def test_get_billing_adds_todays_usage_to_usage_summary(self):
