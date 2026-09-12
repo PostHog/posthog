@@ -1,10 +1,19 @@
 import { POSTHOG_OBJECT_KINDS } from "@posthog/core/message-editor/content";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
+import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { Theme } from "@radix-ui/themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  openReport: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@posthog/ui/features/inbox/hooks/useOpenInboxReport", () => ({
+  useOpenInboxReport: () => mocks.openReport,
+}));
 
 vi.mock("../../../shell/openExternal", () => ({
   openExternalUrl: vi.fn(),
@@ -64,6 +73,8 @@ function bindTracker() {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
   useAuthStore.setState({ authState: ANONYMOUS_AUTH_STATE });
   queryClient.clear();
   const actions = useDraftStore.getState().actions;
@@ -83,19 +94,56 @@ describe("EvidenceRefChip", () => {
     expect(screen.queryByRole("link")).toBeNull();
   });
 
-  it("derives the PostHog url from the reference and opens it externally", () => {
-    signIn();
-    renderInTheme(
-      <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
-        Checkout funnel
-      </EvidenceRefChip>,
-    );
-    const link = screen.getByRole("link", { name: "Checkout funnel" });
-    fireEvent.click(link);
-    expect(openExternalUrl).toHaveBeenCalledWith(
-      "https://us.posthog.com/project/2/insights/9pQx3",
-    );
-  });
+  it.each([
+    { kind: "report", taskId: "task-1", destination: "report" },
+    { kind: "report", taskId: null, destination: "report" },
+    { kind: "insight", taskId: "task-1", destination: "tab" },
+    { kind: "insight", taskId: null, destination: "external" },
+  ] as const)(
+    "opens $kind in $destination with task context $taskId",
+    ({ kind, taskId, destination }) => {
+      signIn();
+      const openObjectTab = vi
+        .spyOn(usePanelLayoutStore.getState(), "openPostHogObjectTab")
+        .mockImplementation(() => {});
+      const reference = (
+        <EvidenceRefChip target={{ kind, id: "reference-1" }}>
+          Linked reference
+        </EvidenceRefChip>
+      );
+      renderInTheme(
+        taskId ? (
+          <SessionTaskIdProvider taskId={taskId}>
+            {reference}
+          </SessionTaskIdProvider>
+        ) : (
+          reference
+        ),
+      );
+
+      fireEvent.click(screen.getByRole("link", { name: "Linked reference" }));
+
+      if (destination === "report") {
+        expect(mocks.openReport).toHaveBeenCalledWith("reference-1");
+        expect(openObjectTab).not.toHaveBeenCalled();
+        expect(openExternalUrl).not.toHaveBeenCalled();
+      } else if (destination === "tab") {
+        expect(openObjectTab).toHaveBeenCalledWith(taskId, {
+          kind,
+          id: "reference-1",
+          name: "Linked reference",
+        });
+        expect(mocks.openReport).not.toHaveBeenCalled();
+        expect(openExternalUrl).not.toHaveBeenCalled();
+      } else {
+        expect(openExternalUrl).toHaveBeenCalledWith(
+          "https://us.posthog.com/project/2/insights/reference-1",
+        );
+        expect(mocks.openReport).not.toHaveBeenCalled();
+        expect(openObjectTab).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it("stays plain for a kind with no canonical page even when signed in", () => {
     signIn();
