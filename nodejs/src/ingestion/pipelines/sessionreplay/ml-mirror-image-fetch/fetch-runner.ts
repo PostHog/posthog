@@ -1,15 +1,10 @@
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
-import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 
 import type { ImageFetchBlockReason } from './block-reason'
 import { fetchCandidateHistoryKey } from './collected-urls-record'
 import { FetchCandidate, MAX_HOPS, RepublishReason } from './collected-urls-record'
-import {
-    ConfigurationPolicyPass,
-    ConfigurationPolicyService,
-    explicitFreshnessLifetimeMs,
-} from './configuration-policy'
+import { ConfigurationPolicyPass, ConfigurationPolicyService } from './configuration-policy'
 import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata, UrlCrawlHistoryItem } from './crawl-history'
 import { FetchCandidateLease, FetchCandidateQueue } from './fetch-candidate-queue'
 import { FrontierPublisher, RepublishBatch, RepublishResult } from './frontier-publisher'
@@ -26,6 +21,7 @@ import { OriginRequestScheduler } from './origin-request-scheduler'
 import { canonicalizeUrl } from './politeness-key'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
+import { urlHistoryExpiresAtMs } from './url-history-expiry'
 
 export type ShedReason =
     | 'breaker_open'
@@ -611,22 +607,7 @@ export class FetchRunner implements FetchPass {
         refusalReason: FetchRefusalReason | 'none' = 'none'
     ): FetchAttempt {
         const nowMs = Date.now()
-        const minimumNextFetchAtMs = nowMs + this.options.seenTtlSeconds * 1000
-        const explicitNextFetchAtMs = cache ? nowMs + explicitFreshnessLifetimeMs(cache, nowMs) : 0
-        const month = parseImageRef(candidate.originalRef)?.sessionMonth
-        const partitionExpiresAtMs = month ? Date.parse(`${month}-01T00:00:00Z`) : undefined
-        let nextFetchAtMs = Math.max(minimumNextFetchAtMs, explicitNextFetchAtMs)
-        if (partitionExpiresAtMs !== undefined) {
-            const end = new Date(partitionExpiresAtMs)
-            end.setUTCMonth(end.getUTCMonth() + 1)
-            end.setUTCDate(end.getUTCDate() + 8)
-            const hasExplicitFreshness =
-                cache?.expires !== undefined ||
-                /(?:^|,)\s*(?:s-maxage|max-age|no-cache|no-store|private|must-revalidate)(?:\s*(?:=|,|$))/i.test(
-                    cache?.cacheControl ?? ''
-                )
-            nextFetchAtMs = Math.min(end.getTime(), hasExplicitFreshness ? explicitNextFetchAtMs : Infinity)
-        }
+        const nextFetchAtMs = urlHistoryExpiresAtMs(candidate.originalRef, nowMs, this.options.seenTtlSeconds, cache)
         ImageFetchRequestMetrics.observeCompletedUrl(
             outcome,
             refusalReason,
