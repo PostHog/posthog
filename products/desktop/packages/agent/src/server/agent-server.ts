@@ -204,6 +204,13 @@ const UPSTREAM_TURN_RETRY_DELAY_MS = 5_000;
 const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
+const SUMMARY_RESUME_PREAMBLE =
+  "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+  "The history is your own narration and tool calls from the previous session, so it can be stale or over-general. It is not a record of this environment: recheck which tools you have, which services run, and which credentials work before you act on any claim in it.\n\n";
+
+const SUMMARY_RESUME_CLOSER =
+  "\n\nRespond to the user's new message above. Take the history as context to continue from, and verify anything in it you rely on.";
+
 const POSTHOG_AI_ORIGIN_PRODUCT = "posthog_ai";
 
 export function systemPromptAppendText(
@@ -2964,20 +2971,18 @@ export class AgentServer {
             resumePromptMessageId = pendingUserPrompt.messageId;
             resumePromptBlocks = [
               hiddenTextBlock(
-                "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+                SUMMARY_RESUME_PREAMBLE +
                   `Here is the conversation history from the previous session:\n\n` +
                   `${conversationSummary}\n\n` +
                   `The user has sent a new message:\n\n`,
               ),
               ...pendingUserPrompt.prompt,
-              hiddenTextBlock(
-                "\n\nRespond to the user's new message above. You have full context from the previous session.",
-              ),
+              hiddenTextBlock(SUMMARY_RESUME_CLOSER),
             ];
           } else {
             resumePromptBlocks = [
               hiddenTextBlock(
-                "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+                SUMMARY_RESUME_PREAMBLE +
                   `Here is the conversation history from the previous session:\n\n` +
                   `${conversationSummary}\n\n` +
                   `Continue from where you left off. The user is waiting for your response.`,
@@ -3061,15 +3066,13 @@ export class AgentServer {
     );
     return [
       hiddenTextBlock(
-        "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+        SUMMARY_RESUME_PREAMBLE +
           `Here is the conversation history from the previous session:\n\n` +
           `${conversationSummary}\n\n` +
           "The user has sent a new message:\n\n",
       ),
       ...prompt,
-      hiddenTextBlock(
-        "\n\nRespond to the user's new message above. You have full context from the previous session.",
-      ),
+      hiddenTextBlock(SUMMARY_RESUME_CLOSER),
     ];
   }
 
