@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -142,41 +143,54 @@ export const ticketPatternsLogic = kea<ticketPatternsLogicType>([
                 openPatterns.filter((p) => !dismissedBannerIds.includes(p.id)),
         ],
     }),
-    listeners(({ actions, cache }) => ({
-        loadOpenPatternsSuccess: ({ openPatterns }) => {
-            // Reducers run before listeners, so by the time a decision listener fires the row is already gone from
-            // state. Keep the last loaded list to look the row up for a rollback.
-            cache.lastLoaded = openPatterns
-        },
-        confirmPattern: async ({ id, body }) => {
-            try {
-                const pattern = await api.conversationsPatternsConfirmCreate(String(getCurrentTeamId()), id, body)
-                actions.decisionSucceeded(pattern)
-            } catch {
-                const previous = (cache.lastLoaded as TicketPatternApi[] | undefined)?.find((p) => p.id === id)
-                if (previous) {
-                    actions.restorePattern(previous)
+    listeners(({ actions, cache }) => {
+        // A 400 on `status` is the server refusing a second transition, so someone else decided this
+        // pattern first. Restoring the row would put a stale open pattern back in front of everyone
+        // and every retry would fail the same way, so read the decided pattern instead.
+        const settleFailure = async (id: string, error: unknown, retryMessage: string): Promise<void> => {
+            if (error instanceof ApiError && error.status === 400 && error.attr === 'status') {
+                try {
+                    actions.decisionSucceeded(await api.conversationsPatternsRetrieve(String(getCurrentTeamId()), id))
+                } catch {
+                    actions.decisionFailed(id)
                 }
-                actions.decisionFailed(id)
-                lemonToast.error("Couldn't confirm the pattern. Try again.")
+                lemonToast.info('Someone else already reviewed this pattern. The list now shows their decision.')
+                return
             }
-        },
-        dismissPattern: async ({ id, reason }) => {
-            try {
-                const pattern = await api.conversationsPatternsDismissCreate(String(getCurrentTeamId()), id, {
-                    reason,
-                })
-                actions.decisionSucceeded(pattern)
-            } catch {
-                const previous = (cache.lastLoaded as TicketPatternApi[] | undefined)?.find((p) => p.id === id)
-                if (previous) {
-                    actions.restorePattern(previous)
+            const previous = (cache.lastLoaded as TicketPatternApi[] | undefined)?.find((p) => p.id === id)
+            if (previous) {
+                actions.restorePattern(previous)
+            }
+            actions.decisionFailed(id)
+            lemonToast.error(retryMessage)
+        }
+
+        return {
+            loadOpenPatternsSuccess: ({ openPatterns }) => {
+                // Reducers run before listeners, so by the time a decision listener fires the row is already gone from
+                // state. Keep the last loaded list to look the row up for a rollback.
+                cache.lastLoaded = openPatterns
+            },
+            confirmPattern: async ({ id, body }) => {
+                try {
+                    const pattern = await api.conversationsPatternsConfirmCreate(String(getCurrentTeamId()), id, body)
+                    actions.decisionSucceeded(pattern)
+                } catch (error) {
+                    await settleFailure(id, error, "Couldn't confirm the pattern. Try again.")
                 }
-                actions.decisionFailed(id)
-                lemonToast.error("Couldn't dismiss the pattern. Try again.")
-            }
-        },
-    })),
+            },
+            dismissPattern: async ({ id, reason }) => {
+                try {
+                    const pattern = await api.conversationsPatternsDismissCreate(String(getCurrentTeamId()), id, {
+                        reason,
+                    })
+                    actions.decisionSucceeded(pattern)
+                } catch (error) {
+                    await settleFailure(id, error, "Couldn't dismiss the pattern. Try again.")
+                }
+            },
+        }
+    }),
     afterMount(({ actions, values }) => {
         if (values.patternsEnabled) {
             actions.loadOpenPatterns()

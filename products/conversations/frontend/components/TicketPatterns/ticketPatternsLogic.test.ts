@@ -44,12 +44,25 @@ describe('ticketPatternsLogic', () => {
                     200,
                     { results: [makePattern('a'), makePattern('b')], count: 2, next: null, previous: null },
                 ],
+                '/api/projects/:team_id/conversations/patterns/:id/': () => [
+                    200,
+                    { ...makePattern('b'), status: 'confirmed' },
+                ],
             },
             post: {
                 '/api/projects/:team_id/conversations/patterns/a/dismiss/': () => [500, { detail: 'boom' }],
                 '/api/projects/:team_id/conversations/patterns/b/confirm/': () => [
                     200,
                     { ...makePattern('b'), status: 'confirmed' },
+                ],
+                '/api/projects/:team_id/conversations/patterns/b/dismiss/': () => [
+                    400,
+                    {
+                        type: 'validation_error',
+                        code: 'invalid',
+                        detail: 'Only an open pattern can be dismissed.',
+                        attr: 'status',
+                    },
                 ],
             },
         })
@@ -79,6 +92,14 @@ describe('ticketPatternsLogic', () => {
             .toMatchValues({ inFlightIds: [] })
 
         expect(logic.values.openPatterns.map((p) => p.id).sort()).toEqual(['a', 'b'])
+    })
+
+    it('keeps the row gone when someone else decided the pattern first', async () => {
+        await expectLogic(logic, () => logic.actions.dismissPattern('b'))
+            .toDispatchActions(['decisionSucceeded'])
+            .toMatchValues({ inFlightIds: [] })
+
+        expect(logic.values.openPatterns.map((p) => p.id)).toEqual(['a'])
     })
 
     it('keeps the row gone once the server confirms', async () => {
