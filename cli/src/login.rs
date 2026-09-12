@@ -12,6 +12,7 @@ use crate::{
         env_id_validator, host_validator, token_validator, CredentialProvider, HomeDirProvider,
         Token,
     },
+    utils::homedir::ensure_homedir_exists,
 };
 
 #[derive(Debug, Deserialize)]
@@ -54,6 +55,10 @@ pub fn login(host_override: Option<String>) -> Result<()> {
 }
 
 pub fn login_with_use_cases(host_override: Option<String>, use_cases: Vec<&str>) -> Result<()> {
+    // Authorization mints a personal API key on the server, so a home directory we cannot write
+    // afterwards would strand that key on the account. Fail before the user authorizes anything.
+    ensure_homedir_exists()?;
+
     let host = if let Some(override_host) = host_override {
         // Strip trailing slashes to avoid double slashes in URLs
         override_host.trim_end_matches('/').to_string()
