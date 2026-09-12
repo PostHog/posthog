@@ -5,7 +5,7 @@ import { AnyPropertyFilter, PropertyFilterType } from '~/types'
  *
  * A wait is woken when a message arrives on one of its streams: an event, a person change, an
  * internal event, a distinct_id repoint. A condition that compares against the clock produces no
- * message at all, so nothing wakes it, and the API refuses it at save time. Finding it while the
+ * message at all, so no stream wakes it, and the API refuses it at save time. Finding it while the
  * step is built is what turns that refusal into guidance.
  *
  * Mirrors `find_clock_function` in
@@ -52,8 +52,8 @@ export function findClockFunction(filters?: ConditionFilters): string | null {
 
 export function clockConditionError(clockFunction: string): string {
     return (
-        `This condition uses ${clockFunction}(), so it depends on the current time. Nothing tells the workflow ` +
-        'when that time arrives, so the wait runs until it times out. To wait for a point in time, use a delay ' +
-        'step, then put this condition on the step after it.'
+        `This condition uses ${clockFunction}(), so it depends on the current time rather than on ` +
+        'something happening, and it can only advance once the workflow checks it again. To wait for a point ' +
+        'in time, use a delay step, then put this condition on the step after it.'
     )
 }
