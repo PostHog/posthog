@@ -209,6 +209,9 @@ export default {
     },
 
     async preVisit(page, context) {
+        // Resets the scheme `takeSnapshotWithTheme` emulates, which is page-level and outlasts the story.
+        // Not `null`: that stops emulation, so WebKit follows a dark host.
+        await page.emulateMedia({ colorScheme: 'light' })
         await page.route(/\/(embedded|shared)\//, (route) =>
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
         )
@@ -529,6 +532,8 @@ async function takeSnapshotWithTheme(
 
     // Set the right theme
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
+    // `isDarkModeOn` does not list that attribute as a selector input, so only a scheme change recomputes it.
+    await page.emulateMedia({ colorScheme: theme })
 
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
