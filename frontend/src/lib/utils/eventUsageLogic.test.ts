@@ -13,10 +13,22 @@ import type {
     Node,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { BaseMathType, BehavioralEventType, FilterLogicalOperator, PropertyFilterType } from '~/types'
+import {
+    BaseMathType,
+    BehavioralEventType,
+    ChartDisplayType,
+    type DashboardTile,
+    type DashboardType,
+    FilterLogicalOperator,
+    FunnelVizType,
+    PropertyFilterType,
+    type QueryBasedInsightModel,
+    StepOrderValue,
+} from '~/types'
 
 import {
     type OnboardingEventProperties,
+    dashboardViewedProperties,
     eventUsageLogic,
     getEventPropertiesForMetric,
     sanitizeQuery,
@@ -297,6 +309,166 @@ describe('eventUsageLogic', () => {
             } as unknown as Node
 
             expect(sanitizeQuery(query).behavioral_filter_count).toBe(2)
+        })
+
+        const trendsSource = {
+            kind: NodeKind.TrendsQuery,
+            dateRange: { date_from: '-7d', date_to: null },
+            interval: 'day',
+            samplingFactor: 0.1,
+            filterTestAccounts: true,
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview' },
+                { kind: NodeKind.ActionsNode, id: 1 },
+                { kind: NodeKind.DataWarehouseNode, table_name: 'orders' },
+            ],
+            breakdownFilter: { breakdown_type: 'event', breakdown_limit: 5, breakdown_hide_other_aggregation: true },
+            compareFilter: { compare: true, compare_to: '-1w' },
+            trendsFilter: { formula: 'A + B' },
+        }
+        const trendsProperties = {
+            uses_data_warehouse_source: true,
+            date_from: '-7d',
+            interval: 'day',
+            samplingFactor: 0.1,
+            series_length: 3,
+            event_entity_count: 1,
+            action_entity_count: 1,
+            data_warehouse_entity_count: 1,
+            has_properties: false,
+            behavioral_filter_count: 0,
+            filter_test_accounts: true,
+            breakdown_type: 'event',
+            breakdown_limit: 5,
+            breakdown_hide_other_aggregation: true,
+            has_formula: true,
+            display: ChartDisplayType.ActionsLineGraph,
+            compare: true,
+            compare_to: '-1w',
+        }
+        const funnelsSource = {
+            kind: NodeKind.FunnelsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            funnelsFilter: { funnelVizType: FunnelVizType.Steps, funnelOrderType: StepOrderValue.STRICT },
+        }
+
+        const cases: [string, unknown, Record<string, unknown>][] = [
+            ['null', null, { uses_data_warehouse_source: false }],
+            [
+                'a trends query wrapped in an InsightVizNode',
+                { kind: NodeKind.InsightVizNode, source: trendsSource },
+                { query_kind: NodeKind.InsightVizNode, query_source_kind: NodeKind.TrendsQuery, ...trendsProperties },
+            ],
+            ['a bare trends query', trendsSource, { query_kind: NodeKind.TrendsQuery, ...trendsProperties }],
+            [
+                'a funnels query',
+                funnelsSource,
+                {
+                    query_kind: NodeKind.FunnelsQuery,
+                    uses_data_warehouse_source: false,
+                    series_length: 1,
+                    event_entity_count: 1,
+                    action_entity_count: 0,
+                    data_warehouse_entity_count: 0,
+                    has_properties: false,
+                    behavioral_filter_count: 0,
+                    has_formula: false,
+                    funnel_viz_type: FunnelVizType.Steps,
+                    funnel_order_type: StepOrderValue.STRICT,
+                },
+            ],
+            [
+                'a non-insight query',
+                { kind: NodeKind.DataTableNode, source: { kind: NodeKind.HogQLQuery, query: 'select 1' } },
+                {
+                    query_kind: NodeKind.DataTableNode,
+                    query_source_kind: NodeKind.HogQLQuery,
+                    uses_data_warehouse_source: false,
+                },
+            ],
+        ]
+
+        it.each(cases)('describes %s without its filter values', (_, query, expected) => {
+            expect(sanitizeQuery(query as Node | null)).toEqual(expected)
+        })
+    })
+
+    describe('dashboardViewedProperties', () => {
+        const dashboard = (
+            tiles: Partial<DashboardTile<QueryBasedInsightModel>>[]
+        ): DashboardType<QueryBasedInsightModel> =>
+            ({
+                id: 7,
+                created_at: '2026-01-01T00:00:00Z',
+                is_shared: false,
+                pinned: true,
+                creation_mode: 'default',
+                created_by: { uuid: 'creator' },
+                tiles,
+            }) as unknown as DashboardType<QueryBasedInsightModel>
+
+        const insightTile = (query: unknown, is_sample = false): Partial<DashboardTile<QueryBasedInsightModel>> =>
+            ({ insight: { query, is_sample } }) as unknown as Partial<DashboardTile<QueryBasedInsightModel>>
+
+        const cases: [string, Partial<DashboardTile<QueryBasedInsightModel>>[], Record<string, unknown>][] = [
+            ['no tiles', [], { item_count: 0, sample_items_count: 0 }],
+            [
+                'an insight tile with a query',
+                [insightTile({ kind: NodeKind.InsightVizNode, source: { kind: NodeKind.TrendsQuery, series: [] } })],
+                { item_count: 1, text_count: 1, uses_data_warehouse_source: false, data_warehouse_tiles_count: 0 },
+            ],
+            ['an insight tile without a query', [insightTile(null)], { item_count: 1, empty_count: 1 }],
+            [
+                'a sample insight tile that reads the warehouse',
+                [insightTile({ kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.DataWarehouseNode }] }, true)],
+                {
+                    item_count: 1,
+                    text_count: 1,
+                    sample_items_count: 1,
+                    uses_data_warehouse_source: true,
+                    data_warehouse_tiles_count: 1,
+                },
+            ],
+            [
+                'text and widget tiles',
+                [{ text: { body: 'hi' } }, { text: { body: 'there' } }, { widget: {} }] as Partial<
+                    DashboardTile<QueryBasedInsightModel>
+                >[],
+                { item_count: 3, text_tiles_count: 2, widget_tiles_count: 1 },
+            ],
+        ]
+
+        it.each(cases)('counts %s', (_, tiles, expected) => {
+            expect(dashboardViewedProperties(dashboard(tiles), null, 'viewer')).toEqual({
+                created_at: '2026-01-01T00:00:00Z',
+                is_shared: false,
+                pinned: true,
+                creation_mode: 'default',
+                viewer_is_creator: false,
+                created_by_system: false,
+                dashboard_id: 7,
+                lastRefreshed: undefined,
+                refreshAge: undefined,
+                sample_items_count: 0,
+                uses_data_warehouse_source: false,
+                data_warehouse_tiles_count: 0,
+                ...expected,
+            })
+        })
+
+        const viewerCases: [string, { uuid: string } | null, string | undefined, boolean | undefined][] = [
+            ['the creator views it', { uuid: 'creator' }, 'creator', true],
+            ['another user views it', { uuid: 'creator' }, 'viewer', false],
+            ['the viewer is unknown', { uuid: 'creator' }, undefined, undefined],
+            ['the system created it', null, 'viewer', undefined],
+        ]
+
+        it.each(viewerCases)('reports viewer_is_creator when %s', (_, created_by, viewerUuid, expected) => {
+            const withCreator = { ...dashboard([]), created_by } as unknown as DashboardType<QueryBasedInsightModel>
+            expect(dashboardViewedProperties(withCreator, null, viewerUuid)).toMatchObject({
+                viewer_is_creator: expected,
+                created_by_system: created_by === null,
+            })
         })
     })
 
