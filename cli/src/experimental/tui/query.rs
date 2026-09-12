@@ -1,6 +1,6 @@
 use std::{io::Stdout, thread::JoinHandle, time::Duration};
 
-use anyhow::{bail, Error};
+use anyhow::{bail, Context, Error};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -106,7 +106,13 @@ impl QueryTui {
         };
 
         let state_str = serde_json::to_string(&state)?;
-        std::fs::write(editor_state_path, state_str)?;
+        // Credentials from the environment skip login, so the editor can be the first thing
+        // that needs the PostHog home directory to exist
+        std::fs::create_dir_all(&home_dir)
+            .context(format!("While trying to create directory {home_dir:?}"))?;
+        std::fs::write(&editor_state_path, state_str).context(format!(
+            "While trying to write editor state to file {editor_state_path:?}"
+        ))?;
         // Only once the write lands, so a failed write is retried on the next frame
         self.state_dirty = false;
         Ok(())
