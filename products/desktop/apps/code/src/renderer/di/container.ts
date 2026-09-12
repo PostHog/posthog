@@ -43,6 +43,10 @@ import { piRuntimeModule } from "@posthog/core/pi-runtime/pi-runtime.module";
 import type { PiRunner } from "@posthog/core/pi-runtime/piRunner";
 import { LOCAL_PI_SESSION_FACTORY } from "@posthog/core/pi-runtime/piSessionController";
 import {
+  PLATFORM_STATUS_CLIENT,
+  type PlatformStatusClient,
+} from "@posthog/core/platform-status/identifiers";
+import {
   CLOUD_ARTIFACT_BUNDLE_LOCAL_SKILL,
   CLOUD_ARTIFACT_READ_FILE_AS_BASE64,
   CLOUD_ARTIFACT_RESOLVE_SKILL_DEPENDENCIES,
@@ -200,6 +204,11 @@ const connectivityClient: ConnectivityClient = {
     trpcClient.connectivity.onStatusChange.subscribe(undefined, sub),
 };
 container.bind(CONNECTIVITY_CLIENT).toConstantValue(connectivityClient);
+
+const platformStatusClient: PlatformStatusClient = {
+  getStatus: (region) => trpcClient.platformStatus.getStatus.query({ region }),
+};
+container.bind(PLATFORM_STATUS_CLIENT).toConstantValue(platformStatusClient);
 
 // browser tabs client — passthrough over the renderer host client
 const browserTabsClient: BrowserTabsClient = {

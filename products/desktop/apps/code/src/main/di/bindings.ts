@@ -88,6 +88,10 @@ import type {
   OAuthHost,
 } from "@posthog/core/oauth/identifiers";
 import type { OAuthService } from "@posthog/core/oauth/oauth";
+import type {
+  PLATFORM_STATUS_CLIENT,
+  PlatformStatusClient,
+} from "@posthog/core/platform-status/identifiers";
 import type { PROVISIONING_SERVICE } from "@posthog/core/provisioning/identifiers";
 import type { ProvisioningService } from "@posthog/core/provisioning/provisioning";
 import type { SLEEP_SERVICE } from "@posthog/core/sleep/identifiers";
@@ -515,6 +519,7 @@ export interface MainBindings {
   [GIT_WORKSPACE_CLIENT]: HostGitWorkspaceClient;
   [CONNECTIVITY_CLIENT]: HostConnectivityClient;
   [ENVIRONMENT_CLIENT]: HostEnvironmentClient;
+  [PLATFORM_STATUS_CLIENT]: PlatformStatusClient;
   [MAIN_FILE_WATCHER_SERVICE]: FileWatcherBridge;
   [FILE_WATCHER_CONTROL]: HostFileWatcherControl;
   [FOCUS_WORKSPACE_CLIENT]: FocusWorkspaceClient;
