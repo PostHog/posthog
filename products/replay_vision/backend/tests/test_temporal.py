@@ -34,6 +34,7 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
+from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -810,6 +811,8 @@ class TestCreateObservationActivity:
 
         assert err.value.type == SCANNER_ADMISSION_BUSY_ERROR_TYPE
         assert err.value.non_retryable is False
+        # Exempt from error tracking: the retry recovers, so the raise must not open an issue.
+        assert SCANNER_ADMISSION_BUSY_ERROR_TYPE in EXPECTED_CONTROL_FLOW_ERROR_TYPES
         release.assert_not_called()
         assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-busy").exists()
 
