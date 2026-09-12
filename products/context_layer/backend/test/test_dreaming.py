@@ -58,8 +58,12 @@ class TestDreamPrompt(SimpleTestCase):
 
 class TestDreamCandidates(SimpleTestCase):
     def test_fetch_candidates_caps_each_tick_at_one_thousand(self) -> None:
-        configs = [MagicMock(last_dream_started_at=None, organization_id=index) for index in range(1001)]
+        configs = [
+            MagicMock(last_dream_started_at=None, organization_id=index, created_by=MagicMock(distinct_id="d"))
+            for index in range(1001)
+        ]
         queryset = MagicMock()
+        queryset.select_related.return_value = queryset
         queryset.order_by.return_value = configs
 
         with (
@@ -89,6 +93,21 @@ class TestDreamingLane(BaseTest):
         flag_mock.return_value = True
         config = self._config()
         assert dreaming._fetch_dream_candidates() == [str(config.organization_id)]
+
+    @patch("products.context_layer.backend.temporal.dreaming.context_layer_facade.is_context_layer_enabled")
+    def test_fetch_candidates_evaluates_the_flag_as_the_enabling_user(self, flag_mock) -> None:
+        # The flag is user-targeted (dogfood targets the enabling user's email),
+        # and the enable route gated the org with the requesting user's identity;
+        # evaluating as the organization id never matches and the lane starves silently.
+        self._config()
+        assert dreaming._fetch_dream_candidates() == [str(self.organization.id)]
+        assert flag_mock.call_args.kwargs["distinct_id"] == self.user.distinct_id
+
+    @patch("products.context_layer.backend.temporal.dreaming.context_layer_facade.is_context_layer_enabled")
+    def test_fetch_candidates_skips_orgs_with_no_enabling_user(self, flag_mock) -> None:
+        self._config(created_by=None)
+        assert dreaming._fetch_dream_candidates() == []
+        flag_mock.assert_not_called()
 
     @patch("products.context_layer.backend.temporal.dreaming.context_layer_facade.is_context_layer_enabled")
     def test_fetch_candidates_skips_paused_dreamt_today_and_flag_off(self, flag_mock) -> None:
