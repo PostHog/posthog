@@ -1,4 +1,5 @@
-"""Build coding agent skills from products/*/skills/ into rendered files and a ZIP archive.
+"""Build coding agent skills from products/*/skills/ into rendered files and a ZIP
+archive for distribution.
 
 Skills can be:
 - Plain markdown (SKILL.md) — copied as-is
@@ -11,5 +12,10 @@ and optionally packages them into dist/skills.zip (published as a GitHub release
 Requires the project's Python environment (managed by uv) for template rendering
 that imports Pydantic models from product code.
 
-One module per concern; import the module you need, never this package.
+Usage:
+    hogli build:skills          # Build all product skills to dist/skills/ and dist/skills.zip
+    hogli build:skills --list   # List discovered skills without building
+    hogli lint:skills           # Validate skill sources without rendering
 """
+
+# One module per concern; import the module you need, never this package.

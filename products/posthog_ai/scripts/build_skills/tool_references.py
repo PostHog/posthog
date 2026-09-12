@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import json
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
@@ -133,6 +134,66 @@ def _did_you_mean(suggestions: list[str]) -> str:
     return f" — did you mean {' or '.join(suggestions)}?" if suggestions else ""
 
 
+@dataclass(frozen=True)
+class _Candidate:
+    """A name a rule believes was meant as a tool or skill reference."""
+
+    offset: int
+    name: str
+    message: str
+
+
+def _candidate(offset: int, name: str, noun: str, registry: set[str]) -> Iterator[_Candidate]:
+    """One candidate, but only when the name resembles something in the registry."""
+    suggestions = _reference_suggestions(name, registry)
+    if suggestions:
+        yield _Candidate(offset, name, f"'{name}' looks like a {noun} but none exists{_did_you_mean(suggestions)}")
+
+
+def _phrase_candidates(text: str, tool_names: set[str], skill_names: set[str]) -> Iterator[_Candidate]:
+    """ "X tool/skill". Resemblance to a real name is the only signal we trust — backticks in prose
+    mean emphasis or a field name as often as a reference, so they are not treated as intent.
+    """
+    for m in _PHRASE_REFERENCE_RE.finditer(text):
+        name, kind = m.group(1), cast("ReferenceKind", m.group(2))
+        if _is_valid_reference(name, kind, tool_names, skill_names):
+            continue
+        registry = skill_names if kind in ("skill", "skills") else tool_names
+        yield from _candidate(m.start(1), name, kind.rstrip("s"), registry)
+
+
+def _invocation_candidates(text: str, tool_names: set[str], skill_names: set[str]) -> Iterator[_Candidate]:
+    """ "via `X`": one concrete thing, but not whether tool or skill — check tools (a family prefix
+    like `feature-flag` is not invocable) plus exact skill names.
+    """
+    for m in _INVOCATION_REFERENCE_RE.finditer(text):
+        if _ENTITY_NOUN_RE.match(text, m.end()):
+            continue
+        name = m.group(1)
+        if _is_valid_reference(name, "tool", tool_names, skill_names) or name in skill_names:
+            continue
+        yield from _candidate(m.start(1), name, "tool", tool_names)
+
+
+def _call_candidates(text: str, tool_names: set[str], skill_names: set[str]) -> Iterator[_Candidate]:
+    for m in _CALL_REFERENCE_RE.finditer(text):
+        name = m.group(1)
+        if _is_valid_reference(name, "tool", tool_names, skill_names):
+            continue
+        yield from _candidate(m.start(1), name, "tool", tool_names)
+
+
+def _casing_candidates(text: str, tool_names: set[str], _skill_names: set[str]) -> Iterator[_Candidate]:
+    for m in _SNAKE_CASE_REFERENCE_RE.finditer(text):
+        name = m.group(1)
+        kebab = name.replace("_", "-")
+        if name not in tool_names and kebab in tool_names:
+            yield _Candidate(m.start(1), name, f"'{name}' has wrong casing — the tool is named {kebab}")
+
+
+_REFERENCE_RULES = (_phrase_candidates, _invocation_candidates, _call_candidates, _casing_candidates)
+
+
 def _check_tool_references(
     text: str, source_label: str, tool_names: set[str], skill_names: set[str]
 ) -> list[ReferenceFinding]:
@@ -140,49 +201,15 @@ def _check_tool_references(
     # a phrase) is one finding, but the same stale name in another skill file needs its own.
     findings: list[ReferenceFinding] = []
     reported: set[str] = set()
-
-    def report(offset: int, name: str, message: str) -> None:
-        if name in reported:
-            return
-        reported.add(name)
-        line, col = source_files._line_col(text, offset)
-        findings.append(ReferenceFinding(source_label, line, col, name, message))
-
-    # "X tool/skill". Resemblance to a real name is the only signal we trust — backticks in prose
-    # mean emphasis or a field name as often as a reference, so they are not treated as intent.
-    for m in _PHRASE_REFERENCE_RE.finditer(text):
-        name, kind = m.group(1), cast("ReferenceKind", m.group(2))
-        if _is_valid_reference(name, kind, tool_names, skill_names):
-            continue
-        suggestions = _reference_suggestions(name, skill_names if kind in ("skill", "skills") else tool_names)
-        if suggestions:
-            report(
-                m.start(1),
-                name,
-                f"'{name}' looks like a {kind.rstrip('s')} but none exists{_did_you_mean(suggestions)}",
+    for rule in _REFERENCE_RULES:
+        for candidate in rule(text, tool_names, skill_names):
+            if candidate.name in reported:
+                continue
+            reported.add(candidate.name)
+            position = source_files._line_col(text, candidate.offset)
+            findings.append(
+                ReferenceFinding(source_label, position.line, position.col, candidate.name, candidate.message)
             )
-    # "via `X`": one concrete thing, but not whether tool or skill — check tools (a family prefix
-    # like `feature-flag` is not invocable) plus exact skill names.
-    for m in _INVOCATION_REFERENCE_RE.finditer(text):
-        if _ENTITY_NOUN_RE.match(text, m.end()):
-            continue
-        name = m.group(1)
-        if _is_valid_reference(name, "tool", tool_names, skill_names) or name in skill_names:
-            continue
-        suggestions = _reference_suggestions(name, tool_names)
-        if suggestions:
-            report(m.start(1), name, f"'{name}' looks like a tool but none exists{_did_you_mean(suggestions)}")
-    for m in _CALL_REFERENCE_RE.finditer(text):
-        name = m.group(1)
-        if _is_valid_reference(name, "tool", tool_names, skill_names):
-            continue
-        suggestions = _reference_suggestions(name, tool_names)
-        if suggestions:
-            report(m.start(1), name, f"'{name}' looks like a tool but none exists{_did_you_mean(suggestions)}")
-    for m in _SNAKE_CASE_REFERENCE_RE.finditer(text):
-        name = m.group(1)
-        if name not in tool_names and name.replace("_", "-") in tool_names:
-            report(m.start(1), name, f"'{name}' has wrong casing — the tool is named {name.replace('_', '-')}")
     return findings
 
 

@@ -54,7 +54,7 @@ _EXTERNAL_COMPANION_SKILL_DIRS = (_PRODUCTS_DIR / "replay_vision" / "skills" / "
 # stays consistent across the two consumers. Keep these in sync if the skill spec evolves.
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 # Bundled subdirs walked recursively. Kept in lockstep with `_ALLOWED_SUBDIRS` in
-# `products/posthog_ai/scripts/build_skills/frontmatter.py` — diverging here means a file format
+# `products/posthog_ai/scripts/build_skills/source_files.py` — diverging here means a file format
 # `hogli build:skills` ignores would silently land in the team's `LLMSkillFile` rows
 # (or vice versa). The agentskills.io spec also defines `assets/`; if we ever want to
 # support binary attachments, add to both consumers in the same change.

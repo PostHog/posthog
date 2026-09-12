@@ -16,3 +16,12 @@ OMNIBUS_SKILL_NAMES = frozenset(
         "instrument-logs",
     }
 )
+
+
+def reserved_name_message(name: str, source: str) -> str:
+    """The error text for a skill that reuses a context-mill name."""
+    return (
+        f"'{name}' is owned by PostHog/context-mill, which every consumer "
+        f"overlays on top of this repo's skills, so a copy here is overwritten "
+        f"rather than shipped. Remove {source} and change the context-mill source instead."
+    )

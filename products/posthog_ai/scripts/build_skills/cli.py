@@ -6,10 +6,12 @@ from __future__ import annotations
 import os
 import sys
 import argparse
-import textwrap
 from pathlib import Path
 
-from . import skill_builder
+from . import (
+    __doc__ as PACKAGE_DOC,
+    skill_builder,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT))
@@ -49,9 +51,10 @@ def _setup_django() -> None:
         )
 
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=textwrap.dedent(__doc__),
+        prog="python -m products.posthog_ai.scripts.build_skills",
+        description=PACKAGE_DOC or "",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -92,52 +95,40 @@ def main() -> None:
         action="store_true",
         help="Remove a previously synced skill from .agents/skills/ (use with --sync)",
     )
-    args = parser.parse_args()
+    return parser
 
-    products_dir = REPO_ROOT / "products"
-    output_dir = REPO_ROOT / "products" / "posthog_ai"
-    builder = skill_builder.SkillBuilder(REPO_ROOT, products_dir, output_dir)
 
-    if args.init:
-        if not args.product or not args.name:
-            parser.error("--init requires --product and --name")
-        try:
-            skill_file = builder.init_skill(args.product, args.name, template=args.j2)
-            print(f"Created {skill_file.relative_to(REPO_ROOT)}")
-        except (FileNotFoundError, FileExistsError) as e:
-            print(f"ERROR: {e}", file=sys.stderr)
-            sys.exit(1)
-        return
+def _run_init(builder: skill_builder.SkillBuilder, args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    if not args.product or not args.name:
+        parser.error("--init requires --product and --name")
+    try:
+        skill_file = builder.init_skill(args.product, args.name, template=args.j2)
+        print(f"Created {skill_file.relative_to(REPO_ROOT)}")
+    except (FileNotFoundError, FileExistsError) as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    if args.lint:
-        if not builder.lint_all():
-            sys.exit(1)
-        return
 
-    if args.sync:
-        if not args.name:
-            builder.list_skills()
-            print("\nUsage: hogli sync:skill -- --name <skill-name>")
-            return
-        if args.clean:
-            builder.unsync_skill(args.name)
-            return
-        _setup_django()
-        try:
-            target = builder.sync_skill(args.name)
-            print(f"Synced skill to {target.relative_to(REPO_ROOT)}")
-            print(f"  Available via .claude/skills/{target.name}/ for Claude Code")
-        except ValueError as e:
-            print(f"ERROR: {e}", file=sys.stderr)
-            sys.exit(1)
-        return
-
-    if args.list:
+def _run_sync(builder: skill_builder.SkillBuilder, args: argparse.Namespace) -> None:
+    if not args.name:
         builder.list_skills()
+        print("\nUsage: hogli sync:skill -- --name <skill-name>")
         return
-
+    if args.clean:
+        builder.unsync_skill(args.name)
+        return
     _setup_django()
+    try:
+        target = builder.sync_skill(args.name)
+        print(f"Synced skill to {target.relative_to(REPO_ROOT)}")
+        print(f"  Available via .claude/skills/{target.name}/ for Claude Code")
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
 
+
+def _run_build(builder: skill_builder.SkillBuilder) -> None:
+    _setup_django()
     manifest = builder.build_all()
     if not manifest.resources:
         print("No product skills found in products/*/skills/.")
@@ -146,3 +137,24 @@ def main() -> None:
     print(f"Built {len(manifest.resources)} skill(s) → {zip_path.relative_to(REPO_ROOT)}")
     for r in manifest.resources:
         print(f"  {r.name:<40} source={r.source}")
+
+
+def main() -> None:
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    products_dir = REPO_ROOT / "products"
+    output_dir = REPO_ROOT / "products" / "posthog_ai"
+    builder = skill_builder.SkillBuilder(REPO_ROOT, products_dir, output_dir)
+
+    if args.init:
+        _run_init(builder, args, parser)
+    elif args.lint:
+        if not builder.lint_all():
+            sys.exit(1)
+    elif args.sync:
+        _run_sync(builder, args)
+    elif args.list:
+        builder.list_skills()
+    else:
+        _run_build(builder)

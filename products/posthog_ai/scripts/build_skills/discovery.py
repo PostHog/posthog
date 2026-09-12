@@ -27,6 +27,28 @@ def _unrendered_skill_name(skill: skill_manifest.DiscoveredSkill) -> str:
     return metadata.get("name") or skill.name
 
 
+def _directory_skill(entry: Path, product_dir: Path) -> skill_manifest.DiscoveredSkill | None:
+    """A depth-1 skill: a directory holding SKILL.md.j2 (preferred) or SKILL.md."""
+    for filename in ("SKILL.md.j2", "SKILL.md"):
+        source_file = entry / filename
+        if source_file.exists():
+            return skill_manifest.DiscoveredSkill(
+                name=entry.name, source_file=source_file, product_dir=product_dir, depth=1
+            )
+    return None
+
+
+def _loose_file_skill(entry: Path, product_dir: Path) -> skill_manifest.DiscoveredSkill | None:
+    """A depth-0 skill: a loose my-skill.md(.j2) directly in skills/."""
+    # Convention docs that can live alongside skills — not skills themselves.
+    if entry.name in ("README.md", "AGENTS.md", "CLAUDE.md") or not entry.name.endswith((".md", ".md.j2")):
+        return None
+    if entry.name.endswith(".md") and (entry.parent / (entry.name + ".j2")).exists():
+        return None
+    skill_name = entry.name.removesuffix(".j2").removesuffix(".md")
+    return skill_manifest.DiscoveredSkill(name=skill_name, source_file=entry, product_dir=product_dir, depth=0)
+
+
 class SkillDiscoverer:
     """Discovers skill source files from products/*/skills/."""
 
@@ -45,46 +67,21 @@ class SkillDiscoverer:
         For both depths, .j2 files take priority over plain .md when both exist.
         """
         skills: list[skill_manifest.DiscoveredSkill] = []
-
         if not self.products_dir.exists():
             return skills
 
         for product_dir in sorted(self.products_dir.iterdir()):
-            if not product_dir.is_dir():
-                continue
             skills_dir = product_dir / "skills"
-            if not skills_dir.exists():
+            if not product_dir.is_dir() or not skills_dir.exists():
                 continue
-
             for entry in sorted(skills_dir.iterdir()):
                 if entry.is_dir():
-                    j2_file = entry / "SKILL.md.j2"
-                    md_file = entry / "SKILL.md"
-                    if j2_file.exists():
-                        skills.append(
-                            skill_manifest.DiscoveredSkill(
-                                name=entry.name, source_file=j2_file, product_dir=product_dir, depth=1
-                            )
-                        )
-                    elif md_file.exists():
-                        skills.append(
-                            skill_manifest.DiscoveredSkill(
-                                name=entry.name, source_file=md_file, product_dir=product_dir, depth=1
-                            )
-                        )
-                elif (
-                    entry.is_file()
-                    # Convention docs that can live alongside skills — not skills themselves.
-                    and entry.name not in ("README.md", "AGENTS.md", "CLAUDE.md")
-                    and (entry.name.endswith(".md.j2") or entry.name.endswith(".md"))
-                ):
-                    if entry.name.endswith(".md") and (entry.parent / (entry.name + ".j2")).exists():
-                        continue
-                    skill_name = entry.name.removesuffix(".j2").removesuffix(".md")
-                    skills.append(
-                        skill_manifest.DiscoveredSkill(
-                            name=skill_name, source_file=entry, product_dir=product_dir, depth=0
-                        )
-                    )
+                    skill = _directory_skill(entry, product_dir)
+                elif entry.is_file():
+                    skill = _loose_file_skill(entry, product_dir)
+                else:
+                    continue
+                if skill is not None:
+                    skills.append(skill)
 
         return skills
