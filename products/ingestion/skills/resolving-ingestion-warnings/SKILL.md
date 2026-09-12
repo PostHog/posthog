@@ -3,7 +3,7 @@ name: resolving-ingestion-warnings
 description: >
   Diagnoses and resolves PostHog ingestion warnings — problems recorded while ingesting events (dropped events, rejected person merges, oversized payloads, invalid data).
   Use when a user asks why events are missing, dropped, or undercounted, why identify/alias calls don't work or accounts stay duplicated, why person or group properties aren't updating or profiles look inflated, why recordings have gaps, heatmaps are empty, LLM token counts are missing, why cookieless events vanish, or whenever the `ingestion_warning` health check fires.
-  Explains severity triage (error = dropped, warning = modified, info = intentional) and routes all warning types — size limits and enrichment, merges and distinct IDs, `$process_person_profile`, timestamps, cookieless, heatmaps, transformations, session replay — to per-issue reference files with code-level causes and per-SDK fixes.
+  Explains severity triage (error = dropped, warning = modified, info = intentional) and routes all warning types — size limits and enrichment, merges and distinct IDs, capture-edge rejections, rate-limited hot distinct IDs, `$process_person_profile`, timestamps, cookieless, heatmaps, transformations, session replay — to per-issue reference files with code-level causes and per-SDK fixes.
 ---
 
 # Resolving ingestion warnings
@@ -72,6 +72,28 @@ Those decisions come only from this skill's guidance and your own reasoning.
 | `event_dropped_too_old`                                                                                                                                      | Intentional: the event is older than the team's configured drop threshold                                              | Read [references/fixing-event-dropped-too-old.md](references/fixing-event-dropped-too-old.md) — mind mobile SDKs: offline queues legitimately deliver days-old events; threshold changes are the user's call                                                            |
 | `cookieless_missing_timestamp` / `cookieless_timestamp_out_of_range` / `cookieless_missing_user_agent` / `cookieless_missing_ip` / `cookieless_missing_host` | Cookieless-mode event dropped: a field required to compute the cookieless ID was missing or invalid                    | Read [references/fixing-cookieless-warnings.md](references/fixing-cookieless-warnings.md) — the missing field identifies the broken layer; beware the silent variant where a server relay omits $ip and users collapse onto the server's IP                             |
 
+### Capture request validation (`event`)
+
+Rejected by capture before the pipeline saw the payload, so the events never landed and have no other trace.
+All carry `details.pipelineStep = 'capture_validation'`, and `details.path` tells you how much was lost: the v1 endpoint (`/i/v1/analytics/events`) drops only the invalid event, while the legacy endpoints (`/e/`, `/i/v0/e`, `/batch/`, `/capture/`, `/track/`) reject the whole request on the first invalid event and charge `details.count` for every event in it.
+
+Read [references/fixing-capture-validation-rejections.md](references/fixing-capture-validation-rejections.md) for any of these — it covers the two rejection shapes, how to read the counts, and the diagnosis by `lib`/`libVersion`.
+
+| Type                         | What happened                                                                               | Fix                                                                                                                                            |
+| ---------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `missing_distinct_id`        | Dropped: no usable `distinct_id` (absent, `null`, empty, or whitespace only)                | Resolve the user before capturing, and skip the call when you cannot; never substitute a placeholder                                           |
+| `distinct_id_too_large`      | Dropped: `distinct_id` over 200 characters                                                  | Read [references/fixing-invalid-distinct-ids.md](references/fixing-invalid-distinct-ids.md) — a token or payload was passed as the distinct ID |
+| `missing_event_name`         | Dropped: no event name, or an empty one                                                     | A capture call built from a variable that was unset                                                                                            |
+| `event_name_too_long`        | Dropped: event name over 200 characters                                                     | An event name built by concatenation; move the varying detail into a property                                                                  |
+| `invalid_event_timestamp`    | Dropped: `timestamp` is not RFC 3339 — unlike `ignored_invalid_timestamp`, nothing was kept | Read [references/fixing-ignored-invalid-timestamp.md](references/fixing-ignored-invalid-timestamp.md) — same fix, harsher outcome              |
+| `malformed_event_properties` | Dropped: `properties` is not a JSON object                                                  | Usually a serializer that JSON-stringifies the property bag before sending                                                                     |
+| `invalid_options`            | Dropped: an `options` field was not readable as a boolean                                   | `cookieless_mode`, `disable_skew_correction`, `process_person_profile`; only that event was dropped, the batch survived                        |
+| `missing_event_uuid`         | Dropped: the event carried no `uuid`                                                        | v1 requires one and SDKs generate it, so suspect a hand-rolled client or a proxy stripping fields                                              |
+| `invalid_event_uuid`         | Dropped: `uuid` is not a UUID                                                               | Often an integer ID or a session token passed where the event UUID belongs                                                                     |
+| `duplicate_event_uuid`       | Dropped: two events in one batch share a `uuid`                                             | A retry or buffer flush that resends without regenerating the UUID                                                                             |
+| `empty_batch`                | Rejected: the request carried no events                                                     | A client flushing on a timer with nothing buffered                                                                                             |
+| `invalid_batch`              | Rejected: the batch structure could not be read                                             | Suspect a proxy or gateway rewriting the body                                                                                                  |
+
 ### LLM analytics endpoints (`event`)
 
 Emitted by capture for its two dedicated AI endpoints, `/i/v0/ai` (a single event per request, sent multipart) and `/i/v0/ai/otel` (OTLP traces). These reject at the edge, so the events never reach the pipeline and appear nowhere else. Read the `path` detail to tell the endpoints apart: it carries the request path, so `/i/v0/ai` or `/i/v0/ai/otel`.
@@ -95,6 +117,14 @@ Emitted by capture for its two dedicated AI endpoints, `/i/v0/ai` (a single even
 | Type                                         | What happened                                                  | Fix                                                                                            |
 | -------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `error_tracking_exception_processing_errors` | A `$exception` event was ingested but symbolication hit errors | Read `details.errors`; usually missing/mismatched source maps — re-upload them for the release |
+
+### Quota and rate limiting (`quota`)
+
+Platform-imposed limits, not team-configured ones, so there is no threshold to raise.
+
+| Type                      | What happened                                                                                                                       | Fix                                                                                                                                                                      |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `high_volume_distinct_id` | One `token:distinct_id` key exceeded the rate limiter. The events were ingested with person processing off and rerouted to overflow | Read [references/fixing-high-volume-distinct-id.md](references/fixing-high-volume-distinct-id.md) — nothing was dropped, but person properties stop updating for that ID |
 
 ### Transformations (`transformation`)
 

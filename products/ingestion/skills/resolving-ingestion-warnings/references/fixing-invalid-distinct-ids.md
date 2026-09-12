@@ -1,11 +1,12 @@
 # Fixing the invalid distinct ID warnings
 
-Both warnings are the same bug class: **something that isn't a user identifier reached the distinct ID argument.** The value's shape decides which warning fires:
+These warnings are the same bug class: **something that isn't a user identifier reached the distinct ID argument.** The value's shape decides which warning fires:
 
-| Type                                    | Severity | The junk value                                                                                                                    | What happened                                                                                                                                                                          |
-| --------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cannot_merge_with_illegal_distinct_id` | warning  | A blocklisted placeholder: `undefined`, `null`, `NaN`, `[object Object]`, `true`, `false`, `anonymous`, `guest`, `distinct_id`, … | The `identify`/`alias` merge was **refused** — silently; the SDK call returned success. (If it weren't, every user hitting the same bug would merge into one giant "undefined" person) |
-| `skipping_event_invalid_distinct_id`    | error    | Anything over 400 characters — a JWT, a serialized object, a URL, a concatenation bug                                             | The event was **dropped** entirely. Every event sent with that value is silently lost until fixed                                                                                      |
+| Type                                    | Severity | The junk value                                                                                                                    | What happened                                                                                                                                                                                   |
+| --------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cannot_merge_with_illegal_distinct_id` | warning  | A blocklisted placeholder: `undefined`, `null`, `NaN`, `[object Object]`, `true`, `false`, `anonymous`, `guest`, `distinct_id`, … | The `identify`/`alias` merge was **refused** — silently; the SDK call returned success. (If it weren't, every user hitting the same bug would merge into one giant "undefined" person)          |
+| `skipping_event_invalid_distinct_id`    | error    | Anything over 400 characters — a JWT, a serialized object, a URL, a concatenation bug                                             | The event was **dropped** entirely. Every event sent with that value is silently lost until fixed                                                                                               |
+| `distinct_id_too_large`                 | error    | The same junk, over the 200-character cap capture enforces at the edge                                                            | The event was **dropped** by capture, before the pipeline saw it. Read [fixing-capture-validation-rejections.md](fixing-capture-validation-rejections.md) for the counts and the endpoint split |
 
 ## What it means in your code
 
@@ -16,7 +17,7 @@ Both warnings are the same bug class: **something that isn't a user identifier r
 
 ## Diagnose
 
-1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type IN ('cannot_merge_with_illegal_distinct_id', 'skipping_event_invalid_distinct_id') AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20` (narrow to a single `type` to isolate one variant). The `details` JSON does most of the work: `illegalDistinctId` shows the placeholder (plus `otherDistinctId`, the real user it tried to link); the oversized variant shows the truncated `distinctId` and its length. The value's shape names the bug.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type IN ('cannot_merge_with_illegal_distinct_id', 'skipping_event_invalid_distinct_id', 'distinct_id_too_large') AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20` (narrow to a single `type` to isolate one variant). The `details` JSON does most of the work: `illegalDistinctId` shows the placeholder (plus `otherDistinctId`, the real user it tried to link); the oversized variant shows the truncated `distinctId` and its length. The value's shape names the bug.
 2. Find the callsite: grep the app for `identify(`, `alias(`, and `capture(` with an explicit `distinctId` — and trace where the argument can be undefined (typically a race with auth state) or receive a token/object.
 
 ## Fix
@@ -35,9 +36,10 @@ if (user?.id) {
 
 ## Verify
 
-Re-run the login/affected flow, re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type IN ('cannot_merge_with_illegal_distinct_id', 'skipping_event_invalid_distinct_id')`, `timestamp` after your fix) — no new occurrences of either type — and confirm events arrive under the correct persons.
+Re-run the login/affected flow, re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type IN ('cannot_merge_with_illegal_distinct_id', 'skipping_event_invalid_distinct_id', 'distinct_id_too_large')`, `timestamp` after your fix) — no new occurrences of any of them — and confirm events arrive under the correct persons.
 
 ## Related
 
 - [fixing-cannot-merge-already-identified.md](fixing-cannot-merge-already-identified.md) — the other merge refusal; broken identify flows often produce both.
 - [fixing-merge-race-condition.md](fixing-merge-race-condition.md) — app-specific shared values (org slugs, tenant names) slip past the placeholder blocklist and build "mega persons" instead.
+- [fixing-capture-validation-rejections.md](fixing-capture-validation-rejections.md) — the capture-edge siblings, including the empty and missing IDs this page's placeholder values are often used to paper over.
