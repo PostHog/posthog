@@ -144,9 +144,9 @@ export const ticketPatternsLogic = kea<ticketPatternsLogicType>([
         ],
     }),
     listeners(({ actions, cache }) => {
-        // A 400 on `status` is the server refusing a second transition, so someone else decided this
-        // pattern first. Restoring the row would put a stale open pattern back in front of everyone
-        // and every retry would fail the same way, so read the decided pattern instead.
+        // A 400 on `status` is the server refusing a second transition: either someone else decided
+        // this pattern first, or a request of our own landed and lost its response. Restoring the row
+        // would put a stale open pattern back in front of everyone, so read the decided pattern.
         const settleFailure = async (id: string, error: unknown, retryMessage: string): Promise<void> => {
             if (error instanceof ApiError && error.status === 400 && error.attr === 'status') {
                 try {
@@ -154,7 +154,7 @@ export const ticketPatternsLogic = kea<ticketPatternsLogicType>([
                 } catch {
                     actions.decisionFailed(id)
                 }
-                lemonToast.info('Someone else already reviewed this pattern. The list now shows their decision.')
+                lemonToast.info('This pattern was already reviewed. The list now shows the decision.')
                 return
             }
             const previous = (cache.lastLoaded as TicketPatternApi[] | undefined)?.find((p) => p.id === id)
