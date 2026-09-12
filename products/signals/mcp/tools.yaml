@@ -731,9 +731,13 @@ tools:
             enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the
             newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after
             `skill-get`) to orient on the team in one tool call instead of paginating through
-            `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`.
-            Distinct from `scout-scratchpad-search`: profile is ground truth from authoritative tables; scratchpad is
-            the scout's inferred learnings.
+            `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`. The
+            response opens with a compact `summary` envelope holding `emit_eligibility` (the gate deciding whether
+            anything you emit reaches the inbox, with a one-line `remediation`) and the inbox report counts, then the
+            full `payload.inventory`. Read the gate from `summary`, not from deep inside `payload`, because the
+            inventory runs to tens of kilobytes and can be cut off before you reach it. Pass `summary_only=true` when
+            you want the gate and the counts without the inventory. Distinct from `scout-scratchpad-search`: profile is
+            ground truth from authoritative tables; scratchpad is the scout's inferred learnings.
     scout-record-output:
         operation: signals_scout_record_output
         enabled: true

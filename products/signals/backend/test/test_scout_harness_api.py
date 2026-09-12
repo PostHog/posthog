@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -2179,12 +2180,36 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/project_profile/current/"
 
+    # A client that truncates a long tool result keeps the prefix, so the emit gate has to sit
+    # inside a small leading slice of the response however large the inventory grows.
+    GATE_PREFIX_CHARS = 2000
+
     def _seed_profile(self, *, team: Team | None = None) -> str:
         """Persist a real, schema-valid profile via the build path so a later read hits the
         cache, and return its profile_id. Building here is fine — the behavior under test is
         that the *read* doesn't build, not that nothing ever builds.
         """
         return compute_project_profile(team=team or self.team).profile_id
+
+    def _pad_stored_inventory(self, *, entries: int) -> None:
+        """Inflate the cached profile with schema-valid `recent_dashboards` rows.
+
+        Creating hundreds of real dashboards would buy a slow test for a property of the
+        response shape; padding the stored payload produces the same oversized inventory.
+        """
+        row = SignalProjectProfile.objects.filter(team=self.team).order_by("-computed_at").first()
+        assert row is not None
+        row.payload["inventory"]["recent_dashboards"] = [
+            {
+                "id": index,
+                "name": f"Dashboard {index} " + "long enough to add up " * 8,
+                "last_accessed_at": "2026-01-01T00:00:00+00:00",
+                "last_refresh": None,
+                "created_at": "2026-01-01T00:00:00+00:00",
+            }
+            for index in range(entries)
+        ]
+        row.save(update_fields=["payload"])
 
     # --- untrusted (session) callers: read-only, never build ---
 
@@ -2203,7 +2228,7 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["profile_id"] == seeded_id
-        assert {"profile_id", "computed_at", "expires_at", "source_version"} <= set(body.keys())
+        assert {"summary", "profile_id", "computed_at", "expires_at", "source_version"} <= set(body.keys())
         assert "inventory" in body["payload"]
         # Read-only: no new row written.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
@@ -2275,6 +2300,44 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "recent_reviewer_corrections",
             "top_events",
         }
+
+    def test_emit_gate_stays_in_the_response_prefix_for_a_large_profile(self) -> None:
+        # The gate is the scout's first read and a long response can reach it truncated, so it
+        # must arrive ahead of the inventory rather than buried behind it.
+        _authenticate_as_scout(self)
+        self._seed_profile()
+        self._pad_stored_inventory(entries=500)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        rendered = response.content.decode()
+        assert len(rendered) > 20 * self.GATE_PREFIX_CHARS, "padding did not produce an oversized profile"
+        body = response.json()
+        # The envelope repeats the inventory rather than carrying a second, drifting copy.
+        assert body["summary"]["emit_eligibility"] == body["payload"]["inventory"]["emit_eligibility"]
+        assert body["summary"]["existing_inbox_reports"] == body["payload"]["inventory"]["existing_inbox_reports"]
+        prefix = rendered[: self.GATE_PREFIX_CHARS]
+        assert f'"can_emit":{json.dumps(body["summary"]["emit_eligibility"]["can_emit"])}' in prefix
+        assert '"remediation"' in prefix
+        assert '"existing_inbox_reports"' in prefix
+
+    def test_summary_only_drops_the_payload_and_keeps_the_gate(self) -> None:
+        _authenticate_as_scout(self)
+        self._seed_profile()
+
+        response = self.client.get(self._list_url(), {"summary_only": "true"})
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert "payload" not in body
+        assert set(body["summary"]["emit_eligibility"]) == {
+            "ai_processing_approved",
+            "source_enabled",
+            "can_emit",
+            "remediation",
+        }
+        assert set(body["summary"]["existing_inbox_reports"]) == {"total", "by_status"}
 
 
 class TestRunCronScheduleValidation(SimpleTestCase):

@@ -18,7 +18,7 @@ A new custom event ("`checkout_v2_completed`", "`ai_summary_generated`") that no
 
 Almost always already covered — the canonical fleet ships anomaly watchers for error tracking, logs, web analytics, and most other surfaces.
 
-1. Find the specialist in `posthog:scout-config-list` and confirm it's `enabled` with `emit: true` — and that the project can emit at all (`emit_eligibility.can_emit` on `posthog:scout-project-profile-get`; when false, writes are silently dropped fleet-wide; a 404 just means no fresh cached profile, so fall back to `posthog:inbox-source-configs-list` and treat eligibility as unknown).
+1. Find the specialist in `posthog:scout-config-list` and confirm it's `enabled` with `emit: true` — and that the project can emit at all (`summary.emit_eligibility.can_emit` on `posthog:scout-project-profile-get`; when false, writes are silently dropped fleet-wide; a 404 just means no fresh cached profile, so fall back to `posthog:inbox-source-configs-list` and treat eligibility as unknown).
 2. If the ask has a specific edge ("especially the checkout service", "only production"), leave the scout a **note** with that focus.
 3. Only escalate to a skill edit if the scout structurally can't see what you care about (wrong threshold, missing disqualifier) — and it keeps proving that across runs.
 

@@ -2251,9 +2251,49 @@ class ProjectProfilePayloadSerializer(serializers.Serializer):
     inventory = ProjectProfileInventorySerializer(help_text="Deterministic snapshot of what's true about the project.")
 
 
+class ProjectProfileSummarySerializer(serializers.Serializer):
+    """The compact envelope returned ahead of the verbose `payload`.
+
+    Both sections are repeated from `payload.inventory`. They lead the response because a
+    client that truncates a long tool result keeps the prefix, and these are the two things a
+    scout has to know before it does anything: whether its output can reach the inbox at all,
+    and what is already there. Read `summary` rather than digging for the same keys inside
+    `payload.inventory`, because it is the same data and it is guaranteed to be in the part you
+    received.
+    """
+
+    emit_eligibility = EmitEligibilitySerializer(
+        allow_null=True,
+        help_text=(
+            "The delivery gate: whether scout findings can reach the inbox for this team, with a "
+            "one-line `remediation` when they cannot. Check `can_emit` before investigating "
+            "anything, because when it is False every emit is silently dropped. Null only for a stored "
+            "profile built before this section existed, which the caller should treat as unknown "
+            "rather than as permission to emit."
+        ),
+    )
+    existing_inbox_reports = ExistingInboxReportsSerializer(
+        allow_null=True,
+        help_text=(
+            "Counts of reports already in the inbox, grouped by status, which is what a new finding "
+            "would be deduped against. Null for a stored profile built before this section existed."
+        ),
+    )
+
+
 class ProjectProfileQuerySerializer(serializers.Serializer):
     """Query parameters for the `current` action on `SignalProjectProfileViewSet`."""
 
+    summary_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, respond with the cache metadata and the `summary` envelope only, and omit "
+            "`payload` entirely. Use it when you need the emit gate and the inbox counts but not "
+            "the full inventory. The full profile runs to tens of kilobytes, which a client can "
+            "truncate. Costs nothing extra: the profile is read or built the same way either way."
+        ),
+    )
     force_refresh = serializers.BooleanField(
         required=False,
         default=False,
@@ -2275,8 +2315,18 @@ class ProjectProfileSerializer(serializers.Serializer):
     is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
     latest cached profile or a freshly-built one if the cache was stale or the caller passed
     `force_refresh=true`.
+
+    `summary` leads the response and `payload` trails it: the inventory runs to tens of
+    kilobytes, so a client that truncates a long tool result would otherwise cut off the emit
+    gate the scout has to read before doing any work.
     """
 
+    summary = ProjectProfileSummarySerializer(
+        help_text=(
+            "Compact envelope repeating the emit gate and the inbox report counts from "
+            "`payload.inventory`. Declared first so it survives a truncated response."
+        ),
+    )
     profile_id = serializers.CharField(help_text="UUID of the `SignalProjectProfile` row.")
     computed_at = serializers.CharField(help_text="ISO-8601 timestamp the profile was built.")
     expires_at = serializers.CharField(help_text="ISO-8601 timestamp after which the profile is considered stale.")
@@ -2284,7 +2334,8 @@ class ProjectProfileSerializer(serializers.Serializer):
         help_text="Schema version of the inventory builder. Bumps invalidate older cached rows.",
     )
     payload = ProjectProfilePayloadSerializer(
-        help_text="Structured profile content. v1 has `inventory` only.",
+        required=False,
+        help_text="Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`.",
     )
 
 
