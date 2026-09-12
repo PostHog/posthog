@@ -656,14 +656,15 @@ Note: The wiki.awin.com URLs in the source config are dead - they now 302 to the
 
 ## AzureDevOps — **thin**
 
-Today (5): `builds`, `projects`, `pull_requests`, `repositories`, `work_item_revisions`
+Today (11): `builds`, `commits`, `projects`, `pull_request_reviewers`, `pull_request_thread_comments`, `pull_request_threads`, `pull_requests`, `repositories`, `team_members`, `teams`, `work_item_revisions`
 
 Diffed against: <https://github.com/MicrosoftDocs/vsts-rest-api-specs/tree/master/specification>
 
-- [ ] `git Commits (GET /{project}/_apis/git/repositories/{repositoryId}/commits)` — commit history is the base fact table for any DORA or engineering-velocity analysis (high)
-- [ ] `git Pull Request Threads + Thread Comments` — review discussion and timestamps - required for review latency and cycle time on the PRs we already sync (high)
-- [ ] `git Pull Request Reviewers (and Pull Request Iteration Statuses)` — approval votes per reviewer; the membership table that turns pull_requests into review analytics (high)
-- [ ] `core Teams (GET /_apis/teams, /projects/{projectId}/teams) and Team Members` — lookup resolving team ownership for projects, work items and boards (high)
+- [x] `git Commits (GET /{project}/_apis/git/repositories/{repositoryId}/commits)` — commit history is the base fact table for any DORA or engineering-velocity analysis (high)
+- [x] `git Pull Request Threads + Thread Comments` — review discussion and timestamps - required for review latency and cycle time on the PRs we already sync (high)
+- [x] `git Pull Request Reviewers (and Pull Request Iteration Statuses)` — approval votes per reviewer; the membership table that turns pull_requests into review analytics (high)
+- [x] `core Teams (GET /_apis/teams, /projects/{projectId}/teams) and Team Members` — lookup resolving team ownership for projects, work items and boards (high)
+- [ ] `git Pull Request Iteration Statuses (GET .../pullRequests/{pullRequestId}/iterations/{iterationId}/statuses)` — per-iteration policy and status checks; needs a fan-out one level deeper than the reviewers table above (medium)
 - [ ] `build Definitions (GET /{project}/_apis/build/definitions)` — lookup resolving definition.id carried on every build row we already sync (high)
 - [ ] `build Timeline (GET /{project}/_apis/build/builds/{buildId}/timeline/{timelineId})` — per-job/step records and durations - where build time actually goes (high)
 - [ ] `release Releases + release Deployments` — deployment frequency and environment promotion history; entirely absent today (high)
@@ -673,7 +674,7 @@ Diffed against: <https://github.com/MicrosoftDocs/vsts-rest-api-specs/tree/maste
 - [ ] `pipelines Pipelines + Runs (GET /{project}/_apis/pipelines, /{pipelineId}/runs)` — the current YAML pipelines model; builds alone misses pipeline-level run data (medium)
 - [ ] `git Pull Request Work Items` — join table linking PRs to the work items they close - connects the two halves we already sync (medium)
 
-Note: Azure DevOps is one of the largest APIs in this batch (47 spec areas in the official MicrosoftDocs/vsts-rest-api-specs repo); five tables is a small fraction. Diffed against the 7.1 specs for build, core, git, wit, work, release, pipelines, testResults, testPlan, policy, graph, audit and memberEntitlementManagement. Also notable but below the cut: policy Evaluations, git Pushes, graph Users/userentitlements, audit auditlog, testPlan Plans/Suites.
+Note: Azure DevOps is one of the largest APIs in this batch (47 spec areas in the official MicrosoftDocs/vsts-rest-api-specs repo), so the tables here are still a small fraction. The organization-wide `GET /_apis/teams` is preview-only, so teams are read per project through the generally available Core endpoint instead. Diffed against the 7.1 specs for build, core, git, wit, work, release, pipelines, testResults, testPlan, policy, graph, audit and memberEntitlementManagement. Also notable but below the cut: policy Evaluations, git Pushes, graph Users/userentitlements, audit auditlog, testPlan Plans/Suites.
 
 ## Babelforce — gaps
 
