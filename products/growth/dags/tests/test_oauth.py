@@ -3,6 +3,7 @@ from datetime import timedelta
 import time_machine
 import unittest.mock
 
+from django.conf import settings
 from django.db import connection
 from django.db.models import Q
 from django.test import TestCase, override_settings
@@ -88,7 +89,13 @@ class TestBatchDeleteFunctionality(TestCase):
             algorithm="RS256",
         )
 
-    @override_settings(CLEAR_EXPIRED_TOKENS_BATCH_SIZE=2, CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL=0.01)
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "CLEAR_EXPIRED_TOKENS_BATCH_SIZE": 2,
+            "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL": 0,
+        }
+    )
     def test_batch_delete_model_with_small_batches(self):
         """Test batch deletion with small batch sizes."""
         # Create multiple expired tokens
@@ -119,6 +126,9 @@ class TestBatchDeleteFunctionality(TestCase):
         # The batch queries are unindexed anti-joins in production, so a count is a second scan
         # of rows the loop has already read.
         self.assertEqual([q["sql"] for q in captured.captured_queries if "COUNT(" in q["sql"].upper()], [])
+
+        # Five rows in pages of two is three pages, so the configured batch size reaches the loop.
+        self.assertEqual(len([q for q in captured.captured_queries if "LIMIT 2" in q["sql"]]), 3)
 
     def test_batch_delete_model_with_no_tokens(self):
         """Test batch deletion when no tokens match the query."""

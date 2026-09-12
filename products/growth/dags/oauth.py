@@ -7,6 +7,7 @@ from django.db.models import Model, Q, QuerySet
 from django.utils import timezone
 
 import dagster
+from oauth2_provider.settings import oauth2_settings
 
 from posthog.dags.common import JobOwners
 from posthog.models.oauth import OAuthAccessToken, OAuthGrant, OAuthIDToken, OAuthRefreshToken
@@ -14,8 +15,9 @@ from posthog.models.oauth import OAuthAccessToken, OAuthGrant, OAuthIDToken, OAu
 
 def batch_delete_model(queryset: QuerySet, context: dagster.OpExecutionContext, token_type: str) -> int:
     """Delete tokens in batches to avoid locking up the tables."""
-    CLEAR_EXPIRED_TOKENS_BATCH_SIZE = getattr(settings, "CLEAR_EXPIRED_TOKENS_BATCH_SIZE", 1000)
-    CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL = getattr(settings, "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL", 0.1)
+    # Both settings live in the OAUTH2_PROVIDER dict, so a top-level lookup never finds them.
+    batch_size = oauth2_settings.CLEAR_EXPIRED_TOKENS_BATCH_SIZE
+    batch_interval = oauth2_settings.CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL
 
     context.log.info(f"Starting deletion of {token_type}")
 
@@ -23,7 +25,7 @@ def batch_delete_model(queryset: QuerySet, context: dagster.OpExecutionContext, 
     while True:
         # Each pass is an unindexed anti-join, so it costs a scan. Read the ids once and count
         # them in Python: a count over the same queryset scans again for a number we already have.
-        batch_ids = list(queryset.values_list("id", flat=True)[:CLEAR_EXPIRED_TOKENS_BATCH_SIZE])
+        batch_ids = list(queryset.values_list("id", flat=True)[:batch_size])
         if not batch_ids:
             break
 
@@ -32,10 +34,10 @@ def batch_delete_model(queryset: QuerySet, context: dagster.OpExecutionContext, 
         context.log.debug(f"{len(batch_ids)} {token_type} deleted, {deleted} in total")
 
         # A short batch is the last batch, so stop without a scan that returns nothing.
-        if len(batch_ids) < CLEAR_EXPIRED_TOKENS_BATCH_SIZE:
+        if len(batch_ids) < batch_size:
             break
 
-        time.sleep(CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL)
+        time.sleep(batch_interval)
 
     return deleted
 
