@@ -35,6 +35,7 @@ import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } 
 import type { ScannerTypeEnumApi } from '../generated/api.schemas'
 import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { csvParam, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
+import { requestScannerFeedback } from './scannerFeedback'
 import {
     ENABLED_OPTIONS,
     EnabledFilter,
@@ -551,6 +552,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 await visionScannersDestroy(String(teamId), id)
                 actions.deleteScannerSuccess(id)
                 lemonToast.success('Scanner deleted')
+                requestScannerFeedback('deleted', id, 'list', teamId)
             } catch (error: any) {
                 visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(-delta)
                 lemonToast.error(`Failed to delete scanner${error.detail ? `: ${error.detail}` : ''}`)
@@ -611,6 +613,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             try {
                 await visionScannersPartialUpdate(String(teamId), id, { enabled })
                 actions.toggleScannerEnabledDone(id)
+                requestScannerFeedback(enabled ? 'enabled' : 'disabled', id, 'list', teamId)
             } catch (error: any) {
                 const verb = enabled ? 'enable' : 'disable'
                 lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)

@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog, { DisplaySurveyType } from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -19,6 +20,7 @@ import {
     resolveScannerOrderByKey,
     type ScannerOrderKey,
 } from './replayScannersLogic'
+import { SCANNER_FEEDBACK_SURVEY_IDS } from './scannerFeedback'
 import { ScannerConfig, ScannerType, ReplayScanner } from './types'
 
 jest.mock('lib/utils/product-intents', () => ({
@@ -73,6 +75,7 @@ describe('replayScannersLogic', () => {
     let logic: ReturnType<typeof replayScannersLogic.build>
 
     beforeEach(() => {
+        posthog.canRenderSurvey = jest.fn().mockReturnValue({ visible: false })
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/': { results: [], count: 0 },
@@ -337,11 +340,19 @@ describe('replayScannersLogic', () => {
     })
 
     describe('delete refresh', () => {
-        it('deleteScannerSuccess refetches the page and the creators list', async () => {
-            await expectLogic(logic, () => logic.actions.deleteScannerSuccess('a')).toDispatchActions([
-                'loadScanners',
-                'loadCreators',
-            ])
+        it('a successful delete refreshes the list and asks for feedback', async () => {
+            jest.spyOn(posthog, 'canRenderSurvey').mockReturnValue({ visible: true })
+            const displaySurvey = jest.spyOn(posthog, 'displaySurvey').mockImplementation(() => {})
+            await expectLogic(logic, () => logic.actions.deleteScanner('a'))
+                .toDispatchActions(['deleteScannerSuccess', 'loadScanners', 'loadCreators'])
+                .toFinishAllListeners()
+            expect(displaySurvey).toHaveBeenCalledWith(
+                SCANNER_FEEDBACK_SURVEY_IDS.deleted,
+                expect.objectContaining({
+                    ignoreConditions: false,
+                    properties: expect.objectContaining({ scanner_id: 'a', scanner_action: 'deleted' }),
+                })
+            )
         })
     })
 
@@ -356,16 +367,83 @@ describe('replayScannersLogic', () => {
             })
         })
 
-        it('a persisted toggle completes without a success toast', async () => {
+        it.each([true, false])('a persisted disable respects survey eligibility: %s', async (eligible) => {
             const successToast = jest.spyOn(lemonToast, 'success')
+            jest.spyOn(posthog, 'canRenderSurvey').mockReturnValue({ visible: eligible })
+            const displaySurvey = jest.spyOn(posthog, 'displaySurvey').mockImplementation(() => {})
             logic.actions.loadScannersSuccess(scanners, scanners.length)
 
-            await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toDispatchActions([
-                'toggleScannerEnabledDone',
-            ])
+            await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toFinishAllListeners()
 
             expect(successToast).not.toHaveBeenCalled()
             expect(logic.values.togglingIds).toEqual([])
+            expect(displaySurvey.mock.calls).toEqual(
+                eligible
+                    ? [
+                          [
+                              SCANNER_FEEDBACK_SURVEY_IDS.disabled,
+                              {
+                                  displayType: DisplaySurveyType.Popover,
+                                  ignoreConditions: false,
+                                  ignoreDelay: true,
+                                  properties: {
+                                      scanner_id: 'a',
+                                      scanner_action: 'disabled',
+                                      scanner_feedback_source: 'list',
+                                      project_id: 997,
+                                  },
+                              },
+                          ],
+                      ]
+                    : []
+            )
+        })
+
+        it('offers enable feedback only on request and once per browser session', async () => {
+            sessionStorage.clear()
+            jest.spyOn(posthog, 'canRenderSurvey').mockReturnValue({ visible: true })
+            const displaySurvey = jest.spyOn(posthog, 'displaySurvey').mockImplementation(() => {})
+            const successToast = jest.spyOn(lemonToast, 'success')
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => logic.actions.toggleScannerEnabled('b')).toFinishAllListeners()
+
+            expect(displaySurvey).not.toHaveBeenCalled()
+            expect(successToast).toHaveBeenCalledWith(
+                'Scanner enabled',
+                expect.objectContaining({
+                    button: expect.objectContaining({ label: 'Share your goal' }),
+                })
+            )
+            const options = successToast.mock.calls[0][1]
+            options?.button?.action()
+            expect(displaySurvey).toHaveBeenCalledWith(
+                SCANNER_FEEDBACK_SURVEY_IDS.enabled,
+                expect.objectContaining({
+                    ignoreConditions: false,
+                    properties: expect.objectContaining({ scanner_id: 'b', scanner_action: 'enabled' }),
+                })
+            )
+
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+            await expectLogic(logic, () => logic.actions.toggleScannerEnabled('b')).toFinishAllListeners()
+            expect(successToast).toHaveBeenCalledTimes(1)
+            sessionStorage.clear()
+        })
+
+        it('keeps a successful disable when the survey SDK fails', async () => {
+            jest.spyOn(posthog, 'canRenderSurvey').mockReturnValue({ visible: true })
+            jest.spyOn(posthog, 'displaySurvey').mockImplementation(() => {
+                throw new Error('Survey unavailable')
+            })
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toFinishAllListeners()
+
+            expect(logic.values.scanners.find((scanner) => scanner.id === 'a')?.enabled).toBe(false)
+            expect(logic.values.togglingIds).toEqual([])
+            expect(errorToast).not.toHaveBeenCalled()
         })
 
         it('ignores a second toggle of the same scanner while one is in flight', async () => {
@@ -390,6 +468,8 @@ describe('replayScannersLogic', () => {
                 patch: { '/api/projects/:team/vision/scanners/:id/': () => [500, {}] },
             })
             const errorToast = jest.spyOn(lemonToast, 'error')
+            jest.spyOn(posthog, 'canRenderSurvey').mockReturnValue({ visible: true })
+            const displaySurvey = jest.spyOn(posthog, 'displaySurvey')
             logic.actions.loadScannersSuccess(scanners, scanners.length)
 
             await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toDispatchActions([
@@ -399,6 +479,7 @@ describe('replayScannersLogic', () => {
             expect(logic.values.scanners.find((s) => s.id === 'a')?.enabled).toBe(true)
             expect(logic.values.togglingIds).toEqual([])
             expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('Failed to disable scanner'))
+            expect(displaySurvey).not.toHaveBeenCalled()
         })
 
         it('revertScannerEnabled flips the row back and clears the in-flight id', async () => {
@@ -448,6 +529,8 @@ describe('replayScannersLogic', () => {
         })
 
         it('a failed delete reverts the optimistic projection shift', async () => {
+            jest.spyOn(posthog, 'canRenderSurvey').mockReturnValue({ visible: true })
+            const displaySurvey = jest.spyOn(posthog, 'displaySurvey')
             useMocks({
                 // The quota GET must be mocked: `toFinishAllListeners` waits out the quota loader too.
                 get: { '/api/projects/:team/vision/quota/': quotaFixture },
@@ -463,6 +546,7 @@ describe('replayScannersLogic', () => {
 
             await expectLogic(logic, () => logic.actions.deleteScanner('a')).toFinishAllListeners()
 
+            expect(displaySurvey).not.toHaveBeenCalled()
             expect(quotaLogic.values.quota?.projected_monthly_credits).toBe(500)
             quotaLogic.unmount()
         })
