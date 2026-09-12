@@ -7,10 +7,13 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend import welcome
 from products.canvas.backend.layout import (
     MAX_LAYOUT_PATCH_OPERATIONS,
@@ -357,6 +360,63 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
         response = self._publish_layout(grid_id, doc)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert any(entry["code"] == "component_not_found" for entry in response.json()["diagnostics"])
+
+    def test_component_denied_by_access_control_is_not_placeable(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        owner = self._create_user("component-owner-acl@example.com")
+        component_id = self._create_component()
+        with team_scope(self.team.id):
+            Canvas.objects.for_team(self.team.id).filter(pk=component_id).update(created_by=owner)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="canvas",
+            resource_id=component_id,
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        grid_id = self._create_grid()
+
+        response = self._publish_layout(grid_id, layout(placements=[placement(status="live", component=component_id)]))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert any(entry["code"] == "component_not_found" for entry in response.json()["diagnostics"])
+
+    @parameterized.expand([("view",), ("layout/?include_components=1",)])
+    def test_component_denied_by_access_control_is_not_returned(self, endpoint: str):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        owner = self._create_user("component-owner-read-acl@example.com")
+        component_id = self._create_component()
+        grid_id = self._create_grid()
+        with patch("products.canvas.backend.presentation.views._layout_diagnostics", return_value=[]):
+            published = self._publish_layout(
+                grid_id, layout(placements=[placement(status="live", component=component_id)])
+            )
+        assert published.status_code == status.HTTP_200_OK, published.json()
+
+        with team_scope(self.team.id):
+            Canvas.objects.for_team(self.team.id).filter(pk=component_id).update(created_by=owner)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="canvas",
+            resource_id=component_id,
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{grid_id}/{endpoint}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["component_lifecycles"] == []
 
     def test_config_violating_component_schema_rejected(self):
         grid_id = self._create_grid()

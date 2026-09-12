@@ -456,6 +456,25 @@ class TestCleanup(BuildServiceBaseTest):
         assert str(published.id) not in kept  # aged past retention, unprotected
         assert pruned == 1
 
+    def test_cleanup_keeps_the_build_a_public_link_is_pinned_to(self):
+        builds = []
+        for _ in range(3):
+            build = self._publish()
+            with patch.object(
+                build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html></html>"})
+            ):
+                build_service.run_canvas_build(self.team.id, str(build.id))
+            builds.append(build)
+        old = timezone.now() - build_service.SUCCESSFUL_BUILD_RETENTION - timedelta(days=1)
+        CanvasBuild.objects.unscoped().filter(id__in=[b.id for b in builds]).update(finished_at=old)
+        # The oldest build is neither live nor the rollback candidate, so only the share protects it.
+        Canvas.objects.unscoped().filter(id=self.canvas.id).update(shared_build=builds[0])
+
+        pruned = build_service.cleanup_canvas_builds()
+
+        assert pruned == 0
+        assert CanvasBuild.objects.unscoped().get(id=builds[0].id).artifact_object_prefix is not None
+
 
 class TestLegacySourcePreservation(BuildServiceBaseTest):
     def test_first_publish_materializes_legacy_code_as_parent_version(self):

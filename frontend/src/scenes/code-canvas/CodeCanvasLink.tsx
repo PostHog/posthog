@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconLaptop } from '@posthog/icons'
@@ -21,22 +23,25 @@ export const scene: SceneExport<CodeCanvasLinkProps> = {
     }),
 }
 
-function canvasDeepLink(channelId: string, dashboardId: string): string {
-    return `${DESKTOP_SCHEME}://canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}`
+export function canvasDeepLink(channelId: string, dashboardId: string, searchParams: Record<string, unknown>): string {
+    const base = `${DESKTOP_SCHEME}://canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}`
+    // A "link to a copy" carries fork=1; the app then copies the canvas instead of opening it.
+    return searchParams.fork === '1' || searchParams.fork === 1 ? `${base}?fork=1` : base
 }
 
 /**
  * Public, unauthenticated bridge for desktop-app "canvas" share links
- * (`/code/canvas/<channelId>/<dashboardId>`). On mount it deep-links into the desktop
+ * (`/desktop/canvas/<channelId>/<dashboardId>`). On mount it deep-links into the desktop
  * app via the `posthog-code(-dev)://` custom scheme; for visitors without the app it
  * shows an explanation, a manual "open" button (in case the browser blocks the
  * auto-redirect), and a download link. The canvas itself only exists in the desktop
  * app, so nothing is rendered here beyond this interstitial.
  */
 export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps): JSX.Element {
+    const { searchParams } = useValues(router)
     // Null when a param is missing (a partial URL or params not yet resolved) —
     // firing with an empty id would send a malformed `<scheme>://canvas//`.
-    const deepLink = channelId && dashboardId ? canvasDeepLink(channelId, dashboardId) : null
+    const deepLink = channelId && dashboardId ? canvasDeepLink(channelId, dashboardId, searchParams) : null
 
     useEffect(() => {
         if (deepLink) {

@@ -47,6 +47,7 @@ ActivityScope = Literal[
     "PropertyDefinition",
     "Notebook",
     "Canvas",
+    "Task",
     "Endpoint",
     "EndpointVersion",
     "Dashboard",

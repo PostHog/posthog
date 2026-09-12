@@ -15889,6 +15889,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly published_build_id: string | null;
+      /**
+         * Id of the build the public link serves, pinned when sharing was turned on or the link was updated. Null while the canvas is not shared publicly.
+         * @nullable
+         */
+      readonly shared_build_id: string | null;
       /** For component-kind canvases: the head version's placement contract (size, optional configSchema). Null for other kinds and unpublished components. */
       readonly component_meta: CanvasComponentMeta | null;
       readonly created_by: UserBasic;
@@ -15896,6 +15901,16 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
       readonly url: string;
+      /**
+         * Id of the canvas this one was copied from, when it was created through fork. Null otherwise.
+         * @nullable
+         */
+      readonly forked_from_canvas_id: string | null;
+      /**
+         * Id of the source version the copy started from. Null unless the canvas was created through fork.
+         * @nullable
+         */
+      readonly forked_from_version_id: string | null;
     }
 
     /**
@@ -16547,6 +16562,19 @@ export namespace Schemas {
       dispatch_outcome: DispatchOutcomeEnum;
       /** The authoring task the fix was routed to. */
       task_id: string;
+    }
+
+    /**
+     * Payload for copying a canvas into the caller's personal space. Exactly one source is given.
+     */
+    export interface CanvasFork {
+      /** Id of a canvas in this project to copy. The caller must be able to open it. */
+      source_canvas_id?: string;
+      /**
+         * Access token of a public canvas link to copy from, possibly from another project. The share must allow copies (settings.allowForking).
+         * @maxLength 400
+         */
+      share_token?: string;
     }
 
     /**
@@ -87260,6 +87288,36 @@ export namespace Schemas {
     }
 
     /**
+     * Mixin for serializers to add user access control fields
+     */
+    export interface TaskArtifactSharingConfiguration {
+      readonly created_at: string;
+      enabled?: boolean;
+      /** @nullable */
+      readonly access_token: string | null;
+      settings?: unknown;
+      password_required?: boolean;
+      readonly share_passwords: readonly SharePassword[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      /**
+         * Manifest id of the upload the public link serves. Null until the file is shared.
+         * @nullable
+         */
+      readonly shared_artifact_id: string | null;
+      /**
+         * Manifest id of the file's newest upload. Differs from shared_artifact_id when there are changes to publish.
+         * @nullable
+         */
+      readonly latest_artifact_id: string | null;
+      /** Whether the reader may turn this link on or off. Reading the state needs task visibility; changing it needs control of the task, which in a shared space is the task's creator alone. */
+      readonly user_can_change_sharing: boolean;
+    }
+
+    /**
      * * `active` - active
      * * `failed` - failed
      */
@@ -94867,6 +94925,7 @@ export namespace Schemas {
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
      * * `Canvas` - Canvas
+     * * `Task` - Task
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
      * * `Dashboard` - Dashboard
@@ -94966,6 +95025,7 @@ export namespace Schemas {
       PropertyDefinition: 'PropertyDefinition',
       Notebook: 'Notebook',
       Canvas: 'Canvas',
+      Task: 'Task',
       Endpoint: 'Endpoint',
       EndpointVersion: 'EndpointVersion',
       Dashboard: 'Dashboard',
@@ -95051,6 +95111,7 @@ export namespace Schemas {
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
      * * `Canvas` - Canvas
+     * * `Task` - Task
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
      * * `Dashboard` - Dashboard
@@ -95138,6 +95199,7 @@ export namespace Schemas {
       PropertyDefinition: 'PropertyDefinition',
       Notebook: 'Notebook',
       Canvas: 'Canvas',
+      Task: 'Task',
       Endpoint: 'Endpoint',
       EndpointVersion: 'EndpointVersion',
       Dashboard: 'Dashboard',

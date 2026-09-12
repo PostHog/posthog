@@ -1,13 +1,22 @@
+import os
+import re
 import json
 from collections.abc import Callable
 from typing import Any, Optional, cast
 from urllib.parse import urlparse, urlunparse
+from uuid import UUID
 
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import (
+    ImproperlyConfigured,
+    ValidationError as DjangoValidationError,
+)
 from django.core.serializers.json import DjangoJSONEncoder
+from django.db import transaction
 from django.db.models import Model, Q
+from django.http import HttpResponse
 from django.shortcuts import render
 from django.utils.functional import SimpleLazyObject
+from django.utils.http import content_disposition_header
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
@@ -67,6 +76,18 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.canvas.backend.artifacts import artifact_origin as canvas_artifact_origin
+from products.canvas.backend.models import Canvas
+from products.canvas.backend.sharing import (
+    CanvasNotPublished,
+    canvas_app_path,
+    canvas_has_ready_build,
+    canvas_is_shareable,
+    clear_shared_build,
+    pin_shared_build,
+    shared_canvas_payload,
+    user_can_access_canvas,
+)
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_view
 from products.dashboards.backend.api.dashboard import DashboardSerializer
@@ -88,8 +109,126 @@ from products.notebooks.backend.presentation.views.notebook import NotebookSeria
 from products.product_analytics.backend.facade.api import insight_variables_for_team, record_insight_view
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import InsightSerializer
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.contracts import SharedTaskArtifactFileDTO, SharedTaskArtifactVersionsDTO
 
 logger = structlog.get_logger(__name__)
+
+# A shared markdown artifact ships inline in the page up to this size; larger files are downloads.
+MAX_INLINE_SHARED_MARKDOWN_BYTES = 2 * 1024 * 1024
+_SHARED_IMAGE_CONTENT_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
+_MARKDOWN_EXTENSIONS = frozenset({"md", "mdx", "markdown"})
+_HTML_EXTENSIONS = frozenset({"html", "htm"})
+_FILE_EXTENSION_RE = re.compile(r"^[a-z0-9]{1,16}$")
+
+
+def _file_extension(name: str) -> str:
+    extension = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    return extension if _FILE_EXTENSION_RE.fullmatch(extension) else ""
+
+
+def _shared_artifact_kind(content_type: str, name: str) -> str:
+    base = content_type.split(";")[0].strip().lower()
+    extension = _file_extension(name)
+    if base == "text/markdown" or extension in _MARKDOWN_EXTENSIONS:
+        return "markdown"
+    if base in _SHARED_IMAGE_CONTENT_TYPES:
+        return "image"
+    if base == "text/html" or extension in _HTML_EXTENSIONS:
+        return "html"
+    return "file"
+
+
+def _viewer_in_team(viewer: User, team_id: int) -> bool:
+    # The channel rule in the canvas and task access checks assumes a project member; a session from
+    # another organization would pass it for a shared space, so membership is checked here first.
+    return viewer.teams.filter(id=team_id).exists()
+
+
+def _viewer_canvas_access_level(viewer: User, team: Team, canvas: Canvas) -> AccessControlLevel | None:
+    # The per-object half of the rule `_require_canvas_access` applies to a share, evaluated for the
+    # session user. The channel half is `user_can_access_canvas`; both have to pass.
+    access_control = UserAccessControl(user=viewer, team=team, organization_id=str(team.organization_id))
+    return access_control.get_user_access_level(canvas)
+
+
+def _shared_page_viewer(
+    user: Optional[User],
+    open_path: str | None,
+    *,
+    sharing_enabled: bool = True,
+    sharing_api_path: str | None = None,
+    is_creator: bool = False,
+) -> dict[str, Any]:
+    """What the page knows about the person looking at it: whether they are signed in, what they may
+    open in the app, and whether they may turn the link on or off (`sharing_api_path` is the endpoint
+    that does)."""
+    if user is None:
+        return {
+            "is_authenticated": False,
+            "email": None,
+            "first_name": None,
+            "theme_mode": None,
+            "open_path": None,
+            "sharing_enabled": sharing_enabled,
+            "sharing_api_path": None,
+            "is_creator": False,
+        }
+    return {
+        "is_authenticated": True,
+        "email": user.email,
+        "first_name": user.first_name,
+        "theme_mode": user.theme_mode,
+        "open_path": open_path,
+        "sharing_enabled": sharing_enabled,
+        "sharing_api_path": sharing_api_path,
+        "is_creator": is_creator,
+    }
+
+
+def _shared_task_artifact_payload(resource: SharingConfiguration, file: SharedTaskArtifactFileDTO) -> dict[str, Any]:
+    if resource.task_artifact_id is None:
+        raise NotFound()
+    kind = _shared_artifact_kind(file.content_type, file.name)
+    markdown: str | None = None
+    if kind == "markdown":
+        read = tasks_facade.read_shared_task_artifact(
+            resource.task_artifact_id, resource.team_id, max_bytes=MAX_INLINE_SHARED_MARKDOWN_BYTES
+        )
+        if read is not None:
+            markdown = read[0].decode("utf-8", errors="replace")
+    return {
+        "name": file.name,
+        "content_type": file.content_type,
+        "kind": kind,
+        "size": file.size,
+        "uploaded_at": file.uploaded_at,
+        "markdown": markdown,
+        # The same token with a file suffix streams the bytes (see retrieve).
+        "file_url": f"/shared/{resource.access_token}.{_file_extension(file.name) or 'bin'}",
+    }
+
+
+def _shared_task_artifact_file_response(resource: SharingConfiguration, request: Request) -> HttpResponse:
+    if resource.task_artifact_id is None:
+        raise NotFound()
+    read = tasks_facade.read_shared_task_artifact(resource.task_artifact_id, resource.team_id)
+    if read is None:
+        raise NotFound()
+    content, file = read
+    kind = _shared_artifact_kind(file.content_type, file.name)
+    # Only raster images render inline. Everything else, HTML above all, is a download: agent-written
+    # markup must never execute on the app origin, which is what the canvas artifact origin exists for.
+    inline = kind == "image" and request.query_params.get("download") != "true"
+    content_type = file.content_type.split(";")[0].strip() if inline else "application/octet-stream"
+    file_response = HttpResponse(content, content_type=content_type)
+    file_response["X-Content-Type-Options"] = "nosniff"
+    file_response["Content-Disposition"] = content_disposition_header(
+        as_attachment=not inline, filename=os.path.basename(file.name)
+    ) or ("inline" if inline else "attachment")
+    file_response["Content-Security-Policy"] = "default-src 'none'; sandbox"
+    file_response["Cache-Control"] = "private, no-store"
+    return file_response
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -125,6 +264,16 @@ def _log_share_password_attempt(
         item_id = str(resource.notebook.short_id)
         resource_type = "notebook"
         resource_name = resource.notebook.title or "Untitled"
+    elif resource.canvas:
+        scope = "Canvas"
+        item_id = str(resource.canvas.id)
+        resource_type = "canvas"
+        resource_name = resource.canvas.name or "Untitled"
+    elif resource.task_artifact:
+        scope = "Task"
+        item_id = str(resource.task_artifact.task_id)
+        resource_type = "task_artifact"
+        resource_name = resource.task_artifact.name or "Untitled"
     else:
         return
 
@@ -218,6 +367,53 @@ def _require_dashboard_access(
         raise PermissionDenied(_denied_message("dashboard", required_level))
 
 
+def _require_canvas_access(
+    view: "SharingConfigurationViewSet",
+    user_access_control: UserAccessControl,
+    canvas: Model,
+    required_level: AccessControlLevel,
+) -> None:
+    # Two gates, both must pass. The space rule: a canvas in a public space is shareable by everyone
+    # in the project, one in a personal space only by its owner. Then per-object access control,
+    # which only narrows: it defaults to editor until a rule says otherwise.
+    user = view.request.user
+    user_id = user.id if user.is_authenticated else None
+    if not user_can_access_canvas(team_id=view.team.pk, user_id=user_id, canvas_id=canvas.pk):
+        raise PermissionDenied(_denied_message("canvas", required_level))
+    access_level = user_access_control.get_user_access_level(canvas)
+    if not access_level or not access_level_satisfied_for_resource("canvas", access_level, required_level):
+        raise PermissionDenied(_denied_message("canvas", required_level))
+
+
+def _assert_task_artifact_access(
+    view: "SharingConfigurationViewSet",
+    task_id: str | UUID,
+    required_level: AccessControlLevel,
+) -> None:
+    # A run artifact follows its task's space rule, like canvases: everyone in the project for a
+    # shared space, only the owner otherwise. Reading who a file is already shared with needs no
+    # more than that visibility. Changing it mints a link that anyone can open, so it needs the
+    # narrower control rule the tasks product applies to every other mutation on a task.
+    user = view.request.user
+    user_id = user.id if user.is_authenticated else None
+    allowed = (
+        tasks_facade.user_can_control_task(task_id, view.team.pk, user_id)
+        if required_level == "editor"
+        else tasks_facade.user_can_access_task(task_id, view.team.pk, user_id)
+    )
+    if not allowed:
+        raise PermissionDenied(_denied_message("file", required_level))
+
+
+def _require_task_artifact_access(
+    view: "SharingConfigurationViewSet",
+    _user_access_control: UserAccessControl,
+    anchor: Model,
+    required_level: AccessControlLevel,
+) -> None:
+    _assert_task_artifact_access(view, cast(Any, anchor).task_id, required_level)
+
+
 # Maps every shareable FK on SharingConfiguration to the permission check that gates access to it.
 # A ``None`` value means the resource is created server-side and is not reachable through this viewset; if such
 # a config ever reaches the gate we fail closed rather than fall through to "allowed". The relationship is
@@ -229,6 +425,8 @@ SHARING_RESOURCE_ACCESS_CHECKS: dict[str, SharingResourceAccessCheck | None] = {
     "notebook": _require_resource_access("notebook", "notebook"),
     # Materialized by the user-interviews link-generation flow, never via SharingConfigurationViewSet.
     "interviewee_context": None,
+    "canvas": _require_canvas_access,
+    "task_artifact": _require_task_artifact_access,
 }
 
 
@@ -252,7 +450,10 @@ _assert_every_shareable_resource_is_gated()
 
 # NOTE: We can't use a standard permission system as we are using Detail view on a non-detail route
 def check_can_access_sharing_configuration(
-    view: "SharingConfigurationViewSet", request: Request, sharing: SharingConfiguration
+    view: "SharingConfigurationViewSet",
+    request: Request,
+    sharing: SharingConfiguration,
+    context: dict[str, Any] | None = None,
 ) -> bool:
     """A share token grants anonymous access to the resource, so reading one needs at least the access
     the token hands out, and changing one needs edit access."""
@@ -276,6 +477,13 @@ def check_can_access_sharing_configuration(
         if access_check is None:
             raise PermissionDenied("This resource cannot be shared through this endpoint.")
         access_check(view, user_access_control, target, required_level)
+
+    # A file's anchor row only exists once it has been shared, so the very first write has no
+    # ``task_artifact`` FK for the loop above to gate. Gate the identity the request resolved
+    # instead, so that write is held to the same rule as every later one.
+    pending_artifact = (context or {}).get("task_artifact_identity")
+    if pending_artifact is not None and sharing.task_artifact_id is None:
+        _assert_task_artifact_access(view, pending_artifact.task_id, required_level)
 
     return True
 
@@ -414,7 +622,9 @@ class SharingConfigurationViewSet(
         "delete_password",
     ]
     pagination_class = None
-    queryset = SharingConfiguration.objects.select_related("dashboard", "insight", "recording", "notebook")
+    queryset = SharingConfiguration.objects.select_related(
+        "dashboard", "insight", "recording", "notebook", "canvas", "task_artifact"
+    )
     serializer_class = SharingConfigurationSerializer
 
     def get_serializer_context(
@@ -426,9 +636,21 @@ class SharingConfigurationViewSet(
         insight_id = context.get("insight_id")
         recording_id = context.get("recording_id")
         notebook_short_id = context.get("notebook_id")
+        canvas_id = context.get("canvas_id")
+        task_id = context.get("task_id")
+        artifact_id = context.get("artifact_id")
 
-        if not dashboard_id and not insight_id and not recording_id and not notebook_short_id:
-            raise ValidationError("Either a dashboard, insight, recording or notebook must be specified")
+        if (
+            not dashboard_id
+            and not insight_id
+            and not recording_id
+            and not notebook_short_id
+            and not canvas_id
+            and not (task_id and artifact_id)
+        ):
+            raise ValidationError(
+                "Either a dashboard, insight, recording, notebook, canvas or task artifact must be specified"
+            )
 
         if dashboard_id:
             try:
@@ -448,6 +670,32 @@ class SharingConfigurationViewSet(
                 context["notebook"] = Notebook.objects.get(short_id=notebook_short_id, team=self.team)
             except Notebook.DoesNotExist:
                 raise NotFound("Notebook not found.")
+        if canvas_id:
+            try:
+                # ``team_id`` is pinned to the route's own team, not the project's canonical
+                # team. Object-level access control matches its rows on the request team, so a
+                # canonicalizing lookup would let a child environment's route reach a canvas
+                # whose deny rules are stored under the parent and are invisible from here.
+                canvas = (
+                    Canvas.objects.for_team(self.team_id)
+                    .filter(id=canvas_id, team_id=self.team_id, deleted=False)
+                    .first()
+                )
+            except DjangoValidationError:
+                canvas = None
+            if canvas is None:
+                raise NotFound("Canvas not found.")
+            context["canvas"] = canvas
+        if task_id and artifact_id:
+            user = self.request.user
+            identity = tasks_facade.resolve_shared_task_artifact(
+                task_id, self.team_id, user.id if user.is_authenticated else None, artifact_id=str(artifact_id)
+            )
+            if identity is None:
+                raise NotFound("Artifact not found.")
+            # The anchor row only exists once the file has been shared; reads never create it.
+            context["task_artifact_identity"] = identity
+            context["task_artifact_id"] = identity.anchor_id
 
         # Deferred: every insight and dashboard response carries this, but only payloads that
         # hold variables read it, so resolving it eagerly costs a query on every list request.
@@ -469,6 +717,10 @@ class SharingConfigurationViewSet(
         insight = context.get("insight")
         recording = context.get("recording")
         notebook = context.get("notebook")
+        canvas = context.get("canvas")
+        # The anchor id rather than the row: the FK lookup accepts a pk, and the row may not exist
+        # yet on a read.
+        task_artifact_id = context.get("task_artifact_id")
 
         config_kwargs = {
             "team_id": self.team_id,
@@ -476,6 +728,12 @@ class SharingConfigurationViewSet(
             "dashboard": dashboard,
             "recording": recording,
             "notebook": notebook,
+            "canvas": canvas,
+            "task_artifact_id": task_artifact_id,
+            # Not shareable through this viewset, but it still has to be named: the lookup matches
+            # only on the fields it is given, so leaving it out lets a file's first share — where
+            # every id is still null — collide with a user-interview share in the same team.
+            "interviewee_context": None,
             "expires_at": None,
         }
 
@@ -486,6 +744,9 @@ class SharingConfigurationViewSet(
             dashboard=dashboard,
             recording=recording,
             notebook=notebook,
+            canvas=canvas,
+            task_artifact=task_artifact_id,
+            interviewee_context=None,
         )
         if instance is None:
             instance = SharingConfiguration(**config_kwargs)
@@ -516,12 +777,31 @@ class SharingConfigurationViewSet(
 
         return instance
 
+    def _ensure_task_artifact_anchor(self, context: dict[str, Any], instance: SharingConfiguration) -> None:
+        """A write on an artifact share needs the anchor row to point at. Created here, after the
+        caller has been authorized, so that reading the sharing state never leaves a row behind."""
+        identity = context.get("task_artifact_identity")
+        if identity is None or instance.task_artifact_id is not None:
+            return
+        user = self.request.user
+        anchor_id = tasks_facade.get_or_create_shared_task_artifact(
+            identity.task_id,
+            self.team_id,
+            user.id if user.is_authenticated else None,
+            name=identity.name,
+            content_type=identity.content_type,
+        )
+        if anchor_id is None:
+            raise NotFound("Artifact not found.")
+        instance.task_artifact_id = anchor_id
+        context["task_artifact_id"] = anchor_id
+
     def list(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         context = self.get_serializer_context()
         instance = self._get_sharing_configuration(context)
 
         # The parent resource is resolved from the URL, so DRF never runs object permissions here.
-        check_can_access_sharing_configuration(self, request, instance)
+        check_can_access_sharing_configuration(self, request, instance, context)
 
         serializer = self.get_serializer(instance, context)
         serializer.is_valid(raise_exception=True)
@@ -532,7 +812,7 @@ class SharingConfigurationViewSet(
         context = self.get_serializer_context()
         instance = self._get_sharing_configuration(context)
 
-        check_can_access_sharing_configuration(self, request, instance)
+        check_can_access_sharing_configuration(self, request, instance, context)
 
         # Now that the caller is authorized to edit, collapse any duplicate active rows.
         instance = self._get_sharing_configuration(context, dedupe=True)
@@ -547,6 +827,14 @@ class SharingConfigurationViewSet(
             recording = cast(SessionRecording, context.get("recording"))
             # Special case where we need to save the instance for recordings so that the actual record gets created
             recording.save()
+
+        canvas = cast(Canvas | None, context.get("canvas"))
+        if canvas is not None and request.data.get("enabled"):
+            if not canvas_is_shareable(canvas):
+                raise ValidationError("This kind of canvas can't be shared publicly yet.")
+            # A public link is a capture of a published build, so there has to be one to capture.
+            if not canvas_has_ready_build(canvas):
+                raise ValidationError("Publish the canvas before sharing it.")
 
         # Publishing is the access decision for shared links (queries on the public page execute
         # without warehouse access control), so gate the enable transition: the publisher must have
@@ -568,7 +856,39 @@ class SharingConfigurationViewSet(
 
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+
+        # Creating the anchor retains the upload in object storage, which replaces its expiry
+        # tags, so it must not happen for a request that is then rejected.
+        self._ensure_task_artifact_anchor(context, instance)
+
+        # The saved row and the pin it implies must land together. An enabled row whose canvas
+        # lost its pin serves a live public page with nothing on it, so a failure between the two
+        # writes has to take both back.
+        with transaction.atomic():
+            serializer.save()
+
+            # Enabling always captures the build published right now. The share dialog's "Update
+            # public link" sends enabled=true again to move the pin to a newer publish. A
+            # toggle-free PATCH (settings only) never moves it.
+            if canvas is not None and "enabled" in request.data:
+                if serializer.data.get("enabled"):
+                    try:
+                        pin_shared_build(canvas)
+                    except CanvasNotPublished:
+                        raise ValidationError("Publish the canvas before sharing it.")
+                else:
+                    clear_shared_build(canvas)
+            # The same rule for a file: enabling pins its newest upload, so "Publish changes" is a
+            # second enable. Disabling leaves the pin where it is; the link is off anyway. Read the
+            # flag off the saved row, not serializer.data, which would freeze the response before
+            # the pin moves.
+            if (
+                context.get("task_artifact_identity")
+                and "enabled" in request.data
+                and instance.enabled
+                and instance.task_artifact_id is not None
+            ):
+                tasks_facade.pin_shared_task_artifact(instance.task_artifact_id, self.team_id)
 
         if context.get("insight"):
             name = instance.insight.name or instance.insight.derived_name
@@ -639,8 +959,36 @@ class SharingConfigurationViewSet(
                 ),
             )
 
+        if context.get("canvas") and "enabled" in request.data:
+            log_activity(
+                organization_id=None,
+                team_id=self.team_id,
+                user=cast(User, self.request.user),
+                was_impersonated=is_impersonated(self.request),
+                item_id=str(instance.canvas.id),
+                scope="Canvas",
+                activity="sharing " + ("enabled" if serializer.data.get("enabled") else "disabled"),
+                detail=Detail(
+                    name=instance.canvas.name or None,
+                    changes=[
+                        Change(
+                            type="Canvas",
+                            action="changed",
+                            field="sharing",
+                            after=serializer.data.get("enabled"),
+                        )
+                    ],
+                ),
+            )
+
         # Open-graph image rendering is only wired up for dashboards/insights today.
-        if not context.get("recording") and not context.get("notebook") and serializer.data.get("enabled"):
+        if (
+            not context.get("recording")
+            and not context.get("notebook")
+            and not context.get("canvas")
+            and not context.get("task_artifact_identity")
+            and serializer.data.get("enabled")
+        ):
             export_asset_for_opengraph(instance)
 
         return response.Response(serializer.data)
@@ -655,7 +1003,8 @@ class SharingConfigurationViewSet(
             # Special case where we need to save the instance for recordings so that the actual record gets created
             recording.save()
 
-        check_can_access_sharing_configuration(self, request, instance)
+        check_can_access_sharing_configuration(self, request, instance, context)
+        self._ensure_task_artifact_anchor(context, instance)
 
         # Create new sharing configuration and expire the old one
         new_instance = instance.rotate_access_token()
@@ -703,6 +1052,18 @@ class SharingConfigurationViewSet(
                 ),
             )
 
+        if context.get("canvas"):
+            log_activity(
+                organization_id=None,
+                team_id=self.team_id,
+                user=cast(User, self.request.user),
+                was_impersonated=is_impersonated(self.request),
+                item_id=str(new_instance.canvas.id),
+                scope="Canvas",
+                activity="access token refreshed",
+                detail=Detail(name=new_instance.canvas.name or None),
+            )
+
         serializer = self.get_serializer(new_instance)
         return response.Response(serializer.data)
 
@@ -712,7 +1073,7 @@ class SharingConfigurationViewSet(
         context = self.get_serializer_context()
         sharing_config = self._get_sharing_configuration(context)
 
-        check_can_access_sharing_configuration(self, request, sharing_config)
+        check_can_access_sharing_configuration(self, request, sharing_config, context)
 
         sharing_config = self._get_sharing_configuration(context, dedupe=True)
 
@@ -760,7 +1121,7 @@ class SharingConfigurationViewSet(
         context = self.get_serializer_context()
         sharing_config = self._get_sharing_configuration(context)
 
-        check_can_access_sharing_configuration(self, request, sharing_config)
+        check_can_access_sharing_configuration(self, request, sharing_config, context)
 
         sharing_config = self._get_sharing_configuration(context, dedupe=True)
 
@@ -777,6 +1138,87 @@ class SharingConfigurationViewSet(
             return response.Response(status=status.HTTP_204_NO_CONTENT)
         except SharePassword.DoesNotExist:
             raise NotFound("Password not found")
+
+
+class TaskArtifactSharingConfigurationSerializer(SharingConfigurationSerializer):
+    shared_artifact_id = serializers.SerializerMethodField(
+        help_text="Manifest id of the upload the public link serves. Null until the file is shared."
+    )
+    latest_artifact_id = serializers.SerializerMethodField(
+        help_text="Manifest id of the file's newest upload. Differs from shared_artifact_id when there are changes to publish."
+    )
+    user_can_change_sharing = serializers.SerializerMethodField(
+        help_text="Whether the reader may turn this link on or off. Reading the state needs task visibility; changing it needs control of the task, which in a shared space is the task's creator alone."
+    )
+
+    class Meta(SharingConfigurationSerializer.Meta):
+        fields = [
+            *SharingConfigurationSerializer.Meta.fields,
+            "shared_artifact_id",
+            "latest_artifact_id",
+            "user_can_change_sharing",
+        ]
+        read_only_fields = [
+            *SharingConfigurationSerializer.Meta.read_only_fields,
+            "shared_artifact_id",
+            "latest_artifact_id",
+            "user_can_change_sharing",
+        ]
+
+    def _versions(self) -> SharedTaskArtifactVersionsDTO | None:
+        cached = getattr(self, "_versions_cache", None)
+        if cached is not None:
+            return cached
+        anchor_id = self.context.get("task_artifact_id")
+        team_id = self.context["get_team"]().id if "get_team" in self.context else None
+        if anchor_id is None or team_id is None:
+            return None
+        versions = tasks_facade.shared_task_artifact_versions(anchor_id, team_id)
+        self._versions_cache = versions
+        return versions
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_shared_artifact_id(self, _instance: SharingConfiguration) -> str | None:
+        versions = self._versions()
+        return versions.shared_artifact_id if versions else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_latest_artifact_id(self, _instance: SharingConfiguration) -> str | None:
+        versions = self._versions()
+        return versions.latest_artifact_id if versions else None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_user_can_change_sharing(self, instance: SharingConfiguration) -> bool:
+        identity = self.context.get("task_artifact_identity")
+        anchor = instance.task_artifact
+        task_id = getattr(identity, "task_id", None) or (anchor.task_id if anchor is not None else None)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        team_id = self.context["get_team"]().id if "get_team" in self.context else None
+        if task_id is None or team_id is None:
+            return False
+        user_id = user.id if user is not None and user.is_authenticated else None
+        return tasks_facade.user_can_control_task(task_id, team_id, user_id)
+
+
+@extend_schema(
+    parameters=[
+        OpenApiParameter("task_id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Id of the task."),
+        OpenApiParameter(
+            "artifact_id",
+            OpenApiTypes.STR,
+            OpenApiParameter.PATH,
+            description="Manifest id of the artifact upload. Each upload has its own share.",
+        ),
+    ],
+    extensions={"x-product": "tasks"},
+)
+class TaskArtifactSharingConfigurationViewSet(SharingConfigurationViewSet):
+    """The sharing viewset mounted under a task artifact. Only the route differs: the parents are
+    a task and an artifact rather than a field on the sharing model, which the schema generator
+    could not type on its own."""
+
+    serializer_class = TaskArtifactSharingConfigurationSerializer
 
 
 def custom_404_response(request):
@@ -884,9 +1326,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
     # Set by get_object() when the resolved resource is an ExportedAsset whose token carried a purpose claim.
     _token_purpose: str | None = None
+    _session_user: Any = None
+    _viewer_payload: dict[str, Any] | None = None
 
     def initial(self, request, *args, **kwargs):
         """Override to ensure we don't apply any session authentication."""
+        # Read before the sharing authenticators run below: they replace the session user on the
+        # underlying request. Only `_signed_in_viewer` reads it, and only to fill the page's viewer hints.
+        self._session_user = getattr(request._request, "user", None)
         # Save and clear any existing user to ensure we start fresh
         self._original_user = getattr(request, "user", None)
 
@@ -900,6 +1347,52 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         # If no sharing auth succeeded, ensure user remains anonymous
         if not request.user:
             request.user = AnonymousUser()
+
+    def _signed_in_viewer(self) -> Optional[User]:
+        user = self._session_user
+        return cast(User, user) if user is not None and user.is_authenticated else None
+
+    def _shared_page_viewer_for(self, resource: SharingConfiguration) -> dict[str, Any]:
+        if self._viewer_payload is None:
+            self._viewer_payload = self._compute_shared_page_viewer(resource)
+        return self._viewer_payload
+
+    def _compute_shared_page_viewer(self, resource: SharingConfiguration) -> dict[str, Any]:
+        viewer = self._signed_in_viewer()
+        open_path: str | None = None
+        sharing_api_path: str | None = None
+        is_creator = False
+        if viewer is not None and _viewer_in_team(viewer, resource.team_id):
+            if resource.canvas is not None:
+                is_creator = resource.canvas.created_by_id == viewer.id
+                access_level = _viewer_canvas_access_level(viewer, resource.team, resource.canvas)
+                if (
+                    access_level is not None
+                    and access_level_satisfied_for_resource("canvas", access_level, "viewer")
+                    and user_can_access_canvas(
+                        team_id=resource.team_id, user_id=viewer.id, canvas_id=resource.canvas_id
+                    )
+                ):
+                    open_path = canvas_app_path(resource.canvas)
+                    if access_level_satisfied_for_resource("canvas", access_level, "editor"):
+                        sharing_api_path = f"/api/projects/{resource.team_id}/canvases/{resource.canvas_id}/sharing"
+            elif resource.task_artifact is not None:
+                shared_artifact = resource.task_artifact
+                if tasks_facade.user_can_access_task(shared_artifact.task_id, resource.team_id, viewer.id):
+                    # The public bridge scene (`CodeTaskLink`) that deep-links the run into PostHog Desktop.
+                    open_path = f"/desktop/task/{shared_artifact.task_id}"
+                    if tasks_facade.user_can_control_task(shared_artifact.task_id, resource.team_id, viewer.id):
+                        sharing_api_path = (
+                            f"/api/projects/{resource.team_id}/tasks/{shared_artifact.task_id}"
+                            f"/artifacts/{shared_artifact.artifact_id}/sharing"
+                        )
+        return _shared_page_viewer(
+            viewer,
+            open_path,
+            sharing_enabled=resource.enabled,
+            sharing_api_path=sharing_api_path,
+            is_creator=is_creator,
+        )
 
     def get_object(self) -> Optional[SharingConfiguration | ExportedAsset]:
         # JWT based access (ExportedAsset)
@@ -924,6 +1417,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "notebook",
                         "interviewee_context",
                         "interviewee_context__topic",
+                        "canvas",
+                        "canvas__shared_build",
+                        "task_artifact",
                     )
                     .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
                     .get(access_token=access_token)
@@ -939,6 +1435,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         # JWT is valid but for a different share - clear authentication to show unlock page
                         self.request._not_authenticated()
 
+                return sharing_configuration
+
+            # A link that is off is gone for the public. A project member who can open the canvas or
+            # file itself still lands here, on the current version, with the switch to turn it back on.
+            if sharing_configuration and self._shared_page_viewer_for(sharing_configuration)["open_path"]:
                 return sharing_configuration
 
         return None
@@ -1026,7 +1527,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         # The /shared/ page resolves the token from the URL, so no authenticator runs and request.user
         # is a bare AnonymousUser. Shared queries execute without warehouse access control.
         shared_link_user = (
-            cast("User | None", SharedLinkUser(resource)) if isinstance(resource, SharingConfiguration) else None
+            # A link that is off only reaches a member (see get_object), and their page runs no queries.
+            cast("User | None", SharedLinkUser(resource))
+            if isinstance(resource, SharingConfiguration) and resource.enabled
+            else None
         )
 
         context: dict[str, Any] = {
@@ -1128,6 +1632,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 )
                 return response_data
 
+        if (
+            isinstance(resource, SharingConfiguration)
+            and resource.task_artifact_id
+            and "." in self.kwargs.get("access_token", "")
+        ):
+            return _shared_task_artifact_file_response(resource, request)
         if isinstance(resource, SharingConfiguration) and request.path.endswith(f".png"):
             exported_data["accessToken"] = resource.access_token
             exported_asset = self.exported_asset_for_sharing_configuration(resource)
@@ -1434,6 +1944,32 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             # Inline cohorts referenced by any saved insights embedded in the notebook so the
             # shared viewer doesn't need to hit /api/cohorts/ (which it can't authenticate against).
             exported_data.update({"cohorts": _collect_cohorts_for_sharing(referenced_insights, resource.team)})
+        elif isinstance(resource, SharingConfiguration) and resource.canvas and canvas_is_shareable(resource.canvas):
+            asset_title = resource.canvas.name or "Canvas"
+            asset_description = resource.canvas.description or ""
+            # The payload carries a freshly signed artifact URL, so it is only built here, after
+            # the share token (and any password) has been validated above.
+            canvas_payload = shared_canvas_payload(
+                resource.canvas, build=None if resource.enabled else resource.canvas.published_build
+            )
+            # A password unlock lives in the public page's session, which the authenticated fork
+            # endpoint cannot see, so it refuses these shares. Don't offer the copy action.
+            canvas_payload["allow_forking"] = (
+                bool((resource.settings or {}).get("allowForking"))
+                and not resource.password_required
+                and resource.enabled
+            )
+            exported_data.update({"canvas": canvas_payload})
+            exported_data["viewer"] = self._shared_page_viewer_for(resource)
+        elif isinstance(resource, SharingConfiguration) and resource.task_artifact_id:
+            # The link serves the upload pinned when the file was shared or its changes were last
+            # published, never a later upload on its own.
+            file = tasks_facade.shared_task_artifact_file(resource.task_artifact_id, resource.team_id)
+            if file is None:
+                raise NotFound("No resource found")
+            asset_title = file.name
+            exported_data.update({"task_artifact": _shared_task_artifact_payload(resource, file)})
+            exported_data["viewer"] = self._shared_page_viewer_for(resource)
         else:
             raise NotFound("No resource found")
 
@@ -1537,12 +2073,20 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
         }
 
-        return render_template(
+        page = render_template(
             "exporter.html",
             request=request,
             context=context,
             team_for_public_context=resource.team,
         )
+        if "canvas" in exported_data:
+            # The page nests the built canvas in an iframe on the artifact origin. The app's
+            # default policy admits any https frame, so a canvas could navigate its own frame to
+            # an origin of its author's choosing and keep the shared page's chrome around it.
+            # Browsers intersect policies, so this second header narrows that default to the one
+            # origin the page has a frame for.
+            page["Content-Security-Policy"] = f"frame-src {canvas_artifact_origin()}"
+        return page
 
     def exported_asset_for_sharing_configuration(self, resource: SharingConfiguration) -> ExportedAsset | None:
         target = resource.insight or resource.dashboard

@@ -39,6 +39,56 @@ export interface InterviewExportPayload {
      */
 }
 
+/** A publicly shared desktop canvas: the published build renders in a sandboxed iframe. */
+export interface SharedCanvasPayload {
+    id: string
+    name: string
+    kind: 'freeform' | 'grid' | 'component'
+    description: string
+    /** Whether the build captured when sharing was turned on still exists. False leaves `artifact_url` null. */
+    published: boolean
+    /**
+     * Signed URL of the shared build's entry HTML, minted for this page load. Null when that build is
+     * gone, or when artifact delivery is not configured on this instance.
+     */
+    artifact_url: string | null
+    /** Whether the owner lets anyone with the link copy the canvas into their own project. */
+    allow_forking: boolean
+    /** When the build the link shows was published. Null when that build is gone. */
+    shared_at: string | null
+}
+
+/** A publicly shared file a task run produced: the exact upload that was shared. */
+export interface SharedTaskArtifactPayload {
+    name: string
+    content_type: string
+    /** Decides the renderer: markdown inline, images inline, everything else a download. */
+    kind: 'markdown' | 'image' | 'html' | 'file'
+    size: number | null
+    uploaded_at: string | null
+    /** The markdown text, inlined when the file is small enough to ship in the page. */
+    markdown: string | null
+    /** Same-token file URL: renders inline for images, downloads for everything else. */
+    file_url: string
+}
+
+/** What the public page knows about the person looking at it, from their PostHog session if they have one. */
+export interface SharedPageViewer {
+    is_authenticated: boolean
+    email: string | null
+    first_name: string | null
+    /** The theme the viewer chose in PostHog. Null when signed out or never set, so the page follows the OS. */
+    theme_mode: 'light' | 'dark' | 'system' | null
+    /** In-app path that opens the original in PostHog Desktop; null unless the viewer may see it. */
+    open_path: string | null
+    /** False when the link is off: only viewers who can open the original get the page then. */
+    sharing_enabled: boolean
+    /** The sharing endpoint for this link; null unless the viewer may turn the link on or off. */
+    sharing_api_path: string | null
+    /** Whether the viewer made the shared thing, so the page can say "by you". */
+    is_creator: boolean
+}
+
 export interface ExportedData extends SharingConfigurationSettings {
     accessToken?: string
     shareToken?: string // JWT token for password-protected shares
@@ -80,4 +130,10 @@ export interface ExportedData extends SharingConfigurationSettings {
     cohorts?: Pick<CohortType, 'id' | 'name'>[]
     /** AI user interview payload — present only for `type === ExportType.Interview`. */
     interview?: InterviewExportPayload
+    /** Shared desktop canvas payload. */
+    canvas?: SharedCanvasPayload
+    /** Shared task-run artifact payload. */
+    task_artifact?: SharedTaskArtifactPayload
+    /** Who is looking at a shared canvas or file; sent for those two share types only. */
+    viewer?: SharedPageViewer
 }

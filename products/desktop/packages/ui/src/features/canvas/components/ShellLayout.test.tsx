@@ -233,10 +233,11 @@ describe("ShellLayout headers", () => {
     expect(
       screen.getByRole("button", { name: /Comments/ }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Share" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Canvas options" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
   });
 
   it("renders the task action row on a channel task detail", () => {

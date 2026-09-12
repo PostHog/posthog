@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Optional, cast, get_args
 from urllib.parse import urlencode
 
-from django.db.models import Q, QuerySet
+from django.db.models import Q, QuerySet, Subquery
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
@@ -111,6 +111,27 @@ def restrict_canvas_activity(queryset: QuerySet[ActivityLog], team_id: int, user
 
     visible_ids = canvas_activity.visible_canvas_ids(team_id, user)
     return queryset.exclude(Q(scope="Canvas") & ~Q(item_id__in=visible_ids))
+
+
+def restrict_task_activity(queryset: QuerySet[ActivityLog], team_id: int, user) -> QuerySet[ActivityLog]:
+    """Keep Task metadata hidden by channel visibility out of the feed.
+
+    Restrict `Task`-scoped rows to tasks this user may read through the tasks API.
+    Lazy import keeps the tasks product off this module's path.
+    """
+    from products.tasks.backend import activity_visibility as task_activity  # noqa: PLC0415
+
+    return queryset.exclude(Q(scope="Task") & Q(item_id__in=Subquery(task_activity.hidden_task_ids(team_id, user))))
+
+
+def restrict_task_activity_for_org(queryset: QuerySet[ActivityLog], organization_id, user) -> QuerySet[ActivityLog]:
+    """Org-wide equivalent of `restrict_task_activity`. The org route has no single
+    `team_id`, so deny tasks hidden by channel visibility across the org."""
+    from products.tasks.backend import activity_visibility as task_activity  # noqa: PLC0415
+
+    return queryset.exclude(
+        Q(scope="Task") & Q(item_id__in=Subquery(task_activity.hidden_task_ids_for_org(organization_id, user)))
+    )
 
 
 def restrict_canvas_activity_for_org(queryset: QuerySet[ActivityLog], organization_id, user) -> QuerySet[ActivityLog]:
@@ -339,6 +360,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
         queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
         queryset = restrict_canvas_activity(queryset, self.team_id, self.request.user)
+        queryset = restrict_task_activity(queryset, self.team_id, self.request.user)
 
         return queryset
 
@@ -625,6 +647,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
         queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
         queryset = restrict_canvas_activity(queryset, self.team_id, self.request.user)
+        queryset = restrict_task_activity(queryset, self.team_id, self.request.user)
 
         return queryset.order_by(*activity_log_ordering(self.request))
 
@@ -797,6 +820,7 @@ class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
         # Org route: no single team_id (this endpoint is org-nested), so use the org-wide variant.
         queryset = restrict_loop_activity_for_org(queryset, self.organization.id, self.request.user)
         queryset = restrict_canvas_activity_for_org(queryset, self.organization.id, self.request.user)
+        queryset = restrict_task_activity_for_org(queryset, self.organization.id, self.request.user)
 
         return queryset.order_by(*activity_log_ordering(self.request))
 

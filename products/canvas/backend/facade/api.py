@@ -1,3 +1,7 @@
+from products.canvas.backend.access_control import (
+    filter_canvases_by_access_level as filter_canvases_by_access_level,
+    filter_canvases_by_access_level_for_user_id as filter_canvases_by_access_level_for_user_id,
+)
 from products.canvas.backend.connectors import (
     ConnectorCallStatus as ConnectorCallStatus,
     ConnectorKind as ConnectorKind,
@@ -17,6 +21,10 @@ from products.canvas.backend.layout import (
     subtract_preexisting_diagnostics as subtract_preexisting_diagnostics,
     validate_layout as validate_layout,
     validate_layout_references as validate_layout_references,
+)
+from products.canvas.backend.sharing import (
+    canvas_app_path as canvas_app_path,
+    canvas_is_shareable as canvas_is_shareable,
 )
 from products.canvas.backend.teaching import (
     RESERVED_TEMPLATE_IDS as RESERVED_TEMPLATE_IDS,

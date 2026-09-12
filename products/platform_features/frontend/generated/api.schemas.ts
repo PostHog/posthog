@@ -1332,6 +1332,7 @@ export type ActivityLogListParams = {
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
      * * `Canvas` - Canvas
+     * * `Task` - Task
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
      * * `Dashboard` - Dashboard
@@ -1430,6 +1431,7 @@ export const ActivityLogListScope = {
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
     Canvas: 'Canvas',
+    Task: 'Task',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
     Dashboard: 'Dashboard',
@@ -1515,6 +1517,7 @@ export const ActivityLogListScope = {
  * * `PropertyDefinition` - PropertyDefinition
  * * `Notebook` - Notebook
  * * `Canvas` - Canvas
+ * * `Task` - Task
  * * `Endpoint` - Endpoint
  * * `EndpointVersion` - EndpointVersion
  * * `Dashboard` - Dashboard
@@ -1601,6 +1604,7 @@ export const ActivityLogListScopesItem = {
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
     Canvas: 'Canvas',
+    Task: 'Task',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
     Dashboard: 'Dashboard',

@@ -363,7 +363,7 @@ def _bridge_url(*, comment: Comment, task: Task) -> str:
     if comment.scope in _LOCATIONS and comment.item_id:
         params["scope"] = comment.scope
         params["item"] = comment.item_id
-    return f"{settings.SITE_URL}/code/task/{task.id}?{urlencode(params)}"
+    return f"{settings.SITE_URL}/desktop/task/{task.id}?{urlencode(params)}"
 
 
 def _message(

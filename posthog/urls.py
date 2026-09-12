@@ -392,7 +392,13 @@ urlpatterns = [
     re_path("login", home),
     re_path("unsubscribe", home),
     # Public bridges for desktop-app share links — deep-link into PostHog Desktop.
+    re_path(r"^desktop/canvas/[^/]+/[^/]+", home),
+    re_path(r"^desktop/channel/[^/]+", home),
+    re_path(r"^desktop/task/[^/]+", home),
+    # The bridges' pre-rename shape; the frontend redirects each to /desktop/... so links
+    # already shared keep working.
     re_path(r"code/canvas/[^/]+/[^/]+", home),
+    re_path(r"code/channel/[^/]+", home),
     re_path(r"code/task/[^/]+", home),
     re_path("verify_email", home),
     re_path(r"agentic/account-mismatch", home),
