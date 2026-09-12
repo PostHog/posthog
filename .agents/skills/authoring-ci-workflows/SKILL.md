@@ -153,6 +153,12 @@ Where it does (the rule above), a deterministic failure records run conclusion `
 Measured on Backend CI [run 34204389260](https://github.com/PostHog/posthog/actions/runs/34204389260): the run recorded `cancelled` while the `Django Tests Pass` gate recorded `failure`.
 Keep those rows in the numerator and the denominator, and find them through the cancel jobs: each one dispatches only on its deterministic-failure signal, so a `success` from any of them marks that population on both sides of 2026-09-04.
 
+The cost of that `always()` gate is a red required check on every superseded run: the gate runs during the cancel, reads its cancelled dependencies, and fails.
+That red sits on a dead SHA — the newer commit that superseded it runs its own gate — but it still reads as a hard failure and trains people to reflex-rerun.
+To drop it without opening a false-green hole, add a `Note run cancellation` step guarded by `if: ${{ cancelled() }}` that writes `RUN_CANCELLED=true` to `$GITHUB_ENV`, then short-circuit the `Check results` step to `exit 0` when that flag is set (the desktop suite gates do this).
+`cancelled()` is true only for a whole-run cancel, so a job-level cancel or timeout leaves the run uncancelled and still reaches the per-dependency guards.
+The `Check results` step keeps no `if:` and keeps every guard, so `WF007` still sees each dependency reach a fail-closed guard.
+
 Four rules for the gate body:
 
 1. **Allowlist every dependency, never denylist.** Assert `success`/`skipped` and fail everything else.
