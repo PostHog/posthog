@@ -7488,10 +7488,45 @@
                                         "type": "object"
                                     },
                                     {
+                                        "properties": {
+                                            "kind": {
+                                                "const": "ExperimentExposureMetricSource",
+                                                "default": "ExperimentExposureMetricSource",
+                                                "type": "string"
+                                            },
+                                            "response": {
+                                                "anyOf": [
+                                                    {
+                                                        "additionalProperties": {},
+                                                        "propertyNames": {
+                                                            "type": "string"
+                                                        },
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            },
+                                            "version": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "version of the node, used for schema migrations"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
                                         "type": "null"
                                     }
                                 ],
-                                "description": "For retention metrics: start event."
+                                "description": "For retention metrics: start event or the experiment's resolved exposure event."
                             },
                             "start_handling": {
                                 "anyOf": [
@@ -9161,10 +9196,45 @@
                                         "type": "object"
                                     },
                                     {
+                                        "properties": {
+                                            "kind": {
+                                                "const": "ExperimentExposureMetricSource",
+                                                "default": "ExperimentExposureMetricSource",
+                                                "type": "string"
+                                            },
+                                            "response": {
+                                                "anyOf": [
+                                                    {
+                                                        "additionalProperties": {},
+                                                        "propertyNames": {
+                                                            "type": "string"
+                                                        },
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            },
+                                            "version": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "version of the node, used for schema migrations"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
                                         "type": "null"
                                     }
                                 ],
-                                "description": "For retention metrics: start event."
+                                "description": "For retention metrics: start event or the experiment's resolved exposure event."
                             },
                             "start_handling": {
                                 "anyOf": [
