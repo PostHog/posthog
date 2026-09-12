@@ -3,7 +3,7 @@ import socket
 import asyncio
 import datetime as dt
 import dataclasses
-from typing import Any, NoReturn, Optional
+from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
 from django.db import InterfaceError, InternalError, OperationalError
 from django.db.models import Prefetch
@@ -145,6 +145,9 @@ WAREHOUSE_READABLE_PARENT_SYNC_TYPES = frozenset(
     }
 )
 
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
 # Opening the parent's Delta table costs a few seconds that paging the vendor listing does not:
 # resolve the table, read the transaction log, start the scan. That cost is fixed, while the
@@ -312,6 +315,17 @@ async def _probe_found_new_data(
         await logger.ainfo("Fast-return probe: source has no new data")
         return False
     return True
+
+
+def v3_pipeline_class(source_response: SourceResponse) -> "type[PipelineV3]":
+    """A source feeding several tables from one read declares lanes; everything else runs the
+    base class untouched."""
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
+        LanedPipelineV3,
+        PipelineV3,
+    )
+
+    return LanedPipelineV3 if source_response.lanes else PipelineV3
 
 
 @activity.defn
@@ -893,7 +907,7 @@ async def _run(
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
             logger.info("Running V3 pipeline (persisted job.pipeline_version is V3)")
-            pipeline: PipelineV3 | PipelineNonDLT = PipelineV3(
+            pipeline: PipelineV3 | PipelineNonDLT = v3_pipeline_class(source_response)(
                 source_response,
                 logger,
                 job_inputs.run_id,

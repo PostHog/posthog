@@ -67,14 +67,19 @@ class CDCSlotNotConfiguredError(Exception):
 
 
 class CDCReservedColumnError(Exception):
-    """A source table carries a column whose name PostHog reserves for change ordering.
+    """A source table carries a column whose name PostHog stamps onto change rows.
 
     Non-retryable: the collision is a property of the customer's table, so replaying re-fails.
-    Raised only on the buffered-ingress path — buffer files derive their name, ordering, and
-    retry cleanup from the engine position column, and a same-named source column means the
-    batcher could not append it. Writing anyway would order and clean up by customer data,
-    which can silently delete unconsumed buffer files. The legacy path is unaffected: it
-    passes the customer's column through untouched.
+
+    For the engine position column it is raised only on the buffered-ingress path — buffer
+    files derive their name, ordering, and retry cleanup from it, and a same-named source column
+    means the batcher could not append it. Writing anyway would order and clean up by customer
+    data, which can silently delete unconsumed buffer files. The legacy path passes the
+    customer's column through untouched.
+
+    For the history table's validity columns it is raised on every path, from the SCD2 stamp
+    itself: Delta refuses the duplicate name at write time anyway, and failing before the writer
+    names the column instead of a qualified field in a schema error.
     """
 
 
