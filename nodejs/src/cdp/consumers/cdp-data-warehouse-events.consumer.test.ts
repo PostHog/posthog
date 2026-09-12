@@ -4,6 +4,8 @@ import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { parseJSON } from '~/common/utils/json-parse'
+import * as request from '~/common/utils/request'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import {
@@ -19,6 +21,7 @@ import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tes
 import { insertHogFunction as _insertHogFunction, createKafkaMessage } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { CdpDataWarehouseEvent } from '../schema'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CdpDatawarehouseEventsConsumer } from './cdp-data-warehouse-events.consumer'
@@ -30,7 +33,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
     let hub: Hub
     let team: Team
     let team2: Team
-    let mockQueueInvocations: jest.MockedFunction<any>
+    let mockQueueInvocations: jest.MockedFunction<JobQueue['queueInvocations']>
 
     const createDataWarehouseEvent = (
         teamId: number,
@@ -409,6 +412,21 @@ describe('CdpDatawarehouseEventsConsumer', () => {
     })
 
     describe('hog flow invocations', () => {
+        let authorizationFetch: jest.SpiedFunction<typeof request.internalFetch>
+        beforeEach(() => {
+            authorizationFetch = jest.spyOn(request, 'internalFetch').mockImplementation((_url, options) =>
+                Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({ allowed_flow_ids: parseJSON(String(options?.body)).flow_ids }),
+                    text: () => Promise.resolve(''),
+                    dump: async () => {},
+                })
+            )
+        })
+
+        afterEach(() => authorizationFetch.mockRestore())
+
         const buildDataWarehouseHogFlow = (
             teamId: number,
             tableName: string,
@@ -450,6 +468,28 @@ describe('CdpDatawarehouseEventsConsumer', () => {
 
             const hogFlowInvocations = invocations.filter((i: any) => i.hogFlow)
             expect(hogFlowInvocations).toHaveLength(0)
+        })
+
+        it('does not queue rows or lifecycle records when the creator is denied access', async () => {
+            await insertHogFlow(buildDataWarehouseHogFlow(team.id, 'private_view', 'data-warehouse-view'))
+            jest.mocked(request.internalFetch).mockResolvedValue({
+                status: 200,
+                headers: {},
+                json: () => Promise.resolve({ allowed_flow_ids: [] }),
+                text: () => Promise.resolve(''),
+                dump: async () => {},
+            })
+            const lifecycle = jest.spyOn(
+                processor['invocationResultsService']['invocationResultsRowsService'],
+                'queueLifecycleRow'
+            )
+            const event = createDataWarehouseEvent(team.id, { amount: 1 }, 'private_view', 'view')
+            const globals = await processor._parseKafkaBatch([createKafkaMessage(event)])
+            const { invocations, backgroundTask } = await processor.processBatch(globals)
+            await backgroundTask
+            expect(invocations).toEqual([])
+            expect(lifecycle).not.toHaveBeenCalled()
+            expect(mockQueueInvocations.mock.calls.flatMap(([queued]) => queued)).toEqual([])
         })
 
         it('should parse rows for workflow-only teams (no hog functions)', async () => {

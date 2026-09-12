@@ -14,6 +14,8 @@ jest.mock('../../common/services/keyed-rate-limiter.service', () => ({
 }))
 
 const config = {
+    INTERNAL_API_BASE_URL: 'http://localhost:8000',
+    WORKFLOW_WAREHOUSE_ACCESS_JWT_SECRET: 'test-warehouse-access',
     CDP_RATE_LIMITER_BUCKET_SIZE: 100,
     CDP_RATE_LIMITER_REFILL_RATE: 10,
     CDP_RATE_LIMITER_TTL: 60,

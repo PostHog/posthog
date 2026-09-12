@@ -31,7 +31,9 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cohorts.backend.models.cohort import Cohort
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.skills.backend.models.skills import LLMSkill
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.workflows.backend.api.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
@@ -2277,6 +2279,12 @@ class TestHogFlowAPI(APIBaseTest):
         ]
     )
     def test_hog_flow_data_warehouse_trigger_valid(self, trigger_type, table_name):
+        if trigger_type == "data-warehouse-view":
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=table_name, query={"kind": "HogQLQuery", "query": "select 1"}
+            )
+        else:
+            DataWarehouseTable.objects.create(team=self.team, name=table_name, columns={})
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -2420,6 +2428,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert action_type in response.json()["detail"]
 
     def test_hog_flow_data_warehouse_table_trigger_draft_allows_person_dependent_steps(self):
+        DataWarehouseTable.objects.create(team=self.team, name="postgres.table_1", columns={})
         # Drafts are not executed, so we defer the hard rejection until activation.
         trigger_action = {
             "id": "trigger_node",
@@ -2768,6 +2777,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 201, response.json()
 
     def test_hog_flow_data_warehouse_table_trigger_forces_exit_only_at_end(self):
+        DataWarehouseTable.objects.create(team=self.team, name="postgres.table_1", columns={})
         # Other exit conditions re-evaluate trigger/conversion filters that may reference person
         # data, so warehouse-triggered flows are coerced to exit_only_at_end regardless of input.
         trigger_action = {
