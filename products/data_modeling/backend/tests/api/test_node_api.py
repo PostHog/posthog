@@ -231,6 +231,18 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.json()["type"], "view")
         self.assertEqual(response.json()["dag"], str(self.dag.id))
 
+    def test_a_node_whose_saved_query_was_deleted_is_gone_from_the_list_and_the_detail_route(self):
+        """A half-finished delete cascade leaves the node behind, and its detail page can then only
+        404 on the saved query."""
+        self.saved_query.soft_delete()
+
+        list_response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([node["name"] for node in list_response.json()["results"]], ["events"])
+
+        detail_response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
+        self.assertEqual(detail_response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_get_node_includes_upstream_downstream_counts(self):
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
 

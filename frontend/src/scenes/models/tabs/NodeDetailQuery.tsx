@@ -51,7 +51,9 @@ function QueryAction({
 }
 
 export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
-    const { node, savedQuery, savedQueryLoading, savedQueryError } = useValues(nodeDetailSceneLogic({ id }))
+    const { node, savedQuery, savedQueryLoading, savedQueryError, savedQueryMissing } = useValues(
+        nodeDetailSceneLogic({ id })
+    )
     const { loadSavedQuery } = useActions(nodeDetailSceneLogic({ id }))
 
     if (savedQueryLoading && !savedQuery) {
@@ -64,6 +66,10 @@ export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
                 Couldn't load this model's query.
             </LemonBanner>
         )
+    }
+
+    if (savedQueryMissing) {
+        return <LemonBanner type="warning">This model's query is no longer available.</LemonBanner>
     }
 
     const queryString = savedQuery?.query?.query

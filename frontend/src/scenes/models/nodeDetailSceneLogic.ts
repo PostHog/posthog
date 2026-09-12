@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
@@ -53,6 +54,7 @@ export interface nodeDetailSceneLogicValues {
     savedQuery: DataWarehouseSavedQuery | null
     savedQueryError: boolean
     savedQueryLoading: boolean
+    savedQueryMissing: boolean
     savedQuerySettled: boolean
     sceneResolved: boolean
     visitedTabs: NodeDetailSceneTab[]
@@ -181,6 +183,12 @@ export interface nodeDetailSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (node: DataModelingNode | null) => Breadcrumb[]
         nodeType: (node: DataModelingNode | null) => DataModelingNodeType | null
+        savedQueryMissing: (
+            node: DataModelingNode | null,
+            savedQuery: DataWarehouseSavedQuery | null,
+            savedQuerySettled: boolean,
+            savedQueryError: boolean
+        ) => boolean
         sceneResolved: (node: DataModelingNode | null, savedQuerySettled: boolean) => boolean
         availableTabs: (
             node: DataModelingNode | null,
@@ -289,7 +297,16 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (!node?.saved_query_id) {
                     return null
                 }
-                return await api.dataWarehouseSavedQueries.get(node.saved_query_id)
+                try {
+                    return await api.dataWarehouseSavedQueries.get(node.saved_query_id)
+                } catch (error) {
+                    // A node can outlive the saved query it points at, and then every request for
+                    // it 404s. That is a query that is gone, not a request that failed.
+                    if (!(error instanceof ApiError) || error.status !== 404) {
+                        throw error
+                    }
+                    return null
+                }
             },
         },
         lineageGraph: {
@@ -320,6 +337,17 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             ],
         ],
         nodeType: [(s) => [s.node], (node: DataModelingNode | null) => node?.type ?? null],
+        // A node whose saved query the API answers for with a 404. The panels offer no retry,
+        // because repeating the request cannot bring the query back.
+        savedQueryMissing: [
+            (s) => [s.node, s.savedQuery, s.savedQuerySettled, s.savedQueryError],
+            (
+                node: DataModelingNode | null,
+                savedQuery: DataWarehouseSavedQuery | null,
+                savedQuerySettled: boolean,
+                savedQueryError: boolean
+            ): boolean => !!node?.saved_query_id && savedQuerySettled && !savedQueryError && !savedQuery,
+        ],
         // Which tabs exist depends on the saved query too, so a node that has one is only resolved
         // once that request settles. Deciding earlier renders a tab bar we then have to change.
         sceneResolved: [

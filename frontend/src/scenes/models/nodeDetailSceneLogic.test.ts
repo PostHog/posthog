@@ -114,6 +114,20 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.effectiveTab).toEqual('materialization')
     })
 
+    // A node can outlive the saved query it points at, and then the request 404s on every visit.
+    // Reporting that as a failed request reports the same defect over and over.
+    it('reads a 404 on the saved query as gone rather than as a failed request', async () => {
+        useMocks({
+            get: { '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [404, {}] },
+        })
+
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        expect(logic.values.savedQueryError).toBe(false)
+        expect(logic.values.savedQueryMissing).toBe(true)
+        expect(logic.values.sceneResolved).toBe(true)
+    })
+
     // A failed saved-query request leaves the scene rendering with nothing to read is_materialized
     // from. Reading that absence as "not materialized" would open a matview on Query and print
     // "Materialization: Off" under its own Materialized view tag.

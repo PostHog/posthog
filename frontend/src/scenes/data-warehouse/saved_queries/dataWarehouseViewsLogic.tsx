@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
+import { isUnavailableEndpointError } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -354,8 +355,17 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             [] as DataWarehouseSavedQuery[],
             {
                 loadDataWarehouseSavedQueries: async () => {
-                    const savedQueries = await api.dataWarehouseSavedQueries.list()
-                    return savedQueries.results
+                    try {
+                        const savedQueries = await api.dataWarehouseSavedQueries.list()
+                        return savedQueries.results
+                    } catch (error) {
+                        // The views list is empty whether the route is unserved or the request
+                        // failed, so degrade to it rather than toast a URL nobody can act on.
+                        if (!isUnavailableEndpointError(error)) {
+                            throw error
+                        }
+                        return []
+                    }
                 },
                 createDataWarehouseSavedQuery: async (
                     view: Partial<DataWarehouseSavedQuery> & {
