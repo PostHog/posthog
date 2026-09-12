@@ -26,20 +26,25 @@ When a user is exposed to multiple variants (e.g., due to flag changes or race c
 - **First seen variant** — assigns users to the first variant they were exposed to. Keeps all users in the analysis. Note that "first seen" can introduce other biases as
   behavior cannot be clearly attributed to a single variant and is not recommended unless necessary.
 
-**Bias risk on uneven splits.** "Exclude multivariate users" combined with an uneven variant split can
-introduce bias — multi-variant users are dropped asymmetrically and the smaller variant loses a larger
-fraction of its assignments. If those users behave differently from the rest, the smaller variant's
-metrics will be skewed.
+**Bias risk from "Exclude multivariate users".** With "Exclude" handling, every multi-variant user is
+dropped from the analysis. When the dropped `$multiple` share is above ~0.1%, the experiment shows an
+in-app bias-warning banner. The variant split decides which bias is at work, not whether the banner
+fires:
 
-The right mitigation depends on experiment state:
+- **Uneven split — asymmetric exclusion.** The smaller variant loses a larger fraction of its
+  assignments, so if those users behave differently the smaller variant's metrics are skewed.
+- **Even split — identity churn.** One person can get different distinct IDs before and after login,
+  hash into different variants, and get dropped. The dropped population is still non-random.
 
-- **Not yet launched, or only exposed to a few users so far** — switch to an even variant split and
-  use the overall rollout percentage to limit test-variant exposure. This removes the bias and
-  preserves statistical power. See `configuring-experiment-rollout`.
-- **Live experiment with significant exposures** — changing the split mid-run reassigns users across
-  variants, which is bad for user experience and data quality. Switch this setting to "First seen
-  variant" instead — it keeps already-assigned users in their original variant (no reassignment) and
-  removes the asymmetric exclusion.
+The right mitigation depends on the branch and the experiment state:
+
+- **Uneven split, not yet launched or barely exposed** — switch to an even variant split and use the
+  overall rollout percentage to limit test-variant exposure. This removes the asymmetric exclusion
+  and preserves statistical power. See `configuring-experiment-rollout`.
+- **Even split, or a live experiment with significant exposures** — switching the split does not help
+  (an even split is already even, and changing a live split reassigns users, hurting data quality).
+  Switch this setting to "First seen variant" instead — it keeps each user on the first variant they
+  saw and removes the exclusion.
 
 ### Filter test accounts
 
