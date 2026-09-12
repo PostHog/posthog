@@ -44,4 +44,11 @@ class AsyncDeletion(models.Model):
                 fields=["deletion_type", "key", "group_type_index"],
             ),
         ]
-        indexes = [models.Index(name="delete_verified_at index", fields=["delete_verified_at"])]
+        indexes = [
+            models.Index(name="delete_verified_at index", fields=["delete_verified_at"]),
+            # Serves the deletion_status endpoint: filter by team_id + deletion_type, sort by created_at DESC
+            models.Index(
+                name="asyncdeletion_team_type_idx",
+                fields=["team_id", "deletion_type", "-created_at"],
+            ),
+        ]
