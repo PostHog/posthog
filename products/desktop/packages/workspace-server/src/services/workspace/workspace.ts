@@ -1260,10 +1260,22 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
   }
 
   async getAllWorkspaces(): Promise<Record<string, Workspace>> {
+    // Callers reach this during the startup/teardown window when the DB is
+    // closed or not yet initialized. Return nothing instead of letting the
+    // synchronous repo read throw a raw "Database not initialized" error.
+    if (!this.databaseService.isInitialized()) return {};
+
     const associations = this.getAllTaskAssociations();
     const dbRows = this.workspaceRepo.findAll();
     const linkedBranchByTaskId = new Map(
       dbRows.map((row) => [row.taskId, row.linkedBranch ?? null]),
+    );
+    // Resolve every folder path from the database before the first await below.
+    // The loop awaits git calls, and a shutdown can close the database during
+    // one of them, so a per-item repository read inside the loop would throw the
+    // same "Database not initialized" error the guard above prevents.
+    const folderPathById = new Map(
+      this.repositoryRepo.findAll().map((repo) => [repo.id, repo.path]),
     );
     const workspaces: Record<string, Workspace> = {};
 
@@ -1284,7 +1296,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
         continue;
       }
 
-      const folderPath = this.getFolderPath(assoc.folderId);
+      const folderPath = folderPathById.get(assoc.folderId) ?? null;
       if (!folderPath) continue;
 
       let worktreePath: string | null = null;

@@ -84,6 +84,7 @@ interface TestContext {
   worktreeRepo: MockWorktreeRepository;
   archiveRepo: MockArchiveRepository;
   taskMetadataRepo: MockTaskMetadataRepository;
+  databaseService: { isInitialized: ReturnType<typeof vi.fn> };
   repoPath: string;
   repoId: string;
   worktreeBasePath: string;
@@ -143,6 +144,7 @@ async function withTestContext(
   const repoId = repo.id;
 
   const mocks = {
+    databaseService: { isInitialized: vi.fn(() => true) },
     sessionCanceller: { cancelSessionsByTaskId: vi.fn() },
     processTracking: { killByTaskId: vi.fn() },
     fileWatcher: { stopWatching: vi.fn() },
@@ -165,6 +167,7 @@ async function withTestContext(
   const taskMetadataRepo = createMockTaskMetadataRepository();
 
   const service = new ArchiveService(
+    mocks.databaseService as never,
     mocks.sessionCanceller as never,
     mocks.processTracking as never,
     mocks.fileWatcher as never,
@@ -245,6 +248,7 @@ async function withTestContext(
     worktreeRepo,
     archiveRepo,
     taskMetadataRepo,
+    databaseService: mocks.databaseService,
     repoPath,
     repoId,
     worktreeBasePath,
@@ -282,6 +286,16 @@ describe("ArchiveService integration", () => {
         taskCreatedAt: "2026-07-23T10:00:00.000Z",
         repository: "posthog/code",
       });
+    }));
+
+  it("rejects with readable copy when the database is closed during teardown", () =>
+    withTestContext({ mode: "local" }, async (ctx) => {
+      ctx.databaseService.isInitialized.mockReturnValue(false);
+
+      await expect(
+        ctx.service.archiveTask({ taskId: TASK_ID }),
+      ).rejects.toThrow("Couldn't archive the task. Try again in a moment.");
+      expect(ctx.archiveRepo.findAll()).toHaveLength(0);
     }));
 
   it("keeps an archive identifiable when no original title can be recovered", () =>
