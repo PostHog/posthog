@@ -24,6 +24,12 @@ interface MockState {
     runStatusResponses: any[]
     createBodies: any[]
     patchBodies: any[]
+    // Cells the sql_v2 state endpoint reports. Supplied per test: the spans are the backend's
+    // job, and `test_sql_v2_state.py` covers how it derives them.
+    stateCells?: any[]
+    // Version the state endpoint reports. Set it apart from `version` to model a notebook that
+    // moved between the caller's read and its write.
+    stateVersion?: number
 }
 
 function markdownContent(markdown: string): Record<string, unknown> {
@@ -42,6 +48,14 @@ function createMockContext(state: MockState): Context {
                 throw new Error('No queued run status response')
             }
             return next
+        }
+        if (opts.method === 'GET' && path.endsWith('/sql_v2/state/')) {
+            return {
+                notebook_id: 'aBcD1234',
+                version: state.stateVersion ?? state.version,
+                markdown: state.markdown,
+                cells: state.stateCells ?? [],
+            }
         }
         if (opts.method === 'GET') {
             return {
@@ -447,7 +461,7 @@ describe('notebook cell tools', () => {
         expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('code="select 2"')
         expect(state.runBodies[0]).toMatchObject({ node_id: 'target', code: 'select 2' })
         expect(state.runBodies[0]).not.toHaveProperty('variables')
-        expect(result.stale_dependents).toEqual([{ node_id: 'reader', dataframe_name: 'out' }])
+        expect(result).toMatchObject({ stale_dependents: [{ node_id: 'reader', dataframe_name: 'out' }] })
         // Write-back replaces the stale runId in place.
         const writtenBack = state.saveBodies[1].content.content[0].attrs.markdown
         expect(writtenBack).toContain('runId="run-1"')
@@ -586,6 +600,168 @@ describe('notebook cell tools', () => {
                     attrs: { nodeId: 'markdown-notebook-v2', markdown: '# Signup analysis\n\nIntro.' },
                 },
             ],
+        })
+    })
+    describe('markdown cells', () => {
+        const DOC = ['# Title', '', 'First paragraph.', '', 'Second paragraph.'].join('\n')
+        // Spans of "First paragraph." in DOC, as the backend reports them.
+        const FIRST = { node_id: 'mdp-abc-0', cell_type: 'markdown', code: 'First paragraph.', start: 9, end: 25 }
+
+        it('replaces the addressed block and leaves its neighbours untouched', async () => {
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            const result = await updateCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                node_id: FIRST.node_id,
+                markdown: 'Rewritten paragraph.',
+            })
+
+            expect(result).toMatchObject({ node_id: FIRST.node_id, updated: true })
+            expect(state.saveBodies[0].content.content[0].attrs.markdown).toBe(
+                ['# Title', '', 'Rewritten paragraph.', '', 'Second paragraph.'].join('\n')
+            )
+        })
+
+        it.each([
+            ['terminated', '<SQLV2 nodeId="x" code="select 1" />'],
+            // parseCellTags reports nothing for this one, which is why the guard is lexical.
+            ['unterminated', '<PythonV2 nodeId="x" code="a\n\nb" />'],
+            // The backend recovers this form as a live cell, so `<` alone is not the whole guard.
+            ['escaped multiline', '\\<PythonV2 nodeId="x" code="# hi\nout = 1" />'],
+            // Python strips \\x1c-\\x1f and JavaScript's trim() does not, so the backend reads
+            // these as tags while a trim-based guard reads them as prose.
+            ['control-prefixed', '\x1c<SQLV2 nodeId="x" code="select 1" />'],
+            ['control-separated', '<SQLV2\x1cnodeId="x" code="select 1" />'],
+            ['lone carriage return', 'Intro.\r<SQLV2 nodeId="x" code="select 1" />'],
+            ['crlf', 'Intro.\r\n<SQLV2 nodeId="x" code="select 1" />'],
+        ])('refuses markdown carrying a %s component tag', async (_name, injected) => {
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            await expect(
+                updateCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    node_id: FIRST.node_id,
+                    markdown: `Intro.\n${injected}`,
+                })
+            ).rejects.toThrow(/notebooks-add-cell/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
+        it('refuses a fence opened behind a control character', async () => {
+            // Python strips U+001C, so this opens a code block there and reads as prose here,
+            // which swallows the cells that follow it.
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            await expect(
+                updateCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    node_id: FIRST.node_id,
+                    markdown: 'Intro.\n\n\x1c```',
+                })
+            ).rejects.toThrow(/fence open/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
+        it('accepts a component tag shown inside a code fence', async () => {
+            // Both walkers read fenced content as inert, so this opens no cell.
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            await updateCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                node_id: FIRST.node_id,
+                markdown: 'Example:\n\n```\n<SQLV2 nodeId="x" code="select 1" />\n```',
+            })
+
+            expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('<SQLV2')
+        })
+
+        it('refuses markdown that leaves a fence open', async () => {
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            await expect(
+                updateCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    node_id: FIRST.node_id,
+                    markdown: 'Example:\n\n```\nselect 1',
+                })
+            ).rejects.toThrow(/leave a code fence open/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
+        it('refuses a node_id that names more than one block', async () => {
+            const state = makeState(DOC)
+            state.stateCells = [FIRST, { ...FIRST, code: 'A different block that hashed the same.' }]
+            const context = createMockContext(state)
+
+            await expect(
+                updateCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    node_id: FIRST.node_id,
+                    markdown: 'Rewritten.',
+                })
+            ).rejects.toThrow(/names 2 blocks/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
+        it('edits the right one of two blocks that read the same', async () => {
+            const doc = ['Same text.', '', 'Middle.', '', 'Same text.'].join('\n')
+            const state = makeState(doc)
+            state.stateCells = [
+                { node_id: 'mdp-a-0', cell_type: 'markdown', code: 'Same text.', start: 0, end: 10 },
+                { node_id: 'mdp-a-1', cell_type: 'markdown', code: 'Same text.', start: 21, end: 31 },
+            ]
+            const context = createMockContext(state)
+
+            await updateCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                node_id: 'mdp-a-1',
+                markdown: 'Rewritten.',
+            })
+
+            expect(state.saveBodies[0].content.content[0].attrs.markdown).toBe(
+                ['Same text.', '', 'Middle.', '', 'Rewritten.'].join('\n')
+            )
+        })
+
+        it('refuses when the notebook moved between the read and the write', async () => {
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            state.stateVersion = state.version - 1
+            const context = createMockContext(state)
+
+            await expect(
+                updateCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    node_id: FIRST.node_id,
+                    markdown: 'Rewritten.',
+                })
+            ).rejects.toThrow(/changed since cell/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
+        it.each([
+            ['code on a markdown cell', { node_id: FIRST.node_id, code: 'select 1' }, /is a markdown cell/],
+            ['markdown on a runnable cell', { node_id: 'target', markdown: 'text' }, /is a sql cell/],
+            ['both content parameters', { node_id: 'target', code: 'select 1', markdown: 'text' }, /not both/],
+        ])('routes %s to the right parameter', async (_name, params, expected) => {
+            const state = makeState(['<SQLV2 nodeId="target" code="select 1" returnVariable="df" />'].join('\n'))
+            state.stateCells = [FIRST, { node_id: 'target', cell_type: 'sql', code: 'select 1', start: 0, end: 58 }]
+            const context = createMockContext(state)
+
+            await expect(updateCellHandler(context, { notebook_id: 'aBcD1234', ...params } as any)).rejects.toThrow(
+                expected
+            )
+            expect(state.saveBodies).toHaveLength(0)
         })
     })
 })
