@@ -88,7 +88,7 @@ class MarketingSessionBreakdownQueryRunnerBase(MarketingAnalyticsBaseQueryRunner
             source_mappings,
         )
 
-    def _normalized_campaign_expr(self, field: ast.Expr) -> ast.Expr:
+    def _normalized_campaign_expr(self, field: ast.Expr, source_field: ast.Expr | None = None) -> ast.Expr:
         """Collapse the team's dirty utm_campaign spellings onto the clean name they're mapped to.
 
         Without this a campaign whose UTMs vary lands as one row per spelling, and because the models
@@ -101,7 +101,7 @@ class MarketingSessionBreakdownQueryRunnerBase(MarketingAnalyticsBaseQueryRunner
         raw_campaign = ast.Call(name="toString", args=[ast.Call(name="ifNull", args=[field, ast.Constant(value="")])])
         return build_campaign_display_normalization_expr(
             raw_campaign,
-            ast.Field(chain=["events", "session", "$entry_utm_source"]),
+            source_field if source_field is not None else ast.Field(chain=["events", "session", "$entry_utm_source"]),
             self.team.marketing_analytics_config,
         )
 
