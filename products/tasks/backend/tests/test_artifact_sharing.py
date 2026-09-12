@@ -117,6 +117,24 @@ class TestTaskArtifactSharing(APIBaseTest):
         assert payload["task_artifact"]["markdown"] == "# Final\n"
         assert payload["task_artifact"]["file_url"] == f"/shared/{access_token}.md"
 
+    def test_public_page_offers_the_run_only_to_a_signed_in_viewer_who_can_open_it(self):
+        access_token = self._enable_sharing("art-1")
+
+        signed_in = self._shared_payload(access_token)["viewer"]
+        assert signed_in["open_path"] == f"/desktop/task/{self.task.id}"
+        assert signed_in["sharing_api_path"] == self._sharing_url("art-2")
+        self.client.logout()
+        assert self._shared_payload(access_token)["viewer"] == {
+            "is_authenticated": False,
+            "email": None,
+            "first_name": None,
+            "theme_mode": None,
+            "open_path": None,
+            "sharing_enabled": True,
+            "sharing_api_path": None,
+            "is_creator": False,
+        }
+
     def test_a_later_upload_stays_private_until_its_changes_are_published(self):
         access_token = self._enable_sharing("art-1")
         self.newer_run.artifacts.append(
