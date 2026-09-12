@@ -3,7 +3,9 @@
 Run this read-only before diagnosing or asking the customer anything. §1 and §2 produce the config and
 the reproduced evaluation, and you need both on every ticket. §3 costs a scan of the project's events,
 so reach for it only when §2 didn't settle the question, or when the ticket is about usage itself — "I
-see no `$feature_flag_called`", "works locally but not in production", or "the value flipped".
+see no `$feature_flag_called`", "works locally but not in production", or "the value flipped". Reach
+for §6 whenever the flag's `evaluation_runtime` isn't `all`: it's the only step here that sees what a
+particular caller receives, and §2 is blind to that by construction.
 
 **Step 2 of the SKILL's workflow comes first.** Every call below answers for the session's **active**
 project and takes no project ID, so if `posthog:switch-project` hasn't put you on the ticket's project
@@ -19,9 +21,17 @@ Pull these fields; they are inputs to almost every cause:
   but `flag_not_found` covers more than inactive, so read `evaluation_runtime` too before concluding
   anything from it (see the SKILL's `disabled` / `flag_not_found` expansion).
 - `evaluation_runtime` — `all` (the default), `client` (client-side SDKs only), or `server` (server-side
-  SDKs only). PostHog omits the flag from the `/flags` response for callers on the other side, so a
-  mismatch against the ticket's `$lib` explains an `undefined` the release conditions don't. It's also
-  why `test-evaluation` can return `flag_not_found` for an active flag.
+  SDKs only). Anything but `all` means PostHog decides **per flags request** which runtime is calling
+  and omits the flag when that verdict doesn't match. The verdict is read off the request (an explicit
+  `evaluation_runtime` in the body, else the `User-Agent`, else browser-ish headers), so don't settle
+  the question against the ticket's `$lib` — that's what the SDK calls itself, not what it put on the
+  wire. §6 checks the wire directly. The value the customer reports here is usually `false` rather than
+  `undefined`, because server-side SDKs read an absent flag as `false`. It's also why `test-evaluation`
+  can return `flag_not_found` for an active flag.
+- `last_called_at` — batch-synced from `$feature_flag_called` events on a schedule of tens of minutes
+  rather than written per evaluation, so it lags live traffic by that much and a stale-looking value
+  proves nothing. It also never advances when the SDK suppresses usage events. Don't quote it to a
+  customer as evidence about whether their call arrived.
 - `filters.groups[]` — the **release conditions**. Per group read `properties` (the targeting),
   `rollout_percentage`, and `variant` (a non-null variant is a forced assignment for that group, not
   randomized).
@@ -73,7 +83,14 @@ PostHog evaluates the flag for you server-side and returns the **match reason** 
 
 Map the returned reason with the reason table in [SKILL.md](../SKILL.md#known-cause-catalog--the-evaluation-reason-start-here).
 If the reproduced value **matches** what the customer expected but they still report the wrong value,
-the cause is client-side — go to the SDK catalog in the SKILL.
+the cause is on the caller's side — go to the SDK catalog in the SKILL.
+
+**Neither tool reproduces the customer's runtime, in either direction.** `evaluation-reasons` asks for
+`evaluation_runtime: "all"`, which disables runtime filtering outright, and `test-evaluation` arrives
+over an internal request that always classifies as server-side. So on a flag scoped to `client` or
+`server` these tools answer a question the customer didn't ask: a `client`-scoped flag can read
+`flag_not_found` here while their browser gets it, and a `server`-scoped flag can read `true` here while
+their app never receives it. A clean match from §2 does **not** clear runtime scoping — only §6 does.
 
 ## 3. Historical usage — `posthog:execute-sql`
 
@@ -124,7 +141,28 @@ ORDER BY timestamp DESC
 LIMIT 100
 ```
 
-**Escape every value you substitute into a placeholder.** `<flag-key>` and `<distinct_id>` land
+What else the same caller receives — the discriminator for runtime scoping. Run it when one flag comes
+back wrong and others from that caller are fine, and read the `evaluation_runtime` of each key it
+returns. If every flag that works is `all` and the failing one is `client` or `server`, the cause is
+runtime scoping, not targeting:
+
+```sql
+SELECT
+  properties.$feature_flag AS flag_key,
+  properties.$feature_flag_response AS value,
+  coalesce(properties.$lib, '(none)') AS lib,
+  properties.$lib_version AS lib_version,
+  count() AS calls
+FROM events
+WHERE event = '$feature_flag_called'
+  AND timestamp >= now() - INTERVAL 7 DAY
+  AND properties.$lib = '<lib>'
+GROUP BY flag_key, value, lib, lib_version
+ORDER BY flag_key, calls DESC
+LIMIT 200
+```
+
+**Escape every value you substitute into a placeholder.** `<flag-key>`, `<lib>`, and `<distinct_id>` land
 inside single-quoted SQL literals, and `posthog:execute-sql` takes no bound parameters — so a value
 carrying a `'` closes the literal early and the rest is parsed as SQL. A `distinct_id` is whatever
 the SDK sent, and it usually arrives via the ticket, so it is exactly the value you must not paste
@@ -182,6 +220,47 @@ the config in §1. The **holdout** hash is the exception: it uses the **flag-lev
 mixed flag the holdout hashes by `distinct_id`. SHA1 isn't in HogQL's whitelist, so this runs outside the
 database. `ensure_experience_continuity = true` makes it unreliable (assignment hashes a stored override
 key).
+
+## 6. What a caller actually receives (runtime scoping)
+
+§2 reproduces the evaluation but not the **caller**, so on a flag scoped to `client` or `server` it
+can't tell you whether the customer's app receives the flag at all. This does. Replay the flags request
+twice against the customer's region, changing only the `User-Agent`, and compare whether the flag's key
+is **present** in the response — its value is beside the point, since an absent key is what a
+server-side SDK reports as `false`.
+
+```bash
+# Arm A — as the customer's caller identifies itself. `-A ''` sends no user agent at all,
+# which is what some older SDK builds and hand-rolled callers do on the flags request.
+curl -s -X POST 'https://<region>.i.posthog.com/flags/?v=2' \
+  -A '' \
+  -H 'Content-Type: application/json' \
+  -d '{"token":"<project_api_key>","distinct_id":"<distinct_id>"}'
+
+# Arm B — as a current server SDK. Swap in posthog-js/<version> to model a browser instead.
+curl -s -X POST 'https://<region>.i.posthog.com/flags/?v=2' \
+  -H 'User-Agent: posthog-node/<version>' \
+  -H 'Content-Type: application/json' \
+  -d '{"token":"<project_api_key>","distinct_id":"<distinct_id>"}'
+```
+
+A flag present in B and missing from A confirms runtime scoping, and that reading holds whatever the
+filtering rules happen to be — you're observing the response, not predicting it.
+
+**Set the header deliberately.** Bare `curl` sends `curl/<version>`, which is recognized as a
+server-side client, so an unadorned request quietly reproduces arm B: the flag comes back, and the
+check passes even though the customer's caller fails. The same applies to whatever you use instead, so
+make it send what their caller sends.
+
+`<region>` is `us` or `eu` and must match the customer's instance. `<project_api_key>` is their public
+project key, the same one shipped in their client bundle, so this is a read the customer could make
+themselves. Still, don't leave it anywhere it persists.
+
+**Here a `distinct_id` from the ticket lands in a shell command, not a SQL literal**, so the escaping
+rule in §3 is the wrong one. A single quote in it closes the shell's quoting and the rest runs as
+commands, which is worse than the SQL case because it executes on your machine rather than widening a
+query. Put the value in a variable or a file and reference it, rather than pasting it into the command
+line.
 
 ## Handing off
 
