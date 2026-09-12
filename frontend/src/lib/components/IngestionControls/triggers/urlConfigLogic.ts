@@ -16,6 +16,75 @@ export function ensureAnchored(url: string): string {
     return `^${url}$`
 }
 
+/**
+ * The characters a regex forces at the very start of a match. The scan stops at the first
+ * metacharacter, because anything flexible from there could still line up with a URL scheme.
+ * A trailing quantifier makes its character optional, so that character is dropped.
+ */
+function leadingLiteral(pattern: string): string {
+    let literal = ''
+    for (let i = 0; i < pattern.length; i++) {
+        const char = pattern[i]
+        if ('.^$*+?()[]{}|\\'.includes(char)) {
+            break
+        }
+        const next = pattern[i + 1]
+        if (next === '?' || next === '*' || next === '{') {
+            break
+        }
+        literal += char
+    }
+    return literal
+}
+
+/**
+ * A URL trigger is stored anchored as `^<pattern>$` and tested against the full page URL,
+ * scheme included. So the fixed start of the pattern must line up with `scheme://host`.
+ * Returns false only when we can prove it cannot, so a screen-name style pattern like
+ * `Jagex Launcher/.*` (which becomes `^Jagex Launcher/.*$`) is caught while patterns that
+ * start flexibly are left alone.
+ */
+export function anchoredUrlCanMatchUrl(url: string): boolean {
+    let pattern = url.trim()
+    if (!pattern) {
+        return true
+    }
+    pattern = pattern.startsWith('^') ? pattern.substring(1) : pattern
+    pattern = pattern.endsWith('$') ? pattern.substring(0, pattern.length - 1) : pattern
+
+    const literal = leadingLiteral(pattern)
+    if (!literal) {
+        return true
+    }
+
+    const colonIndex = literal.indexOf(':')
+    // Before the scheme separator only scheme characters can appear. A space or slash here
+    // (a path or screen name) can never begin a URL.
+    const beforeColon = colonIndex === -1 ? literal : literal.substring(0, colonIndex)
+    return /^[a-zA-Z][a-zA-Z0-9+.-]*$/.test(beforeColon)
+}
+
+/**
+ * A non-blocking hint shown while someone authors a URL trigger. It covers the two ways a
+ * saved pattern silently matches nothing: an anchored pattern that cannot match a URL at all,
+ * and a bare domain that only matches the homepage.
+ */
+export function getUrlPatternWarning(url: string): string | null {
+    if (!isStringWithLength(url)) {
+        return null
+    }
+    if (!anchoredUrlCanMatchUrl(url)) {
+        return "This pattern can't match a URL because recordings match against the full URL, including the scheme. Start it with https:// or with .* to match any part of the URL."
+    }
+    // A pattern that ends in a TLD only matches that exact URL once anchored.
+    if (/\.[a-z]{2,}\/?$/i.test(url)) {
+        const sanitizedUrl = url.endsWith('/') ? url.slice(0, -1) : url
+        return `If you want to match all paths of a domain, you should write " ${sanitizedUrl}(/.*)? ". This would match:
+                        ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
+    }
+    return null
+}
+
 export interface UrlConfigLogicProps {
     logicKey: string
     initialUrlTriggerConfig: UrlTriggerConfig[]
@@ -217,13 +286,7 @@ export const urlConfigLogic = kea<urlConfigLogicType>([
                     if (type !== 'trigger') {
                         return _
                     }
-                    // Check if it ends with a TLD
-                    if (/\.[a-z]{2,}\/?$/i.test(url)) {
-                        const sanitizedUrl = url.endsWith('/') ? url.slice(0, -1) : url
-                        return `If you want to match all paths of a domain, you should write " ${sanitizedUrl}(/.*)? ". This would match: 
-                        ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
-                    }
-                    return null
+                    return getUrlPatternWarning(url)
                 },
             },
         ],
