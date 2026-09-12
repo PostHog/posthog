@@ -98,7 +98,7 @@ impl QueryTui {
         if !self.state_dirty {
             return Ok(());
         }
-        let home_dir = posthog_home_dir();
+        let home_dir = posthog_home_dir()?;
         let editor_state_path = home_dir.join("editor_state.json");
         let state = PersistedEditorState {
             lines,
@@ -111,7 +111,7 @@ impl QueryTui {
     }
 
     fn load_editor_state(&mut self) -> Result<Vec<String>, Error> {
-        let home_dir = posthog_home_dir();
+        let home_dir = posthog_home_dir()?;
         let editor_state_path = home_dir.join("editor_state.json");
         if !editor_state_path.exists() {
             return Ok(vec![]);

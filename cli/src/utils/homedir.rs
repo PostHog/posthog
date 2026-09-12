@@ -13,12 +13,15 @@ pub fn posthog_home_dir_if_available() -> Option<PathBuf> {
     Some(home)
 }
 
-pub fn posthog_home_dir() -> PathBuf {
-    posthog_home_dir_if_available().expect("Could not find home directory")
+pub fn posthog_home_dir() -> Result<PathBuf, Error> {
+    posthog_home_dir_if_available().context(
+        "Could not determine a home directory for the PostHog CLI. Set POSTHOG_HOME to a writable \
+         directory.",
+    )
 }
 
 pub fn ensure_homedir_exists() -> Result<(), Error> {
-    let home = posthog_home_dir();
+    let home = posthog_home_dir()?;
     std::fs::create_dir_all(&home).context(format!("While trying to create directory {home:?}"))?;
     Ok(())
 }

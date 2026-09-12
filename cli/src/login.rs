@@ -137,7 +137,7 @@ pub fn login_with_use_cases(host_override: Option<String>, use_cases: Vec<&str>)
     let provider = HomeDirProvider;
     provider.store_credentials(token)?;
 
-    info!("Token saved to: {}", provider.report_location());
+    info!("Token saved to: {}", provider.report_location()?);
 
     complete_login(
         &provider,
@@ -334,7 +334,7 @@ fn complete_login(
 
     crate::safe_println!();
     crate::safe_println!("🎉 Authentication complete!");
-    crate::safe_println!("Credentials saved to: {}", provider.report_location());
+    crate::safe_println!("Credentials saved to: {}", provider.report_location()?);
     crate::safe_println!();
     crate::safe_println!("You can now use the CLI:");
     crate::safe_println!("  {next_command}");
@@ -368,7 +368,7 @@ fn manual_login() -> Result<(), Error> {
     let provider = HomeDirProvider;
     provider.store_credentials(token)?;
 
-    info!("Token saved to: {}", provider.report_location());
+    info!("Token saved to: {}", provider.report_location()?);
 
     complete_login(&provider, "manual_login", &[], &[])
 }
