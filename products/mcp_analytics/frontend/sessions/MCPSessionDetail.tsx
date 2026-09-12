@@ -10,6 +10,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { MCPAnalyticsFeedbackPrompt } from '../feedback/MCPAnalyticsFeedbackPrompt'
 import { mcpSessionsLogic } from './mcpSessionsLogic'
 import { formatDuration, formatRelativeOffset, sessionDurationMs, shortenSessionId } from './utils'
 
@@ -238,6 +239,7 @@ export function MCPSessionDetail(): JSX.Element {
                     </AccessControlAction>
                 )}
             </footer>
+            {!loading && toolCalls.length > 0 && <MCPAnalyticsFeedbackPrompt sessionId={selectedSession.session_id} />}
         </div>
     )
 }

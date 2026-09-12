@@ -19,6 +19,7 @@ import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
 import { MCPAnalyticsActivityDashboard } from './earlyData/MCPAnalyticsEarlyData'
 import { mcpAnalyticsEmptyState } from './emptyState/mcpAnalyticsEmptyState'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
+import { MCP_ANALYTICS_FEEDBACK_SURVEY_ID } from './feedback/constants'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
@@ -37,7 +38,6 @@ export const scene: SceneExport = {
 }
 
 const MCP_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
-const MCP_ANALYTICS_FEEDBACK_SURVEY_ID = '01a04991-bc80-0000-70c5-beeea0553cd0'
 
 export function MCPAnalyticsScene(): JSX.Element {
     return (
@@ -145,6 +145,7 @@ function MCPAnalyticsSceneContent(): JSX.Element {
                             surveyId={MCP_ANALYTICS_FEEDBACK_SURVEY_ID}
                             properties={{
                                 feedback_surface: 'mcp_analytics',
+                                feedback_entry_point: 'header',
                                 mcp_analytics_tab: activeTab,
                             }}
                             data-attr="mcp-analytics-feedback-button"
