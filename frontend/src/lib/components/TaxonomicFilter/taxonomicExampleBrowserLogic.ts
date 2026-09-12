@@ -132,7 +132,7 @@ export interface taxonomicExampleBrowserLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         exampleSource: (arg: any) => ExampleSource | null
-        isAvailable: (featureFlags: FeatureFlagsSet, exampleSource: any) => boolean
+        isAvailable: (featureFlags: FeatureFlagsSet, exampleSource: ExampleSource | null) => boolean
         supportsValueSelection: (arg: any, arg2: any) => boolean
         currentExample: (examples: Example[], exampleIndex: number) => Example | null
         hasPreviousExample: (exampleIndex: number) => boolean
@@ -143,7 +143,7 @@ export interface taxonomicExampleBrowserLogicMeta {
             isCloudOrDev: boolean | undefined,
             searchQuery: string
         ) => ExampleProperty[]
-        exploreUrl: (exampleSource: any) => string | null
+        exploreUrl: (exampleSource: ExampleSource | null) => string | null
     }
 }
 
