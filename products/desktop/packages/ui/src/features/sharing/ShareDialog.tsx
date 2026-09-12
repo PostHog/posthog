@@ -41,7 +41,6 @@ export function ShareDialog({
         <DialogFooter>
           <Button
             variant="outline"
-            size="sm"
             onClick={onClose}
             data-attr="share-modal-done"
           >

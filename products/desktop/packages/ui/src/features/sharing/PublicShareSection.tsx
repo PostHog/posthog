@@ -1,4 +1,5 @@
 import { Label, Switch, Text } from "@posthog/quill";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { type ReactNode, useId } from "react";
 import { LinkCopyRow } from "./LinkCopyRow";
 import { ShareSection } from "./ShareSection";
@@ -81,6 +82,7 @@ export function PublicShareSection({
             hideLabel
             url={publicUrl}
             copiedDescription="Anyone with the link can view."
+            onOpen={publicUrl ? () => openExternalUrl(publicUrl) : undefined}
             dataAttr={`${dataAttrPrefix}-copy-public-link`}
           />
           {children}
