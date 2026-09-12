@@ -9,6 +9,7 @@ export interface EmptyMessageProps {
     buttonTo?: string
     buttonOnClick?: () => void
     buttonDataAttr?: string
+    buttonLoading?: boolean
     size?: 'small' | 'medium' | 'large'
 }
 
@@ -19,6 +20,7 @@ export function EmptyMessage({
     buttonTo,
     buttonOnClick,
     buttonDataAttr,
+    buttonLoading,
     size = 'medium',
 }: EmptyMessageProps): JSX.Element {
     return (
@@ -34,6 +36,7 @@ export function EmptyMessage({
                         onClick={buttonOnClick}
                         size={size}
                         data-attr={buttonDataAttr}
+                        loading={buttonLoading}
                     >
                         {buttonText}
                     </LemonButton>
