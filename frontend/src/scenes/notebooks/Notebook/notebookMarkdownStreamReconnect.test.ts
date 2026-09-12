@@ -3,6 +3,8 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { INITIAL_RETRY_DELAY_MS } from 'lib/api-stream'
+import { POLL_JITTER_RATIO } from 'lib/wizard-sync/pollLoop'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -67,6 +69,9 @@ describe('notebook markdown stream reconnect', () => {
         logic.actions.loadNotebook()
         await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
         expect(collabStream).toHaveBeenCalledTimes(1)
+
+        // Pins the reconnect spread to its midpoint, which is the plain backoff step.
+        jest.spyOn(Math, 'random').mockReturnValue(0.5)
     })
 
     afterEach(() => {
@@ -95,6 +100,17 @@ describe('notebook markdown stream reconnect', () => {
         const delays = Array.from({ length: 7 }, () => options.onError(new TypeError('network error')))
 
         expect(delays).toEqual([1000, 2000, 4000, 8000, 16000, 30000, 30000])
+    })
+
+    // Notebooks dropped by one outage must not arrive back at the stream admission cap together.
+    it('spreads each delay around the backoff step', () => {
+        jest.spyOn(Math, 'random').mockReturnValue(0)
+        expect(options.onError(new TypeError('network error'))).toBe(INITIAL_RETRY_DELAY_MS * (1 - POLL_JITTER_RATIO))
+
+        jest.spyOn(Math, 'random').mockReturnValue(1)
+        expect(options.onError(new TypeError('network error'))).toBe(
+            INITIAL_RETRY_DELAY_MS * 2 * (1 + POLL_JITTER_RATIO)
+        )
     })
 
     it('starts the backoff again once the connection delivers a message', () => {

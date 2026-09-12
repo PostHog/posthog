@@ -44,6 +44,7 @@ import { downloadFile } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { slugify } from 'lib/utils/strings'
+import { jitteredIntervalMs } from 'lib/wizard-sync/pollLoop'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -1669,11 +1670,13 @@ export const notebookLogic = kea<notebookLogicType>([
                     let deliveredSinceOpen = false
 
                     // The delay lives on `cache`, because each reopen builds a new disposable and a
-                    // network that stays down has to keep backing off across all of them.
+                    // network that stays down has to keep backing off across all of them. The step
+                    // is spread per client, so notebooks dropped by one outage do not arrive back
+                    // at the stream admission cap together.
                     const nextReconnectDelayMs = (): number => {
                         const delayMs = cache.markdownStreamRetryDelay ?? INITIAL_RETRY_DELAY_MS
                         cache.markdownStreamRetryDelay = Math.min(delayMs * 2, MAX_RETRY_DELAY_MS)
-                        return delayMs
+                        return jitteredIntervalMs(delayMs)
                     }
 
                     // Reopens the stream once, however many callbacks a single failure reaches.
