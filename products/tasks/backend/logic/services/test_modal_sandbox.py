@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
+from modal.exception import TimeoutError as ModalTimeoutError
+
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     SNAPSHOT_KIND_DIRECTORY,
@@ -215,6 +217,7 @@ class TestModalSandboxDirectorySnapshotMount:
         snapshot_image = MagicMock()
         mocker.patch("modal.Image.from_id", return_value=snapshot_image)
         fake_sandbox = patched_modal.return_value
+        # The post-mount probe runs a command in the mounted sandbox; let it pass.
         fake_sandbox.exec.return_value.poll.return_value = 0
 
         sandbox = ModalSandbox.create(
@@ -240,7 +243,7 @@ class TestModalSandboxDirectorySnapshotMount:
         mocker.patch("modal.Image.from_id", return_value=snapshot_image)
         wedged = MagicMock()
         wedged.object_id = "sb-wedged"
-        wedged.exec.return_value.poll.return_value = 137
+        wedged.wait_until_ready.side_effect = ModalTimeoutError("readiness probe timed out")
         fresh = MagicMock()
         fresh.object_id = "sb-fresh"
         patched_modal.side_effect = [wedged, fresh]
