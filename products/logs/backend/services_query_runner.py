@@ -172,9 +172,22 @@ def _sampling_rule_summary(rule: LogsExclusionRule) -> str:
 # than query time. The aggregation reads the same window either way.
 SERVICES_LIMIT = 10000
 # Sparklines are fetched per displayed page: the bucket grid is
-# time × service and the sparkline query's row LIMIT would silently drop the
-# most recent buckets if scoped to all SERVICES_LIMIT names at once.
+# time × service, so scoping to all SERVICES_LIMIT names at once would multiply
+# the row count by four hundred against the sparkline query's row LIMIT.
 SPARKLINE_SERVICES_LIMIT = 25
+# Row cap for the sparkline query, sized as insurance rather than as a working
+# bound. `query_date_range` picks the bucket interval to land near BUCKET_TARGET
+# buckets, and the coarsest interval it can pick is one day. Below that ceiling the
+# interval grid never yields more than about 175 buckets, so a request tops out near
+# 175 × SPARKLINE_SERVICES_LIMIT rows. Past the ceiling the bucket count grows with
+# the window, so reaching this cap takes a window of several thousand days.
+SPARKLINE_ROW_LIMIT = 50000
+
+
+class SparklineTruncated(Exception):
+    """The sparkline query hit its row limit. Rows come back ordered by time
+    ascending, so truncation drops the newest buckets and every chart loses its
+    right edge with nothing else to signal it."""
 
 
 class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
@@ -207,8 +220,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         # trends for other rows re-request with `serviceNames` scoped to the
         # rows they display. service_name is in the table's sort key, so the IN
         # filter prunes the scan, and the bounded name list keeps the grid of
-        # time × service rows under the sparkline query's row LIMIT (which
-        # truncates the most recent buckets first).
+        # time × service rows well under the sparkline query's row LIMIT.
         top_service_names = [row[0] for row in aggregates_response.results[:SPARKLINE_SERVICES_LIMIT]]
         sparkline_rows: list[Any] = []
         if top_service_names:
@@ -224,6 +236,8 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 settings=self.settings,
             )
             sparkline_rows = sparkline_response.results
+            if len(sparkline_rows) >= SPARKLINE_ROW_LIMIT:
+                raise SparklineTruncated(f"sparkline query returned {len(sparkline_rows)} rows, at the row limit")
 
         # True distinct-service count, unaffected by SERVICES_LIMIT — the UI
         # uses it to disclose truncation. The window function counts the groups
@@ -293,6 +307,10 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                     "time": row[0],
                     "service_name": row[1] if row[1] else "(no service)",
                     "count": row[2],
+                    "debug": row[3],
+                    "info": row[4],
+                    "warn": row[5],
+                    "error": row[6],
                 }
             )
 
@@ -362,15 +380,24 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             SELECT
                 toStartOfInterval({time_field}, {one_interval_period}) AS time,
                 service_name,
-                count() AS event_count
+                count() AS event_count,
+                -- Conditional aggregation rather than a third GROUP BY dimension, so the
+                -- bucket stays one row and `event_count` keeps its meaning. Groupings match
+                -- the aggregates query's severity_breakdown. That query lowercases in an
+                -- inner subquery; this one has none, so it lowercases per comparison.
+                countIf(in(lower(severity_text), tuple('trace', 'debug'))) AS severity_debug,
+                countIf(lower(severity_text) = 'info') AS severity_info,
+                countIf(in(lower(severity_text), tuple('warn', 'warning'))) AS severity_warn,
+                countIf(in(lower(severity_text), tuple('error', 'fatal'))) AS severity_error
             FROM logs
             WHERE {where} AND service_name IN {service_names}
             GROUP BY service_name, time
             ORDER BY time ASC, service_name ASC
-            LIMIT 10000
+            LIMIT {row_limit}
             """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
+                "row_limit": ast.Constant(value=SPARKLINE_ROW_LIMIT),
                 "time_field": ast.Call(name="toStartOfMinute", args=[ast.Field(chain=["timestamp"])])
                 if self.query_date_range.interval_name != "second"
                 else ast.Field(chain=["timestamp"]),
