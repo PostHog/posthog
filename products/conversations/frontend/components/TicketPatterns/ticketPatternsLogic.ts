@@ -151,8 +151,18 @@ export const ticketPatternsLogic = kea<ticketPatternsLogicType>([
         const settleFailure = async (id: string, error: unknown, retryMessage: string): Promise<void> => {
             if (error instanceof ApiError && error.status === 400 && error.attr === 'status') {
                 try {
-                    actions.decisionSucceeded(await api.conversationsPatternsRetrieve(String(getCurrentTeamId()), id))
-                    lemonToast.info('This pattern was already reviewed. The list now shows the decision.')
+                    const settled = await api.conversationsPatternsRetrieve(String(getCurrentTeamId()), id)
+                    actions.decisionSucceeded(settled)
+                    if (settled.status === 'resolved') {
+                        // Only the detector writes `resolved`, when a pattern stops firing. Nobody
+                        // reviewed it, and the refused transition recorded no feedback for the topic,
+                        // so this decision is gone rather than superseded by someone else's.
+                        lemonToast.warning(
+                            "This pattern went quiet and closed on its own, so your decision wasn't saved."
+                        )
+                    } else {
+                        lemonToast.info('This pattern was already reviewed. The list now shows the decision.')
+                    }
                 } catch (retrieveError) {
                     // Recovering here skips the gate `initKea` applies to loader failures, so reapply it.
                     if (shouldReportApiFailure(retrieveError)) {

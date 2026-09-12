@@ -35,7 +35,7 @@ function makePattern(id: string): TicketPatternApi {
 }
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
-    lemonToast: { info: jest.fn(), error: jest.fn() },
+    lemonToast: { info: jest.fn(), warning: jest.fn(), error: jest.fn() },
 }))
 
 describe('ticketPatternsLogic', () => {
@@ -100,13 +100,26 @@ describe('ticketPatternsLogic', () => {
         expect(logic.values.openPatterns.map((p) => p.id).sort()).toEqual(['a', 'b'])
     })
 
-    it('keeps the row gone when someone else decided the pattern first', async () => {
+    it.each([
+        { settled: 'confirmed', shown: 'info', hidden: 'warning' },
+        { settled: 'resolved', shown: 'warning', hidden: 'info' },
+    ] as const)('keeps the row gone when the pattern is already $settled', async ({ settled, shown, hidden }) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/conversations/patterns/:id/': () => [
+                    200,
+                    { ...makePattern('b'), status: settled },
+                ],
+            },
+        })
+
         await expectLogic(logic, () => logic.actions.dismissPattern('b'))
             .toDispatchActions(['decisionSucceeded'])
             .toMatchValues({ inFlightIds: [] })
 
         expect(logic.values.openPatterns.map((p) => p.id)).toEqual(['a'])
-        expect(lemonToast.info).toHaveBeenCalled()
+        expect(lemonToast[shown]).toHaveBeenCalled()
+        expect(lemonToast[hidden]).not.toHaveBeenCalled()
     })
 
     it('says the decision is missing when the conflict lookup fails', async () => {
