@@ -367,7 +367,7 @@ services:
         restart: on-failure
 
     capture:
-        image: ghcr.io/posthog/posthog/capture:master
+        image: ghcr.io/posthog/posthog/capture:${POSTHOG_RUST_TAG:-master}
         build:
             context: rust/
             args:
@@ -392,7 +392,7 @@ services:
             CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_CLIENT_INGESTION_WARNING: 'ingestion-clientwarnings-main-1'
 
     replay-capture:
-        image: ghcr.io/posthog/posthog/capture:master
+        image: ghcr.io/posthog/posthog/capture:${POSTHOG_RUST_TAG:-master}
         build:
             context: rust/
             args:
@@ -406,7 +406,7 @@ services:
             CAPTURE_MODE: recordings
 
     capture-ai:
-        image: ghcr.io/posthog/posthog/capture:master
+        image: ghcr.io/posthog/posthog/capture:${POSTHOG_RUST_TAG:-master}
         build:
             context: rust/
             args:
@@ -423,7 +423,7 @@ services:
             RUST_LOG: 'info,rdkafka=warn'
 
     capture-logs:
-        image: ghcr.io/posthog/posthog/capture-logs:master
+        image: ghcr.io/posthog/posthog/capture-logs:${POSTHOG_RUST_TAG:-master}
         build:
             context: rust/
             args:
@@ -443,7 +443,7 @@ services:
             - default
 
     property-defs-rs:
-        image: ghcr.io/posthog/posthog/property-defs-rs:master
+        image: ghcr.io/posthog/posthog/property-defs-rs:${POSTHOG_RUST_TAG:-master}
         build:
             context: rust/
             args:
@@ -457,7 +457,7 @@ services:
             FILTER_MODE: 'opt-out'
 
     feature-flags:
-        image: ghcr.io/posthog/posthog/feature-flags:master
+        image: ghcr.io/posthog/posthog/feature-flags:${POSTHOG_RUST_TAG:-master}
         build:
             context: rust/
             args:
@@ -494,7 +494,7 @@ services:
             COOKIELESS_REDIS_PORT: 6379
 
     usage-ingestion:
-        image: ghcr.io/posthog/posthog/usage-ingestion:master
+        image: ghcr.io/posthog/posthog/usage-ingestion:${POSTHOG_RUST_TAG:-master}
         build:
             context: rust/
             args:
@@ -512,7 +512,7 @@ services:
             RUST_LOG: 'info'
 
     personhog-replica:
-        image: ghcr.io/posthog/posthog/personhog-replica:master
+        image: ghcr.io/posthog/posthog/personhog-replica:${POSTHOG_RUST_TAG:-master}
         build:
             context: rust/
             args:
@@ -525,7 +525,7 @@ services:
             METRICS_PORT: '9100'
 
     personhog-router:
-        image: ghcr.io/posthog/posthog/personhog-router:master
+        image: ghcr.io/posthog/posthog/personhog-router:${POSTHOG_RUST_TAG:-master}
         build:
             context: rust/
             args:
@@ -617,7 +617,7 @@ services:
             METRICS_PORT: '9108'
 
     hypercache-server:
-        image: ghcr.io/posthog/posthog/hypercache-server:master
+        image: ghcr.io/posthog/posthog/hypercache-server:${POSTHOG_RUST_TAG:-master}
         build:
             context: rust/
             args:
@@ -736,7 +736,7 @@ services:
             TRACES_REDIS_HOST: redis7
 
     livestream:
-        image: 'ghcr.io/posthog/posthog/livestream:master'
+        image: 'ghcr.io/posthog/posthog/livestream:${POSTHOG_LIVESTREAM_TAG:-master}'
         restart: on-failure
         depends_on:
             kafka:
