@@ -6,6 +6,7 @@ from posthog.schema import BreakdownAttributionType, BreakdownType, StepOrderVal
 
 from posthog.hogql import ast
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLQuerySettings
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.utils.breakdowns import NOT_IN_COHORT_ID
@@ -346,7 +347,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         funnelStepBreakdown = actorsQuery.funnelStepBreakdown
 
         if funnelStep is None:
-            raise ValueError("Missing funnelStep in actors query")
+            raise ExposedHogQLError("Missing funnelStep in actors query")
 
         conditions: list[ast.Expr] = []
 
@@ -366,7 +367,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                     break
 
             if prior_required_step_index is None:
-                raise ValueError("Missing prior required step in actors query")
+                raise ExposedHogQLError("Missing prior required step in actors query")
 
             # User completed the prior required step but not the target step
             conditions.append(parse_expr(f"bitTest(steps_bitfield, {prior_required_step_index})"))
@@ -397,7 +398,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
             absolute_actors_step = self._absolute_actors_step
             if absolute_actors_step is None:
-                raise ValueError("Missing funnelStep actors query property")
+                raise ExposedHogQLError("Missing funnelStep actors query property")
             return [parse_expr(f"matched_events_array[{absolute_actors_step + 1}] as matching_events")]
         return []
 
@@ -419,7 +420,9 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         if self.context.includePrecedingTimestamp:
             if target_step == 0:
-                raise ValueError("Cannot request preceding step timestamp if target funnel step is the first step")
+                raise ExposedHogQLError(
+                    "Cannot request preceding step timestamp if target funnel step is the first step"
+                )
 
             return [
                 parse_expr(f"matched_events_array[{target_step}][1].1 AS max_timestamp"),
