@@ -101,14 +101,6 @@ export const SETUP_ABSORBED_TABS: Partial<Record<MarketingAnalyticsTab, SetupSec
     [MarketingAnalyticsTab.INTEGRATION_HEALTH]: SetupSection.INTEGRATION_HEALTH,
 }
 
-const EXTENDED_DRILL_DOWN_LEVELS = new Set<MarketingAnalyticsDrillDownLevel>([
-    MarketingAnalyticsDrillDownLevel.Medium,
-    MarketingAnalyticsDrillDownLevel.Content,
-    MarketingAnalyticsDrillDownLevel.Term,
-    MarketingAnalyticsDrillDownLevel.AdGroup,
-    MarketingAnalyticsDrillDownLevel.Ad,
-])
-
 export enum MarketingSourceStatus {
     Warning = 'Warning',
     Error = 'Error',
@@ -889,12 +881,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             (s) => [s._drillDownLevel, s.featureFlags],
             (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) => {
                 if (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]) {
-                    return MarketingAnalyticsDrillDownLevel.Campaign
-                }
-                if (
-                    EXTENDED_DRILL_DOWN_LEVELS.has(level) &&
-                    !featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]
-                ) {
                     return MarketingAnalyticsDrillDownLevel.Campaign
                 }
                 return level
