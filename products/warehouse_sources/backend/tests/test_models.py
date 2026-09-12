@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from dateutil import parser
 from parameterized import parameterized
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models.signals import model_activity_signal
 from posthog.models.team import Team
@@ -1281,3 +1282,36 @@ class TestRepartitionHoldsImport:
         naive = (datetime.now(UTC) - timedelta(minutes=5)).replace(tzinfo=None).isoformat()
         schema = self._schema_with({"temp_uri": "s3://t", "held_at": naive})
         assert schema.repartition_holds_import is True
+
+
+class TestReloadSchemas(BaseTest):
+    def _source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+
+    def _schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(team_id=self.team.pk, source=source, name=name, should_sync=True)
+
+    def test_a_schema_that_cannot_be_rebuilt_does_not_stop_the_others(self) -> None:
+        source = self._source()
+        self._schema(source, "broken")
+        self._schema(source, "healthy")
+
+        def rebuild(schema, **kwargs):
+            if schema.name == "broken":
+                raise ValueError("cannot build a schedule for this schema")
+
+        facade = "products.data_warehouse.backend.facade.api"
+        missing = RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b"")
+        with (
+            patch(f"{facade}.trigger_external_data_workflow", side_effect=missing),
+            patch(f"{facade}.sync_external_data_job_workflow", side_effect=rebuild) as rebuilt,
+        ):
+            source.reload_schemas()
+
+        assert sorted(call.args[0].name for call in rebuilt.call_args_list) == ["broken", "healthy"]

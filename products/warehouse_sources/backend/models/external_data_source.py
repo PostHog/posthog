@@ -316,12 +316,15 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             .exclude(deleted=True)
             .all()
         ):
+            # One schema that cannot be triggered or rebuilt must not abort the reload of the rest,
+            # so the recovery below is inside the same guard as the trigger.
             try:
-                trigger_external_data_workflow(schema)
-            except temporalio.service.RPCError as e:
-                if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                try:
+                    trigger_external_data_workflow(schema)
+                except temporalio.service.RPCError as e:
+                    if e.status != temporalio.service.RPCStatusCode.NOT_FOUND:
+                        raise
                     sync_external_data_job_workflow(schema, create=True, should_sync=True)
-
             except Exception as e:
                 logger.exception(f"Could not trigger external data job for schema {schema.name}", exc_info=e)
 
