@@ -486,6 +486,13 @@ class _MetricNamesResponseSerializer(serializers.Serializer):
 
 
 class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
+    metricName = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text="Exact metric name to limit attribute keys to. Omit to list keys across all metrics.",
+    )
     search = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -551,12 +558,15 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
     name = serializers.CharField(
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
     )
+    series_count = serializers.IntegerField(
+        help_text="Number of distinct recent series with this attribute, based on series metadata."
+    )
 
 
 class _MetricAttributeKeysResponseSerializer(serializers.Serializer):
     results = _MetricAttributeKeySerializer(
         many=True,
-        help_text="Distinct attribute keys (datapoint and resource attributes merged), most frequent first.",
+        help_text="Distinct attribute keys (datapoint and resource attributes merged), ordered by series count descending.",
     )
     count = serializers.IntegerField(help_text="Number of keys returned.")
 
@@ -920,9 +930,8 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
     def attributes(self, request: Request, *args, **kwargs) -> Response:
-        """Distinct attribute keys seen on the team's metrics (datapoint and
-        resource attributes merged), most frequent first. Backs the filter
-        bar's key autocomplete."""
+        """Attribute keys ordered by distinct series count, from highest to
+        lowest. `metricName` limits choices to one metric."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         params = _MetricAttributeKeysParamsSerializer(data=request.query_params)
@@ -931,6 +940,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             results = list_metric_attribute_keys(
                 team=self.team,
+                metric_name=params.validated_data["metricName"],
                 search=params.validated_data["search"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],

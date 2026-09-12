@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -21,6 +22,7 @@ import {
     metricsValuesRetrieve,
 } from 'products/metrics/frontend/generated/api'
 
+import { MetricsGroupByButton } from './MetricsGroupByButton'
 import { MetricsViewer } from './MetricsViewer'
 import { metricsViewerLogic } from './metricsViewerLogic'
 
@@ -67,6 +69,28 @@ describe('MetricsViewer', () => {
     afterEach(() => {
         cleanup()
         logic?.unmount()
+    })
+
+    it('shows series counts in the group-by dropdown and selects the attribute key', async () => {
+        jest.mocked(metricsAttributesRetrieve).mockResolvedValue({
+            results: [
+                { name: 'service_name', series_count: 20 },
+                { name: 'env', series_count: 2 },
+            ],
+            count: 2,
+        })
+        const onChange = jest.fn()
+        render(<MetricsGroupByButton groupByKeys={[]} onChange={onChange} disabledReason={null} />)
+        fireEvent.click(screen.getByText('Group by'))
+        const serviceOption = await screen.findByText('service_name')
+        const envOption = screen.getByText('env')
+        expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        await userEvent.hover(screen.getByText('20'))
+        expect(await screen.findByText('Number of series with this attribute')).toBeInTheDocument()
+        fireEvent.change(screen.getByPlaceholderText('Group by attribute…'), { target: { value: 'e' } })
+        expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        fireEvent.click(envOption)
+        expect(onChange).toHaveBeenCalledWith(['env'])
     })
 
     // The formula input only means something once a second series can feed it; showing it

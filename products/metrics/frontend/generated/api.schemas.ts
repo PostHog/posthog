@@ -40,10 +40,12 @@ export interface _MetricAttributeValuesResponseApi {
 export interface _MetricAttributeKeyApi {
     /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
     name: string
+    /** Number of distinct recent series with this attribute, based on series metadata. */
+    series_count: number
 }
 
 export interface _MetricAttributeKeysResponseApi {
-    /** Distinct attribute keys (datapoint and resource attributes merged), most frequent first. */
+    /** Distinct attribute keys (datapoint and resource attributes merged), ordered by series count descending. */
     results: _MetricAttributeKeyApi[]
     /** Number of keys returned. */
     count: number
@@ -843,6 +845,11 @@ export type MetricsAttributesRetrieveParams = {
      * @maximum 1000
      */
     limit?: number
+    /**
+     * Exact metric name to limit attribute keys to. Omit to list keys across all metrics.
+     * @maxLength 255
+     */
+    metricName?: string
     /**
      * Substring filter (case-insensitive) applied to attribute keys.
      * @maxLength 255
