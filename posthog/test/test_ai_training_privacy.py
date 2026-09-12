@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
-from posthog.ai_training_privacy import AITrainingPrivacyStore, item_key, session_key
+from posthog.ai_training_privacy import AITrainingPrivacyStore, DynamoResponse, item_key, session_key
 from posthog.models.ai_training import (
     AITrainingConsent,
     AITrainingPrivacyRequest,
@@ -17,6 +17,35 @@ from posthog.models.ai_training import (
 
 
 class TestAITrainingPrivacyStore(SimpleTestCase):
+    def test_month_deletion_blocks_before_querying_and_shreds_all_index_pages(self) -> None:
+        client = MagicMock()
+        cursor = item_key("month:2026-09:shard:0", "key:cursor")
+        targets = [session_key(7, "01a09f92-e780-7000-8000-000000000001"), item_key("team:7", "image:1:2026-09")]
+        pages = [
+            {
+                "Items": [{"key_pk": target["pk"], "key_sk": target["sk"]}],
+                **({"LastEvaluatedKey": cursor} if index == 0 else {}),
+            }
+            for index, target in enumerate(targets)
+        ] + [{"Items": []}] * 31
+
+        def query(**kwargs: object) -> DynamoResponse:
+            self.assertEqual(client.put_item.call_args.kwargs["Item"]["pk"]["S"], "month:2026-09")
+            self.assertTrue(kwargs["ConsistentRead"])
+            return pages.pop(0)
+
+        client.query.side_effect = query
+        store = AITrainingPrivacyStore(client, "table")
+        self.assertEqual(store.delete_month("2026-09"), 2)
+        self.assertEqual(
+            [call.kwargs["TransactItems"][0]["Update"]["Key"] for call in client.transact_write_items.call_args_list],
+            targets,
+        )
+        self.assertEqual(client.query.call_args_list[1].kwargs["ExclusiveStartKey"], cursor)
+        self.assertEqual(client.query.call_count, 33)
+        with self.assertRaises(ValueError):
+            store.delete_month("2026-13")
+
     def test_withdrawal_preserves_keys_from_a_later_consent_period(self) -> None:
         client = MagicMock()
         old = {**item_key("team:7", "image:100"), "granted_at": {"N": "100"}, "wrapped_key": {"B": b"old"}}

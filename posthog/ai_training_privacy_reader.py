@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import time
 import base64
@@ -9,6 +10,7 @@ from collections import OrderedDict
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import field
+from datetime import UTC, datetime
 from threading import Lock
 from typing import Protocol, TypedDict, cast
 
@@ -40,6 +42,7 @@ class TrainingKeyIdentity:
     organization_id: str
     consent_granted_at: int
     session_id: str | None = None
+    session_month: str | None = None
 
     def context(self, kind: str, ref: str | None = None) -> dict[str, str | int]:
         context: dict[str, str | int] = {
@@ -50,9 +53,20 @@ class TrainingKeyIdentity:
         }
         if self.session_id is not None:
             context["sessionId"] = self.session_id
+        if self.session_month is not None:
+            context["sessionMonth"] = self.session_month
         if ref is not None:
             context["ref"] = ref
         return context
+
+    def month_block_location(self) -> TrainingKeyLocation:
+        month = self.session_month
+        if self.session_id:
+            timestamp_ms = int(self.session_id[:8] + self.session_id[9:13], 16)
+            month = datetime.fromtimestamp(timestamp_ms / 1000, UTC).strftime("%Y-%m")
+        if month is None or re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", month) is None:
+            raise ValueError("ML key requires a session month")
+        return TrainingKeyLocation(pk=f"month:{month}", sk="deleted")
 
     def wrapping_context(self) -> dict[str, str]:
         context = {
@@ -63,6 +77,8 @@ class TrainingKeyIdentity:
         }
         if self.session_id:
             context["session_id"] = self.session_id
+        if self.session_month is not None:
+            context["session_month"] = self.session_month
         return context
 
 
@@ -114,8 +130,8 @@ class TrainingKeyLocation:
         return cls(pk=f"team:{team_id}:shard:{shard}", sk=f"session:{session_id}")
 
     @classmethod
-    def image(cls, team_id: int, consent_granted_at: int) -> TrainingKeyLocation:
-        return cls(pk=f"team:{team_id}", sk=f"image:{consent_granted_at}")
+    def image(cls, team_id: int, consent_granted_at: int, session_month: str) -> TrainingKeyLocation:
+        return cls(pk=f"team:{team_id}", sk=f"image:{consent_granted_at}:{session_month}")
 
     def encoded(self) -> DynamoItem:
         return {"pk": {"S": self.pk}, "sk": {"S": self.sk}}
@@ -179,12 +195,14 @@ class TrainingDataKeyReader:
                 organization_id=str(row["organization_id"]["S"]),
                 consent_granted_at=int(str(row["granted_at"]["N"])),
                 session_id=location.sk.removeprefix("session:") if location.sk.startswith("session:") else None,
+                session_month=str(row["session_month"]["S"]) if location.sk.startswith("image:") else None,
             )
         state = self.bulk_read(
             [
                 location
                 for identity in identities.values()
                 for location in (
+                    identity.month_block_location(),
                     TrainingKeyLocation(pk=f"organization:{identity.organization_id}", sk="consent"),
                     TrainingKeyLocation(pk=f"team:{identity.team_id}", sk="deleted"),
                 )
@@ -194,7 +212,8 @@ class TrainingDataKeyReader:
         for location, identity in identities.items():
             consent = state.get(TrainingKeyLocation(pk=f"organization:{identity.organization_id}", sk="consent"), {})
             if (
-                TrainingKeyLocation(pk=f"team:{identity.team_id}", sk="deleted") in state
+                identity.month_block_location() in state
+                or TrainingKeyLocation(pk=f"team:{identity.team_id}", sk="deleted") in state
                 or consent.get("allowed", {}).get("BOOL") is not True
                 or int(str(consent.get("granted_at", {}).get("N", "-1"))) != identity.consent_granted_at
             ):

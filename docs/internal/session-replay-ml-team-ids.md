@@ -40,7 +40,7 @@ Missing consent state blocks v2 collection.
 
 The independent DynamoDB table stores session keys, team image keys, consent state, deletion markers, and distinct-ID associations.
 A session has one data key.
-A team has one image key per consent period.
+A team has one image key per consent period and session start month.
 KMS wraps each data key with an encryption context that binds its owner, purpose, and consent timestamp.
 Payload encryption uses XSalsa20-Poly1305.
 The authenticated payload also binds the dataset kind and, for images, the object or reference being encrypted.
@@ -97,6 +97,20 @@ Scrubbed images remain available after session or distinct-ID deletion, but beco
 This mechanism covers encrypted v2 objects.
 It does not erase legacy plaintext objects, previously downloaded data, derived training artifacts, or a trained model.
 Legacy dataset retirement needs a separate storage operation before claiming deletion across the entire bucket.
+
+## Monthly key deletion
+
+Key creation writes a month index entry in the same DynamoDB transaction as the wrapped key.
+The index uses 32 partitions named `month:<YYYY-MM>:shard:<0..31>` and stores key locations, without copying wrapped keys.
+Session keys and image keys appear in this index.
+
+Run `python manage.py delete_ai_training_month YYYY-MM` to permanently block that UTC session month and remove its keys.
+The command uses strongly consistent queries and bounded writes.
+Rerun the command after an interrupted run; it preserves the month block and safely repeats completed pages.
+Readers reject blocked months even when a wrapped key remains during deletion.
+Existing read leases expire within five minutes.
+The matching monthly S3 folders can then be removed from each dataset.
+Deleting a month does not affect another month's image keys.
 
 ## Data layout and readers
 

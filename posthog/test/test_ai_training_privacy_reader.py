@@ -70,6 +70,10 @@ class TestTrainingDataKeyReader(TestCase):
         self.assertIn(location, reader.read([location]))
         self.assertIn(location, reader.read([location]))
         self.assertEqual(kms.decrypt.call_count, 1)
+        month = TrainingKeyLocation(pk="month:2025-09", sk="deleted")
+        rows[month] = {**month.encoded(), "deleted": {"BOOL": True}}
+        self.assertEqual(reader.read([location]), {})
+        del rows[month]
         rows[consent]["allowed"] = {"BOOL": False}
         self.assertEqual(reader.read([location]), {})
         rows[consent]["allowed"] = {"BOOL": True}
