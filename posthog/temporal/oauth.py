@@ -267,6 +267,13 @@ def _build_mcp_scopes(action: Literal["read", "write"]) -> list[str]:
 MCP_READ_SCOPES: list[str] = _build_mcp_scopes("read")
 MCP_WRITE_SCOPES: list[str] = _build_mcp_scopes("write")
 
+# Internal write scopes stay out of `MCP_WRITE_SCOPES`, because they are not user-grantable. A
+# caller that lists one still asked for that write, and read-only mode keeps only tools annotated
+# read-only, so it would strip the exact tool the scope exists for. `task:write` is left out on
+# purpose: `INTERNAL_SCOPES` puts it on every posture, so a list holding it says nothing about
+# what the caller wanted.
+MCP_INTERNAL_WRITE_SCOPES: frozenset[str] = frozenset({LOOP_CONTEXT_INTERNAL_SCOPE, CONTEXT_LAYER_INTERNAL_SCOPE})
+
 TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
 # The two presets a scout run can hold. Named apart from `McpScopePreset` so a posture that
@@ -454,7 +461,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
             "signals_research",
             "signals_implementation",
         )
-    return any(s in MCP_WRITE_SCOPES for s in scopes)
+    return any(s in MCP_WRITE_SCOPES or s in MCP_INTERNAL_WRITE_SCOPES for s in scopes)
 
 
 def grants_scratchpad_write(scopes: PosthogMcpScopes) -> bool:
