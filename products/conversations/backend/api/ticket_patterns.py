@@ -130,6 +130,24 @@ class DismissPatternSerializer(serializers.Serializer):
     )
 
 
+class PatternFilterSerializer(serializers.Serializer):
+    """Validates the list query parameters, so a bad value answers 400 rather than reaching the ORM."""
+
+    status = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Comma-separated statuses to include: open, confirmed, dismissed, resolved.",
+    )
+    ticket_id = serializers.UUIDField(required=False, help_text="Only patterns this ticket is evidence for.")
+
+    def validate_status(self, value: str) -> list[str]:
+        statuses = [s for s in value.split(",") if s]
+        unknown = [s for s in statuses if s not in TicketPatternStatus.values]
+        if unknown:
+            raise serializers.ValidationError(f"Unknown status: {', '.join(unknown)}.")
+        return statuses
+
+
 class TicketPatternViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -152,11 +170,12 @@ class TicketPatternViewSet(
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         # Environment-scoped model: filter on the literal team id, never the canonical one.
         queryset = TicketPattern.objects.for_team(self.team_id).select_related("resolved_by", "owner")
-        params = self.request.query_params
-        statuses = [s for s in params.get("status", "").split(",") if s in TicketPatternStatus.values]
+        filters = PatternFilterSerializer(data=self.request.query_params)
+        filters.is_valid(raise_exception=True)
+        statuses = filters.validated_data.get("status")
         if statuses:
             queryset = queryset.filter(status__in=statuses)
-        ticket_id = params.get("ticket_id")
+        ticket_id = filters.validated_data.get("ticket_id")
         if ticket_id:
             queryset = queryset.filter(evidence_tickets__ticket_id=ticket_id)
         return queryset.order_by("-last_seen_at")

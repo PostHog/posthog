@@ -113,6 +113,17 @@ class TestTicketPatternAPI(APIBaseTest):
         assert [p["topic"] for p in open_only] == ["login"]
         assert [p["topic"] for p in by_ticket] == ["login"]
 
+    @parameterized.expand(
+        [
+            ("ticket_id", {"ticket_id": "not-a-uuid"}),
+            ("status", {"status": "open,bogus"}),
+        ]
+    )
+    def test_a_bad_filter_value_is_rejected(self, _name, params):
+        response = self.client.get(self.base_url, params)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
     def test_patterns_from_another_environment_are_not_listed(self):
         sibling = type(self.team).objects.create(organization=self.organization, project=self.team.project)
         TicketPattern.objects.for_team(sibling.id).create(
