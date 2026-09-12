@@ -149,6 +149,31 @@ describe('notebook markdown stream reconnect', () => {
         expect(collabStream).toHaveBeenCalledTimes(2)
     })
 
+    // The backend sends `error` and then ends the body. Counting that as a delivery reopened the
+    // stream at once, so a backend that stayed down was asked again as fast as it could answer.
+    it('backs off when the server reports a stream error before closing', async () => {
+        jest.useFakeTimers()
+
+        options.onMessage({ ...updateMessage, id: '', event: 'error', data: '{"error":"stream error"}' })
+        options.onClose?.()
+        jest.advanceTimersByTime(INITIAL_RETRY_DELAY_MS - 1)
+        await Promise.resolve()
+        expect(collabStream).toHaveBeenCalledTimes(1)
+
+        jest.advanceTimersByTime(1)
+        await Promise.resolve()
+        expect(collabStream).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps the accrued backoff when the server reports a stream error', () => {
+        options.onError(new TypeError('network error'))
+        options.onError(new TypeError('network error'))
+
+        options.onMessage({ ...updateMessage, id: '', event: 'error', data: '{"error":"stream error"}' })
+
+        expect(options.onError(new TypeError('network error'))).toBe(INITIAL_RETRY_DELAY_MS * 4)
+    })
+
     // A close that delivered nothing left no cursor, so the server resumed from its newest entry
     // and a save that landed during the backoff never reached this viewer.
     it('resumes from the loaded version when no message set a cursor', async () => {

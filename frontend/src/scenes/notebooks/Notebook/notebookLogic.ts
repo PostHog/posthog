@@ -1693,6 +1693,14 @@ export const notebookLogic = kea<notebookLogicType>([
                     }
 
                     const onMessage = (msg: EventSourceMessage): void => {
+                        // The server sends this frame and then ends the body, so a clean close
+                        // follows it. It is a failure wearing a delivered message: counting it as
+                        // one would reopen at once and loop for as long as the backend stays down.
+                        if (msg.event === 'error') {
+                            deliveredSinceOpen = false
+                            return
+                        }
+
                         // The connection works, so the next failure starts the backoff again.
                         deliveredSinceOpen = true
                         cache.markdownStreamRetryDelay = INITIAL_RETRY_DELAY_MS
