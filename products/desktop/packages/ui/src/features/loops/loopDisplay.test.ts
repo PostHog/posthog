@@ -97,6 +97,7 @@ describe("loopFireBlockedMessage", () => {
     ["disabled", "disabled"],
     ["owner_inactive", "no longer start runs"],
     ["owner_changed", "owner changed"],
+    ["context_missing", "context this loop keeps up to date is gone"],
   ] as const)("describes %s", (reason, expected) => {
     expect(loopFireBlockedMessage(reason)).toContain(expected);
   });
