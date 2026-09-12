@@ -66,7 +66,7 @@ export function AuthorizedUrlsStep({
             />
             <div className="flex flex-col items-center gap-1 pt-2">
                 {showRequirement && authorizedUrls.length === 0 && (
-                    <p className="text-danger text-center m-0">
+                    <p className="text-danger text-center m-0" role="alert">
                         Add one URL to continue, or skip for now and add it later in settings.
                     </p>
                 )}

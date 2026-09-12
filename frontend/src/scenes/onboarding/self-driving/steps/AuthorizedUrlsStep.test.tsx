@@ -35,7 +35,7 @@ describe('AuthorizedUrlsStep', () => {
         fireEvent.click(screen.getByText('Continue'))
 
         expect(onContinue).not.toHaveBeenCalled()
-        expect(screen.getByText(/Add one URL to continue/)).not.toBeNull()
+        expect(screen.getByRole('alert').textContent).toMatch(/Add one URL to continue/)
         expect(logic.values.isAddUrlFormVisible).toBe(true)
     })
 
