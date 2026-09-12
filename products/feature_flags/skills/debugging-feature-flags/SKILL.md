@@ -115,12 +115,10 @@ value _and_ the **match reason** for a specific user — so you rarely have to g
 the flag — flags not loaded yet, or the request was blocked), and **doesn't exist** (wrong key). The
 reproduced reason tells them apart; a bare "it's off" from the customer doesn't.
 
-**On a server-side SDK the first two collapse into one.** The response omits flags that evaluated
-false, so those SDKs treat an absent key as `false` — meaning a `$feature_flag_response: false` is not
-evidence the flag was evaluated, or even that it reached the SDK. (`undefined` is largely a posthog-js
-signal.) So a server-side `false` on a flag whose conditions obviously match is the shape to be
-suspicious of: read it as "the flag may never have arrived", not as "a condition failed", and check
-"Runtime scoping" in the SDK catalog before you go looking for a targeting cause.
+**On a server-side SDK the first two collapse.** The response omits flags that evaluated false, so
+those SDKs report an absent flag as `false` too, and `undefined` is largely a posthog-js signal. A
+server-side `false` on a flag whose conditions obviously match is therefore not evidence a condition
+failed — read it as "may never have arrived" and check "Runtime scoping" below.
 
 Expand the non-obvious ones:
 
@@ -159,11 +157,9 @@ Expand the non-obvious ones:
   way a flag can be absent from the set the Rust service evaluated, not only `active: false`.
   `evaluation-reasons` reproduces with `evaluation_runtime: "all"`, while `test-evaluation` reaches the
   service over an internal request that always classifies as server-side, so an **active** flag scoped
-  to `evaluation_runtime: "client"` is filtered out and returns `flag_not_found`. Watch for the mirror
-  of that, which is harder to catch because it **agrees** with what the customer expected instead of
-  contradicting it: a flag scoped to `"server"` is included for `test-evaluation` and reads `true`
-  there, even when the customer's own caller never receives it. Neither tool reproduces the customer's
-  runtime — see "Runtime scoping" in the SDK catalog. On `flag_not_found`, read `active` and
+  to `evaluation_runtime: "client"` is filtered out and returns `flag_not_found`. The mirror is harder
+  to catch because it **agrees** with the customer's expectation: a `"server"`-scoped flag is included
+  here and reads `true` even when their own caller never receives it. On `flag_not_found`, read `active` and
   `evaluation_runtime` on the config, and cross-check `evaluation-reasons`, which still returns the
   real reason. Neither tool ever returns `flag_disabled`: that enum value exists in the
   matcher, but disabled flags are filtered out before matching, so nothing reaches the code that would
@@ -194,42 +190,25 @@ Expand the non-obvious ones:
 
 When `posthog:feature-flags-evaluation-reasons-retrieve` returns the **expected** value but the customer
 reports otherwise, the flag is fine as configured and the problem is between it and the caller. The
-first entry leads because it's the one cause here that both reproduction tools are blind to; the rest
-run roughly by frequency:
+first entry leads because it's the one cause here that step 4 can't see; the rest run roughly by
+frequency:
 
-- **Runtime scoping, judged per request, not per SDK.** When the flag's `evaluation_runtime` is
-  `client` or `server` rather than `all`, PostHog decides on **each flags request** which runtime is
-  calling and omits the flag when that verdict doesn't match. The verdict comes from the request
-  itself — an explicit `evaluation_runtime` in the body, else the **`User-Agent` header**, else
-  browser-ish headers (`origin`, `referer`, `sec-fetch-*`) — so it is **not** the `$lib` on the usage
-  event, and the two can disagree. Don't clear this cause because `$lib` looks like the right kind of
-  SDK; `$lib` is what the SDK calls itself, not what it put on the wire.
-
-  **Discriminator:** check the `evaluation_runtime` of the other flags the same caller reads
-  successfully. If every flag that works is `all` and every flag that fails is `client` or `server`,
-  it's this, whichever way the verdict went. The query is in
-  [references/pulling-the-data.md](references/pulling-the-data.md) §3, and the wire check that settles
-  it in one step is in §6.
-
-  Two shapes, and the second isn't fixed by any change to the first:
-
-  - **The request can't be classified.** Only recognized SDK user agents (`posthog-<sdk>/<version>`),
-    browser patterns, and a couple of generic HTTP clients produce a verdict. Anything else, or a
-    missing header, produces none — and a request with no verdict is currently held to `all` flags
-    only, so it can lose `client`- **and** `server`-scoped flags at once. Older SDK builds that never
-    set the header on the flags call land here, as do direct HTTP callers, wrappers that build their
-    own fetch, and proxies that strip the header.
-  - **The request is classified wrongly.** A confident wrong verdict. A server-side caller that sends
-    `origin` or `referer` reads as client-side, and a proxy that rewrites `User-Agent` can flip it
-    either way.
-
-  **Both reproduction tools hide this**, so a clean match from them is not a clearance:
-  `evaluation-reasons` asks for `all` and disables the filtering outright, and `test-evaluation`
-  arrives over an internal request that always classifies as server-side.
-
-  Fixes, cheapest first: scope the flag to **both client and server** if it doesn't need the
-  restriction; upgrade the SDK to a build that sends its user agent on the flags call; or, for a
-  hand-rolled caller, send `evaluation_runtime` explicitly in the request body.
+- **Runtime scoping, judged per request.** A flag scoped to `client` or `server` reaches a caller only
+  when PostHog classifies **that request** as the matching runtime. The verdict is read off the request
+  (an explicit `evaluation_runtime` in the body, else the **`User-Agent`**, else `origin` / `referer` /
+  `sec-fetch-*`), so it is **not** the `$lib` on the usage event. Don't clear this cause because `$lib`
+  names the right kind of SDK; that's what the SDK calls itself, not what it put on the wire. It bites
+  two ways: an unrecognized or absent user agent yields no verdict, and a request with no verdict is
+  currently held to `all` flags only, losing `client`- and `server`-scoped flags alike (old SDK builds,
+  direct HTTP callers, header-stripping proxies); or the verdict is confidently wrong, as when a
+  server-side caller sending `origin` reads as client-side. **Neither reproduction tool sees any of
+  this** (see the `flag_not_found` expansion), so a clean match from step 4 is not a clearance. Confirm
+  from the other flags the same caller reads instead: if the ones that work are all `all`, it's this
+  ([references/pulling-the-data.md](references/pulling-the-data.md) §3 for the query, §6 to settle it on
+  the wire). That query also shows whether the caller reads **other** runtime-scoped flags, which are
+  failing the same silent way and belong in the reply. Fixes: scope the flag to both runtimes, upgrade
+  the SDK so it sends its user agent on the flags call, or send `evaluation_runtime` explicitly from a
+  hand-rolled caller.
 
 - **Flag read before flags loaded.** The app evaluated the flag before PostHog finished loading them,
   so it got the default (`false`/`undefined`). Fix: gate on `onFeatureFlags` (posthog-js) / the
@@ -278,20 +257,6 @@ server, so they're a latency/cost regression, not a divergence — don't advise 
 dynamic cohort. (A **behavioral** cohort can't be computed on _either_ path, so it never explains an
 environment difference — see "Cohort not usable in the flag".) Compare `locally_evaluated` on the usage
 events across environments, and check the local-eval refresh interval and personal-API-key setup.
-
-## Misleading signals
-
-A ticket often arrives with supporting observations the customer read as corroboration. Two of them
-mean less than they look like, and taking them at face value sends the investigation sideways.
-
-- **"Last called" looks stale right after a call.** That timestamp is synced in batches from
-  `$feature_flag_called` events on a schedule of tens of minutes, not written per evaluation, so a lag
-  of that order is normal and says nothing about whether a call just happened. It also never advances
-  when the SDK is configured not to emit usage events, even though the flag is being read constantly.
-  Don't read it as proof the call never reached PostHog.
-- **"The testing tab says it should be `true`."** That tab doesn't evaluate as the customer's caller
-  does — see the `flag_not_found` expansion above. It's evidence about the flag's configuration, not
-  about what their app receives.
 
 ## Everything else → hand off
 
