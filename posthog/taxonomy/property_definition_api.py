@@ -1,5 +1,6 @@
 import json
 import uuid
+import functools
 import dataclasses
 from typing import Any, Optional, Self, Union, cast
 
@@ -62,9 +63,10 @@ class PropertyDefinitionsTimedOut(DefinitionListTimedOut):
     default_detail = "Loading properties took too long. Try a narrower search, or try again in a moment."
 
 
-def property_definition_model() -> type[PropertyDefinition]:
+@functools.cache
+def property_definition_model(is_enterprise: bool) -> type[PropertyDefinition]:
     """The model the list query runs through, which the enterprise extension replaces."""
-    if EE_AVAILABLE:
+    if is_enterprise:
         from ee.models.property_definition import EnterprisePropertyDefinition
 
         return EnterprisePropertyDefinition
@@ -72,7 +74,7 @@ def property_definition_model() -> type[PropertyDefinition]:
 
 
 def read_db_alias() -> str:
-    return definition_read_db_alias(property_definition_model())
+    return definition_read_db_alias(property_definition_model(EE_AVAILABLE))
 
 
 class SeenTogetherQuerySerializer(serializers.Serializer):
@@ -626,7 +628,7 @@ class PropertyDefinitionViewSet(
 
             order_by_verified = False
             if EE_AVAILABLE:
-                enterprise_model = property_definition_model()
+                enterprise_model = property_definition_model(EE_AVAILABLE)
 
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
                 property_definition_fields = ", ".join(

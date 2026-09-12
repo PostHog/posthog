@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import functools
 from collections import defaultdict
 from typing import Any, Literal, Optional, cast
 
@@ -68,6 +69,7 @@ class EventDefinitionsTimedOut(DefinitionListTimedOut):
     default_detail = "Loading events took too long. Try a narrower search, or try again in a moment."
 
 
+@functools.cache
 def event_definition_model(is_enterprise: bool) -> type[EventDefinition]:
     """The model the list query runs through, which the enterprise extension replaces."""
     if is_enterprise:
