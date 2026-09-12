@@ -7,6 +7,7 @@ import products.tasks.backend.presentation.views.config_api as config
 import products.tasks.backend.presentation.views.channels_api as channels
 import products.tasks.backend.presentation.views.desktop_access as desktop_access
 import products.tasks.backend.presentation.views.task_usage_api as task_usage
+import products.tasks.backend.presentation.views.space_files_api as space_files
 import products.tasks.backend.presentation.views.sandbox_pricing_api as sandbox_pricing
 import products.tasks.backend.presentation.views.repo_routing_rules_api as repo_routing_rules
 
@@ -60,6 +61,7 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id", "channel_id"],
     )
     routers.projects.register(r"task_mentions", channels.TaskMentionViewSet, "project_task_mentions", ["team_id"])
+    routers.projects.register(r"space_files", space_files.SpaceFileViewSet, "project_space_files", ["team_id"])
     routers.projects.register(r"task_activity", channels.TaskActivityViewSet, "project_task_activity", ["team_id"])
     routers.projects.register(r"loops", loops.LoopViewSet, "project_loops", ["team_id"])
     routers.projects.register(
