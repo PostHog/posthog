@@ -61112,6 +61112,16 @@ export namespace Schemas {
        * * `interactive` - interactive
        * * `background` - background */
       mode: TaskExecutionModeEnum;
+      /**
+         * URL of the pull request the latest run opened, or null when it opened none.
+         * @nullable
+         */
+      pr_url: string | null;
+      /**
+         * State of that pull request: open, draft, merged, closed, or unknown. Null when the latest run opened no pull request.
+         * @nullable
+         */
+      pr_state: string | null;
     }
 
     /**
