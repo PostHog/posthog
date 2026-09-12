@@ -756,6 +756,46 @@ describe('experimentReplayTabLogic', () => {
         pending.unmount()
     })
 
+    it('holds the tab view until the flag-scoped check settles, and records what it refused', async () => {
+        // That check reads live events, so it normally lands after the other two. Reported before
+        // it, a persisted in-session choice records the scope the tab then refuses, and the
+        // refusal never reaches the telemetry that measures it.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const tabViews = (): any[] =>
+            captureSpy.mock.calls.filter(
+                ([event, properties]) =>
+                    event === 'experiment recordings tab viewed' && (properties as any)?.experiment_id === 56
+            )
+
+        let resolveCoverage!: (coverage: Record<string, unknown>) => void
+        ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockReturnValue(
+            new Promise((resolve) => (resolveCoverage = resolve))
+        )
+        const refused = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 56 } as Experiment })
+        refused.mount()
+        refused.actions.setExposureScope('in_session')
+
+        // The other two checks settled and asked for the report; the coverage scan still holds it.
+        await expectLogic(refused).toDispatchActions([
+            'loadSeenTogetherSuccess',
+            'loadInSessionExposureSuccess',
+            'reportTabViewed',
+        ])
+        expect(tabViews()).toHaveLength(0)
+
+        resolveCoverage({ exposure_event_linkable: false, flag_property_linkable: false, max_window_days: 7 })
+        await expectLogic(refused).toFinishAllListeners()
+
+        expect(tabViews()).toHaveLength(1)
+        expect(tabViews()[0][1]).toMatchObject({
+            experiment_id: 56,
+            exposure_scope: 'all_exposed',
+            in_session_available: false,
+            in_session_unavailable_reason: FLAG_NOT_SESSION_LINKED_REASON,
+        })
+        refused.unmount()
+    })
+
     it('flushes the tab view at unmount when the availability check has not settled', async () => {
         // A bounce before the availability round trip completes must still count as a view; the
         // verdict fields stay null, meaning unknown rather than unavailable.

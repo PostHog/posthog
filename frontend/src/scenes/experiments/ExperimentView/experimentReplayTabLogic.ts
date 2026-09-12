@@ -430,6 +430,24 @@ export interface experimentReplayTabLogicActions {
     setDefaultTab: (tab: SessionRecordingSidebarTab) => {
         tab: SessionRecordingSidebarTab
     } // playerSidebarLogic
+    loadFlagCoverageFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // viewRecordingsLinkabilityLogic
+    loadFlagCoverageSuccess: (
+        flagCoverage:
+            | null
+            | import('products/experiments/frontend/generated/api.schemas').ExperimentReplayLinkabilityApi,
+        payload?: unknown
+    ) => {
+        flagCoverage:
+            | null
+            | import('products/experiments/frontend/generated/api.schemas').ExperimentReplayLinkabilityApi
+        payload?: unknown
+    } // viewRecordingsLinkabilityLogic
     loadSeenTogetherFailure: (
         error: string,
         errorObject?: any
@@ -663,7 +681,8 @@ export interface experimentReplayTabLogicMeta {
             variantKeys: string[],
             metricOptions: ExperimentReplayMetricOption[],
             effectiveExposureScope: ExperimentReplayExposureScope,
-            inSessionExposure: ExperimentInSessionExposureApi | null
+            inSessionExposure: ExperimentInSessionExposureApi | null,
+            exposureInSessionUnavailableReason: string | null
         ) => ExperimentRecordingsTabContext
         metricOptions: (
             linkabilityLoaded: boolean,
@@ -741,7 +760,12 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             // The health of a tab view is only known once the linkability check resolves, so the
             // view is reported off these rather than from `afterMount`.
             viewRecordingsLinkabilityLogic({ experiment: props.experiment }),
-            ['loadSeenTogetherSuccess', 'loadSeenTogetherFailure'],
+            [
+                'loadSeenTogetherSuccess',
+                'loadSeenTogetherFailure',
+                'loadFlagCoverageSuccess',
+                'loadFlagCoverageFailure',
+            ],
             eventUsageLogic,
             [
                 'reportExperimentRecordingsTabViewed',
@@ -1364,12 +1388,19 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // The `experiment recordings tab viewed` payload, in a selector so the settled-checks
         // report and the beforeUnmount flush send the same shape.
         tabViewContext: [
-            (s) => [s.variantKeys, s.metricOptions, s.effectiveExposureScope, s.inSessionExposure],
+            (s) => [
+                s.variantKeys,
+                s.metricOptions,
+                s.effectiveExposureScope,
+                s.inSessionExposure,
+                s.exposureInSessionUnavailableReason,
+            ],
             (
                 variantKeys: string[],
                 metricOptions: ExperimentReplayMetricOption[],
                 effectiveExposureScope: ExperimentReplayExposureScope,
-                inSessionExposure: ExperimentInSessionExposureApi | null
+                inSessionExposure: ExperimentInSessionExposureApi | null,
+                exposureInSessionUnavailableReason: string | null
             ): ExperimentRecordingsTabContext => ({
                 variant_count: variantKeys.length,
                 metric_count: metricOptions.length,
@@ -1377,8 +1408,15 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // The effective scope, so an in-session choice held back by an unavailable verdict
                 // records the population the list actually showed.
                 exposure_scope: effectiveExposureScope,
-                in_session_available: inSessionExposure?.available ?? null,
-                in_session_unavailable_reason: inSessionExposure?.unavailable_reason ?? null,
+                // The effective verdict too, rather than the backend's alone: a scope the tab
+                // refuses on the flag-scoped check would otherwise record as available with no
+                // reason, hiding the refusal from the telemetry that measures it. Null stays
+                // "the verdict never landed".
+                in_session_available:
+                    inSessionExposure === null
+                        ? null
+                        : inSessionExposure.available && exposureInSessionUnavailableReason === null,
+                in_session_unavailable_reason: exposureInSessionUnavailableReason,
                 in_session_uses_stamped_fallback: inSessionExposure?.uses_stamped_fallback ?? null,
             }),
         ],
@@ -1783,10 +1821,10 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             )
             actions.reportExperimentRecordingOpened(props.experiment.id, values.filterContext)
         },
-        // Both outcomes of the linkability check report the view, since a failed check leaves the
-        // tab running on its fail-open defaults rather than leaving it unusable. The availability
-        // check reports too (it fail-softs to null, so success is its only outcome), and the gates
-        // in reportTabViewed let whichever check settles last send the report.
+        // Both outcomes of each check report the view, since a failed check leaves the tab running
+        // on its fail-open defaults rather than leaving it unusable. The availability check
+        // fail-softs to null, so success is its only outcome. The gates in reportTabViewed let
+        // whichever check settles last send the report.
         loadSeenTogetherSuccess: () => {
             actions.reportTabViewed()
         },
@@ -1796,6 +1834,12 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         loadInSessionExposureSuccess: () => {
             actions.reportTabViewed()
         },
+        loadFlagCoverageSuccess: () => {
+            actions.reportTabViewed()
+        },
+        loadFlagCoverageFailure: () => {
+            actions.reportTabViewed()
+        },
         reportTabViewed: () => {
             // The linkability logic is shared with the metrics tab's "View recordings" buttons and
             // reloads when the experiment's metrics change, so its success can arrive more than once
@@ -1803,14 +1847,18 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             if (cache.reportedTabView) {
                 return
             }
-            // Hold the report until both checks settle: linkable_metric_count needs the linkability
-            // map, and the scope fields need the availability verdict. Each check's completion
-            // re-dispatches this action, so the last one to settle passes both gates. A visit that
-            // ends before then is flushed from beforeUnmount instead.
+            // Hold the report until every check settles: linkable_metric_count needs the
+            // linkability map, and the scope fields need the availability verdict and the
+            // flag-scoped coverage scan, which typically lands last because it reads live events.
+            // Each check's completion re-dispatches this action, so the last one to settle passes
+            // every gate. A visit that ends before then is flushed from beforeUnmount instead.
             if (!values.linkabilityLoaded && values.seenTogetherMapLoading) {
                 return
             }
             if (values.inSessionExposureLoading) {
+                return
+            }
+            if (values.flagCoverageLoading) {
                 return
             }
             cache.reportedTabView = true
