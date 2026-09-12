@@ -32,4 +32,19 @@ describe('sessionReplaySetupLogic', () => {
         await expectLogic(sessionReplaySetupLogic).toFinishAllListeners()
         expect(productSetupStatusLogic({ productKey: ProductKey.SESSION_REPLAY }).values.status).toBe(expected)
     })
+
+    // Without an explicit range the list falls back to the last 3 days, so a project whose newest
+    // recording is older than that reads as "nothing captured" and loses the scene to the gate.
+    it.each([
+        ['30d', '-30d'],
+        ['1y', '-1y'],
+        ['legacy', '-90d'],
+        [null, '-90d'],
+    ])('retention %s probes back to %s', async (period, expected) => {
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, session_recording_retention_period: period } as TeamType)
+        const list = jest.spyOn(api.recordings, 'list').mockResolvedValue({ results: [], has_next: false })
+        sessionReplaySetupLogic.mount()
+        await expectLogic(sessionReplaySetupLogic).toFinishAllListeners()
+        expect(list).toHaveBeenCalledWith(expect.objectContaining({ date_from: expected }))
+    })
 })
