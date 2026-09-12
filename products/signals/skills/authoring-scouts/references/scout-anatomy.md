@@ -7,7 +7,7 @@ Keep the body lean and push depth into references — every line of the body is 
 
 - Naming
 - Frontmatter
-- Body structure (the ten canonical sections)
+- Body structure (lean core and task routes)
 - References
 - Skeleton — specialist scout
 - Skeleton — broad / cross-product scout
@@ -58,67 +58,47 @@ A sentence or two that names the surface and the shapes is the whole job.
 
 ## Body structure
 
-The canonical body is a workflow, not a script — it reads like how an experienced analyst would approach the surface, and trusts the agent to adapt.
-(One variant departs from it: a **recurring measurement / LLM-judge scout** on the structured-output channel replaces the discriminator + Decide sections with a rubric and a sample → judge → record loop — see that pattern in [`scout-patterns.md`](scout-patterns.md); orient and memory stay the same, and so does close-out — except its quick early-exit fires only on an empty eligible population, never at a steady baseline, since the scout samples and records every verdict (the unremarkable ones are the denominator) on any run with items to judge.)
-The fleet's specialists all share this shape:
+Treat `SKILL.md` as a lean core and route selector. It loads on every run. A reference loads only when its route needs it.
 
-1. **Identity + discriminator (the most important lines).** One sentence on what the scout is, then **name the signal-vs-noise discriminator explicitly** and tell the agent to internalize it.
-   This is the cheap profile-shape read that separates "worth a look" from "baseline".
-   Examples: `count` vs `distinct_users` ratio (error tracking); reach over raw count (CSP); negative+mixed share vs baseline (MCP feedback).
-   Without this, the scout wastes every run re-deciding what "normal" means.
+Keep these items in the core:
 
-2. **Quick close-out.** A cheap early-exit so a quiet run costs almost nothing: if the watched event is absent from the profile's `top_events` or sitting at baseline (no fresh 24h activity), write one scratchpad entry and stop.
-   This keeps idle scouts cheap.
-   `top_events` counts are windowed (each row carries `window_days`), not lifetime — a project whose ingestion recently went dark reads identically to one that never had traffic. Before closing out a busy-looking project as empty on `top_events` thinness alone, rule out a capture gap with a direct `execute-sql` over a longer window (e.g. 30d); only close out when the low volume holds there.
+1. **Identity and discriminator.** State the scout's task and name the cheap signal-vs-noise discriminator. Examples include `count` against `distinct_users`, reach over raw count, or negative share against baseline.
+2. **Stop gates.** Define the cheapest safe conditions for ending a quiet run. Include any pre-route check needed to avoid a false empty result, such as checking a longer window when `top_events` is thin.
+3. **Route conditions.** Define the small set of investigation lanes and name the exact reference file to read for each lane. Make the routes mutually clear. State when several routes may run.
+4. **Pre-route invariants.** Keep only the task-specific facts that every route needs before selection, such as source availability, ownership, or one shared discriminator query.
+5. **Universal task rules.** Keep a rule in the core only when it is specific to this scout and applies to every route.
 
-   ```text
-   key:     not-in-use:<scope>:team{team_id}     # if the surface is absent entirely
-        or  pattern:<scope>:baseline-team{team_id} # if it fires at a steady baseline
-   content: "<surface> baseline ~{count}/day, no fresh 24h burst at {timestamp}"
-   ```
+Put task depth in lazy references:
 
-3. **Orient.** Three cheap reads cold-start every run — bake them into the body:
-   - `scout-scratchpad-search` (`text=<scope keyword>`) — durable steering from past runs; the `pattern:` / `noise:` / `addressed:` / `dedupe:` entries tell the scout what's normal and what's already covered.
-   - `scout-runs-list` (last 7d) — what prior runs of this scout found and ruled out.
-     Pull `-runs-retrieve` only for a summary worth drilling into.
-     The fleet-wide read (siblings' runs, and following an interesting summary into the report it produced) is already in the harness prompt for every scout, so don't restate it in your body.
-   - `scout-project-profile-get` — the deterministic snapshot; read the discriminator metrics off the relevant `top_events` row.
+- Lane-specific SQL, tool sequences, thresholds, and classification logic.
+- Candidate-only reporting criteria and disqualifiers.
+- Task-specific memory keys and content formats.
+- Detailed examples, taxonomies, and edge cases.
 
-4. **Profile shape / discriminator table.** A small table mapping the discriminator's shapes to what they usually mean, so the agent triages fast.
-   (See the error-tracking scout's `count`-vs-`distinct_users` table for the canonical example.)
+A recurring measurement / LLM-judge scout uses the same structure. Its core contains the population gate and route selection. Its task reference contains the rubric, sampling rules, and record shape. It stops early only when there are no eligible items because ordinary judgments form the denominator.
 
-5. **Explore patterns.** 2–4 named investigation patterns — **starting points, not a checklist**.
-   Each names the concrete tools/queries to run and the shape that confirms it.
-   E.g.
-   "Burst with broad reach" → list active issues, SQL hourly breakdown, look for the one-occurrence-per-distinct-user shape.
-   Give the agent real queries, not generic advice.
+Do not copy behavior that the scout harness already supplies. In particular, do not restate:
 
-6. **Save memory as you go.** Tell the scout to write scratchpad entries continuously, encoding the category in the key prefix (see [`dedupe-and-memory.md`](dedupe-and-memory.md)).
-   Give 2–3 worked example entries scoped to this surface so the agent matches the format.
+- Generic prior-run, sibling-run, notes, or scratchpad lookup.
+- Generic scratchpad prefixes or save-as-you-go instructions.
+- The generic report author/edit contract or reviewer routing.
+- The generic tool catalog.
+- The generic run-summary or close-out contract.
 
-7. **Decide.** Author / edit / remember / skip, calibrated against the report contract (see [`report-contract.md`](report-contract.md)) and the four-states classifier (see [`dedupe-and-memory.md`](dedupe-and-memory.md)).
-   State the surface-specific "report-worthy" thresholds (e.g. "a broad-reach burst with concrete entity ids and counts in the evidence").
-   Tell it to cross-check `inbox-reports-list` before authoring — an existing report on the topic gets an `edit_report`, not a duplicate.
-
-8. **Disqualifiers.** The known noise for this surface that should be skipped (single-user quirks, dev-env bursts, allowlisted domains, known upstream provider errors).
-   "When in doubt, write memory instead of filing a report."
-
-9. **MCP tools.** List the direct (read-only) calls and the harness-level tools the scout uses, so the agent doesn't rediscover them each run.
-
-10. **Close out.** One paragraph: looked at what, filed/edited what, remembered what, ruled out what.
-    The harness saves this as the run summary; future runs read it via `scout-runs-list`.
-    Tell it **not** to write a separate "run metadata" scratchpad entry — the summary already serves that role.
-    "Looked but found nothing meaningful" is a real outcome.
-
-Not every scout needs all ten sections, but every scout needs 1 (discriminator), 2 (quick close-out), 3 (orient), 7 (decide), 8 (disqualifiers), and 10 (close out).
-Sections 4–6 and 9 are where a specialist earns its keep.
+Add only the task-specific part of those behaviors. For example, a route may define the exact memory key for a rejected warehouse candidate, or the evidence required before a GitHub item is report-worthy. Do not repeat how to call the generic memory or report tools.
 
 ## References
 
-The generalist carries `references/conventions.md` (the four-states author/edit classifier + scratchpad vocab); the report-channel contract itself rides in the harness prompt (injected into every report-channel scout), so a scout bundles no copy of it.
-For a **per-team** scout you usually don't need to bundle your own copies — the canonical scout already encodes the conventions inline, and your scout body can too.
-Bundle a reference only when you have genuinely surface-specific depth (a long SQL cookbook, a taxonomy of fingerprints) that would bloat the body.
-Attach bundled files to a per-team scout with `posthog:skill-file-create`; in the repo, drop them in `references/` and they're collected automatically.
+Use references for task-specific depth by default. This keeps startup context small and loads only the instructions needed for the selected lane. A small scout may need one task reference. A scout with distinct lanes should normally have one reference per lane.
+
+Every reference must be self-contained for the route that loads it:
+
+- Do not depend on text described as "above", "below", or "at the top of this file".
+- Do not link to a section that the route does not also load.
+- Repeat a small task-specific invariant when that is necessary to make the route safe in isolation.
+- Route every outcome that needs task-specific memory to the reference that defines that memory, including rejected candidates and all-clear digests.
+
+Do not bundle copies of fleet-wide conventions or the report-channel contract. Attach references to a per-team scout with `posthog:skill-file-create`; in the repo, place them in `references/` so the build collects them.
 
 ## Skeleton — specialist scout
 
@@ -142,75 +122,46 @@ metadata:
 
 # Signals scout: <surface>
 
-You are a focused <surface> scout. Spot meaningful changes in <event/metric> — <the
-shapes> — and file a report only when a finding clears the report bar.
+You are a focused <surface> scout. Watch <event/metric> for <meaningful shapes>.
 
-<Name the discriminator here.> The relationship between <X> and <Y> is the most important
-signal-vs-noise discriminator. Internalize that shape.
+The relationship between <X> and <Y> is the primary signal-vs-noise discriminator.
 
-## Quick close-out: is <surface> even loud?
+## Stop gates
 
-If <event> is absent from `top_events` or at baseline (no fresh 24h activity), <surface>
-isn't where the signal is today. Cheap scratchpad entry + close out empty.
+- If <safe empty condition>, stop.
+- If <ambiguous empty condition>, first check <longer-window or source-health invariant>.
 
-## How a run works
+## Route
 
-Cycle between these moves; skip what's not useful.
+After the stop gates and shared check, choose the matching lane:
 
-### Get oriented
+- **<Lane A>:** when <condition>, read `references/lane-a.md` and follow it.
+- **<Lane B>:** when <condition>, read `references/lane-b.md` and follow it.
+- **No matching lane:** stop.
 
-- `scout-scratchpad-search` (`text=<scope keyword>`) — durable steering.
-- `scout-runs-list` (last 7d) — what prior runs found and ruled out.
-- `scout-project-profile-get` — read the discriminator metrics off `top_events`.
+Run more than one lane only when <task-specific condition>.
 
-### Profile shape
+## Shared task invariant
 
-| Pattern   | What it usually means           |
-| --------- | ------------------------------- |
-| <shape A> | <meaning A — investigate first> |
-| <shape B> | <meaning B — usually noise>     |
+Before selecting a lane, <one check that every lane requires>.
+```
 
-### Explore
+Example `references/lane-a.md`:
 
-Patterns to watch — starting points, not a checklist.
+```markdown
+# <Lane A>
 
-#### <Pattern 1>
+Use <specific query or tool sequence>.
 
-<the concrete queries/tools and the confirming shape>
+## Classification
 
-#### <Pattern 2>
+- <shape and threshold> means <task-specific outcome>.
+- Reject <task-specific disqualifier>.
 
-<...>
+## Candidate handling
 
-### Save memory as you go
-
-Write a scratchpad entry whenever you observe something a future run should know. Encode the
-category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`.
-
-- key `pattern:<scope>:baseline` — "<normal shape for this project>"
-- key `dedupe:<scope>:<entity>` — "<surfaced when, with what condition for next run>"
-
-### Decide
-
-- **Author** a report via `scout-emit-report` above the bar (a well-formed
-  finding you'd own end-to-end, concrete entity ids + counts in evidence).
-  Cross-check `inbox-reports-list` first — an existing report on the topic gets a
-  `scout-edit-report` instead of a duplicate.
-- **Remember** if below the bar but worth carrying forward.
-- **Skip** if a `noise:` / `addressed:` / `dedupe:` entry already covers it.
-
-### Close out
-
-One paragraph: looked at what, filed/edited what, remembered what, ruled out what.
-
-## Disqualifiers (skip these)
-
-- <surface-specific noise: single-user, dev-env, allowlisted, known-upstream>
-
-## MCP tools
-
-Direct (read-only): <list>. Harness-level: project-profile-get, scratchpad-search,
-runs-list, runs-retrieve, emit-report, edit-report, scratchpad-remember.
+For a qualifying candidate, require <specific evidence>.
+For a rejected candidate, remember `<scope>:rejected:<entity>` with <task-specific fields>.
 ```
 
 ## Skeleton — broad / cross-product scout
