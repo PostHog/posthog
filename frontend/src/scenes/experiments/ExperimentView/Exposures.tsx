@@ -181,7 +181,7 @@ export function Exposures(): JSX.Element {
             <div className="flex items-center gap-3 metric-cell min-h-[33px]">
                 <span className="metric-cell-header font-bold inline-flex items-center gap-1">
                     Exposures
-                    <Tooltip title="Cumulative unique users exposed to the experiment. A user is counted once at first exposure, not per event.">
+                    <Tooltip title="Cumulative unique users exposed to the experiment. A user is counted once at first exposure, not per event. This runs a separate query from the exposures shown with each metric's results, so the totals can differ.">
                         <IconInfo className="text-secondary text-base" />
                     </Tooltip>
                 </span>
