@@ -689,6 +689,9 @@ def export_image(
                         "dashboard_id": exported_asset.dashboard_id,
                     },
                 )
-            else:
+            # An unreachable render service is an outage, not a defect in the export. The Temporal
+            # activity interceptor reports it once the retries run out, so a capture here would
+            # file a second issue for every attempt.
+            elif not isinstance(e, BrowserlessUnavailable):
                 capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
             raise
