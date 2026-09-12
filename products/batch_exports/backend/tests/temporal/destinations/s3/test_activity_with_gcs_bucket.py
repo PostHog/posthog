@@ -21,7 +21,6 @@ from products.batch_exports.backend.tests.temporal.destinations.s3.utils import 
     SUPPORTED_FILE_FORMAT_COMPRESSIONS,
     TEST_S3_MODELS,
     assert_clickhouse_records_in_s3,
-    has_valid_gcs_credentials,
     run_activity,
 )
 from products.batch_exports.backend.tests.temporal.utils.s3 import (
@@ -31,12 +30,9 @@ from products.batch_exports.backend.tests.temporal.utils.s3 import (
 )
 
 pytestmark = [
+    pytest.mark.requires_vendor_credentials("GCS_TEST_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"),
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    pytest.mark.skipif(
-        not has_valid_gcs_credentials(),
-        reason="GCS credentials (AWS keys) not set in environment or missing GCS_TEST_BUCKET variable",
-    ),
 ]
 
 

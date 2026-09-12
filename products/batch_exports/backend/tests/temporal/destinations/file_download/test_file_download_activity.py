@@ -30,12 +30,9 @@ from products.batch_exports.backend.tests.temporal.destinations.s3.utils import 
 )
 
 pytestmark = [
+    pytest.mark.requires_vendor_credentials(check=has_valid_credentials),
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    pytest.mark.skipif(
-        not has_valid_credentials(),
-        reason="AWS credentials not set in environment",
-    ),
 ]
 
 

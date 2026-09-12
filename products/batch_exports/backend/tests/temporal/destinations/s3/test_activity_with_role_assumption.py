@@ -25,9 +25,7 @@ from products.batch_exports.backend.tests.temporal.destinations.s3.utils import 
     run_activity,
 )
 
-pytestmark = [
-    pytest.mark.skipif(not has_valid_credentials(), reason="AWS credentials not set in environment"),
-]
+pytestmark = [pytest.mark.requires_vendor_credentials(check=has_valid_credentials)]
 
 
 @pytest.fixture(scope="module")

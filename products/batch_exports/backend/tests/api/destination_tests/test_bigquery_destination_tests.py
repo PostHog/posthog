@@ -29,9 +29,8 @@ from products.batch_exports.backend.tests.temporal.destinations.s3.utils import 
     check_valid_credentials as has_valid_aws_credentials,
 )
 
-SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
-    "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,
-    reason="Google credentials not set in environment",
+SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.requires_vendor_credentials(
+    "GOOGLE_APPLICATION_CREDENTIALS"
 )
 
 pytestmark = [SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS, pytest.mark.asyncio]

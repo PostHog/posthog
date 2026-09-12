@@ -1,10 +1,10 @@
-import os
 import json
 import uuid
 import typing as t
 import asyncio
 import datetime as dt
 import operator
+import functools
 import dataclasses
 
 from django.conf import settings
@@ -137,6 +137,7 @@ async def check_valid_credentials() -> bool:
             return True
 
 
+@functools.cache
 def has_valid_credentials() -> bool:
     """Synchronous wrapper around check_valid_credentials."""
     return asyncio.run(check_valid_credentials())
@@ -503,9 +504,3 @@ async def run_activity(activity_environment: ActivityEnvironment, insert_inputs:
         result = await activity_environment.run(insert_into_s3_activity_from_stage, insert_inputs)
 
     return result
-
-
-def has_valid_gcs_credentials() -> bool:
-    return (
-        "GCS_TEST_BUCKET" in os.environ and "AWS_ACCESS_KEY_ID" in os.environ and "AWS_SECRET_ACCESS_KEY" in os.environ
-    )
