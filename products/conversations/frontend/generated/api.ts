@@ -79,6 +79,13 @@ export const getConversationsPatternsListUrl = (projectId: string, params?: Conv
  * Read-only apart from the two state transitions, which are POST actions rather than PATCH so a
  * client cannot set a pattern back to open, and so the baseline feedback that makes the detector
  * learn happens in the same request.
+ *
+ * A pattern is a team-wide aggregate: its topic is built from ticket text and its counts span the
+ * whole inbox. `TicketPattern` has no access-control resource of its own, so the mixin's object
+ * checks pass for everyone and a single ticket grant would otherwise open every pattern. The gate
+ * is therefore all-or-nothing on the ticket resource, the same rule `unread_count` applies: a
+ * member with any object-level ticket restriction, or no ticket access, sees no patterns and
+ * cannot transition one.
  */
 export const conversationsPatternsList = async (
     projectId: string,
@@ -101,6 +108,13 @@ export const getConversationsPatternsRetrieveUrl = (projectId: string, id: strin
  * Read-only apart from the two state transitions, which are POST actions rather than PATCH so a
  * client cannot set a pattern back to open, and so the baseline feedback that makes the detector
  * learn happens in the same request.
+ *
+ * A pattern is a team-wide aggregate: its topic is built from ticket text and its counts span the
+ * whole inbox. `TicketPattern` has no access-control resource of its own, so the mixin's object
+ * checks pass for everyone and a single ticket grant would otherwise open every pattern. The gate
+ * is therefore all-or-nothing on the ticket resource, the same rule `unread_count` applies: a
+ * member with any object-level ticket restriction, or no ticket access, sees no patterns and
+ * cannot transition one.
  */
 export const conversationsPatternsRetrieve = async (
     projectId: string,
@@ -123,6 +137,13 @@ export const getConversationsPatternsConfirmCreateUrl = (projectId: string, id: 
  * Read-only apart from the two state transitions, which are POST actions rather than PATCH so a
  * client cannot set a pattern back to open, and so the baseline feedback that makes the detector
  * learn happens in the same request.
+ *
+ * A pattern is a team-wide aggregate: its topic is built from ticket text and its counts span the
+ * whole inbox. `TicketPattern` has no access-control resource of its own, so the mixin's object
+ * checks pass for everyone and a single ticket grant would otherwise open every pattern. The gate
+ * is therefore all-or-nothing on the ticket resource, the same rule `unread_count` applies: a
+ * member with any object-level ticket restriction, or no ticket access, sees no patterns and
+ * cannot transition one.
  */
 export const conversationsPatternsConfirmCreate = async (
     projectId: string,
@@ -148,6 +169,13 @@ export const getConversationsPatternsDismissCreateUrl = (projectId: string, id: 
  * Read-only apart from the two state transitions, which are POST actions rather than PATCH so a
  * client cannot set a pattern back to open, and so the baseline feedback that makes the detector
  * learn happens in the same request.
+ *
+ * A pattern is a team-wide aggregate: its topic is built from ticket text and its counts span the
+ * whole inbox. `TicketPattern` has no access-control resource of its own, so the mixin's object
+ * checks pass for everyone and a single ticket grant would otherwise open every pattern. The gate
+ * is therefore all-or-nothing on the ticket resource, the same rule `unread_count` applies: a
+ * member with any object-level ticket restriction, or no ticket access, sees no patterns and
+ * cannot transition one.
  */
 export const conversationsPatternsDismissCreate = async (
     projectId: string,

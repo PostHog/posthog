@@ -15,6 +15,13 @@ import * as zod from 'zod'
  * Read-only apart from the two state transitions, which are POST actions rather than PATCH so a
  * client cannot set a pattern back to open, and so the baseline feedback that makes the detector
  * learn happens in the same request.
+ *
+ * A pattern is a team-wide aggregate: its topic is built from ticket text and its counts span the
+ * whole inbox. `TicketPattern` has no access-control resource of its own, so the mixin's object
+ * checks pass for everyone and a single ticket grant would otherwise open every pattern. The gate
+ * is therefore all-or-nothing on the ticket resource, the same rule `unread_count` applies: a
+ * member with any object-level ticket restriction, or no ticket access, sees no patterns and
+ * cannot transition one.
  */
 export const conversationsPatternsConfirmCreateBodyTakeOwnershipDefault = true
 
@@ -38,6 +45,13 @@ export const ConversationsPatternsConfirmCreateBody = /* @__PURE__ */ zod.object
  * Read-only apart from the two state transitions, which are POST actions rather than PATCH so a
  * client cannot set a pattern back to open, and so the baseline feedback that makes the detector
  * learn happens in the same request.
+ *
+ * A pattern is a team-wide aggregate: its topic is built from ticket text and its counts span the
+ * whole inbox. `TicketPattern` has no access-control resource of its own, so the mixin's object
+ * checks pass for everyone and a single ticket grant would otherwise open every pattern. The gate
+ * is therefore all-or-nothing on the ticket resource, the same rule `unread_count` applies: a
+ * member with any object-level ticket restriction, or no ticket access, sees no patterns and
+ * cannot transition one.
  */
 export const conversationsPatternsDismissCreateBodyReasonMax = 500
 
