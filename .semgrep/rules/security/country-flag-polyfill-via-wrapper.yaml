@@ -1,0 +1,49 @@
+rules:
+    - id: country-flag-polyfill-via-wrapper
+      message: |
+          `country-flag-emoji-polyfill` imported directly. Import
+          `lib/countryFlagEmojiPolyfill` and call `polyfillCountryFlags()` instead.
+
+          The package's second argument is the font URL, and it defaults to
+          `https://cdn.jsdelivr.net/npm/country-flag-emoji-polyfill@0.1/dist/TwemojiCountryFlags.woff2`.
+          A call site that passes only the family name silently takes that default and
+          loads a font from an open CDN.
+
+          That matters because the app's `font-src` does not list jsdelivr, and should not.
+          An open CDN there serves bytes anyone can publish at a path an attacker picks,
+          which is both a wider surface for the browser's font parser and exactly the
+          remote origin a CSS-injection exfiltration needs to reach. We removed it in
+          #99477, then had to serve the font ourselves once this default turned up in the
+          violation reports.
+
+          The wrapper holds the family name and the same-origin URL in one place, so the
+          policy needs no CDN entry. It also keeps the family name matched to the
+          `font-family` our CSS declares for flag glyphs.
+
+          If you genuinely need the package directly, put
+          `// nosemgrep: country-flag-polyfill-via-wrapper` on the line before the import
+          with a reason, and pass an explicit same-origin URL as the second argument.
+      severity: ERROR
+      languages: [typescript, javascript]
+      paths:
+          # The leading slash pins these to the repository root, which is where the app
+          # and the wrapper live. Without it semgrep warns that it will anchor them anyway.
+          include:
+              - /frontend/src
+              - /products
+              - /common
+          exclude:
+              # The wrapper is the one place that may import the package.
+              - /frontend/src/lib/countryFlagEmojiPolyfill.ts
+      pattern-either:
+          - pattern: import { ... } from 'country-flag-emoji-polyfill'
+          - pattern: import $X from 'country-flag-emoji-polyfill'
+          - pattern: import * as $X from 'country-flag-emoji-polyfill'
+          - pattern: import 'country-flag-emoji-polyfill'
+          - pattern: import('country-flag-emoji-polyfill')
+          - pattern: require('country-flag-emoji-polyfill')
+      metadata:
+          category: security
+          confidence: HIGH
+          references:
+              - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/font-src
