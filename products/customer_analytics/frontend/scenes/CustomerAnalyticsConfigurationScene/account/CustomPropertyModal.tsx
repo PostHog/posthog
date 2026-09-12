@@ -176,8 +176,13 @@ function PersonSourceEditor(): JSX.Element {
         hasWarehouseSourceOptions,
         mappableColumns,
     } = useValues(customPropertyDefinitionsLogic)
-    const { setCustomPropertyFormValue, loadSelectedTableColumns, loadWarehouseTables, mapAllColumns } =
-        useActions(customPropertyDefinitionsLogic)
+    const {
+        setCustomPropertyFormValue,
+        loadSelectedTableColumns,
+        loadWarehouseTables,
+        loadSavedQueries,
+        mapAllColumns,
+    } = useActions(customPropertyDefinitionsLogic)
     const { groupTypes, groupTypesLoading } = useValues(groupsModel)
 
     const isGroup = customPropertyForm.targetType === 'group'
@@ -225,13 +230,33 @@ function PersonSourceEditor(): JSX.Element {
     const selectedGroupTypeLabel =
         groupTypeOptions.find((option) => option.value === customPropertyForm.groupTypeIndex)?.label ?? null
 
-    // Only block on missing sources while creating a property — an existing source still needs its key
-    // column and enabled switch editable even if what it reads was later deleted or filtered out.
+    // Block on missing sources whenever nothing is available to pick — creating a new property, or
+    // recovering one that saved without a source. An empty picker can't be pointed at anything, so
+    // it dead-ends worse than this banner. The picker comes back on its own once a source exists
+    // (noSources turns false); the refresh reloads views and tables in place, so a view that
+    // finishes materializing while this modal stays open shows up without closing and reopening.
+    // An existing source keeps its key column and enabled switch editable, so it skips this.
     if (noSources && !hasExistingSource) {
         return (
             <LemonBanner type="info">
-                No data warehouse tables or materialized views found. Connect and sync a source, or materialize a view,
-                then it can feed {entityLabel} properties.
+                <div className="flex flex-col items-start gap-2">
+                    <span>
+                        No data warehouse tables or materialized views found. Connect and sync a source, or materialize
+                        a view, then it can feed {entityLabel} properties.
+                    </span>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconRefresh />}
+                        onClick={() => {
+                            loadSavedQueries()
+                            loadWarehouseTables()
+                        }}
+                        loading={savedQueriesLoading || warehouseTablesLoading}
+                    >
+                        Refresh
+                    </LemonButton>
+                </div>
             </LemonBanner>
         )
     }
