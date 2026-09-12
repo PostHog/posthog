@@ -32,11 +32,12 @@ DOCUMENTED_QUERY = re.compile(
 
 
 def _live_fields(surface: str) -> list[str]:
+    from posthog.hogql.database.models import Table
     from posthog.hogql.database.schema.information_schema import information_schema_node
 
-    node = information_schema_node().children[surface]
-    assert node.table is not None
-    return list(node.table.fields)
+    table = information_schema_node().children[surface].table
+    assert isinstance(table, Table)
+    return list(table.fields)
 
 
 def _projected_names(select_list: str) -> list[str]:
