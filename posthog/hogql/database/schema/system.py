@@ -2841,6 +2841,7 @@ canvases: PostgresTable = PostgresTable(
     name="canvases",
     postgres_table_name="posthog_canvas",
     access_scope="canvas",
+    access_control_creator_id_field="created_by_id",
     predicates=[
         parse_expr("deleted != true"),
         parse_expr("channel_id IN (SELECT id FROM system._task_public_channels)"),
