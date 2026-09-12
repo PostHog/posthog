@@ -3,7 +3,6 @@ import {
   ArrowCounterClockwiseIcon,
   LightningIcon,
 } from "@phosphor-icons/react";
-import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import { isRestorableReport } from "@posthog/core/inbox/reportMembership";
 import {
   deriveHeadline,
@@ -34,7 +33,6 @@ import { SignalReportStatusBadge } from "@posthog/ui/features/inbox/components/u
 import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/components/utils/SignalReportSummaryMarkdown";
 import { hasKnownSourceProduct } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
-import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { Button as UiButton } from "@posthog/ui/primitives/Button";
 import {
   navigationSourceHref,
@@ -54,7 +52,7 @@ interface ReportCardViewBaseProps {
 interface DefaultReportCardViewProps extends ReportCardViewBaseProps {
   variant?: "default";
   repoSlug?: string | null;
-  artefacts: SignalReportArtefactsResponse | null;
+  artefacts?: SignalReportArtefactsResponse | null;
   onDismiss?: () => void;
   dismissDisabledReason?: string | null;
   isDismissPending?: boolean;
@@ -337,16 +335,8 @@ export function ReportCard(props: ReportCardProps) {
   const { prefetch, pointerHandlers } =
     useInboxReportDetailPrefetch(detailRoute);
   const navigate = useNavigate();
-  // Archived rows are read-only, so skip the artefact fetch that powers the
-  // repo slug + suggested-reviewer stack — neither is shown when archived.
-  const { data: artefactsResp } = useInboxReportArtefacts(report.id, {
-    enabled: !isArchived,
-    staleTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false,
-  });
-  const repoSlug = isArchived
-    ? null
-    : extractRepoSelectionRepository(artefactsResp?.results);
+  // Denormalised on the list report, so the card needs no per-card artefact fetch. Hidden when archived.
+  const repoSlug = isArchived ? null : (report.repo_slug ?? null);
 
   const renderBody = (body: ReactNode, className: string) => (
     <Link
@@ -386,7 +376,6 @@ export function ReportCard(props: ReportCardProps) {
       report={report}
       isSelected={isSelected}
       repoSlug={repoSlug}
-      artefacts={artefactsResp ?? null}
       onDismiss={props.onDismiss}
       dismissDisabledReason={props.dismissDisabledReason}
       isDismissPending={props.isDismissPending}
