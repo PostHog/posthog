@@ -411,8 +411,15 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # Never while a swap is staged: that recovery runs no rewrite, so the checkpoint says nothing
     # about it, and temp is the only intact copy until it completes.
     if swap is None and _retrying_a_killed_attempt(schema, pending, inputs.job_id):
+        # Stake a fresh claim on the way out, the same way `_give_up` does. A retry also starts when
+        # the predecessor is only heartbeat-timed-out, and that one keeps running as a zombie holding
+        # the claim it minted; standing down without rotating it would leave the zombie free to swap
+        # the live table while the sync this run releases merges into it.
+        schema.set_repartition_claim(
+            {"token": str(uuid.uuid4()), "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
+        )
         logger.warning(
-            f"repartition: the attempt this run retries was killed without writing anything, standing "
+            f"repartition: the attempt this run retries wrote nothing before it stopped, standing "
             f"down until the next sync schema_id={schema.id}",
             schema_id=str(schema.id),
         )

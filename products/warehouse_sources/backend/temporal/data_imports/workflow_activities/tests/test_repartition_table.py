@@ -571,6 +571,9 @@ class TestKilledAttemptRetry:
             assert "warehouse_repartition_started" not in emitted
             # The sync already paid for the attempt that died; standing down must not charge again.
             assert schema.repartition_pending["attempts"] == 1
+            # A retry also starts for a predecessor that is only heartbeat-timed-out and still
+            # running, so standing down has to rotate the claim that fences it out of the swap.
+            schema.set_repartition_claim.assert_called_once()
 
 
 class TestTransientObjectStoreFailure:
