@@ -158,9 +158,9 @@ that resolves to a web interstitial in PostHog Cloud, which fires this scheme
 (or offers the desktop-app download). That way the link works for anyone,
 whether or not they have the app.
 
-Use the link button in the canvas toolbar to copy this link without opening a
-menu. The button has a "Copy link to canvas" tooltip, like the session link
-button. "Copy link" also remains in the canvas options menu.
+The canvas toolbar's "Share" button opens the share dialog, which shows this
+link as the team link with its own copy button. "Copy link" also remains in the
+canvas options menu.
 
 | Segment / Parameter | Required | Description |
 |---|---|---|
