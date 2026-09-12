@@ -1296,7 +1296,7 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         report_response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
         assert report_response.json()["priority"] == "P0"
 
-    def test_patch_task_run_cannot_drift_task_id_from_the_fk(self):
+    def test_patch_task_run_cannot_change_association_or_content(self):
         report = self._create_report()
         task = Task.objects.create(
             team=self.team, title="t", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
@@ -1310,8 +1310,8 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             content=TaskRunArtefact(task_id=str(task.id), product="signals", type="research"),
             attribution=ArtefactAttribution.from_task(str(task.id)),
         )
+        original_content = artefact.content
 
-        # Editing content.task_id to a different task is rejected — the `task` FK is the association.
         drift = self.client.patch(
             self._detail_url(str(report.id), str(artefact.id)),
             data=json.dumps({"content": {"task_id": str(other_task.id), "product": "signals", "type": "research"}}),
@@ -1319,9 +1319,6 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         )
         assert drift.status_code == status.HTTP_400_BAD_REQUEST
 
-        # Relabeling the run's purpose is rejected too — the (product, type) pair feeds the
-        # per-report task cap, so an edit relabeling a discussion as pipeline work would free
-        # its slot in the count.
         for relabel in (
             {"task_id": str(task.id), "product": "signals", "type": "implementation"},
             {"task_id": str(task.id), "product": "tasks", "type": "research"},
@@ -1333,18 +1330,17 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             )
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
-        # Editing other fields while keeping the association and purpose is fine.
         run_id = str(uuid.uuid4())
-        ok = self.client.patch(
+        response = self.client.patch(
             self._detail_url(str(report.id), str(artefact.id)),
             data=json.dumps(
                 {"content": {"task_id": str(task.id), "product": "signals", "type": "research", "run_id": run_id}}
             ),
             content_type="application/json",
         )
-        assert ok.status_code == status.HTTP_200_OK, ok.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         artefact.refresh_from_db()
-        assert json.loads(artefact.content)["run_id"] == run_id
+        assert artefact.content == original_content
         assert str(artefact.task_id) == str(task.id)
 
     def test_patch_other_team_returns_404(self):
@@ -1405,19 +1401,15 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN
         ).exists()
 
-        # The default namespace still associates the task, which is what agents actually need.
-        allowed = self.client.post(
+        response = self.client.post(
             self._list_url(str(report.id)),
             data=json.dumps({"artefact_type": "task_run", "content": {"task_id": str(task.id)}}),
             content_type="application/json",
         )
-        assert allowed.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), allowed.json()
-        assert (
-            json.loads(
-                SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).content
-            )["product"]
-            == "tasks"
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN
+        ).exists()
 
     def test_delete_task_run_artefact_is_rejected(self):
         # The work log is what the per-report task cap counts; a deletable log would let a
