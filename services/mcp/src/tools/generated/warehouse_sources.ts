@@ -422,6 +422,47 @@ const externalDataSchemasRetrieve = (): ToolBase<
     },
 })
 
+const ExternalDataSourcesBulkUpdateSchemasSchema = () => {
+    const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody =
+        orvalSchemas.ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody()
+    const ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams =
+        orvalSchemas.ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams()
+    const ExternalDataSourcesBulkUpdateSchemasPartialUpdateQueryParams =
+        orvalSchemas.ExternalDataSourcesBulkUpdateSchemasPartialUpdateQueryParams()
+    return ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams.omit({ project_id: true })
+        .extend(ExternalDataSourcesBulkUpdateSchemasPartialUpdateQueryParams.shape)
+        .extend(ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody.shape)
+}
+
+const externalDataSourcesBulkUpdateSchemas = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesBulkUpdateSchemasSchema>,
+    Schemas.PaginatedExternalDataSchemaList
+> => ({
+    name: 'external-data-sources-bulk-update-schemas',
+    schema: ExternalDataSourcesBulkUpdateSchemasSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesBulkUpdateSchemasSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.schemas !== undefined) {
+            body['schemas'] = params.schemas
+        }
+        const result = await context.api.request<Schemas.PaginatedExternalDataSchemaList>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/bulk_update_schemas/`,
+            body,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+            },
+        })
+        return result
+    },
+})
+
 const ExternalDataSourcesCheckCdcPrerequisitesCreateSchema = () =>
     z.object({}).extend({ source_type: ExternalDataSourceTypeSchema })
 
@@ -1002,6 +1043,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-schemas-reload': externalDataSchemasReload,
     'external-data-schemas-resync': externalDataSchemasResync,
     'external-data-schemas-retrieve': externalDataSchemasRetrieve,
+    'external-data-sources-bulk-update-schemas': externalDataSourcesBulkUpdateSchemas,
     'external-data-sources-check-cdc-prerequisites-create': externalDataSourcesCheckCdcPrerequisitesCreate,
     'external-data-sources-connections-list': externalDataSourcesConnectionsList,
     'external-data-sources-create': externalDataSourcesCreate,
