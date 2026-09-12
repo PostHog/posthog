@@ -4583,6 +4583,18 @@ describe("CloudTaskEngine credential relay", () => {
     });
   }
 
+  function errorUpdates(updates: unknown[]): unknown[] {
+    return updates.filter(
+      (update) => (update as { kind?: string }).kind === "error",
+    );
+  }
+
+  function ownerCheckCount(): number {
+    return mockNetFetch.mock.calls.filter(([url]) =>
+      (url as string).includes("/api/users/@me/"),
+    ).length;
+  }
+
   function commandPosts(): Array<{ method: string; params: unknown }> {
     return mockNetFetch.mock.calls
       .filter(([url]) => (url as string).includes("/command/"))
@@ -4688,6 +4700,8 @@ describe("CloudTaskEngine credential relay", () => {
   });
 
   it("reports no_token when the store has no token", async () => {
+    const updates: unknown[] = [];
+    relayService.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
     tokenStore.get.mockResolvedValue(null);
     mockStreamFetch.mockResolvedValueOnce(
       createOpenSseResponse(credentialRequestSseLine()),
@@ -4706,6 +4720,9 @@ describe("CloudTaskEngine credential relay", () => {
       ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
       { credential: "claude_subscription_token", outcome: "no_token" },
     );
+    expect(errorUpdates(updates)).toMatchObject([
+      { runId: "run-1", retryable: false },
+    ]);
   });
 
   it.each(["expired", "malformed", "observer", "other-project"])(
@@ -4810,6 +4827,45 @@ describe("CloudTaskEngine credential relay", () => {
       ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
       { credential: "claude_subscription_token", outcome: "expired" },
     );
+  });
+
+  it("stops retrying a refused run without alarming an observer", async () => {
+    const updates: unknown[] = [];
+    relayService.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
+    tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
+    // Another user's plan owns the run, so the designation stays refused and
+    // the owner's desktop is the one that answers.
+    mockNetFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        createJsonResponse(
+          url.includes("/api/users/@me/")
+            ? { id: 2 }
+            : {
+                id: "run-1",
+                status: "in_progress",
+                state: {
+                  claude_model_access: "own-subscription",
+                  claude_subscription_user_id: 1,
+                },
+              },
+        ),
+      ),
+    );
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse(credentialRequestSseLine()),
+    );
+    await watchRun("run-1", false);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(analyticsMock.track).toHaveBeenCalledWith(
+      ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
+      { credential: "claude_subscription_token", outcome: "rejected" },
+    );
+    expect(errorUpdates(updates)).toEqual([]);
+    const ownerChecks = ownerCheckCount();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(ownerCheckCount()).toBe(ownerChecks);
+    expect(tokenStore.get).not.toHaveBeenCalled();
   });
 
   it("handles secure-store errors without exposing their contents", async () => {
