@@ -17,6 +17,7 @@ from posthog.celery_task_names import (
     VERIFY_FLAGS_CACHE_TASK_NAME,
     VERIFY_TEAM_METADATA_CACHE_TASK_NAME,
 )
+from posthog.management.commands.run_autoreload_celery import Command as RunAutoreloadCeleryCommand
 from posthog.tasks.tasks import clickhouse_errors_count
 
 
@@ -136,3 +137,12 @@ class TestWorkerStartupImports(TestCase):
         )
         assert result.returncode == 0, result.stderr
         assert result.stdout.strip().splitlines()[-1] == "False", result.stdout
+
+    def test_autoreload_wrapper_does_not_run_django_system_checks(self) -> None:
+        # bin/start-celery starts the local worker and beat through this command, and Django runs
+        # the system checks before handle(). The URL checks resolve the URLconf, so the checks pull
+        # in the same product API graph that CELERY_SKIP_CHECKS keeps out of Celery's Django fixup.
+        command = RunAutoreloadCeleryCommand()
+        with patch.object(command, "check") as check, patch.object(command, "handle", return_value=None):
+            command.execute(force_color=False, no_color=False, skip_checks=False, type="worker", no_reload=True)
+        check.assert_not_called()
