@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from django.db import connection
-from django.db.models import Count
+from django.db.models import Count, Prefetch
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema, extend_schema_field
@@ -38,6 +38,7 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.actions.backend.models.action import ACTION_STEP_MATCHING_OPTIONS, Action
+from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
@@ -151,6 +152,12 @@ class ActionSerializer(
     is_calculating = serializers.SerializerMethodField()
     is_action = serializers.BooleanField(read_only=True, default=True)
     creation_context = serializers.SerializerMethodField()
+    selector_match_changed_steps = serializers.SerializerMethodField(
+        help_text=(
+            "Indexes of steps whose CSS selector used to match events its selector does not describe, so this "
+            "action's counts fell when selector matching was corrected. Empty for almost every action."
+        )
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
@@ -163,6 +170,7 @@ class ActionSerializer(
             "post_to_slack",
             "slack_message_format",
             "steps",
+            "selector_match_changed_steps",
             "created_at",
             "created_by",
             "deleted",
@@ -179,6 +187,7 @@ class ActionSerializer(
         read_only_fields = [
             "team_id",
             "bytecode_error",
+            "selector_match_changed_steps",
         ]
         extra_kwargs = {
             "team_id": {"read_only": True},
@@ -196,6 +205,16 @@ class ActionSerializer(
 
     def get_is_calculating(self, action: Action) -> bool:
         return False
+
+    @extend_schema_field(serializers.ListField(child=serializers.IntegerField()))
+    def get_selector_match_changed_steps(self, action: Action) -> list[int]:
+        # Read through the viewset's prefetch rather than the relation. The related
+        # manager is fail-closed, so touching it without one raises for want of a team
+        # scope, and a missing notice beats a 500 on the actions page.
+        changes = getattr(action, "_prefetched_objects_cache", {}).get("selector_match_changes")
+        if changes is None:
+            return []
+        return sorted(change.step_index for change in changes)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_creation_context(self, obj) -> None:
@@ -543,7 +562,16 @@ class ActionViewSet(
         tuple[type[BaseRenderer], ...],
         (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
     )
-    queryset = Action.objects.select_related("created_by").all()
+    queryset = (
+        Action.objects.select_related("created_by")
+        .prefetch_related(
+            # Named explicitly rather than by string, because the related manager is
+            # fail-closed and would need an ambient team scope to build its queryset.
+            # These rows reach no further than the actions above, which are team-filtered.
+            Prefetch("selector_match_changes", queryset=ActionSelectorMatchChange.objects.unscoped())
+        )
+        .all()
+    )
     serializer_class = ActionSerializer
     ordering = ["-last_calculated_at", "name"]
 
