@@ -1,5 +1,22 @@
 # DuckLake copy workflow configuration
 
+## Local managed warehouse UI
+
+Local development uses the real PostHog managed-warehouse endpoints and lifecycle code with a local-only control-plane adapter. The adapter stores provisioned warehouses and project memberships in the configured Django cache, exposes valid empty monitoring data, and advertises the local Duckgres and Trino endpoints. It defaults on only for non-test debug processes and is guarded by both development mode and `MANAGED_WAREHOUSE_LOCAL_DEV_ENABLED`, so deployed environments cannot activate it accidentally.
+
+The development environment also persists the `data-warehouse-scene` feature flag so the Data Ops setup screen is available without configuring a local feature flag.
+
+Start PostHog normally, then start the optional managed-warehouse data plane:
+
+```bash
+docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml \
+  --profile managed_warehouse up -d --build duckgres trino
+```
+
+Open **Data ops**, provision a warehouse, and use the generated `managed_warehouse` connection in the SQL editor. Duckgres listens on `127.0.0.1:15432`; single-node Trino listens on `127.0.0.1:38080`. Both engines read the same DuckLake catalog in the local `ducklake` Postgres database and the `ducklake-dev` SeaweedFS bucket.
+
+The local adapter returns `posthog` as the disposable root password and uses unauthenticated HTTP for Trino. These relaxations apply only when the local adapter is enabled. Provisioning state lasts as long as the configured cache; use the UI's deprovision and delete actions to reset one organization, or clear the local cache to reset all of them.
+
 ## DuckgresServer retirement telemetry
 
 ORM access to `DuckgresServer` emits the counter

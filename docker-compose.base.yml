@@ -979,6 +979,28 @@ services:
                 condition: service_healthy
         command: ['--config', '/app/config.yaml']
 
+    trino:
+        build:
+            context: ./devenv/trino
+        restart: on-failure
+        depends_on:
+            db:
+                condition: service_healthy
+            objectstorage:
+                condition: service_healthy
+        environment:
+            TRINO_DUCKLAKE_DB_PASSWORD: posthog
+            TRINO_DUCKLAKE_S3_ACCESS_KEY: object_storage_root_user
+            TRINO_DUCKLAKE_S3_SECRET_KEY: object_storage_root_password
+        volumes:
+            - ./devenv/trino/ducklake.properties:/etc/trino/catalog/ducklake.properties:ro
+        healthcheck:
+            test: ['CMD', '/usr/lib/trino/bin/health-check']
+            interval: 5s
+            timeout: 5s
+            retries: 60
+            start_period: 30s
+
 networks:
     otel_network:
         driver: bridge
