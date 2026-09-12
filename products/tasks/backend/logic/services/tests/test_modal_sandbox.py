@@ -19,13 +19,15 @@ from modal.exception import (
     TimeoutError as ModalTimeoutError,
 )
 from parameterized import parameterized
-from requests.exceptions import ConnectionError, Timeout
+from python_socks import ProxyError as SocksProxyError
+from requests.exceptions import ConnectionError, ProxyError, Timeout
 
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
 from products.tasks.backend.exceptions import (
     SandboxExecutionError,
     SandboxNetworkPolicyError,
     SandboxProvisionError,
+    SandboxRateLimitedError,
     SandboxTimeoutError,
     SnapshotCreationError,
     SnapshotFileLimitExceededError,
@@ -52,6 +54,7 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS,
     FILESYSTEM_SNAPSHOT_TIMEOUT_SECONDS,
     PUBLISHED_IMAGE_SNAPSHOT_TIMEOUT_SECONDS,
+    RUNNING_STATUS_CACHE_SECONDS,
     SANDBOX_IMAGE,
     ModalSandbox,
     _attach_local_package_mounts,
@@ -498,6 +501,59 @@ class TestModalSandboxAgentServer:
         assert "secret-token" not in exc.value.context["error"]
         assert "--mcpServers <redacted>" in exc.value.context["command"]
         assert "--mcpServers <redacted>" in exc.value.context["error"]
+
+    @pytest.mark.parametrize(
+        "failing_call,proxy_error",
+        [
+            ("poll", SocksProxyError("429 Too Many Requests")),
+            ("poll", ProxyError("429 Too Many Requests")),
+            ("exec", SocksProxyError("429 Too Many Requests")),
+        ],
+    )
+    def test_execute_classifies_proxy_rate_limit_as_retryable(
+        self, mock_sandbox: Any, failing_call: str, proxy_error: Exception
+    ):
+        getattr(mock_sandbox._sandbox, failing_call).side_effect = proxy_error
+
+        with pytest.raises(SandboxRateLimitedError) as exc:
+            mock_sandbox.execute("echo hi")
+
+        assert exc.value.context["operation"] == failing_call
+        assert exc.value.non_retryable is False
+        assert exc.value.next_retry_delay is not None
+
+    def test_execute_leaves_other_proxy_failures_as_execution_errors(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.exec.side_effect = SocksProxyError("502 Bad Gateway")
+
+        with pytest.raises(SandboxExecutionError) as exc:
+            mock_sandbox.execute("echo hi")
+
+        assert not isinstance(exc.value, SandboxRateLimitedError)
+
+    def test_consecutive_executes_reuse_one_liveness_check(self, mock_sandbox: Any):
+        process = MagicMock(returncode=0)
+        process.stdout.read.return_value = ""
+        process.stderr.read.return_value = ""
+        mock_sandbox._sandbox.exec.return_value = process
+
+        mock_sandbox.execute("echo one")
+        mock_sandbox.execute("echo two")
+
+        assert mock_sandbox._sandbox.poll.call_count == 1
+
+    def test_liveness_check_is_repeated_once_the_cache_expires(self, mock_sandbox: Any):
+        process = MagicMock(returncode=0)
+        process.stdout.read.return_value = ""
+        process.stderr.read.return_value = ""
+        mock_sandbox._sandbox.exec.return_value = process
+        clock = [0.0]
+
+        with patch("products.tasks.backend.logic.services.modal_sandbox.time.monotonic", side_effect=lambda: clock[0]):
+            mock_sandbox.execute("echo one")
+            clock[0] = RUNNING_STATUS_CACHE_SECONDS + 1
+            mock_sandbox.execute("echo two")
+
+        assert mock_sandbox._sandbox.poll.call_count == 2
 
     def test_execute_raises_timeout_when_modal_reports_minus_one(self, mock_sandbox: Any):
         process = MagicMock(returncode=-1)

@@ -29,6 +29,7 @@ from modal.exception import (
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
+from python_socks import ProxyError as SocksProxyError
 from semantic_version import NpmSpec
 
 from posthog.exceptions_capture import capture_exception
@@ -48,6 +49,7 @@ from products.tasks.backend.exceptions import (
     SandboxNotFoundError,
     SandboxNotRunningError,
     SandboxProvisionError,
+    SandboxRateLimitedError,
     SandboxTimeoutError,
     SnapshotCreationError,
     SnapshotFileLimitExceededError,
@@ -181,6 +183,27 @@ _MODAL_NETWORK_POLICY_REJECTION_MARKERS = (
     "domain allowlist",
     "allowed domains",
 )
+
+
+_PROXY_RATE_LIMIT_MARKERS = ("429", "too many requests")
+
+
+def _is_proxy_rate_limit(error: BaseException) -> bool:
+    """Whether the shared egress proxy shed this control-plane call with a 429.
+
+    Modal reaches its control plane through the proxy, so a 429 arrives as a proxy tunnel
+    rejection rather than an HTTP response: python_socks raises for a SOCKS rejection and
+    requests for a plain HTTP one. Neither carries a status code, so the reply line in the
+    message is the only signal.
+    """
+    if not isinstance(error, SocksProxyError | requests.exceptions.ProxyError):
+        return False
+    message = str(error).casefold()
+    return any(marker in message for marker in _PROXY_RATE_LIMIT_MARKERS)
+
+
+# How long a successful liveness check stands in for the next one on the command path.
+RUNNING_STATUS_CACHE_SECONDS = 10.0
 
 
 def _is_modal_network_policy_rejection(error: BaseException) -> bool:
@@ -645,6 +668,7 @@ class ModalSandbox(AgentServerLaunchMixin):
     _app: modal.App
     _sandbox_url: str | None
     provision_diagnostics: SandboxProvisionDiagnostics | None
+    _running_status_expires_at: float = 0.0
     DEFAULT_APP_NAME = DEFAULT_MODAL_APP_NAME
     NOTEBOOK_APP_NAME = NOTEBOOK_MODAL_APP_NAME
     STREAMLIT_APP_NAME = STREAMLIT_MODAL_APP_NAME
@@ -1016,14 +1040,43 @@ class ModalSandbox(AgentServerLaunchMixin):
             )
 
     def get_status(self) -> SandboxStatus:
-        return SandboxStatus.SHUTDOWN if self._destroyed or self._sandbox.poll() is not None else SandboxStatus.RUNNING
+        if self._destroyed:
+            return SandboxStatus.SHUTDOWN
+        try:
+            poll = self._sandbox.poll()
+        except Exception as e:
+            self._raise_if_proxy_rate_limited(e, "poll")
+            raise
+        return SandboxStatus.SHUTDOWN if poll is not None else SandboxStatus.RUNNING
+
+    def _is_running_cached(self) -> bool:
+        """``is_running()`` for the command path, where one check stands in for the next few.
+
+        Every command re-checks the box, and each check is another poll on Modal's control plane
+        through the shared egress proxy — about nine per agent-server launch. A box that dies
+        inside the window surfaces on the command itself instead.
+        """
+        if time.monotonic() < self._running_status_expires_at:
+            return True
+        if not self.is_running():
+            return False
+        self._running_status_expires_at = time.monotonic() + RUNNING_STATUS_CACHE_SECONDS
+        return True
+
+    def _raise_if_proxy_rate_limited(self, error: BaseException, operation: str) -> None:
+        if not _is_proxy_rate_limit(error):
+            return
+        raise SandboxRateLimitedError(
+            "Sandbox control plane is rate limited",
+            {"sandbox_id": self.id, "operation": operation},
+        ) from error
 
     def execute(
         self,
         command: str,
         timeout_seconds: int | None = None,
     ) -> ExecutionResult:
-        if not self.is_running():
+        if not self._is_running_cached():
             raise SandboxNotRunningError(
                 f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
@@ -1072,6 +1125,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 cause=e,
             )
         except Exception as e:
+            self._raise_if_proxy_rate_limited(e, "exec")
             redacted_error = redact_sandbox_command(str(e))
             # Provider exceptions can echo the shell command, so avoid exc_info here.
             logger.error(  # noqa: TRY400
@@ -1088,7 +1142,7 @@ class ModalSandbox(AgentServerLaunchMixin):
         command: str,
         timeout_seconds: int | None = None,
     ) -> ExecutionStream:
-        if not self.is_running():
+        if not self._is_running_cached():
             raise SandboxNotRunningError(
                 f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
@@ -1109,6 +1163,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 cause=e,
             )
         except Exception as e:
+            self._raise_if_proxy_rate_limited(e, "exec")
             redacted_error = redact_sandbox_command(str(e))
             # Provider exceptions can echo the shell command, so avoid exc_info here.
             logger.error(  # noqa: TRY400
@@ -1153,7 +1208,7 @@ class ModalSandbox(AgentServerLaunchMixin):
         return _ModalExecutionStream(process)
 
     def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
-        if not self.is_running():
+        if not self._is_running_cached():
             raise SandboxNotRunningError(
                 "Sandbox not in running state.",
                 {"sandbox_id": self.id},
@@ -1238,7 +1293,7 @@ class ModalSandbox(AgentServerLaunchMixin):
         return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
     def is_git_clean(self, repository: str) -> tuple[bool, str]:
-        if not self.is_running():
+        if not self._is_running_cached():
             raise RuntimeError(f"Sandbox not in running state.")
 
         org, repo = repository.lower().split("/")
@@ -1455,6 +1510,7 @@ class ModalSandbox(AgentServerLaunchMixin):
         try:
             self._sandbox.terminate()
             self._destroyed = True
+            self._running_status_expires_at = 0.0
             logger.info(f"Destroyed sandbox {self.id}")
         except Exception as e:
             logger.exception(f"Failed to destroy sandbox: {e}")
