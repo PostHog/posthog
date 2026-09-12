@@ -146,7 +146,8 @@ export function ExperimentMetricForm({
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
     const [eventCount, setEventCount] = useState<number | null>(null)
-    const [isLoading, setIsLoading] = useState(false)
+    // The preview query only starts after the first render, so the preview is loading until it settles.
+    const [isLoading, setIsLoading] = useState(true)
 
     const getEventTypeLabel = (): string => {
         if (isExperimentMeanMetric(metric)) {
@@ -268,10 +269,7 @@ export function ExperimentMetricForm({
     const retentionCompletionEvent = isExperimentRetentionMetric(metric) ? metric.completion_event : null
     const retentionStartsAtExposure = retentionStartEvent?.kind === NodeKind.ExperimentExposureMetricSource
 
-    useEffect(() => {
-        loadEventCount(metric, filterTestAccounts, setEventCount, setIsLoading)
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [
+    const previewDeps = [
         metric.metric_type,
         meanSource,
         funnelSeries,
@@ -280,7 +278,19 @@ export function ExperimentMetricForm({
         retentionStartEvent,
         retentionCompletionEvent,
         filterTestAccounts,
-    ])
+    ]
+    const [loadedPreviewDeps, setLoadedPreviewDeps] = useState(previewDeps)
+    if (previewDeps.some((dep, index) => dep !== loadedPreviewDeps[index])) {
+        // Any result on screen belongs to the previous metric, so go back to loading in this
+        // render rather than after the effect below starts the new query.
+        setLoadedPreviewDeps(previewDeps)
+        setIsLoading(true)
+    }
+
+    useEffect(() => {
+        loadEventCount(metric, filterTestAccounts, setEventCount, setIsLoading)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, previewDeps)
 
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
