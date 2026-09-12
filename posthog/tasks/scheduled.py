@@ -11,6 +11,7 @@ from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
+from posthog.tasks.ai_training_privacy import process_ai_training_privacy_requests
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs, publish_cohort_backfill_run_gauges
 from posthog.tasks.email import (
@@ -247,6 +248,7 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")
     # Short-interval heartbeat tasks (<60s) use intervals since cron minimum is 1 minute.
     # These are fine because they run more frequently than beat restarts.
     if not settings.DEBUG:

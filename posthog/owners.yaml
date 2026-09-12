@@ -29,3 +29,13 @@ rules:
       owners: team-data-stack
     - match: '*llm_prompt*.py'
       owners: [team-ai-observability, team-experiments]
+    - match: '/ai_training_privacy*.py'
+      owners: ai-research
+    - match: '/models/ai_training.py'
+      owners: ai-research
+    - match: '/tasks/ai_training_privacy.py'
+      owners: ai-research
+    - match: '/management/commands/initialize_ai_training_consent.py'
+      owners: ai-research
+    - match: '/test/test_ai_training_privacy*.py'
+      owners: ai-research
