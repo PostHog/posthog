@@ -1108,6 +1108,7 @@ const scoutProjectProfileGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/project_profile/current/`,
             query: {
                 force_refresh: params.force_refresh,
+                summary_only: params.summary_only,
             },
         })
         return result
@@ -1775,6 +1776,7 @@ const signalsScoutProjectProfileGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/project_profile/current/`,
             query: {
                 force_refresh: params.force_refresh,
+                summary_only: params.summary_only,
             },
         })
         return result
