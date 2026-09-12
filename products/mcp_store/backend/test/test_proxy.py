@@ -179,12 +179,14 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert kwargs["headers"]["Mcp-Session-Id"] == "client-session-xyz"
 
     @patch("products.mcp_store.backend.proxy.httpx.Client")
-    def test_proxy_forwards_posthog_namespace_headers(self, mock_client_cls):
+    def test_proxy_forwards_only_client_identification_headers(self, mock_client_cls):
         # Required for PostHog MCP installs through the Store: without
         # `x-posthog-mcp-consumer` reaching the upstream, single-exec mode
         # never resolves and `exec` comes back as "Tool exec not found".
-        # The full `x-posthog-*` namespace forwards so callers can also pass
-        # custom headers through.
+        # Every other caller header is dropped, because the upstream call
+        # carries the installation's credentials: `x-posthog-project-id` would
+        # point them at another project and `x-posthog-read-only` would make a
+        # read-only connection writable.
         installation = self._create_installation(
             sensitive_configuration={"api_key": "sk-test-key"},
         )
@@ -203,7 +205,9 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "x-posthog-mcp-mode": "cli",
                 "x-posthog-mcp-version": "2",
                 "x-posthog-project-id": "42",
-                "x-posthog-read-only": "true",
+                "x-posthog-organization-id": "org-42",
+                "x-posthog-read-only": "false",
+                "x-posthog-task-id": "task-42",
                 "x-posthog-custom-future-header": "anything",
                 "x-not-posthog-namespace": "should-not-be-forwarded",
             },
@@ -216,10 +220,15 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert forwarded["x-posthog-mcp-consumer"] == "posthog-code"
         assert forwarded["x-posthog-mcp-mode"] == "cli"
         assert forwarded["x-posthog-mcp-version"] == "2"
-        assert forwarded["x-posthog-project-id"] == "42"
-        assert forwarded["x-posthog-read-only"] == "true"
-        assert forwarded["x-posthog-custom-future-header"] == "anything"
-        assert "x-not-posthog-namespace" not in forwarded
+        for dropped in (
+            "x-posthog-project-id",
+            "x-posthog-organization-id",
+            "x-posthog-read-only",
+            "x-posthog-task-id",
+            "x-posthog-custom-future-header",
+            "x-not-posthog-namespace",
+        ):
+            assert dropped not in forwarded
 
     @patch("products.mcp_store.backend.oauth.refresh_oauth_token")
     @patch("products.mcp_store.backend.proxy.httpx.Client")
