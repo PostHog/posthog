@@ -559,6 +559,24 @@ class _WarehouseParentRows:
                 yield row
 
 
+def _flush_staging_state(
+    batcher: Batcher,
+    resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
+    state_for: Callable[[pa.Table], StripeResumeConfig],
+) -> Iterator[pa.Table]:
+    """Drain the batcher, staging a cursor only before the last table.
+
+    A drained table can be one slice of an oversized chunk, and a cursor read off an earlier slice
+    can end inside a parent whose rows continue in the next one. Only the last table's cursor
+    covers every drained row, so only that one is staged, for the commit after its write.
+    """
+    while batcher.should_yield(include_incomplete_chunk=True):
+        table = batcher.get_table()
+        if not batcher.should_yield(include_incomplete_chunk=True):
+            resumable_source_manager.save_state(state_for(table))
+        yield table
+
+
 def _resume_state(position: Optional["ScanPosition"], parent_id: Optional[str]) -> StripeResumeConfig:
     """Resume state in whichever coordinate system this sweep is walking."""
     if position is not None:
@@ -950,12 +968,19 @@ def get_rows(
                 # (most customers have no payment methods) can take the entire customer base — so a
                 # sweep could walk hundreds of thousands of parents, one API call each, without ever
                 # recording progress, and a pod death restarted it from the first parent forever.
-                # Flushing first is what makes the position safe to save: every row up to
-                # `last_finished_parent` has been yielded by the time `starting_after` names it.
+                # Every buffered row belongs to a parent at or before `last_finished_parent`, so the
+                # position is staged right before the last table of the flush and the pipeline commits
+                # it once that table is written. With nothing buffered there is nothing to wait for,
+                # and a sparse sweep that never writes a row would otherwise never record progress.
                 if parents_since_checkpoint >= NESTED_SWEEP_CHECKPOINT_PARENTS and last_finished_parent is not None:
-                    while batcher.should_yield(include_incomplete_chunk=True):
-                        yield batcher.get_table()
-                    resumable_source_manager.save_state(_resume_state(last_finished_position, last_finished_parent))
+                    position = _resume_state(last_finished_position, last_finished_parent)
+                    if batcher.should_yield(include_incomplete_chunk=True):
+                        yield from _flush_staging_state(
+                            batcher, resumable_source_manager, lambda _table, position=position: position
+                        )
+                    else:
+                        resumable_source_manager.save_state(position)
+                        resumable_source_manager.commit()
                     parents_since_checkpoint = 0
                     report_parent_rows_consumed()
 
@@ -1000,8 +1025,6 @@ def get_rows(
                         # "table already ready" guard.
                         while batcher.should_yield():
                             py_table = batcher.get_table()
-                            yield py_table
-
                             checkpoint = _nested_checkpoint(
                                 py_table,
                                 resource.nested_parent_param,
@@ -1011,6 +1034,7 @@ def get_rows(
                             )
                             if checkpoint is not None:
                                 resumable_source_manager.save_state(checkpoint)
+                            yield py_table
                 except stripe_lib.InvalidRequestError as e:
                     # The parent was deleted between listing it and fetching its nested resources,
                     # so Stripe 404s the nested call. Skip the now-gone parent and keep syncing the
@@ -1036,23 +1060,19 @@ def get_rows(
 
                 while batcher.should_yield():
                     py_table = batcher.get_table()
-                    yield py_table
-
+                    # Staged before the yield, so the commit that follows this table's write covers it.
                     last_cur = py_table.column("id")[-1].as_py()
                     resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
+                    yield py_table
 
-        while batcher.should_yield(include_incomplete_chunk=True):
-            py_table = batcher.get_table()
-            yield py_table
-
+        def trailing_state(py_table: pa.Table) -> StripeResumeConfig:
             if isinstance(resource, StripeNestedResource):
                 last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
             else:
                 last_cur = py_table.column("id")[-1].as_py()
+            return _resume_state(parent_pages.position_after_current if parent_pages else None, last_cur)
 
-            resumable_source_manager.save_state(
-                _resume_state(parent_pages.position_after_current if parent_pages else None, last_cur)
-            )
+        yield from _flush_staging_state(batcher, resumable_source_manager, trailing_state)
 
         return
 

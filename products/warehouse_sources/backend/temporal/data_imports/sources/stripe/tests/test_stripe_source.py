@@ -1853,8 +1853,9 @@ class TestStripeNestedSweepResume:
 
         def run(manager):
             collected: list[dict] = []
-            checkpoints: list[tuple[int, Any]] = []
-            manager.save_state.side_effect = lambda state: checkpoints.append((len(collected), state))
+            staged: list[Any] = []
+            committed: list[tuple[int, Any]] = []
+            manager.save_state.side_effect = staged.append
             with (
                 patch.object(stripe_module, "StripeClient"),
                 patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
@@ -1876,12 +1877,15 @@ class TestStripeNestedSweepResume:
                     warehouse_parent=warehouse_parent,
                 ):
                     collected.extend(table.to_pylist())
-            return collected, checkpoints
+                    if staged:
+                        committed.append((len(collected), staged[-1]))
+                        staged.clear()
+            return collected, committed
 
         killed = MagicMock()
         killed.can_resume.return_value = False
-        all_rows, checkpoints = run(killed)
-        rows_written, crash_state = checkpoints[0]
+        all_rows, committed = run(killed)
+        rows_written, crash_state = committed[0]
 
         restarted = MagicMock()
         restarted.can_resume.return_value = True
