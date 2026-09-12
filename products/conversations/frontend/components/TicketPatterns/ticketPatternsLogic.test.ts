@@ -73,7 +73,7 @@ describe('ticketPatternsLogic', () => {
         })
         logic = ticketPatternsLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadOpenPatternsSuccess'])
+        await expectLogic(logic, () => logic.actions.loadOpenPatterns()).toDispatchActions(['loadOpenPatternsSuccess'])
     })
 
     afterEach(() => {

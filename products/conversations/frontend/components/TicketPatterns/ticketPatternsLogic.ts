@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiError } from 'lib/api-error'
@@ -189,11 +189,6 @@ export const ticketPatternsLogic = kea<ticketPatternsLogicType>([
                     await settleFailure(id, error, "Couldn't dismiss the pattern. Try again.")
                 }
             },
-        }
-    }),
-    afterMount(({ actions, values }) => {
-        if (values.patternsEnabled) {
-            actions.loadOpenPatterns()
         }
     }),
 ])

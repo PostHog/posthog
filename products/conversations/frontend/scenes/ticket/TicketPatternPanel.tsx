@@ -31,7 +31,8 @@ export function TicketPatternPanel({ ticketId }: TicketPatternPanelProps): JSX.E
                         <span className="font-medium">{pattern.title}</span>
                     </div>
                     <div className="text-sm text-muted">
-                        This ticket is one of <span translate="no">{pattern.ticket_count}</span> from{' '}
+                        {pattern.status === 'open' ? 'This ticket is one of ' : 'This ticket was one of '}
+                        <span translate="no">{pattern.ticket_count}</span> from{' '}
                         <span translate="no">{pattern.requester_count}</span>{' '}
                         <span>{pattern.requester_count === 1 ? 'customer' : 'customers'}</span>
                         {pattern.status === 'open' ? ' that nobody has reviewed yet.' : '.'}{' '}
@@ -46,7 +47,7 @@ export function TicketPatternPanel({ ticketId }: TicketPatternPanelProps): JSX.E
         <LemonCollapse
             className="bg-surface-primary"
             defaultActiveKey="ticket-patterns"
-            panels={[{ key: 'ticket-patterns', header: 'Similar tickets right now', content }]}
+            panels={[{ key: 'ticket-patterns', header: 'Similar tickets', content }]}
         />
     )
 }

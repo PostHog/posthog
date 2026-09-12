@@ -7,7 +7,7 @@ from django.db.models import F, QuerySet
 from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
-from rest_framework import mixins, serializers, status, viewsets
+from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
@@ -102,17 +102,34 @@ class TicketPatternSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(PatternEvidenceTicketSerializer(many=True))
     def get_tickets(self, pattern: TicketPattern) -> list[dict[str, Any]]:
-        visible = self.context.get("visible_ticket_ids")
-        if visible is None:
-            return []
-        ticket_ids = list(
-            TicketPatternEvidence.objects.for_team(pattern.team_id)
-            .filter(pattern=pattern, ticket_id__in=visible)
-            .order_by("-added_at")
-            .values_list("ticket_id", flat=True)[:EVIDENCE_PREVIEW_LIMIT]
-        )
-        tickets = {t.id: t for t in Ticket.objects.filter(team_id=pattern.team_id, id__in=ticket_ids)}
-        return list(PatternEvidenceTicketSerializer([tickets[i] for i in ticket_ids if i in tickets], many=True).data)
+        preview = self.context.get("evidence_preview")
+        if preview is None:
+            preview = evidence_preview_by_pattern([pattern])
+        return list(PatternEvidenceTicketSerializer(preview.get(pattern.id, []), many=True).data)
+
+
+def evidence_preview_by_pattern(patterns: list[TicketPattern]) -> dict[Any, list[Ticket]]:
+    """The newest few evidence tickets for each pattern, fetched in two queries for the whole page
+    instead of two per row."""
+    if not patterns:
+        return {}
+    team_id = patterns[0].team_id
+    rows = (
+        TicketPatternEvidence.objects.for_team(team_id)
+        .filter(pattern_id__in=[p.id for p in patterns])
+        .order_by("pattern_id", "-added_at")
+        .values_list("pattern_id", "ticket_id")
+    )
+    ids_by_pattern: dict[Any, list[Any]] = {}
+    for pattern_id, ticket_id in rows:
+        bucket = ids_by_pattern.setdefault(pattern_id, [])
+        if len(bucket) < EVIDENCE_PREVIEW_LIMIT:
+            bucket.append(ticket_id)
+    wanted = {tid for bucket in ids_by_pattern.values() for tid in bucket}
+    tickets = {t.id: t for t in Ticket.objects.filter(team_id=team_id, id__in=wanted)}
+    return {
+        pattern_id: [tickets[tid] for tid in bucket if tid in tickets] for pattern_id, bucket in ids_by_pattern.items()
+    }
 
 
 class ConfirmPatternSerializer(serializers.Serializer):
@@ -167,18 +184,46 @@ class TicketPatternViewSet(
     Read-only apart from the two state transitions, which are POST actions rather than PATCH so a
     client cannot set a pattern back to open, and so the baseline feedback that makes the detector
     learn happens in the same request.
+
+    A pattern is a team-wide aggregate: its topic is built from ticket text and its counts span the
+    whole inbox. `TicketPattern` has no access-control resource of its own, so the mixin's object
+    checks pass for everyone and a single ticket grant would otherwise open every pattern. The gate
+    is therefore all-or-nothing on the ticket resource, the same rule `unread_count` applies: a
+    member with any object-level ticket restriction, or no ticket access, sees no patterns and
+    cannot transition one.
     """
 
     # "ticket" (not "conversation"): the conversation scope also authorizes AI conversation
     # endpoints, which support patterns have no business granting access to
     scope_object = "ticket"
+    scope_object_write_actions = ["confirm", "dismiss"]
     serializer_class = TicketPatternSerializer
     queryset = TicketPattern.objects.unscoped()
     pagination_class = TicketPatternPagination
 
+    def _is_ticket_restricted(self) -> bool:
+        uac = cast(UserAccessControl, self.user_access_control)
+        return bool(uac.blocked_resource_ids_by_scope.get("ticket")) or not uac.has_resource_access("ticket")
+
+    def _assert_can_transition(self) -> None:
+        uac = cast(UserAccessControl, self.user_access_control)
+        if self._is_ticket_restricted() or not uac.check_access_level_for_resource("ticket", "editor"):
+            raise exceptions.PermissionDenied("You need edit access to every ticket to decide on a pattern.")
+
+    def get_serializer(self, *args: Any, **kwargs: Any) -> serializers.BaseSerializer:
+        instance = args[0] if args else kwargs.get("instance")
+        if instance is not None:
+            page = list(instance) if kwargs.get("many") else [instance]
+            kwargs.setdefault("context", {}).update(
+                self.get_serializer_context(), evidence_preview=evidence_preview_by_pattern(page)
+            )
+        return super().get_serializer(*args, **kwargs)
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         # Environment-scoped model: filter on the literal team id, never the canonical one.
         queryset = TicketPattern.objects.for_team(self.team_id).select_related("resolved_by", "owner")
+        if self._is_ticket_restricted():
+            return queryset.none()
         filters = PatternFilterSerializer(data=self.request.query_params)
         filters.is_valid(raise_exception=True)
         statuses = filters.validated_data.get("status")
@@ -190,18 +235,6 @@ class TicketPatternViewSet(
         # Second key breaks the tie: one detector run stamps every pattern it touches with the same
         # last_seen_at, and tied rows have no stable order across the queries that serve two pages.
         return queryset.order_by("-last_seen_at", "-id")
-
-    def get_serializer_context(self) -> dict[str, Any]:
-        context = super().get_serializer_context()
-        if self.action in ("list", "retrieve", "confirm", "dismiss"):
-            context["visible_ticket_ids"] = self._visible_ticket_ids()
-        return context
-
-    def _visible_ticket_ids(self) -> set[Any]:
-        # Ticket-level access control exists; a pattern must not leak a title the user cannot open.
-        tickets = Ticket.objects.filter(team_id=self.team_id)
-        access_control = cast(UserAccessControl, self.user_access_control)
-        return set(access_control.filter_queryset_by_access_level(tickets).values_list("id", flat=True))
 
     @extend_schema(
         parameters=[
@@ -260,6 +293,7 @@ class TicketPatternViewSet(
     @extend_schema(request=ConfirmPatternSerializer, responses={200: TicketPatternSerializer})
     @action(methods=["POST"], detail=True)
     def confirm(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self._assert_can_transition()
         body = ConfirmPatternSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         pattern = self.get_object()
@@ -277,6 +311,7 @@ class TicketPatternViewSet(
     @extend_schema(request=DismissPatternSerializer, responses={200: TicketPatternSerializer})
     @action(methods=["POST"], detail=True)
     def dismiss(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self._assert_can_transition()
         body = DismissPatternSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         pattern = self.get_object()

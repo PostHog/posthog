@@ -7,6 +7,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.organization import OrganizationMembership
+
 from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.models import (
     Ticket,
@@ -115,21 +117,56 @@ class TestTicketPatternAPI(APIBaseTest):
         self.pattern.refresh_from_db()
         assert self.pattern.status == TicketPatternStatus.DISMISSED
 
-    def test_evidence_hides_tickets_the_user_cannot_open(self):
+    def _restrict_one_ticket(self) -> None:
         self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
         self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
         AccessControl.objects.create(
             resource="ticket",
             resource_id=str(self.tickets[0].id),
-            organization_member=self.user.organization_memberships.get(organization=self.organization),
+            organization_member=self.organization_membership,
             team=self.team,
             access_level="none",
         )
 
-        response = self.client.get(self._url())
+    def test_a_member_denied_any_ticket_sees_no_patterns(self):
+        # The topic is built from ticket text and the counts span the whole inbox, so a partial view
+        # of the tickets cannot come with a full view of their patterns.
+        self._restrict_one_ticket()
 
-        shown = {t["id"] for t in response.json()["tickets"]}
-        assert shown == {str(self.tickets[1].id)}
+        listed = self.client.get(self.base_url)
+        retrieved = self.client.get(self._url())
+        by_ticket = self.client.get(self.base_url, {"ticket_id": str(self.tickets[0].id)})
+
+        assert listed.json()["results"] == []
+        assert retrieved.status_code == status.HTTP_404_NOT_FOUND
+        assert by_ticket.json()["results"] == []
+
+    @parameterized.expand([("confirm",), ("dismiss",)])
+    def test_a_member_denied_any_ticket_cannot_transition_a_pattern(self, action):
+        self._restrict_one_ticket()
+
+        response = self.client.post(self._url(f"{action}/"), {}, format="json")
+
+        assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+        self.pattern.refresh_from_db()
+        assert self.pattern.status == TicketPatternStatus.OPEN
+
+    def test_a_ticket_viewer_can_read_but_not_transition(self):
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(resource="ticket", team=self.team, access_level="viewer")
+
+        listed = self.client.get(self.base_url)
+        confirmed = self.client.post(self._url("confirm/"), {}, format="json")
+
+        assert [p["topic"] for p in listed.json()["results"]] == ["login"]
+        assert confirmed.status_code == status.HTTP_403_FORBIDDEN
+        self.pattern.refresh_from_db()
+        assert self.pattern.status == TicketPatternStatus.OPEN
 
     def test_list_filters_by_status_and_ticket(self):
         TicketPattern.objects.for_team(self.team.id).create(

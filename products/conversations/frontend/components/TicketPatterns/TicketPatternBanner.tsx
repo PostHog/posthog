@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
@@ -19,7 +20,13 @@ function patternSummary(pattern: TicketPatternApi): string {
 
 export function TicketPatternBanner(): JSX.Element | null {
     const { patternsEnabled, bannerPatterns, inFlightIds } = useValues(ticketPatternsLogic)
-    const { confirmPattern, dismissPattern, hideBanner } = useActions(ticketPatternsLogic)
+    const { confirmPattern, dismissPattern, hideBanner, loadOpenPatterns } = useActions(ticketPatternsLogic)
+
+    useEffect(() => {
+        if (patternsEnabled) {
+            loadOpenPatterns()
+        }
+    }, [patternsEnabled, loadOpenPatterns])
 
     if (!patternsEnabled || bannerPatterns.length === 0) {
         return null

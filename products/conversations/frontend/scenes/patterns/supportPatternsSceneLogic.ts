@@ -8,6 +8,9 @@ import { ticketPatternsLogic } from '../../components/TicketPatterns/ticketPatte
 import * as api from '../../generated/api'
 import type { TicketPatternApi } from '../../generated/api.schemas'
 
+const PAGE_SIZE = 100
+const MAX_PAGES = 10
+
 export type PatternStatusFilter = 'open' | 'confirmed' | 'dismissed' | 'resolved' | 'all'
 
 const PATTERN_STATUS_FILTERS: PatternStatusFilter[] = ['open', 'confirmed', 'dismissed', 'resolved', 'all']
@@ -95,11 +98,25 @@ export const supportPatternsSceneLogic = kea<supportPatternsSceneLogicType>([
             {
                 loadPatterns: async (_, breakpoint) => {
                     const status = values.statusFilter === 'all' ? undefined : values.statusFilter
-                    const response = await api.conversationsPatternsList(String(getCurrentTeamId()), { status })
-                    // Drop a response that was superseded while in flight, so a slow reply for the
-                    // filter the person left cannot overwrite the newer one.
-                    breakpoint()
-                    return [...response.results]
+                    const teamId = String(getCurrentTeamId())
+                    const results: TicketPatternApi[] = []
+                    let offset = 0
+                    for (let page = 0; page < MAX_PAGES; page++) {
+                        const response = await api.conversationsPatternsList(teamId, {
+                            status,
+                            limit: PAGE_SIZE,
+                            offset,
+                        })
+                        // Drop a response that was superseded while in flight, so a slow reply for the
+                        // filter the person left cannot overwrite the newer one.
+                        breakpoint()
+                        results.push(...response.results)
+                        if (!response.next) {
+                            break
+                        }
+                        offset += PAGE_SIZE
+                    }
+                    return results
                 },
             },
         ],
