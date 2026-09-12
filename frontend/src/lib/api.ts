@@ -404,7 +404,9 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
             throw error
         }
         // The body stream failed mid-read (e.g. a network drop truncating a chunked response) —
-        // the response is unusable, so surface it instead of handing callers a null.
+        // the response is unusable, so surface it instead of handing callers a null. `handleFetch`
+        // already reported the headers as a healthy response, so correct that verdict here.
+        apiStatusLogic.findMounted()?.actions.onResponseBodyFailure()
         throw new ApiError(`Failed to read response body ${requestContext()}`)
     }
     if (!text.trim()) {
@@ -3496,7 +3498,10 @@ const api = {
                 if (isAbortError(error)) {
                     return
                 }
-                apiStatusLogic.findMounted()?.actions.onApiResponse(undefined, error)
+                // The stream opened, so its headers already counted as a healthy response. Whatever
+                // ends it early — a transport error or a close before the completion event — leaves
+                // the body incomplete, which is a connection failure however the error is worded.
+                apiStatusLogic.findMounted()?.actions.onResponseBodyFailure()
                 onError(error)
             }
 
