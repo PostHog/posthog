@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime, timedelta
+from itertools import chain
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -17,7 +18,7 @@ from posthog.temporal.common.utils import asyncify
 
 from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.learning.contracts import EvidenceRef
-from products.business_knowledge.backend.learning.providers import get_learning_providers
+from products.business_knowledge.backend.learning.providers import LearningEvidenceProvider, get_learning_providers
 from products.business_knowledge.backend.models import (
     KnowledgeLearningRun,
     LearningRunStatus,
@@ -26,11 +27,14 @@ from products.business_knowledge.backend.models import (
 
 from ..constants import (
     ANALYSIS_VERSION,
+    LEARNING_COORDINATOR_INTERVAL_MINUTES,
     LEARNING_MAX_ITEMS_PER_TEAM,
     LEARNING_MAX_ITEMS_PER_TICK,
     LEARNING_MAX_LOOKBACK_DAYS,
     LEARNING_PROVIDER_MAX_SCAN_LIMIT,
     LEARNING_PROVIDER_SCAN_LIMIT,
+    LEARNING_RETRY_BACKOFF_MINUTES,
+    LEARNING_RUNNING_STALE_MINUTES,
     LEARNING_SETTLE_MINUTES,
 )
 from ..schemas import CollectLearningEvidenceOutput, LearningCoordinatorInput, LearningWorkItem
@@ -38,7 +42,7 @@ from ..schemas import CollectLearningEvidenceOutput, LearningCoordinatorInput, L
 logger = structlog.get_logger(__name__)
 
 
-def _canonical_teams(input: LearningCoordinatorInput) -> Iterable[tuple[Team, int | None]]:
+def _canonical_teams(input: LearningCoordinatorInput, now: datetime) -> Iterable[tuple[Team, int | None]]:
     if input.team_id is None:
         configs = (
             TeamBusinessKnowledgeConfig.objects.filter(
@@ -47,7 +51,16 @@ def _canonical_teams(input: LearningCoordinatorInput) -> Iterable[tuple[Team, in
             .select_related("team__organization")
             .order_by("team_id")
         )
-        for config in configs.iterator(chunk_size=100):
+        config_count = configs.count()
+        if config_count == 0:
+            return
+        tick = int(now.timestamp()) // (LEARNING_COORDINATOR_INTERVAL_MINUTES * 60)
+        start = tick % config_count
+        rotated_configs = chain(
+            configs[start:].iterator(chunk_size=100),
+            configs[:start].iterator(chunk_size=100),
+        )
+        for config in rotated_configs:
             yield config.team, None
         return
 
@@ -99,22 +112,25 @@ def _existing_runs(canonical_team_id: int, refs: list[EvidenceRef]) -> dict[tupl
     return {(run.provider, run.evidence_key): run for run in runs}
 
 
-def _provider_scan_limit(canonical_team_id: int, source_team_id: int, provider: str, since: datetime) -> int:
-    completed_count = (
-        KnowledgeLearningRun.objects.for_team(canonical_team_id)
-        .filter(
-            provider=provider,
-            source_team_id=source_team_id,
-            analysis_version=ANALYSIS_VERSION,
-            status=LearningRunStatus.COMPLETED,
-            created_at__gte=since,
-        )
-        .count()
+def _run_can_start(run: KnowledgeLearningRun, ref: EvidenceRef, now: datetime) -> bool:
+    if run.source_team_id != ref.source_team_id or run.status == LearningRunStatus.COMPLETED:
+        return False
+    stale_minutes = (
+        LEARNING_RUNNING_STALE_MINUTES if run.status == LearningRunStatus.RUNNING else LEARNING_RETRY_BACKOFF_MINUTES
     )
-    return min(LEARNING_PROVIDER_SCAN_LIMIT + completed_count, LEARNING_PROVIDER_MAX_SCAN_LIMIT)
+    return run.updated_at <= now - timedelta(minutes=stale_minutes)
 
 
-def _create_run(canonical_team: Team, ref: EvidenceRef) -> KnowledgeLearningRun:
+def _claim_existing_run(run: KnowledgeLearningRun, now: datetime) -> bool:
+    claimed = (
+        KnowledgeLearningRun.objects.for_team(run.team_id)
+        .filter(id=run.id, status=run.status, updated_at=run.updated_at)
+        .update(updated_at=now)
+    )
+    return claimed == 1
+
+
+def _create_run(canonical_team: Team, ref: EvidenceRef) -> tuple[KnowledgeLearningRun, bool]:
     lookup = {
         "provider": ref.provider,
         "evidence_key": ref.evidence_key,
@@ -122,16 +138,108 @@ def _create_run(canonical_team: Team, ref: EvidenceRef) -> KnowledgeLearningRun:
     }
     try:
         with transaction.atomic():
-            run, _ = KnowledgeLearningRun.objects.for_team(canonical_team.id).get_or_create(
+            run, created = KnowledgeLearningRun.objects.for_team(canonical_team.id).get_or_create(
                 **lookup,
                 defaults={
                     "team": canonical_team,
                     "source_team_id": ref.source_team_id,
                 },
             )
-            return run
+            return run, created
     except IntegrityError:
-        return KnowledgeLearningRun.objects.for_team(canonical_team.id).get(**lookup)
+        return KnowledgeLearningRun.objects.for_team(canonical_team.id).get(**lookup), False
+
+
+def _valid_page_refs(
+    collected: list[EvidenceRef],
+    *,
+    canonical_team_id: int,
+    source_team_id: int,
+    provider_name: str,
+    settle_cutoff: datetime,
+    ticket_id: UUID | None,
+    seen: set[tuple[str, str]],
+) -> list[EvidenceRef]:
+    page_refs: list[EvidenceRef] = []
+    for ref in collected:
+        if ref.provider != provider_name or ref.source_team_id != source_team_id:
+            logger.error(
+                "business_knowledge.learning.invalid_evidence_ref",
+                team_id=canonical_team_id,
+                source_team_id=source_team_id,
+                provider=provider_name,
+            )
+            continue
+        if ref.revision_at > settle_cutoff:
+            continue
+        identity = (ref.provider, ref.evidence_key)
+        if identity in seen or (ticket_id is not None and ref.ticket_id != ticket_id):
+            continue
+        seen.add(identity)
+        page_refs.append(ref)
+    return page_refs
+
+
+def _collect_provider_refs(
+    canonical_team: Team,
+    *,
+    source_team_id: int,
+    provider: LearningEvidenceProvider,
+    since: datetime,
+    settle_cutoff: datetime,
+    ticket_id: UUID | None,
+    now: datetime,
+    seen: set[tuple[str, str]],
+    limit: int,
+) -> list[EvidenceRef]:
+    refs: list[EvidenceRef] = []
+    offset = 0
+    while offset < LEARNING_PROVIDER_MAX_SCAN_LIMIT:
+        page_limit = min(
+            LEARNING_PROVIDER_SCAN_LIMIT,
+            LEARNING_PROVIDER_MAX_SCAN_LIMIT - offset,
+        )
+        try:
+            collected = provider.collect(
+                source_team_id,
+                since=since,
+                limit=page_limit,
+                offset=offset,
+                ticket_id=ticket_id,
+            )
+        except Exception:
+            logger.exception(
+                "business_knowledge.learning.collection_failed",
+                team_id=canonical_team.id,
+                source_team_id=source_team_id,
+                provider=provider.name,
+            )
+            break
+        if not collected:
+            break
+
+        page_refs = _valid_page_refs(
+            collected,
+            canonical_team_id=canonical_team.id,
+            source_team_id=source_team_id,
+            provider_name=provider.name,
+            settle_cutoff=settle_cutoff,
+            ticket_id=ticket_id,
+            seen=seen,
+        )
+        existing = _existing_runs(canonical_team.id, page_refs)
+        for ref in page_refs:
+            run = existing.get((ref.provider, ref.evidence_key))
+            if run is not None and not _run_can_start(run, ref, now):
+                continue
+            refs.append(ref)
+            if len(refs) >= limit:
+                return refs
+
+        offset += len(collected)
+        if ticket_id is not None or len(collected) < page_limit:
+            break
+    return refs
 
 
 def _collect_team_refs(
@@ -141,41 +249,27 @@ def _collect_team_refs(
     since: datetime,
     settle_cutoff: datetime,
     ticket_id: UUID | None,
+    now: datetime,
 ) -> list[EvidenceRef]:
     refs: list[EvidenceRef] = []
     seen: set[tuple[str, str]] = set()
     for source_team_id in _source_team_ids(canonical_team, requested_source_team_id):
         for provider in get_learning_providers():
-            try:
-                collected = provider.collect(
-                    source_team_id,
-                    since=since,
-                    limit=_provider_scan_limit(canonical_team.id, source_team_id, provider.name, since),
-                )
-            except Exception:
-                logger.exception(
-                    "business_knowledge.learning.collection_failed",
-                    team_id=canonical_team.id,
+            refs.extend(
+                _collect_provider_refs(
+                    canonical_team,
                     source_team_id=source_team_id,
-                    provider=provider.name,
+                    provider=provider,
+                    since=since,
+                    settle_cutoff=settle_cutoff,
+                    ticket_id=ticket_id,
+                    now=now,
+                    seen=seen,
+                    limit=LEARNING_MAX_ITEMS_PER_TEAM - len(refs),
                 )
-                continue
-            for ref in collected:
-                if ref.provider != provider.name or ref.source_team_id != source_team_id:
-                    logger.error(
-                        "business_knowledge.learning.invalid_evidence_ref",
-                        team_id=canonical_team.id,
-                        source_team_id=source_team_id,
-                        provider=provider.name,
-                    )
-                    continue
-                if ref.revision_at > settle_cutoff:
-                    continue
-                identity = (ref.provider, ref.evidence_key)
-                if identity in seen or (ticket_id is not None and ref.ticket_id != ticket_id):
-                    continue
-                seen.add(identity)
-                refs.append(ref)
+            )
+            if len(refs) >= LEARNING_MAX_ITEMS_PER_TEAM:
+                return refs
     return refs
 
 
@@ -188,7 +282,7 @@ def collect_learning_evidence(input: LearningCoordinatorInput) -> CollectLearnin
     settle_cutoff = now - timedelta(minutes=LEARNING_SETTLE_MINUTES)
     items: list[LearningWorkItem] = []
 
-    for canonical_team, requested_source_team_id in _canonical_teams(input):
+    for canonical_team, requested_source_team_id in _canonical_teams(input, now):
         if len(items) >= LEARNING_MAX_ITEMS_PER_TICK:
             break
         if not canonical_team.organization.is_ai_data_processing_approved or not logic.has_feature_flag(canonical_team):
@@ -200,6 +294,7 @@ def collect_learning_evidence(input: LearningCoordinatorInput) -> CollectLearnin
             since=since,
             settle_cutoff=settle_cutoff,
             ticket_id=ticket_id,
+            now=now,
         )
         existing = _existing_runs(canonical_team.id, refs)
         selected_for_team = 0
@@ -208,10 +303,13 @@ def collect_learning_evidence(input: LearningCoordinatorInput) -> CollectLearnin
                 break
             identity = (ref.provider, ref.evidence_key)
             run = existing.get(identity)
+            created = False
             if run is None:
-                run = _create_run(canonical_team, ref)
+                run, created = _create_run(canonical_team, ref)
                 existing[identity] = run
-            if run.status == LearningRunStatus.COMPLETED or run.source_team_id != ref.source_team_id:
+            if not created and not _run_can_start(run, ref, now):
+                continue
+            if not created and not _claim_existing_run(run, now):
                 continue
             items.append(
                 LearningWorkItem(

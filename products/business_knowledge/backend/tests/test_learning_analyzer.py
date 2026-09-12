@@ -43,7 +43,15 @@ class _Provider:
     def __init__(self, bundle: EvidenceBundle | None) -> None:
         self.bundle = bundle
 
-    def collect(self, team_id: int, *, since: datetime, limit: int) -> list[EvidenceRef]:
+    def collect(
+        self,
+        team_id: int,
+        *,
+        since: datetime,
+        limit: int,
+        offset: int = 0,
+        ticket_id: UUID | None = None,
+    ) -> list[EvidenceRef]:
         return []
 
     def load(self, ref: EvidenceRef) -> EvidenceBundle | None:

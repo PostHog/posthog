@@ -499,8 +499,10 @@ def list_resolved_ticket_revisions(
     *,
     since: datetime,
     limit: int,
+    offset: int = 0,
+    ticket_id: UUID | None = None,
 ) -> list[ResolvedTicketRevision]:
-    if limit <= 0:
+    if limit <= 0 or offset < 0:
         return []
     team = _support_learning_team(team_id)
     if team is None:
@@ -510,14 +512,16 @@ def list_resolved_ticket_revisions(
     has_public_human_reply = public_human_ticket_replies(comment_team_ids).filter(
         item_id=Cast(OuterRef("id"), output_field=CharField()),
     )
+    ticket_query = Ticket.objects.filter(
+        team_id=team.id,
+        status=Status.RESOLVED,
+    )
+    if ticket_id is None:
+        ticket_query = ticket_query.filter(Q(updated_at__gte=since) | Q(last_message_at__gte=since))
+    else:
+        ticket_query = ticket_query.filter(id=ticket_id)
     tickets = list(
-        Ticket.objects.filter(
-            team_id=team.id,
-            status=Status.RESOLVED,
-        )
-        .filter(Q(updated_at__gte=since) | Q(last_message_at__gte=since))
-        .filter(Exists(has_public_human_reply))
-        .order_by("-updated_at", "-id")[:limit]
+        ticket_query.filter(Exists(has_public_human_reply)).order_by("-updated_at", "-id")[offset : offset + limit]
     )
     if not tickets:
         return []

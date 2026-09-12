@@ -8,6 +8,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.utils import timezone
+
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from temporalio import activity
@@ -74,11 +76,22 @@ class _Provider:
 
     def __init__(self) -> None:
         self.refs_by_team: dict[int, list[EvidenceRef]] = {}
-        self.calls: list[tuple[int, datetime, int]] = []
+        self.calls: list[tuple[int, datetime, int, int, UUID | None]] = []
 
-    def collect(self, team_id: int, *, since: datetime, limit: int) -> list[EvidenceRef]:
-        self.calls.append((team_id, since, limit))
-        return self.refs_by_team.get(team_id, [])[:limit]
+    def collect(
+        self,
+        team_id: int,
+        *,
+        since: datetime,
+        limit: int,
+        offset: int = 0,
+        ticket_id: UUID | None = None,
+    ) -> list[EvidenceRef]:
+        self.calls.append((team_id, since, limit, offset, ticket_id))
+        refs = self.refs_by_team.get(team_id, [])
+        if ticket_id is not None:
+            refs = [ref for ref in refs if ref.ticket_id == ticket_id]
+        return refs[offset : offset + limit]
 
     def load(self, ref: EvidenceRef) -> EvidenceBundle | None:
         return None
@@ -184,11 +197,16 @@ class TestCollectLearningEvidence(BaseTest):
             status=LearningRunStatus.FAILED,
             error="extraction_model_failed",
         )
+        KnowledgeLearningRun.objects.for_team(self.team.id).filter(id=failed_run.id).update(
+            updated_at=timezone.now() - timedelta(hours=2)
+        )
 
         result = collect_learning_evidence(LearningCoordinatorInput())
+        immediate_retry = collect_learning_evidence(LearningCoordinatorInput())
 
         assert [item.evidence for item in result.items] == [failed_ref]
         assert result.items[0].run_id == str(failed_run.id)
+        assert immediate_retry.items == []
 
     @patch(f"{COLLECT_MODULE}.timezone.now", return_value=datetime(2026, 9, 12, tzinfo=UTC))
     @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
@@ -218,11 +236,31 @@ class TestCollectLearningEvidence(BaseTest):
                 status=LearningRunStatus.COMPLETED,
                 result=LearningRunResult.NO_KNOWLEDGE,
             )
+        KnowledgeLearningRun.objects.for_team(self.team.id).update(created_at=timezone.now() - timedelta(days=30))
 
         result = collect_learning_evidence(LearningCoordinatorInput())
 
         assert [item.evidence for item in result.items] == [unseen_ref]
-        assert self.provider.calls[0][2] == 4
+        assert [call[3] for call in self.provider.calls] == [0, 2]
+
+    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
+    def test_active_and_backed_off_runs_do_not_consume_team_cap(self, _feature_flag) -> None:
+        blocked_refs = [_evidence(self.team.id, seed) for seed in range(40, 50)]
+        unseen_ref = _evidence(self.team.id, 50)
+        self.provider.refs_by_team[self.team.id] = [*blocked_refs, unseen_ref]
+        for index, ref in enumerate(blocked_refs):
+            KnowledgeLearningRun.objects.for_team(self.team.id).create(
+                team=self.team,
+                provider=ref.provider,
+                evidence_key=ref.evidence_key,
+                source_team_id=self.team.id,
+                analysis_version=ANALYSIS_VERSION,
+                status=LearningRunStatus.RUNNING if index % 2 == 0 else LearningRunStatus.FAILED,
+            )
+
+        result = collect_learning_evidence(LearningCoordinatorInput())
+
+        assert [item.evidence for item in result.items] == [unseen_ref]
 
     @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
     def test_per_team_and_global_caps_bound_each_tick(self, _feature_flag) -> None:
@@ -248,6 +286,40 @@ class TestCollectLearningEvidence(BaseTest):
         counts = Counter(item.team_id for item in result.items)
         assert len(result.items) == LEARNING_MAX_ITEMS_PER_TICK
         assert all(count <= LEARNING_MAX_ITEMS_PER_TEAM for count in counts.values())
+
+    @patch(f"{COLLECT_MODULE}.LEARNING_MAX_ITEMS_PER_TICK", 1)
+    @patch(f"{COLLECT_MODULE}.LEARNING_MAX_ITEMS_PER_TEAM", 1)
+    @patch(f"{COLLECT_MODULE}.timezone.now")
+    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
+    def test_tick_rotates_first_team_before_global_cap(self, _feature_flag, now_mock) -> None:
+        first_tick = datetime.now(UTC).replace(second=0, microsecond=0)
+        now_mock.return_value = first_tick
+        other_team = Team.objects.create_with_data(
+            organization=self.organization,
+            initiating_user=self.user,
+            name="Other team",
+        )
+        other_team.conversations_enabled = True
+        other_team.save(update_fields=["conversations_enabled"])
+        learning_settings.set_learn_from_support_enabled(other_team, True)
+        revision_at = first_tick - timedelta(minutes=10)
+        self.provider.refs_by_team[self.team.id] = [
+            _evidence(self.team.id, 60, revision_at=revision_at),
+            _evidence(self.team.id, 61, revision_at=revision_at),
+        ]
+        self.provider.refs_by_team[other_team.id] = [
+            _evidence(other_team.id, 62, revision_at=revision_at),
+            _evidence(other_team.id, 63, revision_at=revision_at),
+        ]
+
+        first_result = collect_learning_evidence(LearningCoordinatorInput())
+        now_mock.return_value = first_tick + timedelta(minutes=5)
+        second_result = collect_learning_evidence(LearningCoordinatorInput())
+
+        assert {first_result.items[0].team_id, second_result.items[0].team_id} == {
+            self.team.id,
+            other_team.id,
+        }
 
     @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
     def test_duplicate_evidence_across_children_creates_one_run(self, _feature_flag) -> None:
@@ -284,8 +356,9 @@ class TestCollectLearningEvidence(BaseTest):
         assert KnowledgeLearningRun.objects.for_team(self.team.id).count() == 1
 
     @patch(f"{COLLECT_MODULE}.timezone.now", return_value=datetime(2026, 9, 12, tzinfo=UTC))
+    @patch(f"{COLLECT_MODULE}.LEARNING_PROVIDER_SCAN_LIMIT", 1)
     @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_manual_input_widens_lookback_and_filters_one_ticket(self, _feature_flag, _now) -> None:
+    def test_manual_input_targets_one_ticket_before_pagination(self, _feature_flag, _now) -> None:
         revision_at = datetime(2026, 8, 1, tzinfo=UTC)
         selected = _evidence(self.team.id, 30, revision_at=revision_at)
         self.provider.refs_by_team[self.team.id] = [
@@ -303,6 +376,7 @@ class TestCollectLearningEvidence(BaseTest):
 
         assert [item.evidence for item in result.items] == [selected]
         assert self.provider.calls[0][1] == datetime(2026, 8, 13, tzinfo=UTC)
+        assert self.provider.calls[0][4] == selected.ticket_id
 
 
 @pytest.mark.asyncio

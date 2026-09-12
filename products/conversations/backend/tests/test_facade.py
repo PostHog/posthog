@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -379,8 +379,21 @@ class TestResolvedTicketEvidence(BaseTest):
             item_context=item_context,
         )
 
-    def _revisions(self, *, team: Team | None = None, limit: int = 10):
-        return list_resolved_ticket_revisions((team or self.team).id, since=self.since, limit=limit)
+    def _revisions(
+        self,
+        *,
+        team: Team | None = None,
+        limit: int = 10,
+        offset: int = 0,
+        ticket_id: UUID | None = None,
+    ):
+        return list_resolved_ticket_revisions(
+            (team or self.team).id,
+            since=self.since,
+            limit=limit,
+            offset=offset,
+            ticket_id=ticket_id,
+        )
 
     def test_returns_only_public_human_reply_text(self) -> None:
         ticket = self._ticket()
@@ -541,16 +554,26 @@ class TestResolvedTicketEvidence(BaseTest):
 
         assert self._revisions() == []
 
-    def test_limit_returns_the_most_recently_updated_ticket(self) -> None:
+    def test_pagination_and_ticket_filter_select_before_limiting(self) -> None:
         older = self._ticket(number=1)
-        newer = self._ticket(number=2)
+        middle = self._ticket(number=2)
+        newer = self._ticket(number=3)
         self._comment(older, author_type="support", content="Older answer")
+        self._comment(middle, author_type="support", content="Middle answer")
         self._comment(newer, author_type="support", content="Newer answer")
-        Ticket.objects.filter(pk=older.id).update(updated_at=timezone.now() - timedelta(hours=2))
+        Ticket.objects.filter(pk=older.id).update(
+            updated_at=timezone.now() - timedelta(days=8),
+            last_message_at=timezone.now() - timedelta(days=8),
+        )
+        Ticket.objects.filter(pk=middle.id).update(updated_at=timezone.now() - timedelta(hours=2))
         Ticket.objects.filter(pk=newer.id).update(updated_at=timezone.now() - timedelta(hours=1))
 
         revisions = self._revisions(limit=1)
+        second_page = self._revisions(limit=1, offset=1)
+        targeted = self._revisions(limit=1, ticket_id=older.id)
 
         assert [revision.ticket_id for revision in revisions] == [newer.id]
-        assert revisions[0].display_label == "ticket #2"
-        assert revisions[0].deep_link == f"{settings.SITE_URL}/project/{self.team.id}/support/tickets/2"
+        assert [revision.ticket_id for revision in second_page] == [middle.id]
+        assert [revision.ticket_id for revision in targeted] == [older.id]
+        assert revisions[0].display_label == "ticket #3"
+        assert revisions[0].deep_link == f"{settings.SITE_URL}/project/{self.team.id}/support/tickets/3"
