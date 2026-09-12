@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -187,19 +188,31 @@ describe('inboxReportDetailLogic', () => {
             status: 'ready',
             title: 'Checkout errors spiked',
             implementation_pr_url: 'https://github.com/example/repo/pull/1',
+            pull_requests: [1, 2].map((n) => ({
+                id: `pr-${n}`,
+                url: `https://github.com/example/repo/pull/${n}`,
+                state: 'open',
+                merged: false,
+                claim_id: null,
+                attached_at: null,
+                attached_by: null,
+            })),
         } as unknown as SignalReport
 
         let logic: ReturnType<typeof inboxReportDetailLogic.build>
         let prChecksRequests: number
+        let requestedPrIds: (string | null)[]
 
         beforeEach(() => {
             prChecksRequests = 0
+            requestedPrIds = []
             useMocks({
                 get: {
                     '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
                     '/api/projects/:team_id/signals/reports/:id/signals/': [],
                     '/api/projects/:team_id/signals/reports/available_reviewers/': [],
-                    '/api/projects/:team_id/signals/reports/:id/pr_checks/': () => {
+                    '/api/projects/:team_id/signals/reports/:id/pr_checks/': ({ request }) => {
+                        requestedPrIds.push(new URL(request.url).searchParams.get('pull_request_id'))
                         prChecksRequests += 1
                         return [502, { error: 'GitHub could not return the checks for this pull request.' }]
                     },
@@ -215,6 +228,21 @@ describe('inboxReportDetailLogic', () => {
         afterEach(() => {
             logic.unmount()
             resumeKeaLoadersErrors()
+        })
+
+        it('scopes requests to the selected stack PR and keeps that selection when another layer merges', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(requestedPrIds).toEqual(['pr-1'])
+            logic.actions.selectPullRequest('https://github.com/example/repo/pull/2')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(requestedPrIds).toEqual(['pr-1', 'pr-2'])
+            logic.actions.setReport({
+                ...PR_REPORT,
+                pull_requests: PR_REPORT.pull_requests?.map((pr) =>
+                    pr.id === 'pr-1' ? { ...pr, merged: true, state: 'merged' } : pr
+                ),
+            })
+            expect(logic.values.selectedPullRequest.id).toBe('pr-2')
         })
 
         it('does not endlessly retry a failing checks fetch', async () => {
@@ -237,6 +265,108 @@ describe('inboxReportDetailLogic', () => {
             expect(prChecksRequests).toBe(3)
             expect(logic.values.prChecksBackedOff).toBe(true)
             expect(logic.values.prChecksError).toBeTruthy()
+        })
+    })
+
+    describe('PR response races', () => {
+        it.each(['success', 'failure', 'virtual-id-replacement'])('ignores stale PR responses: %s', async (mode) => {
+            let releaseA: () => void = () => {}
+            let checksStarted: () => void = () => {}
+            let commentsStarted: () => void = () => {}
+            const heldA = new Promise<void>((resolve) => {
+                releaseA = resolve
+            })
+            const sawChecksA = new Promise<void>((resolve) => {
+                checksStarted = resolve
+            })
+            const sawCommentsA = new Promise<void>((resolve) => {
+                commentsStarted = resolve
+            })
+            let failCurrent = false
+            const checksB = [{ id: 'check-b', name: 'B only', status: 'completed', conclusion: 'success' }]
+            const commentsB = [{ id: 2, body: 'B only', kind: 'issue' }]
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': [],
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                    '/api/projects/:team_id/signals/reports/:id/pr_checks/': async ({ request }) => {
+                        if (new URL(request.url).searchParams.get('pull_request_id') === 'pr-a') {
+                            checksStarted()
+                            await heldA
+                            return mode === 'failure'
+                                ? [504, { error: 'Synthetic upstream timeout' }]
+                                : { checks: [{ id: 'check-a', name: 'A only' }] }
+                        }
+                        return failCurrent ? [504, { error: 'Upstream timeout' }] : { checks: checksB }
+                    },
+                    '/api/projects/:team_id/signals/reports/:id/pr_comments/': async ({ request }) => {
+                        if (new URL(request.url).searchParams.get('pull_request_id') === 'pr-a') {
+                            commentsStarted()
+                            await heldA
+                            return mode === 'failure'
+                                ? [504, { error: 'Synthetic upstream timeout' }]
+                                : { comments: [{ id: 1, body: 'A only', kind: 'issue' }] }
+                        }
+                        return failCurrent ? [504, { error: 'Upstream timeout' }] : { comments: commentsB }
+                    },
+                },
+            })
+            initKeaTests()
+            silenceKeaLoadersErrors()
+            const report = {
+                id: 'qa-deferred-report',
+                status: 'ready',
+                title: 'Synthetic selected PR response race',
+                pull_requests: ['a', 'b'].map((n) => ({
+                    id: `pr-${n}`,
+                    url: `https://github.com/example/app/pull/${n === 'a' ? 1 : 2}`,
+                    state: 'open',
+                    merged: false,
+                    claim_id: null,
+                    attached_at: null,
+                    attached_by: null,
+                })),
+            } as unknown as SignalReport
+            const logic = inboxReportDetailLogic({ reportId: report.id, report })
+            logic.mount()
+            try {
+                await Promise.all([sawChecksA, sawCommentsA])
+                logic.actions.selectPullRequest('https://github.com/example/app/pull/2')
+                await waitFor(() => {
+                    expect(logic.values.prChecks).toEqual(checksB)
+                    expect(logic.values.prComments).toEqual(commentsB)
+                })
+                if (mode === 'virtual-id-replacement') {
+                    logic.actions.setReport({
+                        ...report,
+                        pull_requests: report.pull_requests?.map((pr) =>
+                            pr.id === 'pr-b' ? { ...pr, id: 'pr-b-persisted' } : pr
+                        ),
+                    })
+                }
+                releaseA()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.selectedPullRequest.id).toBe(
+                    mode === 'virtual-id-replacement' ? 'pr-b-persisted' : 'pr-b'
+                )
+                expect(logic.values.prChecks).toEqual(checksB)
+                expect(logic.values.prComments).toEqual(commentsB)
+                expect(logic.values.prChecksError).toBeNull()
+                expect(logic.values.prCommentsError).toBeNull()
+                expect(logic.values.prChecksConsecutiveFailures).toBe(0)
+                failCurrent = true
+                logic.actions.loadPrChecks()
+                logic.actions.loadPrComments()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.prChecksError).toBeTruthy()
+                expect(logic.values.prCommentsError).toBeTruthy()
+                expect(logic.values.prChecksConsecutiveFailures).toBe(1)
+            } finally {
+                releaseA()
+                logic.unmount()
+                resumeKeaLoadersErrors()
+            }
         })
     })
 

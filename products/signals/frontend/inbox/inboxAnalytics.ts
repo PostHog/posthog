@@ -10,6 +10,7 @@ import {
     SignalReportPriority,
     SignalRunKind,
 } from './types'
+import { reportPullRequests } from './utils/reportPullRequests'
 
 /**
  * Inbox telemetry. Mirrors the desktop "Code" app's inbox analytics (event names + property
@@ -238,7 +239,7 @@ function baseReportProperties(report: SignalReport): BaseReportProperties {
         report_age_hours: reportAgeHours(report),
         priority: report.priority ?? null,
         actionability: report.actionability ?? null,
-        has_pr: !!report.implementation_pr_url,
+        has_pr: reportPullRequests(report).length > 0,
     }
 }
 
@@ -497,7 +498,7 @@ export function captureInboxReportFeedback(params: {
     captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK, {
         ...baseReportProperties(params.report),
         sentiment: params.sentiment,
-        has_pr: !!params.report.implementation_pr_url,
+        has_pr: reportPullRequests(params.report).length > 0,
         ...(params.note ? { note: params.note } : {}),
         surface: params.surface,
     })
@@ -518,7 +519,7 @@ export function captureInboxReportFeedbackNote(params: {
     captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK_NOTE, {
         ...baseReportProperties(params.report),
         sentiment: params.sentiment,
-        has_pr: !!params.report.implementation_pr_url,
+        has_pr: reportPullRequests(params.report).length > 0,
         note: params.note,
         surface: params.surface,
     })

@@ -21,7 +21,7 @@ not a backoff: `icp_reenrichment_attempt_count` is recorded but nothing reads it
 Runs as a Temporal Schedule (registered on deploy by signup_enrichment/schedule.py) because the
 Harmonic key lives on the workers only. Selection re-checks the kill switch and region on
 every run, so flipping GROWTH_SIGNUP_ENRICHMENT_ENABLED off also stops the sweep. Each org
-goes through `enrich_organization(is_recheck=True)` — same archive, same writers, same
+goes through `enrich_organization` as `EnrichmentPhase.SWEEP` — same archive, same writers, same
 person-mirror policy; the write-once at-signup snapshot and the launch signal are untouched
 by construction (both live only in the signup activity). Emits `icp_reenrichment_completed`
 per org so the sweep has its own health signal.
@@ -65,11 +65,6 @@ ICP_REENRICHMENT_ATTEMPT_COUNT_KEY = "icp_reenrichment_attempt_count"
 # scheduled run into its next occurrence.
 SELECT_ACTIVITY_TIMEOUT = dt.timedelta(minutes=5)
 
-# Same signup-membership window as backfill_signup_enrichment: the signup creator's
-# membership lands within seconds of the org row, so an older earliest membership means the
-# signup user left and nobody can stand in for the signup identity.
-_SIGNUP_MEMBERSHIP_WINDOW = dt.timedelta(minutes=5)
-
 # Orgs that fail identity filtering never get a new fetch row, so they'd otherwise re-occupy
 # a cap slot on every run. Over-fetch the window so the cap can still be filled from what
 # survives filtering, without making the query unbounded.
@@ -103,24 +98,21 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
     from asgiref.sync import sync_to_async  # noqa: PLC0415
 
     from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
-    from posthog.models.organization import OrganizationMembership  # noqa: PLC0415
-    from posthog.utils import GenericEmails, get_instance_region  # noqa: PLC0415
 
+    from products.growth.backend.enrichment import gates  # noqa: PLC0415
     from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch  # noqa: PLC0415
-    from products.growth.backend.temporal.signup_enrichment.trigger import domain_from_email  # noqa: PLC0415
 
     logger = LOGGER.bind()
 
-    if not await sync_to_async(get_instance_setting)("GROWTH_SIGNUP_ENRICHMENT_ENABLED"):
+    if not await sync_to_async(gates.enrichment_enabled)():
         logger.info("icp_reenrichment_skipped_kill_switch")
         return []
-    if get_instance_region() not in ("US", "EU"):
+    if not gates.region_allowed():
         logger.info("icp_reenrichment_skipped_region")
         return []
 
     daily_cap = await sync_to_async(get_instance_setting)("GROWTH_ICP_REENRICH_DAILY_CAP")
     cap = inputs.cap if inputs.cap and inputs.cap > 0 else daily_cap
-    generic_emails = GenericEmails()
 
     def _select() -> list[dict[str, typing.Any]]:
         now = dt.datetime.now(dt.UTC)
@@ -178,25 +170,14 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
 
         candidates: list[dict[str, typing.Any]] = []
         for organization_id in ordered_org_ids:
-            membership = (
-                OrganizationMembership.objects.filter(organization_id=organization_id)
-                .select_related("user", "organization")
-                .order_by("joined_at")
-                .first()
-            )
-            if membership is None or membership.user is None:
-                continue
-            if membership.joined_at - membership.organization.created_at > _SIGNUP_MEMBERSHIP_WINDOW:
-                continue  # signup user left; nobody can stand in for the signup identity
-            user = membership.user
-            domain = domain_from_email(user.email) if user.email else None
-            if not user.distinct_id or not domain or generic_emails.is_generic(user.email):
+            identity = gates.resolve_signup_identity(organization_id)
+            if isinstance(identity, gates.SignupIdentitySkip):
                 continue
             candidates.append(
                 {
                     "organization_id": organization_id,
-                    "distinct_id": user.distinct_id,
-                    "domain": domain,
+                    "distinct_id": identity.distinct_id,
+                    "domain": identity.domain,
                     "role_at_organization": roles.get(organization_id),
                 }
             )
@@ -218,9 +199,8 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
 
     from asgiref.sync import sync_to_async  # noqa: PLC0415
 
-    from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
-    from posthog.models.organization import Organization  # noqa: PLC0415
-
+    from products.growth.backend.enrichment import gates  # noqa: PLC0415
+    from products.growth.backend.enrichment.context import EnrichmentContext, EnrichmentPhase  # noqa: PLC0415
     from products.growth.backend.enrichment.core import enrich_organization  # noqa: PLC0415
     from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider  # noqa: PLC0415
     from products.growth.backend.enrichment.writer import merge_into_record  # noqa: PLC0415
@@ -230,14 +210,14 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
 
     # Re-checked here, not just at selection: a run can span hours, and this is the only
     # gate standing between a flipped-off switch and further paid Harmonic calls.
-    if not await sync_to_async(get_instance_setting)("GROWTH_SIGNUP_ENRICHMENT_ENABLED"):
+    if not await sync_to_async(gates.enrichment_enabled)():
         logger.info("icp_reenrichment_skipped_kill_switch")
         return {"matched": False, "skipped": "kill_switch"}
 
     # Selection can be hours stale by the tail of a run, and the enrichment FKs skip DB
     # constraints — without this recheck, an org deleted mid-sweep would get its rows and
     # group properties recreated right after the deletion cascade removed them.
-    if not await sync_to_async(Organization.objects.filter(id=inputs.organization_id).exists)():
+    if not await sync_to_async(gates.organization_exists)(inputs.organization_id):
         logger.info("icp_reenrichment_skipped_org_deleted")
         return {"matched": False, "skipped": "organization_deleted"}
 
@@ -277,15 +257,14 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
         return {"matched": False}
 
     try:
-        outcome = await enrich_organization(
+        ctx = EnrichmentContext(
             organization_id=inputs.organization_id,
             domain=inputs.domain,
-            provider=HarmonicEnrichmentProvider(),
-            pha_client=pha_client,
-            is_recheck=True,
-            role_at_organization=inputs.role_at_organization,
+            phase=EnrichmentPhase.SWEEP,
             distinct_id=inputs.distinct_id,
+            role_at_organization=inputs.role_at_organization,
         )
+        outcome = await enrich_organization(ctx=ctx, provider=HarmonicEnrichmentProvider(), pha_client=pha_client)
         matched = outcome.provider_fields is not None
         status = outcome.fit.status if outcome.fit else None
         pha_client.capture(
