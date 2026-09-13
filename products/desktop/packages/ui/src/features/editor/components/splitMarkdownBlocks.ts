@@ -78,6 +78,29 @@ export function splitMarkdownBlocks(src: string): string[] {
   return blocks;
 }
 
+export interface MarkdownBlockSplit {
+  src: string;
+  blocks: string[];
+}
+
+export function splitMarkdownBlocksFrom(
+  src: string,
+  previous: MarkdownBlockSplit | null,
+): MarkdownBlockSplit {
+  if (
+    !previous ||
+    previous.blocks.length === 0 ||
+    src.length < previous.src.length ||
+    !src.startsWith(previous.src)
+  ) {
+    return { src, blocks: splitMarkdownBlocks(src) };
+  }
+  const stable = previous.blocks.slice(0, -1);
+  const tailStart = stable.reduce((offset, block) => offset + block.length, 0);
+  const tail = splitMarkdownBlocks(src.slice(tailStart));
+  return { src, blocks: stable.concat(tail) };
+}
+
 /**
  * For a block that ends inside an unterminated code fence, split it into the
  * prose/markdown preceding the OPEN fence and the code accumulated so far (the
