@@ -56,7 +56,10 @@ export function useSurveyResponseColumns(): Record<string, QueryContextColumn> {
             },
             respondent: {
                 title: 'Person',
-                render: ({ record }) => <PersonDisplay person={(record as EventType[])[0].person} />,
+                render: ({ record }) => {
+                    const event = (record as EventType[])[0]
+                    return <PersonDisplay person={event.person} eventTimestamp={event.timestamp} />
+                },
             },
             actions: {
                 title: ' ',

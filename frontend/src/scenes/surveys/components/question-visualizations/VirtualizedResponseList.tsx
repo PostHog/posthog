@@ -41,6 +41,7 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
                         withIcon="xs"
                         noEllipsis={false}
                         noLink={!response.distinctId}
+                        eventTimestamp={response.timestamp}
                         muted
                     />
                 </div>
@@ -81,6 +82,7 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
                             withIcon
                             noEllipsis={false}
                             noLink={!response.distinctId}
+                            eventTimestamp={response.timestamp}
                         />
                         <div className="flex items-center gap-2">
                             <ViewRecordingButton
