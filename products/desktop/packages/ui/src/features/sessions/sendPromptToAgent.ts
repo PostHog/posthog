@@ -1,5 +1,4 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
-import { SessionConnectingError } from "@posthog/core/sessions/sessionErrors";
 import { resolveService } from "@posthog/di/container";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useReviewNavigationStore } from "../code-review/reviewNavigationStore";
@@ -25,13 +24,11 @@ export function sendPromptToAgent(
   )
     .then(() => true)
     .catch((error: unknown) => {
-      if (!(error instanceof SessionConnectingError)) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "Failed to send your message to the agent. Please try again.",
-        );
-      }
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to send your message to the agent. Please try again.",
+      );
       return false;
     });
 

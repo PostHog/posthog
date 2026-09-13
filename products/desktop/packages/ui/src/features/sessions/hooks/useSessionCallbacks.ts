@@ -7,7 +7,6 @@ import {
   combineQueuedCloudPrompts,
   promptToQueuedEditorContent,
 } from "@posthog/core/sessions/cloudPrompt";
-import { SessionConnectingError } from "@posthog/core/sessions/sessionErrors";
 import {
   SESSION_SERVICE,
   type SessionService,
@@ -158,11 +157,9 @@ export function useSessionCallbacks({
         }
         return true;
       } catch (error) {
-        if (!(error instanceof SessionConnectingError)) {
-          const message =
-            error instanceof Error ? error.message : "Failed to send message";
-          toast.error(message);
-        }
+        const message =
+          error instanceof Error ? error.message : "Failed to send message";
+        toast.error(message);
         log.error("Failed to send prompt", error);
         return false;
       }

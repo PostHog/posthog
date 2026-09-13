@@ -1,4 +1,3 @@
-import { SessionConnectingError } from "@posthog/core/sessions/sessionErrors";
 import { toast } from "@posthog/ui/primitives/toast";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_TAB_IDS } from "../panels/panelConstants";
@@ -76,17 +75,6 @@ describe("sendPromptToAgent", () => {
       expect(toast.error).toHaveBeenCalledWith(expectedMessage);
     },
   );
-
-  it("stays quiet when the session is still connecting", async () => {
-    mockSender.mockRejectedValueOnce(new SessionConnectingError());
-
-    const success = await sendPromptToAgent("task-1", "hello");
-
-    expect(success).toBe(false);
-    // The session service owns this notice, so it can delay it and show it
-    // once. A toast here fires on every send while the session connects.
-    expect(toast.error).not.toHaveBeenCalled();
-  });
 
   it("does not toast when the send resolves", async () => {
     mockSender.mockResolvedValueOnce(undefined);

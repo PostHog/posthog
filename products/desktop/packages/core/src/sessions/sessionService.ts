@@ -114,7 +114,6 @@ import {
   planPermissionResponse,
   resolveAllowAlwaysUpgradeMode,
 } from "./permissionResponse";
-import { SessionConnectingError } from "./sessionErrors";
 import {
   collapseSupersededToolCallUpdates,
   convertStoredEntriesToEvents,
@@ -2255,6 +2254,11 @@ export class SessionService {
     }
 
     if (previous) {
+      // A fast-painted connecting session can be replaced before reconnect finishes.
+      // Keep its timestamp so the delayed notice stays attached to this attempt.
+      if (previous.status === "connecting") {
+        session.startedAt = previous.startedAt;
+      }
       session.optimisticItems = previous.optimisticItems;
       session.messageQueue = previous.messageQueue;
       // Keep the in-place edit hold with the queue it guards: dropping it here
@@ -2426,6 +2430,7 @@ export class SessionService {
             ),
           );
         }
+        this.flushQueuedMessagesIfIdle(taskId);
         return true;
       } else {
         this.d.log.warn("Reconnect returned null", { taskId, taskRunId });
@@ -4239,8 +4244,15 @@ export class SessionService {
         );
       }
       if (session.status === "connecting") {
+        const promptText = extractPromptText(prompt);
+        this.d.store.enqueueMessage(taskId, promptText, prompt);
         this.scheduleConnectingToast(session.taskId, session.startedAt);
-        throw new SessionConnectingError();
+        this.d.log.info("Message queued", {
+          taskId,
+          queueLength: session.messageQueue.length + 1,
+          reason: "connecting",
+        });
+        return { stopReason: "queued" };
       }
       throw new Error(`Session is not ready (status: ${session.status})`);
     }

@@ -90,7 +90,6 @@ vi.mock("@posthog/ui/primitives/toast", () => ({
   toast: { error: toastError, info: toastInfo },
 }));
 
-import { SessionConnectingError } from "@posthog/core/sessions/sessionErrors";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useSessionCallbacks } from "./useSessionCallbacks";
 
@@ -217,18 +216,6 @@ describe("useSessionCallbacks.handleSendPrompt", () => {
 
     expect(sent).toBe(false);
     expect(toastError).toHaveBeenCalledWith("fetch failed");
-  });
-
-  it("stays quiet when the session is still connecting", async () => {
-    sessionService.sendPrompt.mockRejectedValue(new SessionConnectingError());
-
-    const { result } = renderCallbacks();
-    const sent = await result.current.handleSendPrompt("keep this message");
-
-    expect(sent).toBe(false);
-    // The session service owns this notice, so it can delay it and show it
-    // once. A toast here fires on every send while the session connects.
-    expect(toastError).not.toHaveBeenCalled();
   });
 
   it("forwards the steer intent from the messaging mode", async () => {
