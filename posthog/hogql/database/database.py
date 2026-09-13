@@ -603,6 +603,7 @@ def _compute_system_table_access_decision(
 
     Pass user_access_control when it's already preloaded to reuse the instance and avoid an extra query."""
     # Lazy imports keep the Django ORM off this module's import path.
+    from posthog.models import User  # noqa: PLC0415
     from posthog.models.organization import OrganizationMembership  # noqa: PLC0415
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
@@ -610,6 +611,11 @@ def _compute_system_table_access_decision(
         NO_ACCESS_LEVEL,
         UserAccessControl,
     )
+
+    # Without this an unsupported principal reaches UserAccessControl and only fails once the
+    # membership cache reads user.id, several layers below the caller that passed it.
+    if user is not None and not isinstance(user, User | SyntheticUser | SharedLinkUser):
+        raise TypeError(f"user must be None, User, SyntheticUser or SharedLinkUser, not {type(user).__name__}")
 
     scoped_tables = _scoped_system_tables()
     allowed_system_table_names = frozenset(allowed_system_tables or ())
