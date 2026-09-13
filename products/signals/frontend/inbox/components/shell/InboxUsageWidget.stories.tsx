@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { BillingProductV2Type, BillingType } from '~/types'
@@ -16,6 +18,8 @@ interface InboxState {
     freePrs: number
     usedPrs: number
     limitPrs: number | null
+    // Credited-path refunds inside `usedPrs`. Needs the refunds flag on the story to reach the widget.
+    refundedPrs?: number
 }
 
 function inboxProduct({ subscribed, freePrs, usedPrs, limitPrs }: InboxState): BillingProductV2Type {
@@ -49,6 +53,12 @@ function StateMocks({ state }: { state: InboxState }): JSX.Element {
     useStorybookMocks({
         get: {
             '/api/billing/': billingFor(state),
+            '/api/projects/:team_id/signals/reports/refund-summary/': {
+                credited_refund_count: state.refundedPrs ?? 0,
+                credited_credits: state.refundedPrs ?? 0,
+                period_billable_credits: state.usedPrs,
+                quota_limited: false,
+            },
         },
     })
     // Mimic the agents rail's narrow column so the widget lays out as it does in the scene.
@@ -90,4 +100,14 @@ export const ApproachingLimit: Story = {
 
 export const AtLimit: Story = {
     render: () => <StateMocks state={{ subscribed: true, freePrs: 3, usedPrs: 50, limitPrs: 50 }} />,
+}
+
+// Usage runs past the limit while the quota cron catches up, so the count reports the overshoot.
+export const OverLimit: Story = {
+    render: () => <StateMocks state={{ subscribed: true, freePrs: 3, usedPrs: 53, limitPrs: 50 }} />,
+}
+
+export const WithRefundedPrs: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.SIGNALS_PR_REFUNDS] },
+    render: () => <StateMocks state={{ subscribed: true, freePrs: 3, usedPrs: 12, limitPrs: 50, refundedPrs: 2 }} />,
 }

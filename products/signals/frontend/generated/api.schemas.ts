@@ -2371,7 +2371,7 @@ export interface SignalReportMetricRefreshResponseApi {
 export interface SignalReportRefundSummaryResponseApi {
     /** Number of credited-path refunds across the whole organization whose refunded PR run falls in the current billing period. Excluded-path refunds never reach billing usage, so they are deliberately absent. */
     credited_refund_count: number
-    /** Total signals credits those refunds returned (1 credit = $0.01). Divide by the flat per-PR charge to get the number of PRs to subtract from billing usage. */
+    /** Total signals credits those refunds returned (1 credit = $0.01). These credits stay inside billing usage, because the money comes back as an invoice credit. Report the refunds alongside the usage count rather than subtracting them from it, and use `credited_refund_count` for the number of refunded PRs. */
     credited_credits: number
     /** The organization's live billable signals credits for the current billing period, computed by the same rules as the nightly usage report — including PRs created today that billing hasn't recorded yet, and already excluding refund-excluded and billing-exempt reports. Take the max of this and billing's recorded usage for a live PR count that reacts to new PRs and same-day refunds immediately. */
     period_billable_credits: number
