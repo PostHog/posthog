@@ -1,3 +1,4 @@
+from typing import get_args
 from uuid import uuid4
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
@@ -10,11 +11,12 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.search import (
     DOC_ITEM_TEMPLATE,
     DOCS_SEARCH_NO_RESULTS_TEMPLATE,
     DOCS_SEARCH_RESULTS_TEMPLATE,
+    ENTITIES,
     InkeepDocsSearchTool,
     SearchTool,
     format_inkeep_docs_response,
@@ -43,11 +45,40 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_run_docs_search_without_api_key(self):
         with patch("ee.hogai.tools.search.settings") as mock_settings:
             mock_settings.INKEEP_API_KEY = None
-            with self.assertRaises(MaxToolFatalError) as context:
+            with self.assertRaises(MaxToolRetryableError) as context:
                 await self.tool._arun_impl(kind="docs", query="How to use feature flags?")
 
             error_message = str(context.exception)
-            self.assertIn("not available", error_message.lower())
+            self.assertIn("not configured", error_message.lower())
+
+    async def test_run_business_knowledge_search_without_ready_sources(self):
+        with self.assertRaises(MaxToolRetryableError) as context:
+            await self.tool._arun_impl(kind="business-knowledge", query="What is our refund policy?")
+
+        error_message = str(context.exception)
+        self.assertIn("not available", error_message.lower())
+
+    @parameterized.expand(
+        [
+            ("neither", "", False, set()),
+            ("docs_only", "test-key", False, {"docs"}),
+            ("business_knowledge_only", "", True, {"business-knowledge"}),
+            ("both", "test-key", True, {"docs", "business-knowledge"}),
+        ]
+    )
+    async def test_create_tool_class_offers_only_available_kinds(
+        self, _name: str, inkeep_api_key: str, business_knowledge_ready: bool, expected_optional_kinds: set[str]
+    ):
+        with (
+            override_settings(INKEEP_API_KEY=inkeep_api_key),
+            patch("ee.hogai.tools.search.has_business_knowledge_feature_flag", return_value=business_knowledge_ready),
+            patch("ee.hogai.tools.search.has_ready_sources", return_value=business_knowledge_ready),
+        ):
+            tool = await SearchTool.create_tool_class(team=self.team, user=self.user)
+
+        kinds = set(get_args(tool.args_schema.model_fields["kind"].annotation))
+        self.assertEqual(kinds & {"docs", "business-knowledge"}, expected_optional_kinds)
+        self.assertTrue(set(ENTITIES).issubset(kinds))
 
     async def test_run_docs_search_with_api_key(self):
         mock_docs_tool = MagicMock()
