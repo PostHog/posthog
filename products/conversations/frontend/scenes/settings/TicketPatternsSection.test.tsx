@@ -68,6 +68,19 @@ describe('TicketPatternsSection', () => {
         await waitFor(() => expect(input).toHaveValue('weekly digest'))
     })
 
+    it('does not claim a team has no topics when the list fails to load', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/conversations/pattern_overrides/': () => [500, {}],
+                '/api/organizations/:organization_id/roles/': () => [200, { results: [] }],
+            },
+        })
+        mountWithTicketAccess(AccessControlLevel.Editor)
+
+        await waitFor(() => expect(screen.getByText(/Couldn't load your muted and watched topics/)).toBeInTheDocument())
+        expect(screen.queryByText('None yet')).not.toBeInTheDocument()
+    })
+
     it('turns the override controls off for someone who can only read tickets', () => {
         mountWithTicketAccess(AccessControlLevel.Viewer)
 
