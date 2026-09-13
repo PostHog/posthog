@@ -340,6 +340,12 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 502,
                 "Egress proxy refused the connection to the upstream MCP server, retry shortly",
             ),
+            (
+                "protocol_error",
+                httpx.RemoteProtocolError("Server disconnected"),
+                502,
+                "Upstream MCP server connection failed",
+            ),
         ]
     )
     @patch("products.mcp_store.backend.proxy.httpx.Client")
