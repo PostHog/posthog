@@ -302,6 +302,7 @@ export interface inboxOnboardingLogicActions {
     loadReportsCount: () => any // reportListLogic
     loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic
     loadSourceConfigs: () => any // signalSourcesLogic
+    loadVisionScanners: () => any // signalSourcesLogic
     checkWizardSession: () => {
         value: true
     } // wizardActiveSessionDetectorLogic
@@ -443,7 +444,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             wizardActiveSessionDetectorLogic,
             ['check as checkWizardSession'],
             signalSourcesLogic,
-            ['loadSourceConfigs'],
+            ['loadSourceConfigs', 'loadVisionScanners'],
             scoutFleetLogic,
             ['loadScoutConfigs'],
             reportListLogic({ sectionKey: 'monitoring', listParams: INBOX_REPORT_SECTION_LIST_PARAMS.monitoring }),
@@ -472,6 +473,9 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         refreshSetupState: () => {
             actions.loadSourceConfigs()
             actions.loadScoutConfigs()
+            // Replay Vision writes no config row, so its scanners are a fourth input to the same
+            // verdict. Leaving them out froze them at their mount value for the whole visit.
+            actions.loadVisionScanners()
             actions.loadPullsCount()
             actions.loadReportsCount()
         },
