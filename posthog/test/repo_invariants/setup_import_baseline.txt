@@ -26,7 +26,6 @@ google
 grpc
 kombu
 oauth2_provider
-pkg_resources
 psycopg
 redis
 rich
