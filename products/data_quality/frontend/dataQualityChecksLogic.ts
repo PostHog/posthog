@@ -521,6 +521,7 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
     afterMount(({ actions }) => {
         actions.loadChecks()
         actions.loadHealth()
+        actions.loadSuiteRuns()
         actions.adoptRunningSuiteRun()
     }),
 ])

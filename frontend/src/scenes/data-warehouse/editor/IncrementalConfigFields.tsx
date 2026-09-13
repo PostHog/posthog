@@ -36,8 +36,7 @@ const INCREMENTAL_KEY_HELP =
 const UNIQUE_KEY_LABEL = 'Unique key'
 const UNIQUE_KEY_HELP =
     'The columns that together identify a row, like a primary key. Rows that match on them are updated in place. Include every column the query groups by. Values here can never be empty.'
-const LOOKBACK_HELP =
-    "How far back before the last run's highest value to read again, so rows that arrive late are picked up."
+const LOOKBACK_HELP = 'Include this much previously processed data in each run to catch late arrivals and updates.'
 
 interface IncrementalConfigFieldsProps {
     /** Result of the backend eligibility check for the query being saved. */
@@ -121,10 +120,12 @@ function IncrementalKeyInput({
     value,
     onChange,
     dataAttr,
+    compact = false,
 }: {
     check: DataWarehouseSavedQueryIncrementalCheck
     value: string | null
     onChange: (value: string | null) => void
+    compact?: boolean
     dataAttr: string
 }): JSX.Element {
     return (
@@ -137,6 +138,8 @@ function IncrementalKeyInput({
             }))}
             placeholder="Select a column"
             data-attr={dataAttr}
+            size={compact ? 'small' : undefined}
+            renderButtonContent={compact ? (option) => option?.value ?? 'Select a column' : undefined}
             fullWidth
         />
     )
@@ -147,10 +150,12 @@ function UniqueKeyInput({
     value,
     onChange,
     dataAttr,
+    compact = false,
 }: {
     check: DataWarehouseSavedQueryIncrementalCheck
     value: string[]
     onChange: (value: string[]) => void
+    compact?: boolean
     dataAttr: string
 }): JSX.Element {
     // Wider than key_candidates: identifying a row only needs equality, so strings qualify here
@@ -159,21 +164,43 @@ function UniqueKeyInput({
     return (
         <LemonInputSelect
             mode="multiple"
+            size={compact ? 'small' : undefined}
+            fullWidth
+            transparentBackground={compact}
             value={value}
             onChange={onChange}
             options={candidates.map((column) => ({
                 key: column,
                 label: column,
-                labelComponent: <ColumnWithType column={column} columnType={check.key_candidate_types?.[column]} />,
+                labelComponent: compact ? undefined : (
+                    <ColumnWithType column={column} columnType={check.key_candidate_types?.[column]} />
+                ),
+                tooltip: compact ? check.key_candidate_types?.[column] : undefined,
             }))}
-            placeholder="Select one or more columns"
+            placeholder={compact ? 'Add column' : 'Select one or more columns'}
             data-attr={dataAttr}
         />
     )
 }
 
-function LookbackInput({ value, onChange }: { value: number; onChange: (value: number) => void }): JSX.Element {
-    return <LemonSelect value={value} onChange={onChange} options={LOOKBACK_OPTIONS} fullWidth />
+function LookbackInput({
+    value,
+    onChange,
+    compact = false,
+}: {
+    value: number
+    onChange: (value: number) => void
+    compact?: boolean
+}): JSX.Element {
+    return (
+        <LemonSelect
+            value={value}
+            onChange={onChange}
+            options={LOOKBACK_OPTIONS}
+            size={compact ? 'small' : undefined}
+            fullWidth
+        />
+    )
 }
 
 interface IncrementalConfigOptionsProps {
@@ -208,28 +235,52 @@ export function IncrementalConfigOptions({
                 dataAttr="materialization-refresh-mode"
             />
             {draft.enabled && (
-                <div className="mt-4 deprecated-space-y-4">
-                    <LemonField.Pure label={INCREMENTAL_KEY_LABEL} help={INCREMENTAL_KEY_HELP}>
-                        <IncrementalKeyInput
-                            check={check}
-                            value={draft.incrementalKey}
-                            onChange={(incrementalKey) => onChange({ incrementalKey })}
-                            dataAttr="materialization-incremental-key"
-                        />
+                <div className="@container/incremental mt-4 ml-6 max-w-120 space-y-3">
+                    <LemonField.Pure
+                        className="@min-[400px]/incremental:flex-row @min-[400px]/incremental:items-center"
+                        labelClassName="@min-[400px]/incremental:w-44 @min-[400px]/incremental:shrink-0"
+                        label={INCREMENTAL_KEY_LABEL}
+                        info={INCREMENTAL_KEY_HELP}
+                    >
+                        <div className="min-w-0 w-full flex-1">
+                            <IncrementalKeyInput
+                                compact
+                                check={check}
+                                value={draft.incrementalKey}
+                                onChange={(incrementalKey) => onChange({ incrementalKey })}
+                                dataAttr="materialization-incremental-key"
+                            />
+                        </div>
                     </LemonField.Pure>
-                    <LemonField.Pure label={UNIQUE_KEY_LABEL} help={UNIQUE_KEY_HELP}>
-                        <UniqueKeyInput
-                            check={check}
-                            value={draft.uniqueKey}
-                            onChange={(uniqueKey) => onChange({ uniqueKey })}
-                            dataAttr="materialization-incremental-unique-key"
-                        />
+                    <LemonField.Pure
+                        className="@min-[400px]/incremental:flex-row @min-[400px]/incremental:items-center"
+                        labelClassName="@min-[400px]/incremental:w-44 @min-[400px]/incremental:shrink-0"
+                        label={UNIQUE_KEY_LABEL}
+                        info={UNIQUE_KEY_HELP}
+                    >
+                        <div className="min-w-0 w-full flex-1">
+                            <UniqueKeyInput
+                                compact
+                                check={check}
+                                value={draft.uniqueKey}
+                                onChange={(uniqueKey) => onChange({ uniqueKey })}
+                                dataAttr="materialization-incremental-unique-key"
+                            />
+                        </div>
                     </LemonField.Pure>
-                    <LemonField.Pure label="Re-read recent data" help={LOOKBACK_HELP}>
-                        <LookbackInput
-                            value={draft.lookbackSeconds}
-                            onChange={(lookbackSeconds) => onChange({ lookbackSeconds })}
-                        />
+                    <LemonField.Pure
+                        className="@min-[400px]/incremental:flex-row @min-[400px]/incremental:items-center"
+                        labelClassName="@min-[400px]/incremental:w-44 @min-[400px]/incremental:shrink-0"
+                        label="Lookback window"
+                        info={LOOKBACK_HELP}
+                    >
+                        <div className="min-w-0 w-full flex-1">
+                            <LookbackInput
+                                compact
+                                value={draft.lookbackSeconds}
+                                onChange={(lookbackSeconds) => onChange({ lookbackSeconds })}
+                            />
+                        </div>
                     </LemonField.Pure>
                     <WarningsBanner warnings={check.warnings} />
                 </div>
@@ -264,7 +315,7 @@ export function IncrementalConfigFields({ check }: IncrementalConfigFieldsProps)
                     />
                     {value && (
                         <div className="mt-4 deprecated-space-y-4">
-                            <LemonField name="incrementalKey" label={INCREMENTAL_KEY_LABEL} help={INCREMENTAL_KEY_HELP}>
+                            <LemonField name="incrementalKey" label={INCREMENTAL_KEY_LABEL} info={INCREMENTAL_KEY_HELP}>
                                 {({ value: key, onChange: onKeyChange }) => (
                                     <IncrementalKeyInput
                                         check={check}
@@ -274,7 +325,7 @@ export function IncrementalConfigFields({ check }: IncrementalConfigFieldsProps)
                                     />
                                 )}
                             </LemonField>
-                            <LemonField name="incrementalUniqueKey" label={UNIQUE_KEY_LABEL} help={UNIQUE_KEY_HELP}>
+                            <LemonField name="incrementalUniqueKey" label={UNIQUE_KEY_LABEL} info={UNIQUE_KEY_HELP}>
                                 {({ value: uniqueKey, onChange: onUniqueKeyChange }) => (
                                     <UniqueKeyInput
                                         check={check}
@@ -284,11 +335,7 @@ export function IncrementalConfigFields({ check }: IncrementalConfigFieldsProps)
                                     />
                                 )}
                             </LemonField>
-                            <LemonField
-                                name="incrementalLookbackSeconds"
-                                label="Re-read recent data"
-                                help={LOOKBACK_HELP}
-                            >
+                            <LemonField name="incrementalLookbackSeconds" label="Lookback window" info={LOOKBACK_HELP}>
                                 {({ value: lookback, onChange: onLookbackChange }) => (
                                     <LookbackInput value={lookback} onChange={onLookbackChange} />
                                 )}

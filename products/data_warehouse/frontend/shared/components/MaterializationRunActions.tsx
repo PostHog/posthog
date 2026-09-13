@@ -1,0 +1,270 @@
+import { useActions, useValues } from 'kea'
+
+import { IconEllipsis, IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonMenu } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
+import {
+    defaultCadenceWithin,
+    unsatisfiableReason,
+    modeDisabledReason,
+} from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+export function MaterializationRunActions({
+    viewId,
+    kind = 'view',
+}: {
+    viewId: string
+    kind?: 'view' | 'endpoint'
+}): JSX.Element | null {
+    const {
+        savedQuery,
+        dataModelingJobs,
+        startingMaterialization,
+        resumingMaterialization,
+        initialSyncFrequency,
+        incrementalDraft,
+        hasMaterializationChanges,
+        savingMaterialization,
+    } = useValues(materializationJobsLogic({ viewId, kind }))
+    const {
+        setStartingMaterialization,
+        resumeMaterialization,
+        saveMaterializationChanges,
+        discardMaterializationChanges,
+    } = useActions(materializationJobsLogic({ viewId, kind }))
+    const { updatingDataWarehouseSavedQuery, materializationActionLoading } = useValues(dataWarehouseViewsLogic)
+    const {
+        runDataWarehouseSavedQuery,
+        materializeDataWarehouseSavedQuery,
+        cancelDataWarehouseSavedQuery,
+        updateDataWarehouseSavedQuery,
+        revertMaterialization,
+    } = useActions(dataWarehouseViewsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!savedQuery) {
+        return null
+    }
+
+    const running = dataModelingJobs?.results?.[0]?.status === 'Running'
+    const accessReason = getAccessControlDisabledReason(
+        AccessControlResourceType.WarehouseObjects,
+        AccessControlLevel.Editor,
+        savedQuery.user_access_level
+    )
+    if (!savedQuery.is_materialized) {
+        const draftError =
+            incrementalDraft.enabled && (!incrementalDraft.incrementalKey || !incrementalDraft.uniqueKey.length)
+                ? 'Select the incremental column and unique key columns'
+                : undefined
+        return (
+            <LemonButton
+                type="primary"
+                size="small"
+                loading={materializationActionLoading}
+                disabledReason={
+                    accessReason ||
+                    (updatingDataWarehouseSavedQuery ? 'Saving materialization settings' : undefined) ||
+                    unsatisfiableReason(savedQuery.sync_frequency_bounds) ||
+                    draftError
+                }
+                data-attr="node-detail-materialize"
+                onClick={() =>
+                    materializeDataWarehouseSavedQuery(
+                        viewId,
+                        defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency),
+                        incrementalDraft.enabled && incrementalDraft.incrementalKey
+                            ? {
+                                  enabled: true,
+                                  incremental_key: incrementalDraft.incrementalKey,
+                                  unique_key: incrementalDraft.uniqueKey,
+                                  lookback_seconds: incrementalDraft.lookbackSeconds,
+                              }
+                            : undefined
+                    )
+                }
+            >
+                Materialize
+            </LemonButton>
+        )
+    }
+    const busyReason = updatingDataWarehouseSavedQuery
+        ? 'Saving materialization settings'
+        : materializationActionLoading
+          ? 'Updating materialization'
+          : running
+            ? 'Materialization is currently running'
+            : startingMaterialization
+              ? 'Materialization is starting'
+              : undefined
+    if (kind !== 'endpoint' && (hasMaterializationChanges || savingMaterialization)) {
+        const draftError =
+            incrementalDraft.enabled && (!incrementalDraft.incrementalKey || !incrementalDraft.uniqueKey.length)
+                ? 'Select the incremental column and unique key columns'
+                : undefined
+        return (
+            <>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconRefresh />}
+                    disabledReason="Save or discard your changes first"
+                >
+                    Sync now
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    disabledReason={savingMaterialization ? 'Saving materialization settings' : undefined}
+                    onClick={discardMaterializationChanges}
+                >
+                    Discard changes
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    loading={savingMaterialization}
+                    disabledReason={accessReason || busyReason || draftError}
+                    onClick={saveMaterializationChanges}
+                >
+                    Save
+                </LemonButton>
+            </>
+        )
+    }
+    const suspended =
+        !!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES] &&
+        !!Object.keys(savedQuery.suspended ?? {}).length
+    const cadenceReason = modeDisabledReason(savedQuery.sync_frequency_bounds)
+    const paused = !savedQuery.sync_frequency || savedQuery.sync_frequency === 'never'
+    const run = (rebuild = false): void => {
+        setStartingMaterialization(true)
+        runDataWarehouseSavedQuery(viewId, rebuild)
+    }
+
+    return (
+        <>
+            {suspended && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={resumeMaterialization}
+                    loading={resumingMaterialization}
+                    disabledReason={accessReason || busyReason}
+                    data-attr="node-detail-resume"
+                >
+                    Resume schedule
+                </LemonButton>
+            )}
+            <LemonButton
+                type="primary"
+                size="small"
+                icon={<IconRefresh />}
+                onClick={() => run()}
+                loading={startingMaterialization || running || materializationActionLoading}
+                disabledReason={accessReason || busyReason}
+                data-attr="node-detail-sync-now"
+            >
+                {startingMaterialization ? 'Starting…' : running ? 'Running…' : 'Sync now'}
+            </LemonButton>
+            {(kind !== 'endpoint' || running) && (
+                <LemonMenu
+                    items={[
+                        ...(running
+                            ? [
+                                  {
+                                      label: 'Cancel run',
+                                      onClick: () => cancelDataWarehouseSavedQuery(viewId),
+                                      disabledReason:
+                                          accessReason ||
+                                          (updatingDataWarehouseSavedQuery
+                                              ? 'Saving materialization settings'
+                                              : materializationActionLoading
+                                                ? 'Canceling run'
+                                                : undefined),
+                                  },
+                              ]
+                            : []),
+                        ...(kind !== 'endpoint'
+                            ? [
+                                  ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS] &&
+                                  savedQuery.incremental?.enabled
+                                      ? [
+                                            {
+                                                label: 'Run full refresh',
+                                                disabledReason: accessReason || busyReason,
+                                                onClick: () =>
+                                                    LemonDialog.open({
+                                                        title: 'Run a full refresh?',
+                                                        description:
+                                                            'This run queries all your data and rebuilds the whole table. Later runs continue using incremental mode.',
+                                                        primaryButton: {
+                                                            children: 'Run full refresh',
+                                                            onClick: () => run(true),
+                                                        },
+                                                        secondaryButton: { children: 'Cancel' },
+                                                    }),
+                                            },
+                                        ]
+                                      : []),
+                                  {
+                                      label: 'Pause refreshes',
+                                      disabledReason:
+                                          accessReason ||
+                                          cadenceReason ||
+                                          (updatingDataWarehouseSavedQuery
+                                              ? 'Saving schedule'
+                                              : paused
+                                                ? 'Already paused. Pick a cadence to resume.'
+                                                : undefined),
+                                      onClick: () =>
+                                          updateDataWarehouseSavedQuery({
+                                              id: viewId,
+                                              sync_frequency: 'never',
+                                              types: [[]],
+                                              lifecycle: 'update',
+                                          }),
+                                  },
+                                  {
+                                      label: 'Revert materialization',
+                                      status: 'danger' as const,
+                                      disabledReason:
+                                          accessReason ||
+                                          busyReason ||
+                                          (updatingDataWarehouseSavedQuery ? 'Updating materialization' : undefined),
+                                      onClick: () =>
+                                          LemonDialog.open({
+                                              title: 'Revert materialization',
+                                              description:
+                                                  'This stops future materializations and removes the materialized table. The saved query remains available as a view.',
+                                              primaryButton: {
+                                                  children: 'Revert materialization',
+                                                  status: 'danger',
+                                                  onClick: () => revertMaterialization(viewId),
+                                              },
+                                              secondaryButton: { children: 'Cancel' },
+                                          }),
+                                  },
+                              ]
+                            : []),
+                    ]}
+                >
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconEllipsis />}
+                        aria-label="Materialization actions"
+                        data-attr="node-detail-materialization-actions"
+                    />
+                </LemonMenu>
+            )}
+        </>
+    )
+}

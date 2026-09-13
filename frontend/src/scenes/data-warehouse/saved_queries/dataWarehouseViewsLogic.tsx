@@ -45,6 +45,8 @@ export interface dataWarehouseViewsLogicValues {
     dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery>
     dataWarehouseSavedQueryMapByIdStringMap: Record<string, DataWarehouseSavedQuery>
     initialDataWarehouseSavedQueryLoading: boolean
+    materializationAction: null
+    materializationActionLoading: boolean
     materializingViewIds: string[]
     shouldShowEmptyState: boolean
     updatingDataWarehouseSavedQuery: boolean
@@ -60,6 +62,24 @@ export interface dataWarehouseViewsLogicActions {
     }
     cancelDataWarehouseSavedQuery: (viewId: string) => {
         viewId: string
+    }
+    cancelDataWarehouseSavedQueryFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    cancelDataWarehouseSavedQuerySuccess: (
+        materializationAction: null,
+        payload?: {
+            viewId: string
+        }
+    ) => {
+        materializationAction: null
+        payload?: {
+            viewId: string
+        }
     }
     clearMaterializingView: (viewId: string) => {
         viewId: string
@@ -181,8 +201,48 @@ export interface dataWarehouseViewsLogicActions {
         syncFrequency: DataModelingSyncInterval | undefined
         viewId: string
     }
+    materializeDataWarehouseSavedQueryFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    materializeDataWarehouseSavedQuerySuccess: (
+        materializationAction: null,
+        payload?: {
+            incremental: DataWarehouseSavedQueryIncremental | undefined
+            syncFrequency: DataModelingSyncInterval | undefined
+            viewId: string
+        }
+    ) => {
+        materializationAction: null
+        payload?: {
+            incremental: DataWarehouseSavedQueryIncremental | undefined
+            syncFrequency: DataModelingSyncInterval | undefined
+            viewId: string
+        }
+    }
     revertMaterialization: (viewId: string) => {
         viewId: string
+    }
+    revertMaterializationFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    revertMaterializationSuccess: (
+        materializationAction: null,
+        payload?: {
+            viewId: string
+        }
+    ) => {
+        materializationAction: null
+        payload?: {
+            viewId: string
+        }
     }
     runDataWarehouseSavedQuery: (
         viewId: string,
@@ -349,7 +409,68 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         addMaterializingViews: (viewIds: string[]) => ({ viewIds }),
         clearMaterializingView: (viewId: string) => ({ viewId }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
+        materializationAction: [
+            null as null,
+            {
+                materializeDataWarehouseSavedQuery: async ({ viewId, syncFrequency, incremental }) => {
+                    const requestedFrequency = syncFrequency ?? DEFAULT_MATERIALIZE_SYNC_FREQUENCY
+                    if (incremental) {
+                        // Persist the config first so the materialization run picks it up. Same shape as the
+                        // save-as-view flow, which creates the view with the config before materializing.
+                        try {
+                            await api.dataWarehouseSavedQueries.update(viewId, { incremental })
+                        } catch (error: any) {
+                            // The server names the construct blocking incremental — surface it over a generic failure.
+                            lemonToast.error(error?.detail || 'Failed to save incremental settings')
+                            return null
+                        }
+                    }
+                    try {
+                        await warehouseSavedQueriesMaterializeCreate(String(ApiConfig.getCurrentTeamId()), viewId, {
+                            sync_frequency: requestedFrequency,
+                        })
+                        lemonToast.success('View materialized successfully')
+                        posthog.capture('materialized view created', {
+                            sync_frequency: requestedFrequency,
+                            incremental: !!incremental,
+                        })
+                        actions.addMaterializingViews([viewId])
+                        actions.loadDataWarehouseSavedQueries()
+                        actions.refreshDatabaseSchema()
+                    } catch (error: any) {
+                        // The server rejects a cadence the query's lineage can't support and says which one
+                        // to pick instead, so the reason has to reach the user rather than a generic failure.
+                        lemonToast.error(error?.detail || 'Failed to materialize view')
+                    }
+                    return null
+                },
+                cancelDataWarehouseSavedQuery: async ({ viewId }) => {
+                    try {
+                        await api.dataWarehouseSavedQueries.cancel(viewId)
+                        lemonToast.success('Materialization cancelled')
+                        actions.loadDataWarehouseSavedQueries()
+                    } catch {
+                        lemonToast.error(`Failed to cancel materialization`)
+                    }
+                    return null
+                },
+                revertMaterialization: async ({ viewId }) => {
+                    try {
+                        await api.dataWarehouseSavedQueries.revertMaterialization(viewId)
+                        lemonToast.success('Materialization reverted')
+                        // No longer materializing — drop it so the spinner stops and we don't wait for a
+                        // flag that will never flip.
+                        actions.clearMaterializingView(viewId)
+                        actions.loadDataWarehouseSavedQueries()
+                        actions.refreshDatabaseSchema()
+                    } catch {
+                        lemonToast.error(`Failed to revert materialization`)
+                    }
+                    return null
+                },
+            },
+        ],
         dataWarehouseSavedQueries: [
             [] as DataWarehouseSavedQuery[],
             {
@@ -533,64 +654,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         runDataWarehouseSavedQuery: async ({ viewId, fullRefresh }) => {
             try {
                 await api.dataWarehouseSavedQueries.run(viewId, fullRefresh)
-                lemonToast.success(fullRefresh ? 'Rebuild started' : 'Materialization started')
+                lemonToast.success(fullRefresh ? 'Full refresh started' : 'Materialization started')
                 actions.loadDataWarehouseSavedQueries()
             } catch {
-                lemonToast.error(fullRefresh ? 'Failed to start rebuild' : 'Failed to run materialization')
+                lemonToast.error(fullRefresh ? 'Failed to start full refresh' : 'Failed to run materialization')
                 actions.runDataWarehouseSavedQueryFailure(viewId)
-            }
-        },
-        cancelDataWarehouseSavedQuery: async ({ viewId }) => {
-            try {
-                await api.dataWarehouseSavedQueries.cancel(viewId)
-                lemonToast.success('Materialization cancelled')
-                actions.loadDataWarehouseSavedQueries()
-            } catch {
-                lemonToast.error(`Failed to cancel materialization`)
-            }
-        },
-        materializeDataWarehouseSavedQuery: async ({ viewId, syncFrequency, incremental }) => {
-            const requestedFrequency = syncFrequency ?? DEFAULT_MATERIALIZE_SYNC_FREQUENCY
-            if (incremental) {
-                // Persist the config first so the materialization run picks it up. Same shape as the
-                // save-as-view flow, which creates the view with the config before materializing.
-                try {
-                    await api.dataWarehouseSavedQueries.update(viewId, { incremental })
-                } catch (error: any) {
-                    // The server names the construct blocking incremental — surface it over a generic failure.
-                    lemonToast.error(error?.detail || 'Failed to save incremental settings')
-                    return
-                }
-            }
-            try {
-                await warehouseSavedQueriesMaterializeCreate(String(ApiConfig.getCurrentTeamId()), viewId, {
-                    sync_frequency: requestedFrequency,
-                })
-                lemonToast.success('View materialized successfully')
-                posthog.capture('materialized view created', {
-                    sync_frequency: requestedFrequency,
-                    incremental: !!incremental,
-                })
-                actions.addMaterializingViews([viewId])
-                actions.loadDataWarehouseSavedQueries()
-                actions.refreshDatabaseSchema()
-            } catch (error: any) {
-                // The server rejects a cadence the query's lineage can't support and says which one
-                // to pick instead, so the reason has to reach the user rather than a generic failure.
-                lemonToast.error(error?.detail || 'Failed to materialize view')
-            }
-        },
-        revertMaterialization: async ({ viewId }) => {
-            try {
-                await api.dataWarehouseSavedQueries.revertMaterialization(viewId)
-                lemonToast.success('Materialization reverted')
-                // No longer materializing — drop it so the spinner stops and we don't wait for a
-                // flag that will never flip.
-                actions.clearMaterializingView(viewId)
-                actions.loadDataWarehouseSavedQueries()
-                actions.refreshDatabaseSchema()
-            } catch {
-                lemonToast.error(`Failed to revert materialization`)
             }
         },
     })),

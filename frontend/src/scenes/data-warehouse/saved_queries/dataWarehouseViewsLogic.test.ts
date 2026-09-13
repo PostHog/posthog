@@ -42,6 +42,22 @@ describe('dataWarehouseViewsLogic', () => {
         databaseLogic.unmount()
     })
 
+    it.each([200, 500])('reconciles a reverted view after a %s response and releases its controls', async (status) => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/revert_materialization/': [status, {}],
+            },
+        })
+        logic.actions.addMaterializingViews(['view-1'])
+
+        logic.actions.revertMaterialization('view-1')
+        expect(logic.values.materializationActionLoading).toBe(true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.materializationActionLoading).toBe(false)
+        expect(logic.values.materializingViewIds).toEqual(status === 200 ? [] : ['view-1'])
+    })
+
     // Regression: delete must drop the view from the sidebar (via the loader's optimistic filter)
     // and refresh the picker (schema), but must NOT reload the whole list — that replaces every
     // row's identity and makes the tree flash.

@@ -164,4 +164,47 @@ describe('materializationJobsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess']).toFinishAllListeners()
         expect(logic.values.incrementalDraft.lookbackSeconds).toBe(0)
     })
+    it('keeps cadence and mode edits through polling and discards both together', async () => {
+        useMocks(apiMocks({ isMaterialized: true }))
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadIncrementalCheckSuccess'])
+        logic.actions.setSyncFrequencyDraft('12hour')
+        logic.actions.setIncrementalDraft({ enabled: true, uniqueKey: ['id'] })
+        await expectLogic(logic, () => logic.actions.loadSavedQuery()).toDispatchActions(['loadSavedQuerySuccess'])
+        expect(logic.values.hasMaterializationChanges).toBe(true)
+        expect(logic.values.syncFrequencyDraft).toBe('12hour')
+        expect(logic.values.incrementalDraft.enabled).toBe(true)
+        logic.actions.discardMaterializationChanges()
+        expect(logic.values.hasMaterializationChanges).toBe(false)
+        expect(logic.values.syncFrequencyDraft).toBeNull()
+        expect(logic.values.incrementalDraft.enabled).toBe(false)
+    })
+
+    it.each([200, 500])('saves cadence and mode together and preserves a failed draft (%s)', async (status) => {
+        let submitted: any
+        useMocks({
+            ...apiMocks({ isMaterialized: true }),
+            patch: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': async ({ request }) => {
+                    submitted = await request.json()
+                    return [status, status === 200 ? { id: 'view-1', ...submitted } : { detail: 'Save failed' }]
+                },
+            },
+        })
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadIncrementalCheckSuccess'])
+        logic.actions.setSyncFrequencyDraft('12hour')
+        logic.actions.setIncrementalDraft({ enabled: true, uniqueKey: ['id'] })
+        await expectLogic(logic, () => logic.actions.saveMaterializationChanges()).toDispatchActions([
+            'finishSavingMaterialization',
+        ])
+        expect(submitted).toMatchObject({
+            sync_frequency: '12hour',
+            incremental: { enabled: true, incremental_key: 'timestamp', unique_key: ['id'] },
+        })
+        expect(logic.values.savingMaterialization).toBe(false)
+        expect(logic.values.hasMaterializationChanges).toBe(status !== 200)
+    })
 })

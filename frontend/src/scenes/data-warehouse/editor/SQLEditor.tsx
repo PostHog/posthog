@@ -13,6 +13,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { urls } from 'scenes/urls'
 
 import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
@@ -32,10 +33,13 @@ import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualization/queryUpdateUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { MaterializationLoading } from 'products/data_warehouse/frontend/shared/components/MaterializationLoading'
+import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { ExpressionModal } from '../ExpressionModal'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { materializationJobsLogic } from '../saved_queries/materializationJobsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { editorSceneLogic } from './editorSceneLogic'
@@ -342,28 +346,60 @@ function ViewLoadingOverlay(): JSX.Element | null {
     )
 }
 
+function OpenModelButton({ viewId, onClose }: { viewId: string; onClose: () => void }): JSX.Element {
+    const { upstream, upstreamLoading } = useValues(sqlEditorLogic)
+    const { hasMaterializationChanges, savingMaterialization } = useValues(materializationJobsLogic({ viewId }))
+    const nodeId =
+        upstream?.modelId === viewId ? upstream.nodes.find((node) => node.saved_query_id === viewId)?.id : undefined
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            to={nodeId ? urls.nodeDetail(nodeId, 'materialization') : undefined}
+            onClick={onClose}
+            disabledReason={
+                hasMaterializationChanges || savingMaterialization
+                    ? 'Save or discard your changes first'
+                    : !nodeId
+                      ? upstreamLoading
+                          ? 'Loading model'
+                          : 'Model is not available'
+                      : undefined
+            }
+        >
+            Open model
+        </LemonButton>
+    )
+}
+
 function MaterializationModal({ tabId }: { tabId: string }): JSX.Element {
     const { materializationModalOpen, materializationModalView, viewLoading } = useValues(sqlEditorLogic)
     const { closeMaterializationModal } = useActions(sqlEditorLogic)
 
     return (
         <LemonModal
-            title={materializationModalView ? `Materialize ${materializationModalView.name}` : 'Materialize view'}
+            title={materializationModalView?.name ?? 'Model settings'}
+            footer={
+                materializationModalView && !viewLoading ? (
+                    <div className="flex flex-wrap justify-between items-center gap-4 w-full">
+                        <OpenModelButton viewId={materializationModalView.id} onClose={closeMaterializationModal} />
+                        <div className="flex flex-wrap items-center gap-2">
+                            <MaterializationRunActions viewId={materializationModalView.id} />
+                        </div>
+                    </div>
+                ) : undefined
+            }
             isOpen={materializationModalOpen}
             onClose={closeMaterializationModal}
             width={960}
         >
-            <div className="max-h-[75vh] overflow-auto">
+            <div className="min-h-[min(60vh,560px)]">
                 {viewLoading ? (
-                    <div className="flex min-h-64 items-center justify-center">
-                        <Spinner className="text-2xl" />
-                    </div>
+                    <MaterializationLoading />
                 ) : materializationModalView ? (
-                    <QueryInfo tabId={tabId} view={materializationModalView} />
+                    <QueryInfo key={materializationModalView.id} tabId={tabId} view={materializationModalView} tabbed />
                 ) : (
-                    <div className="flex min-h-64 items-center justify-center">
-                        <Spinner className="text-2xl" />
-                    </div>
+                    <MaterializationLoading />
                 )}
             </div>
         </LemonModal>
