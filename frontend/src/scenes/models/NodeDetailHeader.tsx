@@ -16,7 +16,12 @@ import { NodeDetailActions } from 'products/data_modeling/frontend/nodeDetail/No
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
-    const { node, nodeLoading, savedQuery: initialSavedQuery } = useValues(nodeDetailSceneLogic({ id }))
+    const {
+        node,
+        nodeLoading,
+        savedQuery: initialSavedQuery,
+        savedQueryError,
+    } = useValues(nodeDetailSceneLogic({ id }))
     const { updateNodeDescription } = useActions(nodeDetailSceneLogic({ id }))
 
     const { savedQuery: currentSavedQuery } = useValues(
@@ -47,9 +52,11 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
                 name={node?.name}
                 nameSuffix={typeTag && <LemonTag type={typeTag.type}>{typeTag.label}</LemonTag>}
                 actions={
+                    // A failed saved query never resolves on its own, so the placeholder must not
+                    // outlive it. The Materialization and Query tabs carry the retry.
                     node && savedQuery ? (
                         <NodeDetailActions node={node} savedQuery={savedQuery} />
-                    ) : node?.saved_query_id ? (
+                    ) : node?.saved_query_id && !savedQueryError ? (
                         <LemonSkeleton className="h-8 w-56" />
                     ) : undefined
                 }
