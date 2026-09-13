@@ -208,9 +208,11 @@ describe('inboxOnboardingLogic', () => {
     describe('refreshSetupState', () => {
         let logic: ReturnType<typeof inboxOnboardingLogic.build>
         let scanners: Record<string, unknown>[] = []
+        let scannersHeld: Promise<void> | null = null
 
         beforeEach(() => {
             scanners = []
+            scannersHeld = null
             useMocks({
                 get: {
                     '/api/projects/:team_id/signals/source_configs/': () => [
@@ -223,10 +225,12 @@ describe('inboxOnboardingLogic', () => {
                         { count: 0, next: null, previous: null, results: [] },
                     ],
                     '/api/projects/:team_id/signals/reports/available_reviewers': {},
-                    '/api/projects/:team_id/vision/scanners/': () => [
-                        200,
-                        { results: scanners, count: scanners.length, next: null, previous: null },
-                    ],
+                    '/api/projects/:team_id/vision/scanners/': async () => {
+                        if (scannersHeld) {
+                            await scannersHeld
+                        }
+                        return [200, { results: scanners, count: scanners.length, next: null, previous: null }]
+                    },
                 },
             })
             initKeaTests()
@@ -253,6 +257,30 @@ describe('inboxOnboardingLogic', () => {
             logic.actions.refreshSetupState()
             await expectLogic(logic).toFinishAllListeners()
 
+            expect(logic.values.isSelfDrivingSetUp).toBe(true)
+        })
+
+        // The tail of a refresh: the configs and counts have answered and the scanner roster has
+        // not. The roster keeps its previous value across a reload, so a verdict that settles here
+        // reads scanner data that is about to change.
+        it('holds the verdict while the scanner roster is still in flight', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.isRefetching).toBe(false)
+
+            let releaseScanners: () => void = () => {}
+            scannersHeld = new Promise<void>((resolve) => {
+                releaseScanners = resolve
+            })
+            scanners = [{ id: 'scanner-1', name: 'Checkout watcher', emits_signals: true }]
+            logic.actions.loadVisionScanners()
+
+            expect(logic.values.isRefetching).toBe(true)
+            expect(logic.values.isSelfDrivingSetUp).toBe(false)
+
+            releaseScanners()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.isRefetching).toBe(false)
             expect(logic.values.isSelfDrivingSetUp).toBe(true)
         })
     })
