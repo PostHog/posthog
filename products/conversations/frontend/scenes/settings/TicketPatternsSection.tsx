@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import { LemonButton, LemonCard, LemonInput, LemonSelect, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
@@ -32,16 +32,16 @@ function OverrideList({
     description: string
     placeholder: string
 }): JSX.Element {
-    const { overrides, overridesLoading } = useValues(ticketPatternSettingsLogic)
-    const { addOverride, removeOverride } = useActions(ticketPatternSettingsLogic)
-    const [draft, setDraft] = useState('')
+    const { overrides, overridesLoading, overrideDrafts, addingKinds } = useValues(ticketPatternSettingsLogic)
+    const { addOverride, removeOverride, setOverrideDraft } = useActions(ticketPatternSettingsLogic)
     const rows = overrides.filter((o: TicketTopicOverrideApi) => o.kind === kind)
+    const draft = overrideDrafts[kind] ?? ''
+    const adding = !!addingKinds[kind]
 
     const submit = (): void => {
         const topic = draft.trim()
-        if (topic) {
+        if (topic && !adding) {
             addOverride(kind, topic)
-            setDraft('')
         }
     }
 
@@ -65,7 +65,7 @@ function OverrideList({
                     className="min-w-60"
                     placeholder={placeholder}
                     value={draft}
-                    onChange={setDraft}
+                    onChange={(value) => setOverrideDraft(kind, value)}
                     onPressEnter={submit}
                     data-attr={`ticket-pattern-override-${kind}-input`}
                 />
@@ -73,6 +73,7 @@ function OverrideList({
                     size="small"
                     type="secondary"
                     onClick={submit}
+                    loading={adding}
                     disabledReason={draft.trim() ? undefined : 'Enter a topic first'}
                     data-attr={`ticket-pattern-override-${kind}-add`}
                 >
