@@ -25,11 +25,12 @@ from posthog.sync import database_sync_to_async
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, get_declared_target
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node
+from products.endpoints.backend.facade.contracts import OrphanedEndpointSavedQueryError
 from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.logic.materialization import (
     EndpointMaterializationService,
-    OrphanedEndpointSavedQueryError,
     prepare_executable_query,
+    unschedule_orphaned_endpoint_saved_query,
 )
 from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
 from products.endpoints.backend.models import EndpointVersion
@@ -1866,6 +1867,33 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaises(OrphanedEndpointSavedQueryError):
             prepare_executable_query(saved_query)
+
+    def test_unschedule_orphaned_endpoint_saved_query_drops_its_node(self):
+        endpoint = create_endpoint_with_version(
+            name="orphan_to_unschedule",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "data_freshness_seconds": 86400},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        version = endpoint.versions.first()
+        version.refresh_from_db()
+        saved_query = version.saved_query
+        assert saved_query is not None
+        self.assertTrue(Node.objects.filter(saved_query=saved_query).exists())
+
+        # A superseded version can lose its link while the node keeps scheduling the query.
+        EndpointVersion.objects.filter(pk=version.pk).update(saved_query=None)
+
+        self.assertTrue(unschedule_orphaned_endpoint_saved_query(saved_query))
+        self.assertFalse(Node.objects.filter(saved_query=saved_query).exists())
 
     def test_enable_materialization_links_version_before_immediate_run(self):
         endpoint = create_endpoint_with_version(
