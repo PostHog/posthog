@@ -21,7 +21,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
-from products.signals.backend.report_metrics import validate_live_metric_query
+from products.signals.backend.report_metrics import validate_live_metric_query, validate_metric_id
 
 CheckOutcome = Literal["passed", "failed", "errored"]
 CheckOperator = Literal["lte", "gte", "between"]
@@ -125,6 +125,11 @@ class MetricThresholdConfig(BaseModel):
         if isinstance(value, bool):
             raise ValueError("must be a number, not a boolean")
         return value
+
+    @field_validator("metric_id")
+    @classmethod
+    def metric_id_must_be_reference_safe(cls, value: str | None) -> str | None:
+        return None if value is None else validate_metric_id(value)
 
     @field_validator("query")
     @classmethod

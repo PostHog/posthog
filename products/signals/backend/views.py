@@ -122,7 +122,12 @@ from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
-from products.signals.backend.report_checks import MAX_ACTIVE_CHECKS_PER_REPORT
+from products.signals.backend.report_check_execution import resolve_check_query
+from products.signals.backend.report_checks import (
+    MAX_ACTIVE_CHECKS_PER_REPORT,
+    MetricThresholdConfig,
+    parse_check_config,
+)
 from products.signals.backend.report_claims import (
     actor_owns_claim,
     get_active_claim,
@@ -4254,6 +4259,18 @@ class SignalReportCheckViewSet(
         write_serializer = SignalReportCheckWriteSerializer(data=request.data)
         write_serializer.is_valid(raise_exception=True)
         spec = write_serializer.validated_data
+
+        # Resolve the reference now rather than at the first run. The report is already loaded, and
+        # an unresolvable one would otherwise sit idle for the whole soak window before retiring.
+        config = parse_check_config(spec["kind"], spec["config"])
+        if isinstance(config, MetricThresholdConfig) and config.metric_id is not None:
+            try:
+                resolve_check_query(config, report)
+            except ValueError:
+                return Response(
+                    {"error": f"This report has no metric `{config.metric_id}` to measure."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         active_checks = SignalReportCheck.objects.for_team(self.team.id).filter(
             report_id=report.id, status=SignalReportCheck.Status.ACTIVE

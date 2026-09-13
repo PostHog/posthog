@@ -88,6 +88,8 @@ class TestCheckComparison(SimpleTestCase):
                 "both_sources",
                 {"query": _PAGEVIEWS, "metric_id": "errors", "comparison": {"operator": "lte", "value": 1}},
             ),
+            ("empty_metric_id", {"metric_id": "", "comparison": {"operator": "lte", "value": 1}}),
+            ("uppercase_metric_id", {"metric_id": "Checkout_Errors", "comparison": {"operator": "lte", "value": 1}}),
             (
                 "unbounded_query",
                 {
@@ -102,6 +104,14 @@ class TestCheckComparison(SimpleTestCase):
     def test_malformed_metric_threshold_config_is_refused(self, _name, config) -> None:
         with self.assertRaises(CheckConfigValidationError):
             parse_check_config("metric_threshold", config)
+
+    def test_a_padded_metric_reference_is_normalized_so_it_can_still_match(self) -> None:
+        config = parse_check_config(
+            "metric_threshold", {"metric_id": " checkout-errors ", "comparison": {"operator": "lte", "value": 1}}
+        )
+
+        assert isinstance(config, MetricThresholdConfig)
+        assert config.metric_id == "checkout-errors"
 
     def test_unknown_kind_is_refused(self) -> None:
         with self.assertRaises(CheckConfigValidationError):
@@ -370,6 +380,24 @@ class TestReportCheckAPI(APIBaseTest):
         assert (
             SignalReportCheck.objects.for_team(self.team.id).get(id=check_id).status == SignalReportCheck.Status.PASSED
         )
+
+    def test_a_check_naming_a_metric_the_report_does_not_have_is_refused(self) -> None:
+        payload = {
+            "title": "Checkout errors stay low",
+            "kind": "metric_threshold",
+            "config": {"metric_id": "checkout-errors", "comparison": {"operator": "lte", "value": 10}},
+        }
+
+        refused = self.client.post(self.url, payload, format="json")
+
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalReportCheck.objects.for_team(self.team.id).filter(report_id=self.report.id).exists()
+
+        self.report.metrics = [
+            {"metric_id": "checkout-errors", "title": "Checkout errors", "kind": "occurrences", "query": _PAGEVIEWS}
+        ]
+        self.report.save(update_fields=["metrics"])
+        assert self.client.post(self.url, payload, format="json").status_code == status.HTTP_201_CREATED
 
     def test_an_invalid_config_is_rejected_by_the_endpoint(self) -> None:
         response = self.client.post(

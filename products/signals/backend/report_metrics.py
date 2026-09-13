@@ -174,6 +174,24 @@ def _validate_live_metric_formula(formula: object, series_count: int) -> None:
         raise ValueError(f"a live metric formula must be executable arithmetic over the series: {error}") from None
 
 
+def validate_metric_id(value: str) -> str:
+    """Normalize a metric id and refuse one nothing can reference.
+
+    Stored ids are trimmed and lowercase, and every lookup matches them by equality, so a padded or
+    uppercase reference cannot match a metric however right it looks. A check rides this too, so the
+    reference it stores is one the report could actually hold.
+    """
+    if len(value) > MAX_METRIC_ID_LENGTH:
+        raise ValueError(f"must not exceed {MAX_METRIC_ID_LENGTH} characters")
+    normalized = value.strip()
+    if not _METRIC_ID_RE.fullmatch(normalized):
+        raise ValueError(
+            "must contain only lowercase letters, numbers, underscores, or hyphens, "
+            "and must start with a lowercase letter or number"
+        )
+    return normalized
+
+
 def validate_live_metric_query(value: dict[str, Any]) -> dict[str, Any]:
     """Refuse any query a report metric or a report check must not run.
 
@@ -405,15 +423,7 @@ class ReportMetric(BaseModel):
     @field_validator("metric_id")
     @classmethod
     def metric_id_must_be_reference_safe(cls, value: str) -> str:
-        if len(value) > MAX_METRIC_ID_LENGTH:
-            raise ValueError(f"must not exceed {MAX_METRIC_ID_LENGTH} characters")
-        normalized = value.strip()
-        if not _METRIC_ID_RE.fullmatch(normalized):
-            raise ValueError(
-                "must contain only lowercase letters, numbers, underscores, or hyphens, "
-                "and must start with a lowercase letter or number"
-            )
-        return normalized
+        return validate_metric_id(value)
 
     @field_validator("title")
     @classmethod
