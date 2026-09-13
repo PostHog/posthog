@@ -539,6 +539,18 @@ class TestEdgeCases:
 
     @parameterized.expand(
         [
+            ("dict", {"a": 1}),
+            ("list", ["a"]),
+            ("int", 5),
+        ]
+    )
+    def test_non_string_item_type_keeps_its_payload(self, _name, item_type):
+        item = {"type": item_type, "name": "search", "arguments": '{"q":"x"}', "status": "completed"}
+        assert 'search(q="x")' in "\n".join(format_input_messages([item]))
+        assert 'search(q="x")' in "\n".join(format_output_messages(None, [item]))
+
+    @parameterized.expand(
+        [
             ("dict", {"query": "x"}),
             ("int", 5),
         ]

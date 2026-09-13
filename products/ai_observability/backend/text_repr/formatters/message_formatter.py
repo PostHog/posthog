@@ -516,8 +516,12 @@ def _is_responses_item(msg: dict[str, Any]) -> bool:
     Excluding `tool_calls` keeps the shape from claiming a Chat Completions message that happens
     to be keyed by `type` and carries nothing but tool calls.
     """
-    item_type = _string_type(msg)
-    return bool(item_type) and item_type not in PLAIN_TEXT_BLOCK_TYPES and CHAT_COMPLETIONS_MESSAGE_KEYS.isdisjoint(msg)
+    item_type = msg.get("type")
+    if not item_type or not CHAT_COMPLETIONS_MESSAGE_KEYS.isdisjoint(msg):
+        return False
+    # Only a string can name a plain-text block, so any other type is a malformed item whose
+    # recorded payload is still worth rendering.
+    return not isinstance(item_type, str) or item_type not in PLAIN_TEXT_BLOCK_TYPES
 
 
 def _format_call_signature(msg: dict[str, Any]) -> str:
