@@ -23,9 +23,11 @@ export const HogFlowsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     origin_product: zod
-        .enum(['loops'])
+        .enum(['loops', 'none'])
         .optional()
-        .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
+        .describe(
+            'Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops. `none` returns workflows with no owning product.'
+        ),
     search: zod.string().optional().describe('Case-insensitive search across workflow name and description.'),
     status: zod
         .enum(['active', 'archived', 'draft'])
@@ -87,7 +89,7 @@ export const HogFlowsCreateBody = () => zod
             .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`; `none` lists workflows with no owning product.\n\n\* `loops` - Loops'
             ),
         trigger_masking: zod
             .union([

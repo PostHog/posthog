@@ -2738,7 +2738,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         required=False,
         allow_null=True,
         help_text="Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when "
-        "creating a workflow. Filter the list with `?origin_product=`.",
+        "creating a workflow. Filter the list with `?origin_product=`; `none` lists workflows with no owning product.",
     )
     name = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Workflow name."
@@ -3670,8 +3670,9 @@ def mint_audience_confirm_token(
             OpenApiParameter(
                 "origin_product",
                 OpenApiTypes.STR,
-                enum=HogFlow.OriginProduct.values,
-                description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
+                enum=["none", *HogFlow.OriginProduct.values],
+                description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops. "
+                "`none` returns workflows with no owning product.",
             ),
             OpenApiParameter(
                 "trigger",
@@ -3830,10 +3831,12 @@ class HogFlowViewSet(
                 )
 
             origin_product = self.request.GET.get("origin_product")
-            if origin_product:
+            if origin_product == "none":
+                queryset = queryset.filter(origin_product__isnull=True)
+            elif origin_product:
                 if origin_product not in HogFlow.OriginProduct.values:
                     raise exceptions.ValidationError(
-                        {"origin_product": f"Must be one of: {', '.join(HogFlow.OriginProduct.values)}"}
+                        {"origin_product": f"Must be one of: none, {', '.join(HogFlow.OriginProduct.values)}"}
                     )
                 queryset = queryset.filter(origin_product=origin_product)
 

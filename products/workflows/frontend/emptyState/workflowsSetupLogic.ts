@@ -14,7 +14,7 @@ export const workflowsSetupLogic = createSetupDetectionLogic({
     path: ['products', 'workflows', 'frontend', 'emptyState', 'workflowsSetupLogic'],
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
-        const response = await hogFlowsList(projectId, { limit: 1 })
+        const response = await hogFlowsList(projectId, { limit: 1, origin_product: 'none' })
         return response.count > 0 ? 'has-data' : 'needs-setup'
     },
 })

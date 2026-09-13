@@ -433,7 +433,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`; `none` lists workflows with no owning product.\n\n\* `loops` - Loops'
             ),
         trigger_masking: zod
             .union([
@@ -1807,7 +1807,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
                 .optional()
                 .describe(
-                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
+                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`; `none` lists workflows with no owning product.\n\n\* `loops` - Loops'
                 ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
@@ -2545,7 +2545,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`; `none` lists workflows with no owning product.\n\n\* `loops` - Loops'
             ),
         trigger_masking: zod
             .union([

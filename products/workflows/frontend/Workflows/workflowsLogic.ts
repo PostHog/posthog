@@ -67,6 +67,7 @@ interface WorkflowsListParams {
     created_by?: string
     type?: Exclude<WorkflowTypeFilter, 'all'>
     trigger?: string
+    origin_product?: string
     limit: number
     offset: number
 }
@@ -420,6 +421,8 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 type: filters.type !== 'all' ? filters.type : undefined,
                 // The API filters triggers by JSON containment, so the type goes over as a JSON object.
                 trigger: filters.triggerType !== 'all' ? JSON.stringify({ type: filters.triggerType }) : undefined,
+                // Workflows owned by another product (loops) are listed by that product, not here.
+                origin_product: 'none',
                 limit: WORKFLOWS_PER_PAGE,
                 offset: filters.page ? (filters.page - 1) * WORKFLOWS_PER_PAGE : 0,
             }),

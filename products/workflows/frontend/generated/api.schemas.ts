@@ -584,7 +584,7 @@ export interface HogFlowApi {
      * * `active` - Active
      * * `archived` - Archived */
     status?: HogFlowStateEnumApi
-    /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
+    /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`; `none` lists workflows with no owning product.
      *
      * * `loops` - Loops */
     origin_product?: HogFlowOriginProductEnumApi | null
@@ -1713,7 +1713,7 @@ export type HogFlowsListParams = {
      */
     offset?: number
     /**
-     * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
+     * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops. `none` returns workflows with no owning product.
      */
     origin_product?: HogFlowsListOriginProduct
     /**
@@ -1741,6 +1741,7 @@ export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof
 
 export const HogFlowsListOriginProduct = {
     Loops: 'loops',
+    None: 'none',
 } as const
 
 export type HogFlowsListStatus = (typeof HogFlowsListStatus)[keyof typeof HogFlowsListStatus]
