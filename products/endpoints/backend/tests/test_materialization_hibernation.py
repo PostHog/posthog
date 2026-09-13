@@ -92,6 +92,21 @@ class TestMaterializationHibernation(APIBaseTest):
         assert self.version.materialization_hibernated_at is None
         assert ActivityLog.objects.filter(activity="materialization_enabled", user__isnull=True).exists()
 
+    def test_direct_refresh_on_a_hibernated_version_serves_inline_and_wakes(self) -> None:
+        EndpointVersion.objects.filter(pk=self.version.pk).update(materialization_hibernated_at=timezone.now())
+        with mock.patch("products.endpoints.backend.logic.execution.wake_hibernated_materialization.delay") as dispatch:
+            response = self.client.post(
+                self.run_url,
+                {"refresh": "direct"},
+                format="json",
+                headers={"authorization": f"Bearer {self.api_key}"},
+            )
+        assert response.status_code == 200, response.content
+        assert response.json()["results"] == [[1]]
+        dispatch.assert_called_once()
+        self.version.refresh_from_db()
+        assert self.version.materialization_hibernated_at is None
+
     @parameterized.expand(["session", "user_disabled", "endpoint_deactivated", "version_deactivated"])
     def test_user_actions_do_not_request_a_wake(self, action: str) -> None:
         EndpointVersion.objects.filter(pk=self.version.pk).update(materialization_hibernated_at=timezone.now())

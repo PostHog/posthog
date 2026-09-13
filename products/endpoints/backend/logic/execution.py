@@ -384,8 +384,13 @@ class EndpointExecutionService(PydanticModelMixin):
         if offset is not None and not strategy.supports_pagination:
             raise ValidationError({"offset": "offset is only supported for HogQL endpoints"})
 
-        # Validate refresh mode
-        if data.refresh == EndpointRefreshMode.DIRECT and not is_materialized:
+        # Validate refresh mode. A hibernated version has no saved query, so it is not
+        # materialized: keep accepting 'direct' so its callers stay inline and claim the wake.
+        if (
+            data.refresh == EndpointRefreshMode.DIRECT
+            and not is_materialized
+            and version.materialization_hibernated_at is None
+        ):
             ENDPOINT_VALIDATION_ERROR_TOTAL.labels(reason="direct_refresh_not_materialized").inc()
             raise ValidationError(
                 {
