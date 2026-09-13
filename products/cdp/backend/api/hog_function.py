@@ -1378,9 +1378,7 @@ class HogFunctionViewSet(
             return False
         return bool(self._sent_content_fields())
 
-    def _write_draft(
-        self, instance: HogFunction, locked: HogFunction, serializer: BaseSerializer, validated_content: dict
-    ) -> None:
+    def _write_draft(self, instance: HogFunction, locked: HogFunction, validated_content: dict) -> None:
         # The draft is always a full config snapshot (live config as the base, staged draft on top,
         # this edit's validated fields last) so publish is a plain copy with no merge logic.
         # validated_content is passed in because the caller's metadata save clears validated_data.
@@ -1397,7 +1395,9 @@ class HogFunctionViewSet(
             # so a secret already staged in the draft has to win over that recovery — otherwise this
             # edit would silently revert it to the live value. Keys the draft no longer declares
             # secret drop out entirely.
-            supplied = explicit_secret_input_keys(getattr(serializer, "initial_data", {}).get("inputs"))
+            # Read from the request, like `_sent_content_fields`. The serializer's `initial_data`
+            # carries the merged inputs, so a stored value would read as one the caller supplied.
+            supplied = explicit_secret_input_keys(self.request.data.get("inputs"))
             draft_secrets = {
                 key: value if key in supplied or key not in staged else staged[key] for key, value in recovered.items()
             }
@@ -1514,7 +1514,7 @@ class HogFunctionViewSet(
                     serializer.validated_data.clear()
                     serializer.validated_data.update({**remaining, "team": self.team})
                     serializer.save()
-                self._write_draft(locked, locked, serializer, validated_content)
+                self._write_draft(locked, locked, validated_content)
             else:
                 before_content = snapshot_hog_function_content(locked) if locked else None
                 serializer.save()

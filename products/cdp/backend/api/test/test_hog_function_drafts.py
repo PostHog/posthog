@@ -243,6 +243,32 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert draft["inputs"]["url"]["value"] == "https://example.com/staged"
         assert draft["inputs"]["headers"]["value"] == {"X-Staged": "1"}
 
+    def test_a_later_input_edit_keeps_a_staged_secret_the_live_row_holds_in_plaintext(self):
+        # The live row keeps this input in plaintext until the draft that marks it secret publishes,
+        # so the merge base carries the old credential under a key the draft treats as a secret.
+        function_id = self._create(
+            inputs_schema=[
+                {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
+                {"key": "token", "type": "string", "label": "Token", "required": False},
+            ],
+            inputs={"url": {"value": "https://example.com/live"}, "token": {"value": "old-credential"}},
+        )
+        self._stage(
+            function_id,
+            {
+                "inputs_schema": [
+                    {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
+                    {"key": "token", "type": "string", "label": "Token", "secret": True, "required": False},
+                ],
+                "inputs": {"token": {"value": "rotated-credential"}},
+            },
+        )
+
+        self._stage(function_id, {"inputs": {"url": {"value": "https://example.com/staged"}}})
+
+        function = HogFunction.objects.get(id=function_id)
+        assert (function.draft_encrypted_inputs or {})["token"]["value"] == "rotated-credential"
+
     @parameterized.expand(
         [
             ("no_token", {"confirm": True}, status.HTTP_400_BAD_REQUEST),
