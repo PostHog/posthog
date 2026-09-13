@@ -14,7 +14,7 @@ from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput, 
 
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.logs.backend.alert_error_classifier import AlertErrorCode
+from products.alerts.backend.alert_error_classifier import AlertErrorCode
 from products.logs.backend.alert_state_machine import AlertState, NotificationAction
 
 logger = get_write_only_logger(__name__)

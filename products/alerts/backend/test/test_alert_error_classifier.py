@@ -7,11 +7,11 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError, QueryErrorCategory
 
-from products.logs.backend.alert_error_classifier import TRANSIENT_ERROR_CODES, classify
+from products.alerts.backend.alert_error_classifier import TRANSIENT_ERROR_CODES, classify
 
 
 def _with_category(category: QueryErrorCategory):
-    return patch("products.logs.backend.alert_error_classifier.classify_query_error", return_value=category)
+    return patch("products.alerts.backend.alert_error_classifier.classify_query_error", return_value=category)
 
 
 class TestClassifyAlertError(TestCase):
