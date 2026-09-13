@@ -21,6 +21,8 @@ const ELIGIBLE_CHECK = {
 describe('materializationJobsLogic', () => {
     let logic: ReturnType<typeof materializationJobsLogic.build>
     let checkCalls = 0
+    // Read on every saved-query fetch, so a test can move the saved cadence between reloads.
+    let savedSyncFrequency: string | null = null
 
     // A plain config builder, not a wrapper around useMocks: a helper calling a use*-named
     // function trips react-hooks/rules-of-hooks in lint.
@@ -39,6 +41,7 @@ describe('materializationJobsLogic', () => {
                         id: 'view-1',
                         name: 'v1',
                         is_materialized: isMaterialized,
+                        sync_frequency: savedSyncFrequency,
                         incremental,
                         query: { kind: 'HogQLQuery', query: 'SELECT timestamp, id FROM events' },
                     },
@@ -56,6 +59,7 @@ describe('materializationJobsLogic', () => {
 
     beforeEach(() => {
         checkCalls = 0
+        savedSyncFrequency = null
         initKeaTests()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS], {
@@ -179,6 +183,24 @@ describe('materializationJobsLogic', () => {
         expect(logic.values.hasMaterializationChanges).toBe(false)
         expect(logic.values.syncFrequencyDraft).toBeNull()
         expect(logic.values.incrementalDraft.enabled).toBe(false)
+    })
+
+    it('drops a cadence draft equal to the saved cadence, so a later pause stays paused', async () => {
+        savedSyncFrequency = '6hour'
+        useMocks(apiMocks({ isMaterialized: true }))
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess'])
+
+        logic.actions.setSyncFrequencyDraft('12hour')
+        expect(logic.values.hasMaterializationChanges).toBe(true)
+        logic.actions.setSyncFrequencyDraft('6hour')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.syncFrequencyDraft).toBeNull()
+
+        savedSyncFrequency = 'never'
+        await expectLogic(logic, () => logic.actions.loadSavedQuery()).toDispatchActions(['loadSavedQuerySuccess'])
+        expect(logic.values.hasMaterializationChanges).toBe(false)
     })
 
     it.each([200, 500])('saves cadence and mode together and preserves a failed draft (%s)', async (status) => {

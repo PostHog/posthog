@@ -126,6 +126,9 @@ export interface materializationJobsLogicActions {
             types?: string[][]
         }
     } // dataWarehouseViewsLogic
+    clearSyncFrequencyDraft: () => {
+        value: true
+    }
     discardMaterializationChanges: () => {
         value: true
     }
@@ -263,6 +266,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         setStartingMaterialization: (starting: boolean) => ({ starting }),
         resumeMaterialization: true,
         setSyncFrequencyDraft: (frequency: SyncFrequencyValue) => ({ frequency }),
+        clearSyncFrequencyDraft: true,
         discardMaterializationChanges: true,
         saveMaterializationChanges: true,
         finishSavingMaterialization: true,
@@ -340,6 +344,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             null as SyncFrequencyValue | null,
             {
                 setSyncFrequencyDraft: (_, { frequency }) => frequency,
+                clearSyncFrequencyDraft: () => null,
                 discardMaterializationChanges: () => null,
             },
         ],
@@ -469,6 +474,16 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         }
     }),
     listeners(({ actions, cache, props, values }) => ({
+        setSyncFrequencyDraft: ({ frequency }) => {
+            // The cadence bar reports a change on every click, including the segment that is already
+            // selected, so a draft can hold the cadence that is already saved. Such a draft is invisible
+            // because it is not a change, until something else moves the saved cadence. Pausing sets the
+            // saved cadence to 'never', which makes the stale draft look like an edit, and saving it
+            // resumes the schedule the user just paused.
+            if (frequency === (values.savedQuery?.sync_frequency || 'never')) {
+                actions.clearSyncFrequencyDraft()
+            }
+        },
         discardMaterializationChanges: () => {
             const saved = values.savedQuery?.incremental
             actions.seedIncrementalDraft(
