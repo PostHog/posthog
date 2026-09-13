@@ -3,11 +3,19 @@ import { DateTime } from 'luxon'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
-import { PluginsServerConfig } from '~/types'
+import { PluginsServerConfig, Team } from '~/types'
 
 import { isRowScopedTrigger } from '../schema/hogflow'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
+import { PERSON_CACHE_MAX_STALENESS_MS } from '../services/managers/persons-manager.service'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationResult,
+    CyclotronPerson,
+    HogFlowInvocationContext,
+} from '../types'
+import { getPersonDisplayName } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
@@ -16,6 +24,58 @@ import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 type LoadHogFlowsResult = {
     loadedInvocations: CyclotronJobInvocationHogFlow[]
     canceledResults: CyclotronJobInvocationResult[]
+}
+
+// How long after an event was captured its own person writes can still be missing from the person
+// copy this worker resolves. That copy comes from a cache that lags the database by at most
+// PERSON_CACHE_MAX_STALENESS_MS; the rest is margin for the lag between capture and the person write.
+const EVENT_PERSON_WRITE_OVERLAY_WINDOW_MS = PERSON_CACHE_MAX_STALENESS_MS + 4 * 60 * 1000
+
+/**
+ * The trigger event's `$set` block, when it is still worth replaying onto the person.
+ *
+ * A person copy comes from a cache that can lag the database, so a property the trigger event sets
+ * can be absent from it. Most visibly an email: a message step then renders an empty `to` and the
+ * send fails with no recipient.
+ *
+ * Only `$set` replays. `$set_once` resolves against the real person row, which this worker does not
+ * have, so replaying it would invent a value the database rejected.
+ *
+ * The event must also be recent. The bound is on the event's age, not on the age of the cached copy,
+ * which the person manager does not expose. It is therefore approximate in both directions: inside
+ * the window a trigger value can beat a newer cached one, and a capture-to-ingestion lag longer than
+ * the margin skips the replay. It exists to stop the far worse case of a run resumed after a wait
+ * pinning trigger-time values, which would address a day-7 drip email to a mailbox the person
+ * replaced on day 2.
+ *
+ * The window is two-sided. `timestamp` is the fallback when the server did not stamp `captured_at`,
+ * and a client clock that runs fast makes an old event look recent forever.
+ */
+function replayablePersonWrites(event: HogFlowInvocationContext['event']): Record<string, any> | undefined {
+    const capturedAt = Date.parse(event.captured_at ?? event.timestamp)
+    if (!Number.isFinite(capturedAt) || Math.abs(Date.now() - capturedAt) > EVENT_PERSON_WRITE_OVERLAY_WINDOW_MS) {
+        return undefined
+    }
+
+    const set = event.properties?.$set
+    return set && typeof set === 'object' && !Array.isArray(set) ? (set as Record<string, any>) : undefined
+}
+
+function applyPersonWrites(
+    team: Team,
+    person: CyclotronPerson,
+    writes: Record<string, any>,
+    personIdOrDistinctId: string
+): CyclotronPerson {
+    const properties = { ...person.properties, ...writes }
+
+    return {
+        ...person,
+        properties,
+        // The display name derives from these properties, so recompute it. Otherwise a template can
+        // greet the old email address in the message it sends to the new one.
+        name: getPersonDisplayName(team, personIdOrDistinctId, properties),
+    }
 }
 
 export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
@@ -152,7 +212,13 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 const kind =
                     resolveByRepointedPerson || !hogFlowInvocationState.event.distinct_id ? 'person_id' : 'distinct_id'
 
-                const [person, groups] = await Promise.all([
+                // Only event triggers fire on an event that can carry person writes. Batch and
+                // row-scoped invocations carry a synthetic event, whose properties are not the
+                // person's.
+                const personWrites =
+                    hogFlow.trigger?.type === 'event' ? replayablePersonWrites(hogFlowInvocationState.event) : undefined
+
+                const [initialPerson, groups] = await Promise.all([
                     personIdOrDistinctId
                         ? this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind)
                         : undefined,
@@ -162,6 +228,26 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                         `${this.config.SITE_URL}/project/${hogFlow.team_id}`
                     ),
                 ])
+
+                // The person read is eventually consistent and caches a miss for as long as it caches
+                // a hit, so a person the trigger event just created can stay unresolved for the whole
+                // window, and the send drops for want of a recipient. Read again uncached, but only
+                // when the event carries the writes that would have created the person, so an
+                // anonymous distinct id that has no person still costs one read.
+                let resolvedPerson = initialPerson
+                if (!resolvedPerson && personWrites && personIdOrDistinctId) {
+                    resolvedPerson = await this.personsManager.getCyclotronPerson(
+                        hogFlow.team_id,
+                        personIdOrDistinctId,
+                        kind,
+                        { forceFresh: true }
+                    )
+                }
+
+                const person =
+                    resolvedPerson && personWrites && personIdOrDistinctId
+                        ? applyPersonWrites(team, resolvedPerson, personWrites, personIdOrDistinctId)
+                        : resolvedPerson
 
                 if (!person && hogFlow.trigger?.type === 'event') {
                     logger.warn('⚠️', 'Person not found for hog flow invocation', {
@@ -204,6 +290,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 }
 
                 if (personIdOrDistinctId) {
+                    // This read is uncached, so it does not replay the trigger's writes. A wait exists
+                    // to act on the person as they are now, and replaying here would let a trigger
+                    // value beat a newer one the wait was waiting for.
                     loaded.refreshPerson = async () => {
                         const fresh = await this.personsManager.getCyclotronPerson(
                             hogFlow.team_id,
