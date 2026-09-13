@@ -38,17 +38,11 @@ TEAM_DELETE_BATCH_SIZE = 2000
 # activity bound.
 TEAM_DELETE_RPC_TIMEOUT_SECONDS = 30 * 60
 
-# The retired session-summary tables. products/replay/backend/migrations/0002_remove_session_summary_models.py
-# dropped their models from Django state only, so both the tables and their foreign keys on
-# posthog_team still exist in Postgres. Django's cascade cannot see them any more, and the
-# constraints are DEFERRABLE INITIALLY DEFERRED, so a leftover row fails the team delete at COMMIT
-# with an IntegrityError instead of at the DELETE statement. All three tables are dead: no Django
-# model reads or writes them. This list goes away with the migration that drops them.
-RETIRED_SESSION_SUMMARY_TABLES = (
-    "ee_group_session_summary",
-    "ee_single_session_summary",
-    "ee_teamsessionsummariesconfig",
-)
+# The retired session-summary table. It has no foreign keys after replay/0004, so a leftover row
+# cannot block a team delete, but nothing else clears these rows either: replay/0002 took the model
+# out of Django state, so the cascade cannot see the table, and nodejs deletes only per recording.
+# This sweep stops a deleted team's summaries from outliving the team. Delete it with the table.
+RETIRED_SESSION_SUMMARY_TABLES = ("ee_single_session_summary",)
 
 actions_that_require_current_team = [
     "rotate_secret_token",
