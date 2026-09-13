@@ -23,19 +23,20 @@ export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
         effectiveLastRunAt,
         effectiveLastRunStatus,
     } = useValues(nodeDetailSceneLogic({ id }))
+    const materializationLogic = materializationJobsLogic({
+        viewId: node?.saved_query_id ?? '',
+        kind: node?.type === 'endpoint' ? 'endpoint' : 'view',
+    })
     const {
         savedQuery: polledSavedQuery,
         dataModelingJobs,
         dataModelingJobsLoading,
         dataModelingJobsError,
+        savedQueryError: statusRefreshError,
+        savedQueryLoading: statusRefreshing,
         lastSuccessfulSyncAt,
-    } = useValues(
-        materializationJobsLogic({
-            viewId: node?.saved_query_id ?? '',
-            kind: node?.type === 'endpoint' ? 'endpoint' : 'view',
-        })
-    )
-    const { refreshMaterialization } = useActions(materializationJobsLogic({ viewId: node?.saved_query_id ?? '' }))
+    } = useValues(materializationLogic)
+    const { refreshMaterialization } = useActions(materializationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const savedQuery = polledSavedQuery ?? sceneSavedQuery
 
@@ -82,9 +83,9 @@ export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
             error={suspension?.reason ?? latestJob?.error ?? savedQuery?.latest_error ?? node.last_run_error}
             lastSuccessfulSyncAt={lastSuccessfulSyncAt}
             historyLoaded={dataModelingJobs !== null}
-            historyError={dataModelingJobsError}
+            historyError={dataModelingJobsError || statusRefreshError}
             onRetry={refreshMaterialization}
-            retryLoading={dataModelingJobsLoading}
+            retryLoading={dataModelingJobsLoading || statusRefreshing}
             schedule={schedule}
             lineageUrl={urls.nodeDetail(id, 'lineage')}
             downstreamCount={node.downstream_count}

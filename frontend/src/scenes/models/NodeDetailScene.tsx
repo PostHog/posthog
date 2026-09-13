@@ -87,6 +87,7 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
                     <ActivityLog
                         scope={[ActivityScope.DATA_WAREHOUSE_SAVED_QUERY, ActivityScope.DATA_QUALITY_CHECK]}
                         id={savedQueryId ?? ''}
+                        includeModelChecks
                     />
                 )
             case 'tests':
@@ -113,7 +114,7 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
                 <ModelMetadata
                     createdBy={savedQuery?.created_by}
                     createdAt={node.saved_query_id ? savedQuery?.created_at : node.created_at}
-                    updatedAt={node.saved_query_id ? savedQuery?.updated_at : node.updated_at}
+                    updatedAt={node.saved_query_id ? undefined : node.updated_at}
                     loading={!!node.saved_query_id && savedQueryLoading && !savedQuery}
                 />
             </div>

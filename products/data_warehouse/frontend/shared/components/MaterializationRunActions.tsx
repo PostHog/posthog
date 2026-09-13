@@ -30,11 +30,17 @@ export function MaterializationRunActions({
         resumingMaterialization,
         initialSyncFrequency,
         incrementalDraft,
+        incrementalDraftTouched,
+        savedQueryError,
+        savedQueryLoading,
+        dataModelingJobsError,
+        dataModelingJobsLoading,
         hasMaterializationChanges,
         savingMaterialization,
         materializationRefreshPending,
     } = useValues(materializationJobsLogic({ viewId, kind }))
     const {
+        refreshMaterialization,
         setStartingMaterialization,
         resumeMaterialization,
         saveMaterializationChanges,
@@ -52,6 +58,21 @@ export function MaterializationRunActions({
 
     if (!savedQuery) {
         return null
+    }
+
+    if (materializationRefreshPending && (savedQueryError || dataModelingJobsError)) {
+        return (
+            <LemonButton
+                type="secondary"
+                size="small"
+                loading={savedQueryLoading || dataModelingJobsLoading}
+                onClick={refreshMaterialization}
+                aria-label="Retry status refresh"
+                tooltip="Couldn't refresh materialization status. Retry before running another action."
+            >
+                Retry status refresh
+            </LemonButton>
+        )
     }
 
     const running = dataModelingJobs?.results?.[0]?.status === 'Running'
@@ -86,14 +107,18 @@ export function MaterializationRunActions({
                     materializeDataWarehouseSavedQuery(
                         viewId,
                         defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency),
-                        incrementalDraft.enabled && incrementalDraft.incrementalKey
-                            ? {
-                                  enabled: true,
-                                  incremental_key: incrementalDraft.incrementalKey,
-                                  unique_key: incrementalDraft.uniqueKey,
-                                  lookback_seconds: incrementalDraft.lookbackSeconds,
-                              }
-                            : null
+                        !incrementalDraftTouched ||
+                            kind === 'endpoint' ||
+                            !featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
+                            ? undefined
+                            : incrementalDraft.enabled && incrementalDraft.incrementalKey
+                              ? {
+                                    enabled: true,
+                                    incremental_key: incrementalDraft.incrementalKey,
+                                    unique_key: incrementalDraft.uniqueKey,
+                                    lookback_seconds: incrementalDraft.lookbackSeconds,
+                                }
+                              : null
                     )
                 }
             >

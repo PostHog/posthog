@@ -1,5 +1,7 @@
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+import { createElement } from 'react'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -7,6 +9,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
@@ -42,6 +46,7 @@ describe('materializationJobsLogic', () => {
                     {
                         id: 'view-1',
                         name: 'v1',
+                        user_access_level: 'editor',
                         is_materialized: isMaterialized,
                         sync_frequency: savedSyncFrequency,
                         incremental,
@@ -70,6 +75,7 @@ describe('materializationJobsLogic', () => {
     })
 
     afterEach(() => {
+        cleanup()
         logic?.unmount()
         featureFlagLogic.unmount()
         jest.useRealTimers()
@@ -141,6 +147,50 @@ describe('materializationJobsLogic', () => {
 
         await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess']).toFinishAllListeners()
         expect(checkCalls).toBe(0)
+    })
+
+    it.each([
+        ['flag disabled', 'view' as const, false, false],
+        ['endpoint', 'endpoint' as const, true, false],
+        ['untouched draft', 'view' as const, true, false],
+        ['explicit full refresh', 'view' as const, true, true],
+    ])('preserves stored incremental settings unless edited: %s', async (_name, kind, flag, edited) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]: flag })
+        const incremental = { enabled: true, incremental_key: 'id', unique_key: ['id'], lookback_seconds: 0 }
+        const updates: unknown[] = []
+        let materializations = 0
+        useMocks({
+            ...apiMocks({ isMaterialized: false, incremental }),
+            patch: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': async ({ request }) => {
+                    updates.push(await request.json())
+                    return [200, { id: 'view-1' }]
+                },
+            },
+            post: {
+                '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': ELIGIBLE_CHECK,
+                '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': () => {
+                    materializations++
+                    return [200, {}]
+                },
+            },
+        })
+        logic = materializationJobsLogic({ viewId: 'view-1', kind })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess']).toFinishAllListeners()
+        if (edited) {
+            logic.actions.setIncrementalDraft({ enabled: false })
+        }
+        render(createElement(MaterializationRunActions, { viewId: 'view-1', kind }))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(screen.getByRole('button', { name: 'Materialize' }).getAttribute('aria-disabled')).not.toBe('true')
+        await expectLogic(dataWarehouseViewsLogic(), () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Materialize' }))
+        })
+            .toDispatchActions(['materializeDataWarehouseSavedQuerySuccess'])
+            .toFinishAllListeners()
+        expect(updates).toEqual(edited ? [{ incremental: null }] : [])
+        expect(materializations).toBe(1)
     })
 
     // Regression: the refresh-mode editor on a materialized view must start from the saved config,
@@ -237,6 +287,8 @@ describe('materializationJobsLogic', () => {
             patch: {
                 '/api/environments/:team_id/warehouse_saved_queries/:id/': async ({ request }) => {
                     submitted = await request.json()
+                    dataWarehouseViewsLogic.actions.updateDataWarehouseSavedQueryFailed('another-view')
+                    expect(logic.values.savingMaterialization).toBe(true)
                     return [status, status === 200 ? { id: 'view-1', ...submitted } : { detail: 'Save failed' }]
                 },
             },
@@ -309,14 +361,18 @@ describe('materializationJobsLogic', () => {
             dataWarehouseViewsLogic.actions.materializationChanged('view-1')
         ).toDispatchActions(['loadSavedQueryFailure', 'loadDataModelingJobsSuccess'])
         expect(logic.values.materializationRefreshPending).toBe(true)
+        expect(logic.values.savedQueryError).toBe(true)
+        render(createElement(MaterializationRunActions, { viewId: 'view-1' }))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(screen.getByRole('button', { name: 'Retry status refresh' })).toBeTruthy()
         materialized = false
         fail = false
-        await expectLogic(logic, () => logic.actions.refreshMaterialization()).toDispatchActions([
-            'loadSavedQuerySuccess',
-            'loadDataModelingJobsSuccess',
-        ])
+        await expectLogic(logic, () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Retry status refresh' }))
+        }).toDispatchActions(['loadSavedQuerySuccess', 'loadDataModelingJobsSuccess'])
         expect(logic.values.materializationRefreshPending).toBe(false)
         expect(logic.values.savedQuery?.is_materialized).toBe(false)
+        expect(logic.values.savedQueryError).toBe(false)
     })
     it('ignores a saved query response started before a materialization action', async () => {
         useMocks(apiMocks({ isMaterialized: true }))

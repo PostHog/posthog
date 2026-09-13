@@ -453,13 +453,25 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert deleted.status_code == 204
         response = self.client.get(
             f"/api/projects/{self.team.id}/activity_log/",
-            {"scopes": "DataWarehouseSavedQuery,DataQualityCheck", "item_id": str(self.view.id)},
+            {
+                "scopes": "DataWarehouseSavedQuery,DataQualityCheck",
+                "item_id": str(self.view.id),
+                "include_model_checks": "true",
+            },
         )
         assert response.status_code == 200, response.content
         item_ids = {entry["item_id"] for entry in response.json()["results"]}
         assert str(self.view.id) in item_ids
         assert str(check.id) in item_ids
         assert str(other_check.id) not in item_ids
+
+        for item_id in (self.view.id, check.id):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/activity_log/",
+                {"scopes": "DataWarehouseSavedQuery,DataQualityCheck", "item_id": str(item_id)},
+            )
+            assert response.status_code == 200, response.content
+            assert {entry["item_id"] for entry in response.json()["results"]} == {str(item_id)}
 
     def test_deleting_a_check_is_logged_as_a_deletion_not_an_update(self) -> None:
         check = self._create_check()

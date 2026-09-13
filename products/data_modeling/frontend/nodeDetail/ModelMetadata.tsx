@@ -42,18 +42,14 @@ export function ModelMetadata({
                     )}
                 </dd>
             </div>
-            <div className="col-start-1 row-start-2">
-                <dt className="text-secondary mb-1">Updated at</dt>
-                <dd className="mb-0">
-                    {loading ? (
-                        <LemonSkeleton className="h-5 w-20" />
-                    ) : updatedAt ? (
+            {updatedAt && (
+                <div className="col-start-1 row-start-2">
+                    <dt className="text-secondary mb-1">Updated at</dt>
+                    <dd className="mb-0">
                         <TZLabel time={updatedAt} />
-                    ) : (
-                        'Unknown'
-                    )}
-                </dd>
-            </div>
+                    </dd>
+                </div>
+            )}
         </dl>
     )
 }

@@ -25,6 +25,32 @@ describe('the activity log logic', () => {
         await ensureActivityDescribersLoaded()
     })
 
+    it.each([false, true])('opts into related model checks only when requested (%s)', async (includeModelChecks) => {
+        let requested: URLSearchParams | undefined
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/activity_log/`]: ({ request }) => {
+                    requested = new URL(request.url).searchParams
+                    return [200, { results: [], count: 0 }]
+                },
+            },
+        })
+        initKeaTests()
+        logic = activityLogLogic({
+            scope: [ActivityScope.DATA_WAREHOUSE_SAVED_QUERY, ActivityScope.DATA_QUALITY_CHECK],
+            id: 'model-1',
+            includeModelChecks,
+        })
+        logic.mount()
+        try {
+            await expectLogic(logic).toDispatchActions(['fetchActivitySuccess'])
+            expect(requested?.get('item_id')).toBe('model-1')
+            expect(requested?.get('include_model_checks')).toBe(includeModelChecks ? 'true' : null)
+        } finally {
+            logic.unmount()
+        }
+    })
+
     describe('when not scoped by ID', () => {
         beforeEach(() => {
             useMocks({

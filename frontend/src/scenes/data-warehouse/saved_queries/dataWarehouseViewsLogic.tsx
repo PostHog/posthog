@@ -272,6 +272,9 @@ export interface dataWarehouseViewsLogicActions {
         viewId: string
     }
     updateDataWarehouseSavedQuery: (view: DataWarehouseSavedQueryUpdate) => DataWarehouseSavedQueryUpdate
+    updateDataWarehouseSavedQueryFailed: (viewId: string) => {
+        viewId: string
+    }
     updateDataWarehouseSavedQueryFailure: (
         error: string,
         errorObject?: any
@@ -372,6 +375,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         ],
     }),
     actions({
+        updateDataWarehouseSavedQueryFailed: (viewId: string) => ({ viewId }),
         materializationChanged: (viewId: string) => ({ viewId }),
         runDataWarehouseSavedQuerySuccess: (viewId: string) => ({ viewId }),
         runDataWarehouseSavedQuery: (viewId: string, fullRefresh?: boolean) => ({ viewId, fullRefresh }),
@@ -491,13 +495,18 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     return values.dataWarehouseSavedQueries.filter((view) => view.id !== viewId)
                 },
                 updateDataWarehouseSavedQuery: async (view: DataWarehouseSavedQueryUpdate) => {
-                    const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
-                    return values.dataWarehouseSavedQueries.map((savedQuery) => {
-                        if (savedQuery.id === view.id) {
-                            return newView
-                        }
-                        return savedQuery
-                    })
+                    try {
+                        const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
+                        return values.dataWarehouseSavedQueries.map((savedQuery) => {
+                            if (savedQuery.id === view.id) {
+                                return newView
+                            }
+                            return savedQuery
+                        })
+                    } catch (error) {
+                        actions.updateDataWarehouseSavedQueryFailed(view.id)
+                        throw error
+                    }
                 },
             },
         ],

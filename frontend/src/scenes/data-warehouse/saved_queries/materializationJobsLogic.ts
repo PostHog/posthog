@@ -64,6 +64,7 @@ export interface materializationJobsLogicValues {
     refreshModeChanged: boolean
     resumingMaterialization: boolean
     savedQuery: DataWarehouseSavedQuery | null
+    savedQueryError: boolean
     savedQueryLoading: boolean
     savedQueryRefreshPending: boolean
     savingMaterialization: boolean
@@ -85,12 +86,8 @@ export interface materializationJobsLogicActions {
     updateDataWarehouseSavedQuery: (
         view: import('./dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     ) => import('./dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
-    updateDataWarehouseSavedQueryFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
+    updateDataWarehouseSavedQueryFailed: (viewId: string) => {
+        viewId: string
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
@@ -237,7 +234,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             [
                 'updateDataWarehouseSavedQuery',
                 'updateDataWarehouseSavedQuerySuccess',
-                'updateDataWarehouseSavedQueryFailure',
+                'updateDataWarehouseSavedQueryFailed',
                 'runDataWarehouseSavedQueryFailure',
                 'runDataWarehouseSavedQuerySuccess',
                 'materializationChanged',
@@ -328,6 +325,13 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         ],
     })),
     reducers({
+        savedQueryError: [
+            false,
+            {
+                loadSavedQueryFailure: () => true,
+                loadSavedQuerySuccess: () => false,
+            },
+        ],
         dataModelingJobsError: [
             false,
             {
@@ -562,8 +566,10 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 lifecycle: 'update',
             })
         },
-        updateDataWarehouseSavedQueryFailure: () => {
-            actions.finishSavingMaterialization()
+        updateDataWarehouseSavedQueryFailed: ({ viewId }) => {
+            if (viewId === props.viewId) {
+                actions.finishSavingMaterialization()
+            }
         },
         resumeMaterialization: async () => {
             try {

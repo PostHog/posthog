@@ -2630,6 +2630,7 @@ const api = {
                 page?: number
                 page_size?: number
                 item_id?: number | string
+                include_model_checks?: boolean
             }>,
             projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
         ): ApiRequest {
@@ -2681,6 +2682,7 @@ const api = {
                     .listRequest({
                         scopes,
                         ...(props.id ? { item_id: props.id } : {}),
+                        ...(props.includeModelChecks ? { include_model_checks: true } : {}),
                         page: page || 1,
                         page_size: ACTIVITY_PAGE_SIZE,
                     })
