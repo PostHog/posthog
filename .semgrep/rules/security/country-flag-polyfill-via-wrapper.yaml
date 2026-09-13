@@ -7,14 +7,13 @@ rules:
           The package's second argument is the font URL, and it defaults to
           `https://cdn.jsdelivr.net/npm/country-flag-emoji-polyfill@0.1/dist/TwemojiCountryFlags.woff2`.
           A call site that passes only the family name silently takes that default and
-          loads a font from an open CDN.
+          loads a font from an open CDN. The URL lives inside the dependency, not in our
+          source, so searching the repository for the CDN does not find those call sites.
 
           That matters because the app's `font-src` does not list jsdelivr, and should not.
           An open CDN there serves bytes anyone can publish at a path an attacker picks,
           which is both a wider surface for the browser's font parser and exactly the
-          remote origin a CSS-injection exfiltration needs to reach. We removed it in
-          #99477, then had to serve the font ourselves once this default turned up in the
-          violation reports.
+          remote origin a CSS-injection exfiltration needs to reach.
 
           The wrapper holds the family name and the same-origin URL in one place, so the
           policy needs no CDN entry. It also keeps the family name matched to the
