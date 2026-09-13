@@ -55,6 +55,34 @@ class TestPersonaGetSchemas:
         }
 
 
+class TestPersonaNonRetryableErrors:
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.withpersona.com/api/v1/inquiries"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.withpersona.com/api/v1/accounts"),
+            # Persona can redirect the API host to its marketing apex, and `requests` names the final
+            # URL. A host-anchored key misses these, so the sync retries a permission failure.
+            ("unauthorized_after_redirect", "401 Client Error: Unauthorized for url: https://withpersona.com"),
+            ("forbidden_after_redirect", "403 Client Error: Forbidden for url: https://withpersona.com"),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        assert any(key in observed_error for key in PersonaSource().get_non_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.withpersona.com/api/v1/cases"),
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://api.withpersona.com/api/v1/cases",
+            ),
+            ("read_timeout", "HTTPSConnectionPool(host='api.withpersona.com', port=443): Read timed out."),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
+        assert not any(key in other_error for key in PersonaSource().get_non_retryable_errors())
+
+
 class TestPersonaValidateCredentials:
     @parameterized.expand(
         [
