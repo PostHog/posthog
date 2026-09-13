@@ -246,6 +246,31 @@ class TestErrorTrackingAlerts(APIBaseTest):
                 },
             ),
             (
+                "empty_assignee_filter",
+                {
+                    "filters": {
+                        "properties": [
+                            {"key": "assignee", "value": [], "operator": "exact", "type": "error_tracking_issue"}
+                        ]
+                    }
+                },
+            ),
+            (
+                "assignee_filter_with_null_id",
+                {
+                    "filters": {
+                        "properties": [
+                            {
+                                "key": "assignee",
+                                "value": ['{"type": "user", "id": null}'],
+                                "operator": "exact",
+                                "type": "error_tracking_issue",
+                            }
+                        ]
+                    }
+                },
+            ),
+            (
                 "same_field_as_issue_and_exception_property",
                 {
                     "filters": {
