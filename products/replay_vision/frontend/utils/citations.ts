@@ -98,3 +98,13 @@ export function citedTextToPlainText(text: string, segments: unknown): string {
     }
     return out
 }
+
+/** The moment span a cited field points at: min to max cited timestamp, or null when nothing is cited. */
+export function citedTimestampRange(text: string, segments: unknown): { startMs: number; endMs: number } | null {
+    const chips = parseCitedSegments(text, segments).filter((segment) => segment.kind === 'chip')
+    if (chips.length === 0) {
+        return null
+    }
+    const timestamps = chips.map((chip) => Math.max(0, chip.timestamp_ms))
+    return { startMs: Math.min(...timestamps), endMs: Math.max(...timestamps) }
+}

@@ -483,6 +483,97 @@ const meta: Meta = {
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
+                // One card per reason kind, plus one with no cited timestamps (no clip range on the tile).
+                '/api/projects/:team_id/vision/scanners/watch_feed/': {
+                    results: [
+                        {
+                            observation: observation({
+                                id: '00000000-0000-0000-0000-0000000000d1',
+                                scanner_id: scanners.results[0].id,
+                                scanner_snapshot: {
+                                    name: 'Confused checkout',
+                                    scanner_type: 'monitor',
+                                    scanner_version: 1,
+                                    model: 'gemini-3.8-flash',
+                                    provider: 'google',
+                                    emits_signals: true,
+                                    scanner_config: { prompt: 'Did the user hesitate at checkout?' },
+                                },
+                                scanner_result: {
+                                    model_output: {
+                                        scanner_type: 'monitor',
+                                        verdict: 'yes',
+                                        confidence: 0.92,
+                                        reasoning: 'Retried the payment form twice before completing.',
+                                        reasoning_segments: [
+                                            { kind: 'chip', timestamp_ms: 62000 },
+                                            { kind: 'text', value: ' Retried the payment form twice ' },
+                                            { kind: 'chip', timestamp_ms: 154000 },
+                                        ],
+                                    },
+                                    signals_count: 2,
+                                },
+                                viewed: false,
+                            }),
+                            reason: { kind: 'signal_emitted', signals_count: 2 },
+                        },
+                        {
+                            observation: observation({
+                                id: '00000000-0000-0000-0000-0000000000d2',
+                                scanner_id: scanners.results[3].id,
+                                scanner_snapshot: {
+                                    name: 'Intent score',
+                                    scanner_type: 'scorer',
+                                    scanner_version: 1,
+                                    model: 'gemini-3.8-flash',
+                                    provider: 'google',
+                                    emits_signals: false,
+                                    scanner_config: { prompt: 'Score this session.', scale: { min: 0, max: 10 } },
+                                },
+                                scanner_result: {
+                                    model_output: {
+                                        scanner_type: 'scorer',
+                                        score: 9.5,
+                                        confidence: 0.88,
+                                        reasoning: 'Compared plans, opened billing, invited a teammate.',
+                                        reasoning_segments: [
+                                            { kind: 'text', value: 'Compared plans at ' },
+                                            { kind: 'chip', timestamp_ms: 30000 },
+                                            { kind: 'text', value: ', opened billing, invited a teammate.' },
+                                        ],
+                                    },
+                                    signals_count: 0,
+                                },
+                                viewed: false,
+                            }),
+                            reason: { kind: 'outlier_score', score: 9.5, window_mean: 5.1 },
+                        },
+                        {
+                            observation: observation({
+                                id: '00000000-0000-0000-0000-0000000000d3',
+                                recording_subject_email: 'bob@example.com',
+                                viewed: true,
+                            }),
+                            reason: { kind: 'unviewed_recent' },
+                        },
+                        {
+                            observation: observation({
+                                id: '00000000-0000-0000-0000-0000000000d4',
+                                scanner_result: {
+                                    model_output: {
+                                        scanner_type: 'summarizer',
+                                        confidence: 0.8,
+                                        title: 'Quick bug report',
+                                        summary: 'Hit an error dialog and filed feedback from the toast.',
+                                    },
+                                    signals_count: 0,
+                                },
+                                viewed: true,
+                            }),
+                            reason: { kind: 'recent' },
+                        },
+                    ],
+                },
                 '/api/projects/:team_id/vision/quota/': quota,
                 '/api/projects/:team_id/vision/quota/spend_series/': spendSeries,
                 '/api/projects/:team_id/vision/scanners/:id/': summarizerScanner,
@@ -567,6 +658,32 @@ export const ScannersListEmpty: StoryObj = {
 
 export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
+}
+
+// The home-redesign experiment's test arm lands on the What to watch feed.
+export const HomeWatchFeed: StoryObj = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
+}
+
+export const HomeWatchFeedEmpty: StoryObj = {
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/vision/scanners/watch_feed/': { results: [] } },
+        }),
+    ],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
+}
+
+// Test arm of the Usage tab: absorbs the observations chart and enabled-scanners card.
+export const UsageTabRedesigned: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision()}?tab=usage`,
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
 }
 
 export const SummarizerOverview: StoryObj = {
