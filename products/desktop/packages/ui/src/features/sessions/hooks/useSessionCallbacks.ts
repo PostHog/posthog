@@ -7,11 +7,11 @@ import {
   combineQueuedCloudPrompts,
   promptToQueuedEditorContent,
 } from "@posthog/core/sessions/cloudPrompt";
+import { SessionConnectingError } from "@posthog/core/sessions/sessionErrors";
 import {
   SESSION_SERVICE,
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
-import { SessionConnectingError } from "@posthog/core/sessions/sessionErrors";
 import { useService } from "@posthog/di/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import { sessionSupportsSideQuestion } from "@posthog/shared";
