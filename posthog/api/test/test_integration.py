@@ -578,10 +578,11 @@ class TestReraiseTwilioApiError(SimpleTestCase):
         ]
     )
     def test_twilio_failure_maps_to_an_actionable_error(self, _name, twilio_status, expected_error):
-        if twilio_status is None:
-            error = requests.exceptions.ConnectionError()
-        else:
-            error = requests.exceptions.HTTPError(response=_twilio_api_response(twilio_status))
+        error: requests.RequestException = (
+            requests.exceptions.ConnectionError()
+            if twilio_status is None
+            else requests.exceptions.HTTPError(response=_twilio_api_response(twilio_status))
+        )
 
         with pytest.raises(expected_error):
             _reraise_twilio_api_error(error)
