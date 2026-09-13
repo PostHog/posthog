@@ -411,6 +411,33 @@ describe('inboxSceneLogic routing', () => {
             expect(reportGet).toHaveBeenCalledTimes(1)
         })
 
+        it('ignores a visibility callback captured before the scene unmounts', async () => {
+            const reportGet = mockReportGet()
+            const addEventListenerSpy = jest.spyOn(document, 'addEventListener')
+            const removeEventListenerSpy = jest.spyOn(document, 'removeEventListener')
+            try {
+                mountWithRedesign(true)
+                logic.actions.setSelectedReportId('report-1')
+                await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+
+                const onVisibilityChange = addEventListenerSpy.mock.calls.find(
+                    ([eventName]) => eventName === 'visibilitychange'
+                )?.[1]
+                if (typeof onVisibilityChange !== 'function') {
+                    throw new Error('Expected the report refresh visibility listener to be registered')
+                }
+
+                logic.unmount()
+                expect(removeEventListenerSpy).toHaveBeenCalledWith('visibilitychange', onVisibilityChange)
+                expect(() => onVisibilityChange(new Event('visibilitychange'))).not.toThrow()
+                await expectLogic(logic).toNotHaveDispatchedActions(['loadSelectedReport'])
+                expect(reportGet).toHaveBeenCalledTimes(1)
+            } finally {
+                addEventListenerSpy.mockRestore()
+                removeEventListenerSpy.mockRestore()
+            }
+        })
+
         // The lists behind the detail pane reconcile only on `reportStateChanged`, so a refresh that
         // lands a new status has to broadcast it. An unconditional broadcast is just as wrong: every
         // tab return would refresh every mounted section and the refund summary.
