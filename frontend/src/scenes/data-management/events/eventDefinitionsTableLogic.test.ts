@@ -19,7 +19,6 @@ describe('eventDefinitionsTableLogic', () => {
         combineUrl('', {
             limit: EVENT_DEFINITIONS_PER_PAGE,
             search: '',
-            ordering: 'event',
             event_type: EventDefinitionType.Event,
         }).search
     }`

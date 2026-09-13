@@ -13,6 +13,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { cn } from 'lib/utils/css-classes'
+import { formatDefinitionCount, isCappedDefinitionCount } from 'lib/utils/definitionCount'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -76,6 +77,7 @@ function CategoryPillContent({
         taxonomicFilterGroupTypesWithEmptyStates.includes(groupType) ||
         groupType === TaxonomicFilterGroupType.SuggestedFilters
     const showLoading = (isLoading && hasRemoteDataSource) || isLocalDataLoading
+    const countIsLowerBound = hasMore || isCappedDefinitionCount(totalResultCount)
 
     const hasPathsAdvanced = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
     const disabledReason = getCategoryPillDisabledReason(canInteract, groupType, hasPathsAdvanced)
@@ -107,11 +109,13 @@ function CategoryPillContent({
                             {showLoading ? (
                                 <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
                             ) : (
-                                totalResultCount
+                                formatDefinitionCount(totalResultCount)
                             )}
                             {/* This is a workaround. We need to make the logic fetch more results when querying from clickhouse*/}
-                            <span aria-label={hasMore ? `${totalResultCount} or more` : `${totalResultCount}`}>
-                                {hasMore ? '+' : ''}
+                            <span
+                                aria-label={countIsLowerBound ? `${totalResultCount} or more` : `${totalResultCount}`}
+                            >
+                                {hasMore && !isCappedDefinitionCount(totalResultCount) ? '+' : ''}
                             </span>
                         </>
                     )}

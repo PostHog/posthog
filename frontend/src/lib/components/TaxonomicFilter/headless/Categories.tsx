@@ -2,6 +2,8 @@ import { ReactNode } from 'react'
 
 import { Button } from '@posthog/quill'
 
+import { formatDefinitionCount } from 'lib/utils/definitionCount'
+
 import { useGroupList } from '../hooks/useGroupList'
 import { TaxonomicFilterGroup } from '../types'
 import { useTaxonomicFilterContext } from './context'
@@ -71,7 +73,8 @@ function TaxonomicFilterCategoryTab({ group, renderTab }: CategoryTabProps): JSX
             ) : (
                 <>
                     {group.name}
-                    {!list.needsMoreSearchCharacters && `: ${list.isLoading ? '…' : list.totalResultCount}`}
+                    {!list.needsMoreSearchCharacters &&
+                        `: ${list.isLoading ? '…' : formatDefinitionCount(list.totalResultCount)}`}
                 </>
             )}
         </Button>

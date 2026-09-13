@@ -50,6 +50,7 @@ export function buildGroupAnalyticsTaxonomicGroups(
             type: 'group',
             group_type_index: type.group_type_index,
             exclude_hidden: true,
+            exclude_restricted: true,
         }).url,
         valuesEndpoint: (key) =>
             `api/projects/${projectId}/groups/property_values?${toParams({

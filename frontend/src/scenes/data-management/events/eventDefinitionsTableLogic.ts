@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
+import { invalidateDefinitionLists } from 'lib/components/TaxonomicFilter/utils/invalidateDefinitionLists'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -52,7 +53,6 @@ const DEFAULT_FILTERS: Filters = {
     event: '',
     properties: [],
     event_type: EventDefinitionType.Event,
-    ordering: 'event',
     tags: undefined,
     verified: undefined,
 }
@@ -659,6 +659,9 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             }
             const { verified, updated, skipped } = bulkVerifiedResult
             actions.applyBulkVerifiedUpdates(updated)
+            if (updated.length > 0) {
+                invalidateDefinitionLists()
+            }
             // Clear the selection only now that the request succeeded, so a failure leaves it
             // intact for the user to retry without re-selecting everything.
             payload?.onSuccess?.()

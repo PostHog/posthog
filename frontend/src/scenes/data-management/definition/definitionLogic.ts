@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { invalidateDefinitionLists } from 'lib/components/TaxonomicFilter/utils/invalidateDefinitionLists'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { tryDecodeURIComponent } from 'lib/utils/url'
 import { Scene } from 'scenes/sceneTypes'
@@ -347,6 +348,7 @@ export const definitionLogic = kea<definitionLogicType>([
                     } else {
                         await api.propertyDefinitions.delete({ propertyDefinitionId: values.definition.id })
                     }
+                    invalidateDefinitionLists()
                     router.actions.push(values.isEvent ? urls.eventDefinitions() : urls.propertyDefinitions())
                     if (values.isEvent) {
                         eventDefinitionsTableLogic.findMounted()?.actions.loadEventDefinitions()

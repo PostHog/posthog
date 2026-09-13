@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, configure, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { useState } from 'react'
@@ -33,6 +33,10 @@ jest.mock('posthog-js', () => ({
 jest.mock('lib/api', () => require('~/test/mocks/taxonomicFilterApiMock').buildTaxonomicFilterApiMock())
 
 const apiGet = jest.requireMock('lib/api').default.get as jest.MockedFunction<any>
+
+// A query change waits REMOTE_SEARCH_DEBOUNCE_MS before it fetches, so the default 1 s wait leaves too
+// little margin on a loaded machine.
+configure({ asyncUtilTimeout: 3000 })
 const captureMock = jest.requireMock('posthog-js').default.capture as jest.Mock
 
 function renderCombobox(): ReturnType<typeof render> {
@@ -1301,6 +1305,8 @@ describe('MenuFilterCombobox', () => {
             await waitFor(() => expect(screen.getByTestId('menu-filter-loading')).toBeInTheDocument())
             expect(rowTexts().some((t) => t.includes('alpha_prop'))).toBe(false)
 
+            // The refetch follows the query after the debounce; resolve it only once it exists.
+            await waitFor(() => expect(resolveSecond).not.toBeUndefined())
             // Resolve the refetch -> barrier opens, the new result shows, skeleton gone.
             resolveSecond?.({ results: [{ id: 2, name: 'beta_prop' }], count: 1 })
             await waitFor(() => expect(rowTexts().some((t) => t.includes('beta_prop'))).toBe(true))
