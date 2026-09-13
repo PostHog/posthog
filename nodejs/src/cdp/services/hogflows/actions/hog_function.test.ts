@@ -449,41 +449,46 @@ describe('HogFunctionHandler', () => {
     // person must not fail the run and bury real send failures under a structural failure rate. The
     // kind is per channel because the reason name is not.
     it.each([
-        ['function_email', 'email'],
-        ['function_sms', 'sms'],
-        ['function_push', 'push'],
-    ] as const)('skips a %s step with no resolved address and counts it under %s', async (actionType, metricKind) => {
-        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('no_recipient')
-        // Each message type pins its own `config.template_id` literal, so only the discriminant is
-        // retyped here — the handler reads nothing else off the config on the skip path.
-        const messageAction = { ...action, type: actionType } as unknown as typeof action
+        ['function_email', 'email', 'the step\'s "To" field'],
+        ['function_sms', 'sms', 'the step\'s "Recipient phone number" field'],
+        ['function_push', 'push', 'no registered device can be found'],
+    ] as const)(
+        'skips a %s step with no resolved address and counts it under %s',
+        async (actionType, metricKind, expectedGuidance) => {
+            ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('no_recipient')
+            // Each message type pins its own `config.template_id` literal, so only the discriminant is
+            // retyped here — the handler reads nothing else off the config on the skip path.
+            const messageAction = { ...action, type: actionType } as unknown as typeof action
 
-        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
-            queue: 'hog',
-            queuePriority: 0,
-        })
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
 
-        const handlerResult = await hogFunctionHandler.execute({
-            invocation,
-            action: messageAction,
-            result: invocationResult,
-        })
+            const handlerResult = await hogFunctionHandler.execute({
+                invocation,
+                action: messageAction,
+                result: invocationResult,
+            })
 
-        expect(handlerResult.error).toBeUndefined()
-        expect(handlerResult.nextAction?.id).toBe('exit')
-        expect(invocationResult.logs[0].message).toContain('this person has no address')
-        expect(invocationResult.metrics).toEqual([
-            {
-                team_id: team.id,
-                app_source_id: invocation.functionId,
-                instance_id: messageAction.id,
-                metric_kind: metricKind,
-                metric_name: 'no_recipient',
-                count: 1,
-            },
-        ])
-        expect(mockFetch).not.toHaveBeenCalled()
-    })
+            expect(handlerResult.error).toBeUndefined()
+            expect(handlerResult.nextAction?.id).toBe('exit')
+            // The remediation names the field this channel actually reads, so an SMS operator is not
+            // sent to an email-only "To" field that the step does not have.
+            expect(invocationResult.logs[0].message).toContain(expectedGuidance)
+            expect(invocationResult.metrics).toEqual([
+                {
+                    team_id: team.id,
+                    app_source_id: invocation.functionId,
+                    instance_id: messageAction.id,
+                    metric_kind: metricKind,
+                    metric_name: 'no_recipient',
+                    count: 1,
+                },
+            ])
+            expect(mockFetch).not.toHaveBeenCalled()
+        }
+    )
 
     it('should skip the send and emit email_bounce_prevented when validation predicts a hard bounce', async () => {
         ;(mockEmailValidationService.getSkipReason as jest.Mock).mockResolvedValueOnce(
