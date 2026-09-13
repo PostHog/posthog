@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass
 from typing import Literal, Optional, overload
 
@@ -12,11 +13,15 @@ from posthog.schema import (
     DatabaseSchemaQueryResponse,
     DataWarehouseViewLink,
     HogQLAutocomplete,
+    HogQLAutocompleteResponse,
     HogQLMetadata,
+    HogQLMetadataResponse,
+    HogQLNotice,
     HogQLVariable,
     HogQuery,
     HogQueryResponse,
     QuerySchemaRoot,
+    QueryTiming,
 )
 
 from posthog.hogql.autocomplete import get_hogql_autocomplete
@@ -26,6 +31,14 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.direct_connection import resolve_database_for_connection
 from posthog.hogql.editor_assist_metrics import EDITOR_ASSIST_DURATION_SECONDS
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.language_service import (
+    CatalogMissing,
+    LanguageServiceClient,
+    LanguageServiceError,
+    LanguageServiceResult,
+    build_catalog,
+    is_language_service_enabled,
+)
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
@@ -50,6 +63,46 @@ from products.data_tools.backend.models.join import DataWarehouseJoin
 from common.hogvm.python.debugger import color_bytecode
 
 logger = structlog.get_logger(__name__)
+
+
+def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool:
+    common = (
+        query.language.value == "hogQL"
+        and query.connectionId is None
+        and query.sourceQuery is None
+        and query.globals is None
+        and query.filters is None
+        and query.modifiers is None
+    )
+    if isinstance(query, HogQLMetadata):
+        return common and query.variables is None and not query.debug and not query.indexUsage
+    return common
+
+
+def _language_service_call(
+    team: Team, user: User, query: HogQLAutocomplete | HogQLMetadata
+) -> LanguageServiceResult | None:
+    if not _language_service_eligible(query) or not is_language_service_enabled(team, user):
+        return None
+    try:
+        client = LanguageServiceClient()
+
+        def call() -> LanguageServiceResult:
+            if isinstance(query, HogQLAutocomplete):
+                return client.autocomplete(team.pk, user.pk, query.query, query.endPosition)
+            return client.validate(team.pk, user.pk, query.query)
+
+        result = call()
+    except CatalogMissing:
+        try:
+            schema = process_database_schema_query(team, DatabaseSchemaQuery(), user=user)
+            client.publish(team.pk, user.pk, str(time.time_ns()), build_catalog(team, user, schema))
+            result = call()
+        except LanguageServiceError:
+            return None
+    except LanguageServiceError:
+        return None
+    return result
 
 
 @dataclass(frozen=True)
@@ -304,6 +357,28 @@ def process_query_model(
 ) -> dict | BaseModel | RawCachedQueryResponse:
     if isinstance(query, HogQLAutocomplete):
         with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="autocomplete").time():
+            if user is not None and (language_result := _language_service_call(team, user, query)) is not None:
+                body = language_result.body
+                kind_map = {"field": "Field", "property": "Property", "table": "Class", "keyword": "Keyword"}
+                try:
+                    return HogQLAutocompleteResponse(
+                        suggestions=[
+                            {
+                                "label": suggestion["label"],
+                                "insertText": suggestion["label"],
+                                "kind": kind_map.get(suggestion["kind"], "Text"),
+                                "detail": suggestion.get("detail"),
+                            }
+                            for suggestion in body["suggestions"]
+                        ],
+                        incomplete_list=bool(body.get("nextCursor")),
+                        timings=[
+                            QueryTiming(k="language_service_http", t=language_result.duration_seconds),
+                            QueryTiming(k="language_service_go", t=body["durationMicros"] / 1_000_000),
+                        ],
+                    )
+                except (KeyError, TypeError, ValueError):
+                    logger.warning("hogql_language_service_invalid_autocomplete_response")
             _, database = resolve_database_for_connection(
                 team,
                 query.connectionId,
@@ -317,6 +392,32 @@ def process_query_model(
 
     if isinstance(query, HogQLMetadata):
         with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="metadata").time():
+            if user is not None and (language_result := _language_service_call(team, user, query)) is not None:
+                body = language_result.body
+                try:
+                    errors: list[HogQLNotice] = []
+                    warnings: list[HogQLNotice] = []
+                    for diagnostic in body["diagnostics"]:
+                        notice = HogQLNotice(
+                            message=diagnostic["message"],
+                            start=diagnostic["start"],
+                            end=diagnostic["end"],
+                            fix=diagnostic["suggestions"][0]["label"] if diagnostic.get("suggestions") else None,
+                        )
+                        if diagnostic["code"] == "unknown_property":
+                            warnings.append(notice)
+                        else:
+                            errors.append(notice)
+                    return HogQLMetadataResponse(
+                        isValid=not errors,
+                        query=query.query,
+                        errors=errors,
+                        warnings=warnings,
+                        notices=[],
+                        table_names=body.get("tableNames", []),
+                    )
+                except (KeyError, TypeError, ValueError):
+                    logger.warning("hogql_language_service_invalid_metadata_response")
             metadata_query = HogQLMetadata.model_validate(query)
             return get_hogql_metadata(query=metadata_query, team=team, user=user)
 

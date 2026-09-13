@@ -31,10 +31,17 @@ type Result struct {
 
 const PageSize = 25
 
+type PositionEncoding string
+
+const (
+	PositionEncodingUTF8  PositionEncoding = "utf-8"
+	PositionEncodingUTF16 PositionEncoding = "utf-16"
+)
+
 var keywords = []string{"SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "LIMIT", "JOIN", "AS"}
 var tableReference = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.$]*)(?:\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*))?`)
 
-func Complete(schema *catalog.Catalog, query string, position int, cursor string) (Result, error) {
+func Complete(schema *catalog.Catalog, query string, position int, positionEncoding PositionEncoding, cursor string) (Result, error) {
 	if err := querylimits.Validate(query); err != nil {
 		return Result{}, err
 	}
@@ -42,8 +49,15 @@ func Complete(schema *catalog.Catalog, query string, position int, cursor string
 	if err != nil {
 		return Result{}, err
 	}
-	if position < 0 || position > len(query) {
-		position = len(query)
+	switch positionEncoding {
+	case PositionEncodingUTF8:
+		if position < 0 || position > len(query) {
+			position = len(query)
+		}
+	case PositionEncodingUTF16:
+		position = utf16OffsetToByteOffset(query, position)
+	default:
+		return Result{}, fmt.Errorf("unsupported position encoding %q", positionEncoding)
 	}
 	prefix, qualifier, start := cursorWord(query[:position])
 	if len(prefix) > querylimits.MaxSuggestionInputBytes {
@@ -114,6 +128,27 @@ func Complete(schema *catalog.Catalog, query string, position int, cursor string
 		result.ParseError = parseErr.Error()
 	}
 	return result, nil
+}
+
+func utf16OffsetToByteOffset(value string, offset int) int {
+	if offset < 0 {
+		return len(value)
+	}
+	utf16Offset := 0
+	for byteOffset, character := range value {
+		if utf16Offset >= offset {
+			return byteOffset
+		}
+		characterWidth := 1
+		if character > 0xFFFF {
+			characterWidth = 2
+		}
+		if utf16Offset+characterWidth > offset {
+			return byteOffset
+		}
+		utf16Offset += characterWidth
+	}
+	return len(value)
 }
 
 func propertyContext(input string, bindings map[string]string) (string, string, bool) {
