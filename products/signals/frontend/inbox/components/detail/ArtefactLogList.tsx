@@ -8,6 +8,7 @@ import {
     IconCommit,
     IconFlag,
     IconGitRepository,
+    IconCalendar,
     IconListCheck,
     IconListTreeConnected,
     IconPeople,
@@ -40,6 +41,7 @@ import {
     artefactAttributionLabel,
     artefactLocationLabel,
     artefactTypeLabel,
+    CheckResultContent,
     CodeReviewContent,
     CodeReferenceContent,
     CommitContent,
@@ -128,6 +130,7 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     summary_change: IconPencil,
     related_to: IconListTreeConnected,
     code_review: IconListCheck,
+    check_result: IconCalendar,
 }
 
 function dismissReasonLabel(reason: string): string {
@@ -291,6 +294,29 @@ const CODE_REVIEW_OUTCOME: Record<NonNullable<CodeReviewContent['outcome']>, { l
     failed: { label: 'Review failed', type: 'danger' },
 }
 
+const CHECK_OUTCOME: Record<NonNullable<CheckResultContent['outcome']>, { label: string; type: LemonTagType }> = {
+    passed: { label: 'Still holds', type: 'success' },
+    failed: { label: 'No longer holds', type: 'danger' },
+    errored: { label: "Couldn't measure", type: 'warning' },
+}
+
+function CheckResultBody({ content }: { content: CheckResultContent }): JSX.Element | null {
+    if (!content.explanation?.trim()) {
+        return null
+    }
+    return (
+        <div className="flex w-full flex-col items-start gap-1">
+            <span className="text-xs text-default">{content.explanation}</span>
+            {content.threshold ? (
+                <span className="text-xs text-tertiary">
+                    Expected {content.threshold}
+                    {typeof content.baseline_value === 'number' ? `, was ${content.baseline_value} when set` : ''}
+                </span>
+            ) : null}
+        </div>
+    )
+}
+
 function CodeReviewBody({ content }: { content: CodeReviewContent }): JSX.Element | null {
     const counts = content.counts
     const reviewUrl = content.review_url || content.pr_url
@@ -403,6 +429,15 @@ function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | nu
                 </LemonTag>
             ) : null
         }
+        case 'check_result': {
+            const outcome = (content as CheckResultContent).outcome
+            const meta = outcome ? CHECK_OUTCOME[outcome] : null
+            return meta ? (
+                <LemonTag size="small" type={meta.type}>
+                    {meta.label}
+                </LemonTag>
+            ) : null
+        }
         default:
             return null
     }
@@ -470,6 +505,8 @@ function renderArtefactBody({
             return <RelatedReportBody content={content as RelatedToContent} />
         case 'code_review':
             return <CodeReviewBody content={content as CodeReviewContent} />
+        case 'check_result':
+            return <CheckResultBody content={content as CheckResultContent} />
         case 'title_change': {
             const c = content as TitleChangeContent
             return <ContentChangeBody previous={c.old_title} current={c.new_title ?? ''} />

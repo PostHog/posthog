@@ -1,0 +1,295 @@
+"""Deterministic execution of the checks attached to signal reports.
+
+One bounded Trends query, one comparison, one artefact. The coordinator calls
+``run_due_report_checks`` on its tick; nothing here needs a sandbox, a scout enrolment, or an LLM.
+
+The comparison is the alerts product's, not a second one written here, so a check and an alert word
+a breach the same way and there is one place where "is this value out of bounds?" is decided.
+"""
+
+from __future__ import annotations
+
+import time
+from datetime import datetime, timedelta
+
+from django.db import transaction
+from django.utils import timezone
+
+import structlog
+
+from posthog.schema import (
+    AlertCondition,
+    AlertConditionType,
+    InsightsThresholdBounds,
+    InsightThreshold,
+    InsightThresholdType,
+)
+
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.dataclasses import frozen
+
+from products.alerts.backend.evaluation.comparator import evaluate_threshold
+from products.alerts.backend.evaluation.contract import ComparableSeries, ExtractionResult, SeriesPoint
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import CheckResult
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck
+from products.signals.backend.report_checks import (
+    MAX_CONSECUTIVE_CHECK_ERRORS,
+    CheckComparison,
+    CheckOutcome,
+    MetricThresholdConfig,
+    parse_check_config,
+)
+from products.signals.backend.report_metric_refresh import measure_metric
+
+logger = structlog.get_logger(__name__)
+
+# Per-tick cost ceiling. A check is one cached Trends query, so this is generous — the per-team cap
+# below is what keeps one busy team from filling the tick.
+MAX_CHECK_RUNS_PER_TICK = 50
+MAX_CHECK_RUNS_PER_TEAM_PER_TICK = 10
+CHECK_RUN_TIME_BUDGET_SECONDS = 120.0
+# Rows swept per tick when their horizon passed without a run. Bounded so a backlog costs one
+# bounded UPDATE rather than a table-wide one.
+MAX_CHECK_EXPIRIES_PER_TICK = 500
+# An errored run retries on the next window instead of retiring the check, so a transient query
+# failure does not end a soak. It does not consume `runs_remaining`.
+CHECK_ERROR_RETRY_AFTER = timedelta(hours=6)
+
+# A check pauses while its report is soft-deleted or suppressed, and resumes when the report does.
+CHECKABLE_REPORT_STATUSES = tuple(
+    status
+    for status in SignalReport.Status.values
+    if status not in {SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED}
+)
+
+
+@frozen
+class CheckRunSummary:
+    expired: int
+    passed: int
+    failed: int
+    errored: int
+
+
+@frozen
+class CheckVerdict:
+    outcome: CheckOutcome
+    explanation: str
+    observed_value: float | None = None
+
+
+def resolve_check_query(config: MetricThresholdConfig, report: SignalReport) -> dict:
+    """The query this check measures: its own, or the one behind the report metric it rides."""
+
+    if config.query is not None:
+        return config.query
+    for row in report.metrics or []:
+        if isinstance(row, dict) and row.get("metric_id") == config.metric_id and isinstance(row.get("query"), dict):
+            return row["query"]
+    raise ValueError(f"the report no longer has a metric `{config.metric_id}` to measure")
+
+
+def _threshold_for(comparison: CheckComparison) -> InsightThreshold:
+    """The alerts threshold whose breach is exactly this comparison's failure.
+
+    The alerts comparator breaches on `value < lower` or `value > upper`, so `gte` is a lower bound,
+    `lte` an upper one, and `between` both.
+    """
+    if comparison.operator == "between":
+        assert comparison.bounds is not None
+        bounds = InsightsThresholdBounds(lower=comparison.bounds.lower, upper=comparison.bounds.upper)
+    elif comparison.operator == "gte":
+        bounds = InsightsThresholdBounds(lower=comparison.value)
+    else:
+        bounds = InsightsThresholdBounds(upper=comparison.value)
+    return InsightThreshold(type=InsightThresholdType.ABSOLUTE, bounds=bounds)
+
+
+def _describe_comparison(comparison: CheckComparison) -> str:
+    if comparison.operator == "between":
+        assert comparison.bounds is not None
+        return f"between {comparison.bounds.lower} and {comparison.bounds.upper}"
+    return f"at most {comparison.value}" if comparison.operator == "lte" else f"at least {comparison.value}"
+
+
+def evaluate_check_value(*, comparison: CheckComparison, observed_value: float, subject: str) -> CheckVerdict:
+    """Compare one measured value against the check's expectation."""
+
+    result = ExtractionResult(
+        series=[
+            ComparableSeries(label=subject, points=[SeriesPoint(date=None, value=observed_value)], current_index=0)
+        ],
+        subject=subject,
+        framed=False,
+    )
+    evaluation = evaluate_threshold(
+        result,
+        AlertCondition(type=AlertConditionType.ABSOLUTE_VALUE),
+        _threshold_for(comparison),
+    )
+    if evaluation.breaches:
+        return CheckVerdict(outcome="failed", explanation=evaluation.breaches[0], observed_value=observed_value)
+    return CheckVerdict(
+        outcome="passed",
+        explanation=f"{subject} ({observed_value}) is {_describe_comparison(comparison)}, as expected",
+        observed_value=observed_value,
+    )
+
+
+def measure_check(check: SignalReportCheck, *, deadline: float) -> CheckVerdict:
+    """Run one check and return its verdict. Never raises: a failure to measure is an `errored` verdict."""
+
+    try:
+        config = parse_check_config(check.kind, check.config)
+        assert isinstance(config, MetricThresholdConfig)
+        query = resolve_check_query(config, check.report)
+        tag_queries(trigger="signals_report_check")
+        measurement = measure_metric(query, check.report.team, deadline=deadline, include_series=False)
+    except Exception as error:
+        logger.exception("signals.report_check.measurement_failed", check_id=str(check.id), team_id=check.team_id)
+        return CheckVerdict(outcome="errored", explanation=f"The check could not be measured: {error}")
+    return evaluate_check_value(comparison=config.comparison, observed_value=measurement.value, subject=check.title)
+
+
+def _next_state(check: SignalReportCheck, verdict: CheckVerdict, now: datetime) -> tuple[str, datetime | None, int]:
+    """The check's status after this verdict, its next run time, and its remaining runs.
+
+    Re-arming anchors on `now` rather than the missed slot, so a coordinator outage cannot leave a
+    recurring check owing a burst of catch-up runs.
+    """
+    if verdict.outcome == "failed":
+        return SignalReportCheck.Status.FAILED, None, check.runs_remaining
+
+    if verdict.outcome == "errored":
+        if check.consecutive_errors + 1 >= MAX_CONSECUTIVE_CHECK_ERRORS:
+            return SignalReportCheck.Status.ERRORED, None, check.runs_remaining
+        retry_at = now + CHECK_ERROR_RETRY_AFTER
+        if retry_at > check.expires_at:
+            return SignalReportCheck.Status.EXPIRED, None, check.runs_remaining
+        return SignalReportCheck.Status.ACTIVE, retry_at, check.runs_remaining
+
+    runs_remaining = max(0, check.runs_remaining - 1)
+    if runs_remaining == 0 or check.run_interval_minutes is None:
+        return SignalReportCheck.Status.PASSED, None, runs_remaining
+    next_run_at = now + timedelta(minutes=check.run_interval_minutes)
+    if next_run_at > check.expires_at:
+        return SignalReportCheck.Status.PASSED, None, runs_remaining
+    return SignalReportCheck.Status.ACTIVE, next_run_at, runs_remaining
+
+
+def record_check_verdict(check: SignalReportCheck, verdict: CheckVerdict, *, now: datetime | None = None) -> None:
+    """The single persistence funnel: append the result artefact and advance or retire the check.
+
+    One transaction, and the row is re-read under a lock so a check cancelled while its query ran
+    records nothing.
+    """
+    now = now or timezone.now()
+    config = parse_check_config(check.kind, check.config)
+    assert isinstance(config, MetricThresholdConfig)
+
+    with transaction.atomic():
+        current = (
+            SignalReportCheck.objects.for_team(check.team_id)
+            .select_for_update()
+            .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
+            .first()
+        )
+        if current is None:
+            return
+        status, next_run_at, runs_remaining = _next_state(current, verdict, now)
+        current.status = status
+        current.runs_remaining = runs_remaining
+        current.last_run_at = now
+        current.last_outcome = verdict.outcome
+        current.consecutive_errors = current.consecutive_errors + 1 if verdict.outcome == "errored" else 0
+        if next_run_at is not None:
+            current.next_run_at = next_run_at
+        current.save(
+            update_fields=[
+                "status",
+                "runs_remaining",
+                "last_run_at",
+                "last_outcome",
+                "consecutive_errors",
+                "next_run_at",
+                "updated_at",
+            ]
+        )
+        SignalReportArtefact.add_log(
+            team_id=current.team_id,
+            report_id=str(current.report_id),
+            content=CheckResult(
+                check_id=str(current.id),
+                kind=current.kind,
+                title=current.title,
+                outcome=verdict.outcome,
+                explanation=verdict.explanation,
+                observed_value=verdict.observed_value,
+                baseline_value=config.baseline_value,
+                threshold=_describe_comparison(config.comparison),
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
+
+def expire_overdue_checks(now: datetime) -> int:
+    """Retire active checks whose horizon passed without a run. Returns how many were retired."""
+
+    overdue = list(
+        SignalReportCheck.all_teams.filter(status=SignalReportCheck.Status.ACTIVE, expires_at__lte=now).values_list(
+            "id", flat=True
+        )[:MAX_CHECK_EXPIRIES_PER_TICK]
+    )
+    if not overdue:
+        return 0
+    return SignalReportCheck.all_teams.filter(id__in=overdue, status=SignalReportCheck.Status.ACTIVE).update(
+        status=SignalReportCheck.Status.EXPIRED, updated_at=now
+    )
+
+
+def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -> list[SignalReportCheck]:
+    """The checks to run this tick, most overdue first and capped per team."""
+
+    candidates = (
+        SignalReportCheck.all_teams.filter(
+            status=SignalReportCheck.Status.ACTIVE,
+            next_run_at__lte=now,
+            report__status__in=CHECKABLE_REPORT_STATUSES,
+        )
+        .select_related("report", "report__team")
+        # Read enough rows that the per-team cap below can still fill the tick from other teams
+        # when the most overdue rows all belong to one of them.
+        .order_by("next_run_at")[: limit * MAX_CHECK_RUNS_PER_TEAM_PER_TICK]
+    )
+    per_team: dict[int, int] = {}
+    due: list[SignalReportCheck] = []
+    for check in candidates:
+        taken = per_team.get(check.team_id, 0)
+        if taken >= MAX_CHECK_RUNS_PER_TEAM_PER_TICK:
+            continue
+        per_team[check.team_id] = taken + 1
+        due.append(check)
+        if len(due) >= limit:
+            break
+    return due
+
+
+def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK_RUNS_PER_TICK) -> CheckRunSummary:
+    """Expire what timed out, then measure and record every check due this tick."""
+
+    now = now or timezone.now()
+    expired = expire_overdue_checks(now)
+    deadline = time.monotonic() + CHECK_RUN_TIME_BUDGET_SECONDS
+    counts: dict[CheckOutcome, int] = {"passed": 0, "failed": 0, "errored": 0}
+    for check in collect_due_checks(now, limit=limit):
+        if time.monotonic() >= deadline:
+            break
+        verdict = measure_check(check, deadline=deadline)
+        try:
+            record_check_verdict(check, verdict)
+        except Exception:
+            logger.exception("signals.report_check.persist_failed", check_id=str(check.id), team_id=check.team_id)
+            continue
+        counts[verdict.outcome] += 1
+    return CheckRunSummary(expired=expired, **counts)

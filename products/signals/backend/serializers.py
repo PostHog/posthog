@@ -1,9 +1,10 @@
 import json
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
 from django.db.models import TextChoices
+from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
@@ -20,6 +21,18 @@ from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.signals.backend.report_checks import (
+    CHECK_CONFIG_SCHEMAS,
+    DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
+    DEFAULT_FIRST_RUN_AFTER,
+    MAX_CHECK_HORIZON,
+    MAX_CHECK_RATIONALE_LENGTH,
+    MAX_CHECK_RUNS,
+    MAX_CHECK_TITLE_LENGTH,
+    MIN_CHECK_INTERVAL_MINUTES,
+    CheckConfigValidationError,
+    parse_check_config,
+)
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
@@ -35,6 +48,7 @@ from .models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportCheck,
     SignalReportRefund,
     SignalReportTrackerIssue,
     SignalReportWorkState,
@@ -1520,6 +1534,151 @@ class ReportSignalsResponseSerializer(serializers.Serializer):
 
     report = SignalReportSerializer(help_text="The report these signals were clustered into.")
     signals = SignalNodeSerializer(many=True, help_text="All signals contributing to the report.")
+
+
+# ── Report checks ───────────────────────────────────────────────────────────────
+
+
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="SignalReportCheckConfig",
+        # Same cast as SignalExtra above: spectacular's PydanticExtension resolves these at
+        # schema-build time, but the stubs only know about DRF serializers.
+        serializers=cast(list, list(CHECK_CONFIG_SCHEMAS.values())),
+        resource_type_field_name=None,
+    )
+)
+class SignalReportCheckConfigField(serializers.JSONField):
+    """Kind-specific check configuration, validated against its kind's schema on every write."""
+
+
+class SignalReportCheckSerializer(serializers.ModelSerializer):
+    config = SignalReportCheckConfigField(
+        help_text="What the check measures and what the result must satisfy; the shape depends on `kind`."
+    )
+
+    class Meta:
+        model = SignalReportCheck
+        fields = [
+            "id",
+            "title",
+            "rationale",
+            "kind",
+            "status",
+            "config",
+            "next_run_at",
+            "run_interval_minutes",
+            "runs_remaining",
+            "expires_at",
+            "last_run_at",
+            "last_outcome",
+            "consecutive_errors",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "title": {"help_text": "Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`."},
+            "rationale": {"help_text": "Why the author set the check; shown next to the result."},
+            "kind": {"help_text": "How the check is evaluated."},
+            "status": {"help_text": "`active` while the check still runs; every other value is terminal."},
+            "next_run_at": {"help_text": "When the coordinator next evaluates the check."},
+            "run_interval_minutes": {"help_text": "Gap between runs for a recurring check; null for a one-shot."},
+            "runs_remaining": {"help_text": "Evaluations still owed before the check retires as passed."},
+            "expires_at": {"help_text": "Horizon after which the check retires without running again."},
+            "last_run_at": {"help_text": "When the check last ran; null before its first run."},
+            "last_outcome": {"help_text": "Verdict of the most recent run."},
+            "consecutive_errors": {"help_text": "Runs that could not be measured since the last clean one."},
+        }
+
+
+class SignalReportCheckWriteSerializer(serializers.Serializer):
+    """Request body for creating a check on a report.
+
+    The schedule is the check's own: `next_run_at` says when to look, rather than the system
+    deriving a soak window from a merged pull request that many fixes never have.
+    """
+
+    title = serializers.CharField(
+        max_length=MAX_CHECK_TITLE_LENGTH,
+        help_text="Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.",
+    )
+    rationale = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_CHECK_RATIONALE_LENGTH,
+        help_text="Why the check is worth running; shown next to its result.",
+    )
+    kind = serializers.ChoiceField(
+        choices=SignalReportCheck.Kind.choices,
+        help_text="How the check is evaluated.",
+    )
+    config = SignalReportCheckConfigField(
+        help_text="What the check measures and what the result must satisfy; the shape depends on `kind`."
+    )
+    next_run_at = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "When to first evaluate the check. Must be in the future and within "
+            f"{MAX_CHECK_HORIZON.days} days. Defaults to {DEFAULT_FIRST_RUN_AFTER.days} days from now."
+        ),
+    )
+    run_interval_minutes = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=MIN_CHECK_INTERVAL_MINUTES,
+        help_text=(
+            "Gap between runs for a recurring check, at least "
+            f"{MIN_CHECK_INTERVAL_MINUTES} minutes. Omit for a one-shot check."
+        ),
+    )
+    runs_remaining = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_CHECK_RUNS,
+        help_text=f"How many times to evaluate the check, at most {MAX_CHECK_RUNS}. Defaults to 1.",
+    )
+    expires_at = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "Horizon after which the check retires unrun. Defaults to "
+            f"{DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN.days} days after the last scheduled run."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        now = timezone.now()
+        horizon = now + MAX_CHECK_HORIZON
+
+        next_run_at = attrs.get("next_run_at") or now + DEFAULT_FIRST_RUN_AFTER
+        if next_run_at <= now:
+            raise serializers.ValidationError({"next_run_at": "must be in the future."})
+        if next_run_at > horizon:
+            raise serializers.ValidationError({"next_run_at": f"must be within {MAX_CHECK_HORIZON.days} days."})
+
+        interval = attrs.get("run_interval_minutes")
+        runs = attrs.get("runs_remaining", 1)
+        if interval is None and runs != 1:
+            raise serializers.ValidationError(
+                {"run_interval_minutes": "a check that runs more than once needs an interval."}
+            )
+
+        last_run_at = next_run_at + timedelta(minutes=interval * (runs - 1)) if interval else next_run_at
+        expires_at = attrs.get("expires_at") or last_run_at + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN
+        if expires_at <= next_run_at:
+            raise serializers.ValidationError({"expires_at": "must be after the first run."})
+        if expires_at > horizon:
+            raise serializers.ValidationError({"expires_at": f"must be within {MAX_CHECK_HORIZON.days} days."})
+
+        try:
+            parse_check_config(attrs["kind"], attrs["config"])
+        except CheckConfigValidationError as error:
+            raise serializers.ValidationError({"config": str(error)})
+
+        attrs["next_run_at"] = next_run_at
+        attrs["expires_at"] = expires_at
+        attrs["runs_remaining"] = runs
+        return attrs
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):

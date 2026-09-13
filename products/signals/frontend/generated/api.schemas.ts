@@ -2097,6 +2097,7 @@ export interface SignalReportStateRequestApi {
  * * `work_claim` - Work Claim
  * * `work_release` - Work Release
  * * `pull_request` - Pull Request
+ * * `check_result` - Check Result
  */
 export type SignalReportArtefactArtefactTypeEnumApi =
     (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
@@ -2122,6 +2123,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     WorkClaim: 'work_claim',
     WorkRelease: 'work_release',
     PullRequest: 'pull_request',
+    CheckResult: 'check_result',
 } as const
 
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
@@ -2234,6 +2236,204 @@ export interface CommitDiffResponseApi {
     readonly diff: string
     /** True when the diff was too large to return in full and has been truncated. */
     readonly truncated: boolean
+}
+
+/**
+ * * `metric_threshold` - Metric Threshold
+ */
+export type SignalReportCheckKindEnumApi =
+    (typeof SignalReportCheckKindEnumApi)[keyof typeof SignalReportCheckKindEnumApi]
+
+export const SignalReportCheckKindEnumApi = {
+    MetricThreshold: 'metric_threshold',
+} as const
+
+/**
+ * * `active` - Active
+ * * `passed` - Passed
+ * * `failed` - Failed
+ * * `errored` - Errored
+ * * `expired` - Expired
+ * * `cancelled` - Cancelled
+ */
+export type SignalReportCheckStatusEnumApi =
+    (typeof SignalReportCheckStatusEnumApi)[keyof typeof SignalReportCheckStatusEnumApi]
+
+export const SignalReportCheckStatusEnumApi = {
+    Active: 'active',
+    Passed: 'passed',
+    Failed: 'failed',
+    Errored: 'errored',
+    Expired: 'expired',
+    Cancelled: 'cancelled',
+} as const
+
+export type CheckComparisonOperatorEnumApi =
+    (typeof CheckComparisonOperatorEnumApi)[keyof typeof CheckComparisonOperatorEnumApi]
+
+export const CheckComparisonOperatorEnumApi = {
+    Lte: 'lte',
+    Gte: 'gte',
+    Between: 'between',
+} as const
+
+export interface CheckThresholdBoundsApi {
+    lower: number
+    upper: number
+}
+
+/**
+ * What the measured value must satisfy for the check to pass.
+ *
+ * The operators are the ones the shared alerts comparator expresses exactly. Strict `lt` / `gt`
+ * would need a second comparison engine for a distinction a soak window does not make, so they are
+ * not offered: "stays at or below 10 a day" is the same expectation.
+ */
+export interface CheckComparisonApi {
+    /** `lte`, `gte`, or `between`. */
+    operator: CheckComparisonOperatorEnumApi
+    /** The bound for `lte` and `gte`; unused by `between`. */
+    value?: number | null
+    /** The inclusive range for `between`; unused by `lte` and `gte`. */
+    bounds?: CheckThresholdBoundsApi | null
+}
+
+/**
+ * Live InsightVizNode wrapping one TrendsQuery, when the check carries its own query.
+ */
+export type MetricThresholdConfigApiQuery = { [key: string]: unknown } | null
+
+/**
+ * A deterministic check: measure one number, compare it, record the verdict.
+ *
+ * The number comes either from a metric the report already shows (``metric_id``) or from a query
+ * the author supplies. Both end up in the same runner, so a supplied query must satisfy the live
+ * metric contract — the node allowlist, the bounded window, and the single-output-series rule.
+ */
+export interface MetricThresholdConfigApi {
+    /** Identifier of a metric on the report whose query this check measures. */
+    metric_id?: string | null
+    /** Live InsightVizNode wrapping one TrendsQuery, when the check carries its own query. */
+    query?: MetricThresholdConfigApiQuery
+    /** What the measured value must satisfy to pass. */
+    comparison: CheckComparisonApi
+    /** The value observed when the check was written, recorded on each result for context. */
+    baseline_value?: number | null
+}
+
+export type SignalReportCheckConfigApi = MetricThresholdConfigApi
+
+/**
+ * * `passed` - Passed
+ * * `failed` - Failed
+ * * `errored` - Errored
+ */
+export type SignalReportCheckOutcomeEnumApi =
+    (typeof SignalReportCheckOutcomeEnumApi)[keyof typeof SignalReportCheckOutcomeEnumApi]
+
+export const SignalReportCheckOutcomeEnumApi = {
+    Passed: 'passed',
+    Failed: 'failed',
+    Errored: 'errored',
+} as const
+
+export interface SignalReportCheckApi {
+    readonly id: string
+    /** Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`. */
+    readonly title: string
+    /** Why the author set the check; shown next to the result. */
+    readonly rationale: string
+    /** How the check is evaluated.
+     *
+     * * `metric_threshold` - Metric Threshold */
+    readonly kind: SignalReportCheckKindEnumApi
+    /** `active` while the check still runs; every other value is terminal.
+     *
+     * * `active` - Active
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored
+     * * `expired` - Expired
+     * * `cancelled` - Cancelled */
+    readonly status: SignalReportCheckStatusEnumApi
+    /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
+    config: SignalReportCheckConfigApi
+    /** When the coordinator next evaluates the check. */
+    readonly next_run_at: string
+    /**
+     * Gap between runs for a recurring check; null for a one-shot.
+     * @nullable
+     */
+    readonly run_interval_minutes: number | null
+    /** Evaluations still owed before the check retires as passed. */
+    readonly runs_remaining: number
+    /** Horizon after which the check retires without running again. */
+    readonly expires_at: string
+    /**
+     * When the check last ran; null before its first run.
+     * @nullable
+     */
+    readonly last_run_at: string | null
+    /** Verdict of the most recent run.
+     *
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored */
+    readonly last_outcome: SignalReportCheckOutcomeEnumApi | null
+    /** Runs that could not be measured since the last clean one. */
+    readonly consecutive_errors: number
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedSignalReportCheckListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SignalReportCheckApi[]
+}
+
+/**
+ * Request body for creating a check on a report.
+ *
+ * The schedule is the check's own: `next_run_at` says when to look, rather than the system
+ * deriving a soak window from a merged pull request that many fixes never have.
+ */
+export interface SignalReportCheckWriteApi {
+    /**
+     * Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.
+     * @maxLength 200
+     */
+    title: string
+    /**
+     * Why the check is worth running; shown next to its result.
+     * @maxLength 2000
+     */
+    rationale?: string
+    /** How the check is evaluated.
+     *
+     * * `metric_threshold` - Metric Threshold */
+    kind: SignalReportCheckKindEnumApi
+    /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
+    config: SignalReportCheckConfigApi
+    /** When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now. */
+    next_run_at?: string
+    /**
+     * Gap between runs for a recurring check, at least 360 minutes. Omit for a one-shot check.
+     * @minimum 360
+     * @nullable
+     */
+    run_interval_minutes?: number | null
+    /**
+     * How many times to evaluate the check, at most 10. Defaults to 1.
+     * @minimum 1
+     * @maximum 10
+     */
+    runs_remaining?: number
+    /** Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run. */
+    expires_at?: string
 }
 
 export interface SignalReportBulkStateRequestApi {
@@ -5246,6 +5446,17 @@ export type SignalsReportPrReviewCommentReactionDestroyParams = {
 }
 
 export type SignalsReportArtefactsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type SignalsReportChecksListParams = {
     /**
      * Number of results to return per page.
      */
