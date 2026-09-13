@@ -42,6 +42,8 @@ from products.data_quality.backend.facade.enums import SuiteRunTrigger
 MAX_CONCURRENT_CHILDREN = 10
 
 NODE_AUDIT_PATCH = "data-quality-node-audit-2026-08"
+# Deprecated. The marker is still written so histories that recorded it keep replaying; the branch it
+# used to guard is gone. Delete once no execution started before 2026-09-12 is open.
 MANAGED_WAREHOUSE_NAMING_PATCH = "managed-warehouse-data-modeling-names-2026-09"
 
 
@@ -284,14 +286,10 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         ephemeral_node_set = set(dag_structure.ephemeral_nodes)
         failed_node_set: set[str] = set()
         quality_failed_node_set: set[str] = set()
-        uses_managed_warehouse_names = temporalio.workflow.patched(MANAGED_WAREHOUSE_NAMING_PATCH)
-        managed_warehouse_only = inputs.managed_warehouse_only if uses_managed_warehouse_names else inputs.duckgres_only
+        temporalio.workflow.deprecate_patch(MANAGED_WAREHOUSE_NAMING_PATCH)
+        managed_warehouse_only = inputs.managed_warehouse_only
         serving_engine = (
-            DataModelingJobEngine.MANAGED_WAREHOUSE
-            if managed_warehouse_only and uses_managed_warehouse_names
-            else DataModelingJobEngine.LEGACY_DUCKGRES
-            if managed_warehouse_only
-            else DataModelingJobEngine.CLICKHOUSE
+            DataModelingJobEngine.MANAGED_WAREHOUSE if managed_warehouse_only else DataModelingJobEngine.CLICKHOUSE
         ).value
         suspended_node_set: set[str] = set(dag_structure.suspended_nodes.get(serving_engine, []))
         downstreams = _get_downstream_lookup(edge_lookup)
@@ -380,22 +378,12 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 async with semaphore:
                     handle = await temporalio.workflow.start_child_workflow(
                         MaterializeViewWorkflow.run,
-                        (
-                            MaterializeViewWorkflowInputs(
-                                team_id=inputs.team_id,
-                                dag_id=inputs.dag_id,
-                                node_id=node_id,
-                                managed_warehouse_only=managed_warehouse_only,
-                                dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
-                            )
-                            if uses_managed_warehouse_names
-                            else MaterializeViewWorkflowInputs(
-                                team_id=inputs.team_id,
-                                dag_id=inputs.dag_id,
-                                node_id=node_id,
-                                duckgres_only=inputs.duckgres_only,
-                                dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
-                            )
+                        MaterializeViewWorkflowInputs(
+                            team_id=inputs.team_id,
+                            dag_id=inputs.dag_id,
+                            node_id=node_id,
+                            managed_warehouse_only=managed_warehouse_only,
+                            dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
                         ),
                         id=f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}",
                         parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,

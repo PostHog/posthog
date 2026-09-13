@@ -691,6 +691,90 @@ class TestSavedQuery(APIBaseTest):
         assert json["count"] == 150
         assert len(json["results"]) == 150
 
+    def test_list_request_reads_neither_the_sql_body_nor_the_activity_log(self):
+        # The list page returns column metadata, never the SQL body, so reading the body of every
+        # view costs a detoast per row. The query-edit activity subquery is dead weight too: only
+        # the detail serializer returns `latest_history_id`.
+        for name in ("view_a", "view_b"):
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=name,
+                query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                columns={"event": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(
+            [[column["key"] for column in row["columns"]] for row in response.json()["results"]],
+            [["event"], ["event"]],
+        )
+        # Every select the request issues has to stay clear of the large columns, not only the
+        # page select. The HogQL database build reads the SQL body of every view in the team, so
+        # the list action must not build one.
+        table = DataWarehouseSavedQuery._meta.db_table
+        view_selects = [q["sql"] for q in queries.captured_queries if f'FROM "{table}"' in q["sql"]]
+        self.assertTrue(view_selects)
+        for sql in view_selects:
+            for column in ("query", "external_tables", "incremental_state"):
+                self.assertNotIn(f'"{table}"."{column}"', sql)
+
+        page_selects = [sql for sql in view_selects if f'ORDER BY "{table}"."created_at" DESC' in sql]
+        self.assertEqual(len(page_selects), 1, page_selects)
+        self.assertNotIn(ActivityLog._meta.db_table, page_selects[0])
+
+    def test_list_reads_folders_through_the_join(self):
+        # Both list serializer folder fields resolve through `instance.folder`, so a page of
+        # foldered views used to cost one folder select each, up to the 1000-view page size.
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Marketing")
+        for name in ("view_a", "view_b", "view_c"):
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=name,
+                query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                folder=folder,
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual([row["folder_name"] for row in response.json()["results"]], ["Marketing"] * 3)
+        folder_table = DataWarehouseSavedQueryFolder._meta.db_table
+        folder_selects = [q["sql"] for q in queries.captured_queries if f'FROM "{folder_table}"' in q["sql"]]
+        self.assertEqual(folder_selects, [])
+
+    def test_retrieve_does_not_build_a_hogql_database(self):
+        # The SQL editor hits this route on every tab open and after every save. A HogQL database
+        # build selects every view in the team with its SQL body, and no field the detail
+        # serializer returns reads one.
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="view_a",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            columns={"event": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="view_b",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/",
+            )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual([column["key"] for column in response.json()["columns"]], ["event"])
+        # The database build is the only reader that selects the team's views ordered by name.
+        table = DataWarehouseSavedQuery._meta.db_table
+        view_selects = [q["sql"] for q in queries.captured_queries if f'FROM "{table}"' in q["sql"]]
+        self.assertTrue(view_selects)
+        self.assertEqual([sql for sql in view_selects if f'ORDER BY "{table}"."name"' in sql], [])
+
     def test_get_deleted_query(self):
         query = DataWarehouseSavedQuery.objects.create(
             team=self.team,

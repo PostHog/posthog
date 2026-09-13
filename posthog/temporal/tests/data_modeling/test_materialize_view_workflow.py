@@ -82,6 +82,7 @@ class TestQualityGateBranching:
                 else patch.object(temporalio.workflow, "patched", return_value=patched)
             )
             stack.enter_context(patched_mock)
+            stack.enter_context(patch.object(temporalio.workflow, "deprecate_patch"))
             stack.enter_context(patch.object(temporalio.workflow, "info", return_value=info))
             stack.enter_context(patch.object(temporalio.workflow, "now", return_value=dt.datetime(2026, 8, 1)))
             stack.enter_context(patch.object(temporalio.workflow, "logger"))
@@ -263,7 +264,7 @@ class TestQualityGateBranching:
         assert result.quality_blocking_failures is None
         assert result.quality_audited is False
         assert execute_activity.await_args_list[0].args[1] == 7
-        assert execute_activity.await_args_list[0].args[0].__name__ == "check_duckgres_shadow_enabled_activity"
+        assert execute_activity.await_args_list[0].args[0].__name__ == "check_managed_warehouse_shadow_enabled_activity"
 
     async def test_an_audit_that_reached_no_verdict_leaves_the_node_to_the_sweep(self):
         # Returning zero here would publish and also claim the node was audited, so the DAG's
