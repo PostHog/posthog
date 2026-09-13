@@ -1,6 +1,6 @@
-"""Unit tests for logic/debt_digest.py — the daily visual review debt reminder."""
+"""Unit tests for logic/debt_digest.py — the weekly visual review debt reminder."""
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -11,7 +11,13 @@ from django.utils import timezone
 from posthog_owners.schema import TeamEntry
 
 from posthog.models.team.team import Team
-from posthog.team_notifications.slack import MAX_SECTION_CHARS, SlackChannel, SlackPostRefused
+from posthog.team_notifications.slack import (
+    MAX_BLOCKS,
+    MAX_SECTION_CHARS,
+    MAX_TEXT_CHARS,
+    SlackChannel,
+    SlackPostRefused,
+)
 
 from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
 from products.visual_review.backend.facade.contracts import (
@@ -28,9 +34,15 @@ _PRODUCT_PATH = "products/visual_review/"
 _SOURCE_PATH = "frontend/src/scenes/Button.stories.tsx"
 _STORY_ID = "scenes-app-button--primary"
 _IDENTIFIER = f"{_STORY_ID}--light"
+_OTHER_PATH = "frontend/src/scenes/Card.stories.tsx"
+_OTHER_STORY_ID = "scenes-app-card--primary"
+_OTHER_IDENTIFIER = f"{_OTHER_STORY_ID}--light"
 _ABSENT_IDENTIFIER = "scenes-app-gone--primary--light"
 _GITHUB_RUN_ID = "98765"
 _INDEX = story_index.StoryIndex(path_by_story_id={_STORY_ID: _SOURCE_PATH})
+
+# The renderers take the moment they render for, so a fixed Monday never ages against a real clock.
+_MONDAY = datetime(2026, 9, 14, 7, 30, tzinfo=UTC)
 
 _PLACED = debt_digest.Attribution(kind=debt_digest.AttributionKind.PLACED, source_path=_SOURCE_PATH)
 _STORY_ABSENT = debt_digest.Attribution(kind=debt_digest.AttributionKind.STORY_ABSENT)
@@ -44,30 +56,212 @@ def _ownership(team_by_path: dict[str, str], registry: dict[str, TeamEntry] | No
     return PathOwnership(team_by_path=team_by_path, registry=registry or {}, resolved=True)
 
 
+def _repo() -> MagicMock:
+    return MagicMock(id="abc", team_id=7, repo_full_name="PostHog/posthog")
+
+
 def _item(
-    attribution: debt_digest.Attribution, identifier: str = _IDENTIFIER, line: str = "a line"
+    attribution: debt_digest.Attribution,
+    identifier: str = _IDENTIFIER,
+    line: str = "a line",
+    facts: str = "*3* accepted variants of the current baseline",
 ) -> debt_digest.DebtItem:
-    return debt_digest.DebtItem(identifier=identifier, run_type="storybook", attribution=attribution, line=line)
+    return debt_digest.DebtItem(
+        identifier=identifier, run_type="storybook", attribution=attribution, line=line, facts=facts
+    )
+
+
+def _team_digest(expiring: int = 0, pileups: int = 0, team_slug: str = "team-devex") -> debt_digest.TeamDigest:
+    return debt_digest.TeamDigest(
+        team_slug=team_slug,
+        expiring_quarantines=[_item(_PLACED)] * expiring,
+        variant_pileups=[_item(_PLACED)] * pileups,
+    )
+
+
+def _maintainers_digest(*groups: debt_digest.TriageGroup) -> debt_digest.MaintainersDigest:
+    return debt_digest.MaintainersDigest(team_slug="team-devex", groups=list(groups))
 
 
 def _with_index(index: story_index.StoryIndex | None):
     return patch("products.visual_review.backend.logic.story_index.fetch_story_index", return_value=index)
 
 
-def _digest(team_slug: str = "team-devex") -> debt_digest.TeamDigest:
-    return debt_digest.TeamDigest(team_slug=team_slug, expiring_quarantines=[_item(_PLACED)], variant_pileups=[])
+def _section_texts(message: debt_digest.SlackMessage) -> list[str]:
+    return [block["text"]["text"] for block in message.blocks if block["type"] == "section" and "text" in block]
 
 
-def _triage_digest() -> debt_digest.TeamDigest:
-    return debt_digest.TeamDigest(
-        team_slug="team-devex",
-        expiring_quarantines=[],
-        variant_pileups=[],
-        triage=[
-            debt_digest.TriageGroup(kind=debt_digest.AttributionKind.PLACED, items=[_item(_PLACED)]),
-            debt_digest.TriageGroup(kind=debt_digest.AttributionKind.UNAVAILABLE, items=[_item(_UNAVAILABLE)]),
+def _buttons(message: debt_digest.SlackMessage) -> list[dict]:
+    accessories = [block["accessory"] for block in message.blocks if "accessory" in block]
+    rows = [element for block in message.blocks if block["type"] == "actions" for element in block["elements"]]
+    return [*accessories, *rows]
+
+
+def _all_buttons(messages: list[debt_digest.SlackMessage]) -> list[dict]:
+    return [button for message in messages for button in _buttons(message)]
+
+
+class TestLead:
+    @pytest.mark.parametrize(
+        "expiring,pileups,fields",
+        [
+            (1, 0, ["*1 quarantine* expires soon", "*0 snapshots* with piled-up variants"]),
+            (0, 2, ["*0 quarantines* expire soon", "*2 snapshots* with piled-up variants"]),
+            (3, 1, ["*3 quarantines* expire soon", "*1 snapshot* with piled-up variants"]),
         ],
     )
+    def test_the_lead_names_the_team_and_counts_both_conditions(
+        self, expiring: int, pileups: int, fields: list[str]
+    ) -> None:
+        message = debt_digest.lead_message(_repo(), _team_digest(expiring, pileups), _MONDAY)
+
+        assert message.blocks[0]["type"] == "header"
+        assert message.blocks[0]["text"]["text"] == "Visual review debt for team-devex"
+        assert [field["text"] for field in message.blocks[2]["fields"]] == fields
+        assert "week of Sep 14" in message.blocks[1]["elements"][0]["text"]
+
+    def test_the_lead_links_to_the_two_pages_the_counts_come_from(self) -> None:
+        message = debt_digest.lead_message(_repo(), _team_digest(pileups=1), _MONDAY)
+
+        assert [(button["text"]["text"], button["url"]) for button in _buttons(message)] == [
+            ("Open flakiness overview", f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness"),
+            ("Open snapshots", f"{settings.SITE_URL}/project/7/visual_review/repos/abc/snapshots"),
+        ]
+
+    def test_the_fallback_text_says_what_the_blocks_say(self) -> None:
+        message = debt_digest.lead_message(_repo(), _team_digest(expiring=1, pileups=2), _MONDAY)
+
+        assert message.text == (
+            "Visual review debt for team-devex in PostHog/posthog: 1 quarantine expires soon, "
+            "2 snapshots with piled-up variants."
+        )
+
+
+class TestThreadReplies:
+    @pytest.mark.parametrize(
+        "expiring,pileups,headings",
+        [
+            (1, 0, ["*Quarantines expiring soon*"]),
+            (0, 1, ["*Snapshots with piled-up variants*"]),
+            (2, 2, ["*Quarantines expiring soon*", "*Snapshots with piled-up variants*"]),
+        ],
+    )
+    def test_one_reply_per_condition_that_has_items(self, expiring: int, pileups: int, headings: list[str]) -> None:
+        messages = debt_digest.thread_messages(_repo(), _team_digest(expiring, pileups), _MONDAY)
+
+        assert [_section_texts(message)[0].split("\n")[0] for message in messages] == headings
+
+    def test_every_item_carries_the_one_button_that_resolves_it(self) -> None:
+        messages = debt_digest.thread_messages(_repo(), _team_digest(expiring=1, pileups=1), _MONDAY)
+
+        buttons = _all_buttons(messages)
+        assert [button["text"]["text"] for button in buttons] == ["Extend or fix", "Reset baseline"]
+        assert all(
+            button["url"] == f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_IDENTIFIER}"
+            for button in buttons
+        )
+
+    def test_a_button_url_too_long_for_slack_points_at_the_repo_list(self) -> None:
+        # Each of these percent-encodes to nine characters, so the URL alone outgrows the button.
+        digest = debt_digest.TeamDigest(
+            team_slug="team-devex", expiring_quarantines=[], variant_pileups=[_item(_PLACED, identifier="界" * 400)]
+        )
+
+        messages = debt_digest.thread_messages(_repo(), digest, _MONDAY)
+
+        assert _all_buttons(messages)[0]["url"] == f"{settings.SITE_URL}/project/7/visual_review/repos/abc/snapshots"
+
+    def test_the_last_reply_says_when_the_next_digest_comes(self) -> None:
+        messages = debt_digest.thread_messages(_repo(), _team_digest(expiring=1, pileups=1), _MONDAY)
+
+        assert messages[0].blocks[-1]["type"] == "section"
+        assert messages[-1].blocks[-2]["type"] == "divider"
+        assert messages[-1].blocks[-1]["elements"][0]["text"].startswith("Next digest Monday, Sep 21.")
+        assert "notifications: {visual_review: false}" in messages[-1].text
+
+    def test_a_group_over_the_block_limit_splits_and_repeats_its_heading(self) -> None:
+        items = [_item(_PLACED)] * (debt_digest._ITEMS_PER_MESSAGE + 1)
+        digest = debt_digest.TeamDigest(team_slug="team-devex", expiring_quarantines=items, variant_pileups=[])
+
+        messages = debt_digest.thread_messages(_repo(), digest, _MONDAY)
+
+        assert len(messages) == 2
+        assert all(len(message.blocks) <= MAX_BLOCKS for message in messages)
+        assert all(_section_texts(message)[0].startswith("*Quarantines expiring soon*") for message in messages)
+        # Every item is carried once, under a heading that says what the reader is looking at.
+        assert sum(len(_section_texts(message)) - 1 for message in messages) == len(items)
+
+    def test_the_fallback_of_a_full_message_stays_under_the_slack_cap(self) -> None:
+        items = [_item(_PLACED, line="x" * debt_digest._MAX_LINE_CHARS)] * debt_digest._ITEMS_PER_MESSAGE
+        digest = debt_digest.TeamDigest(team_slug="team-devex", expiring_quarantines=items, variant_pileups=[])
+
+        messages = debt_digest.thread_messages(_repo(), digest, _MONDAY)
+
+        assert len(items) * debt_digest._MAX_LINE_CHARS > MAX_TEXT_CHARS
+        assert len(messages) == 1
+        assert len(messages[0].text) <= MAX_TEXT_CHARS
+
+
+class TestMaintainersMessage:
+    def test_it_lists_each_unowned_reason_with_the_action_it_asks_for(self) -> None:
+        digest = _maintainers_digest(
+            debt_digest.TriageGroup(kind=debt_digest.AttributionKind.PLACED, items=[_item(_PLACED)]),
+            debt_digest.TriageGroup(
+                kind=debt_digest.AttributionKind.STORY_ABSENT,
+                items=[_item(_STORY_ABSENT, identifier=_ABSENT_IDENTIFIER)],
+            ),
+        )
+
+        messages = debt_digest.maintainers_messages(_repo(), digest)
+
+        assert messages[0].blocks[0]["text"]["text"] == "Unowned visual review debt in PostHog/posthog"
+        assert messages[0].blocks[1]["elements"][0]["text"].startswith("2 items nobody owns yet")
+        assert [(button["text"]["text"], button["url"]) for button in _all_buttons(messages)] == [
+            ("Open file", f"https://github.com/PostHog/posthog/blob/HEAD/{_SOURCE_PATH}"),
+            (
+                "Open snapshot",
+                f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_ABSENT_IDENTIFIER}",
+            ),
+        ]
+        # The path stays readable in the message, because it is what somebody types into owners.yaml.
+        assert f"`{_SOURCE_PATH}`" in _section_texts(messages[0])[1]
+
+    @pytest.mark.parametrize("kinds", [(), (debt_digest.AttributionKind.UNAVAILABLE,)])
+    def test_nothing_is_sent_when_no_item_asks_anybody_to_act(self, kinds: tuple) -> None:
+        digest = _maintainers_digest(
+            *(debt_digest.TriageGroup(kind=kind, items=[_item(_UNAVAILABLE)]) for kind in kinds)
+        )
+
+        assert debt_digest.maintainers_messages(_repo(), digest) == []
+
+    def test_a_file_button_too_long_for_slack_is_left_out(self) -> None:
+        # Each of these percent-encodes to nine characters, so the file URL outgrows the button cap
+        # on its own, and Slack refuses a whole message over one oversized button.
+        path = f"frontend/src/scenes/{'界' * 400}.stories.tsx"
+        item = _item(debt_digest.Attribution(kind=debt_digest.AttributionKind.PLACED, source_path=path))
+        digest = _maintainers_digest(debt_digest.TriageGroup(kind=debt_digest.AttributionKind.PLACED, items=[item]))
+
+        messages = debt_digest.maintainers_messages(_repo(), digest)
+
+        assert _all_buttons(messages) == []
+        # The path is what somebody types into owners.yaml, so losing the link costs nothing else.
+        assert path in _section_texts(messages[0])[1]
+
+    def test_an_unreadable_index_is_counted_in_the_footer_and_never_listed(self) -> None:
+        digest = _maintainers_digest(
+            debt_digest.TriageGroup(kind=debt_digest.AttributionKind.PLACED, items=[_item(_PLACED)]),
+            debt_digest.TriageGroup(
+                kind=debt_digest.AttributionKind.UNAVAILABLE,
+                items=[_item(_UNAVAILABLE, identifier="scenes-app-unreadable--light")],
+            ),
+        )
+
+        messages = debt_digest.maintainers_messages(_repo(), digest)
+
+        assert messages[-1].blocks[-1]["elements"][0]["text"] == (
+            "1 item with no readable Storybook index this week is not listed. Ownership is read again next Monday."
+        )
+        assert all("scenes-app-unreadable--light" not in str(message.blocks) for message in messages)
 
 
 class TestRendering:
@@ -79,24 +273,38 @@ class TestRendering:
             identifier="Button<!channel>",
             run_type=run_type,
             reason="flaky & <!here>",
-            expires_at=timezone.now() + timedelta(days=3),
+            expires_at=_MONDAY + timedelta(days=3),
             created_by_id=None,
         )
-        repo = MagicMock(id="00000000-0000-0000-0000-000000000001", team_id=7, repo_full_name="PostHog/posthog")
+        repo = _repo()
 
-        line = debt_digest._quarantine_line(repo, entry, {}, timezone.now())
-        pileup = debt_digest._pileup_line(repo, run_type, "Button", 4)
+        line = debt_digest._quarantine_line(repo, entry, {}, _MONDAY)
+        facts = debt_digest._quarantine_facts(entry, {}, _MONDAY)
+        item = _item(_PLACED, identifier="Button<!channel>", line=line, facts=facts)
+        digest = debt_digest.TeamDigest(team_slug="team-devex", expiring_quarantines=[item], variant_pileups=[])
+        rendered = str(debt_digest.thread_messages(repo, digest, _MONDAY)[0])
 
-        assert "<!channel>" not in line
-        assert "<!channel>" not in pileup
-        assert "<!here>" not in line
-        assert "&lt;!channel&gt;" in line
-        assert "flaky &amp; &lt;!here&gt;" in line
+        assert "<!channel>" not in rendered
+        assert "<!here>" not in rendered
+        assert "&lt;!channel&gt;" in rendered
+        assert "flaky &amp; &lt;!here&gt;" in rendered
+
+    @pytest.mark.parametrize(
+        "expires_in,expected",
+        [
+            (timedelta(hours=2), "today"),
+            (timedelta(days=2), "Wednesday"),
+            (timedelta(days=FLAKINESS_EXPIRY_SOON_DAYS), "Sep 21"),
+        ],
+    )
+    def test_an_expiry_reads_as_a_day_the_reader_can_plan_around(self, expires_in: timedelta, expected: str) -> None:
+        # A weekday name seven days out names the day the reader is reading on, so that one dates itself.
+        entry = MagicMock(reason="flaky", expires_at=_MONDAY + expires_in, created_by_id=None)
+
+        assert debt_digest._quarantine_facts(entry, {}, _MONDAY).startswith(f"Expires *{expected}*")
 
     def test_links_to_the_snapshot_page_with_encoded_segments(self) -> None:
-        repo = MagicMock(id="abc", team_id=7, repo_full_name="PostHog/posthog")
-
-        line = debt_digest._pileup_line(repo, "storybook", "scenes/Button--dark", 4)
+        line = debt_digest._pileup_line(_repo(), "storybook", "scenes/Button--dark", 4)
 
         assert line.startswith("4 accepted variants of the current baseline · scenes/Button--dark (storybook)")
         assert line.endswith("/project/7/visual_review/repos/abc/storybook/snapshots/scenes%2FButton--dark")
@@ -113,60 +321,24 @@ class TestRendering:
     def test_one_oversized_item_still_fits_a_slack_block(
         self, identifier: str, reason: str, links_to_the_snapshot: bool
     ) -> None:
-        repo = MagicMock(id="abc", team_id=7, repo_full_name="PostHog/posthog")
+        repo = _repo()
         entry = MagicMock(
             identifier=identifier,
             run_type="storybook",
             reason=reason,
-            expires_at=timezone.now() + timedelta(days=3),
+            expires_at=_MONDAY + timedelta(days=3),
             created_by_id=None,
         )
+        line = debt_digest._quarantine_line(repo, entry, {}, _MONDAY)
+        item = _item(_PLACED, identifier=identifier, line=line, facts=debt_digest._quarantine_facts(entry, {}, _MONDAY))
+        digest = debt_digest.TeamDigest(team_slug="team-devex", expiring_quarantines=[item] * 2, variant_pileups=[])
 
-        line = debt_digest._quarantine_line(repo, entry, {}, timezone.now())
-        texts = debt_digest.thread_texts(
-            debt_digest.TeamDigest(
-                team_slug="team-devex",
-                expiring_quarantines=[_item(_PLACED, identifier=identifier, line=line)] * 2,
-                variant_pileups=[],
-            )
-        )
+        messages = debt_digest.thread_messages(repo, digest, _MONDAY)
 
         assert len(line) <= debt_digest._MAX_LINE_CHARS
         assert settings.SITE_URL in line
         assert ("/snapshots/" in line) == links_to_the_snapshot
-        assert all(len(text) <= MAX_SECTION_CHARS for text in texts)
-
-    def test_splits_the_thread_when_one_group_runs_long(self) -> None:
-        long_item = _item(_PLACED, line="x" * 2000)
-        digest = debt_digest.TeamDigest(
-            team_slug="team-devex", expiring_quarantines=[long_item, long_item], variant_pileups=[]
-        )
-
-        texts = debt_digest.thread_texts(digest)
-
-        assert len(texts) > 1
-        assert all(len(text) <= MAX_SECTION_CHARS for text in texts)
-        assert texts[-1].endswith(debt_digest._FOOTER)
-
-    def test_the_lead_holds_triage_apart_from_what_the_team_owns(self) -> None:
-        repo = MagicMock(id="abc", team_id=7, repo_full_name="PostHog/posthog")
-
-        lead = debt_digest.lead_text(_triage_digest(), repo)
-
-        assert "nothing this team owns today" in lead
-        assert "2 in triage that nobody owns yet" in lead
-        # An artifact that could not be read must never read as "nobody owns this".
-        assert f"the Storybook build artifact for run {_GITHUB_RUN_ID} was not read" in lead
-        assert "tries again tomorrow" in lead
-
-    def test_the_thread_groups_triage_under_one_header_per_reason(self) -> None:
-        thread = "\n".join(debt_digest.thread_texts(_triage_digest()))
-
-        assert debt_digest._TRIAGE_HEADERS[debt_digest.AttributionKind.PLACED] in thread
-        assert debt_digest._TRIAGE_HEADERS[debt_digest.AttributionKind.UNAVAILABLE] in thread
-        # The path stays on the line, because it is what an owners entry is written for.
-        assert f"a line · {_SOURCE_PATH}" in thread
-        assert f"a line · the Storybook build artifact for run {_GITHUB_RUN_ID} was not read" in thread
+        assert all(len(text) <= MAX_SECTION_CHARS for message in messages for text in _section_texts(message))
 
 
 class TestSplitByTeam:
@@ -179,14 +351,14 @@ class TestSplitByTeam:
             debt, _ownership({_SOURCE_PATH: "team-product-analytics", _PRODUCT_PATH: "team-devex"})
         )
 
-        by_slug = {d.team_slug: d for d in digests}
-        assert set(by_slug) == {"team-product-analytics", "team-devex"}
-        assert by_slug["team-product-analytics"].expiring_quarantines == [placed]
-        # The maintainers hold the other item without it counting as debt of their own.
-        assert by_slug["team-devex"].variant_pileups == []
-        assert by_slug["team-devex"].triage == [
-            debt_digest.TriageGroup(kind=debt_digest.AttributionKind.STORY_ABSENT, items=[absent])
-        ]
+        # The maintainers hold the other item without it counting as debt of their own, so they get
+        # no digest of their own here.
+        assert [digest.team_slug for digest in digests.teams] == ["team-product-analytics"]
+        assert digests.teams[0].expiring_quarantines == [placed]
+        assert digests.maintainers == debt_digest.MaintainersDigest(
+            team_slug="team-devex",
+            groups=[debt_digest.TriageGroup(kind=debt_digest.AttributionKind.STORY_ABSENT, items=[absent])],
+        )
 
     @pytest.mark.parametrize("attribution", [_PLACED, _STORY_ABSENT, _UNAVAILABLE])
     def test_keeps_the_three_unowned_outcomes_apart(self, attribution: debt_digest.Attribution) -> None:
@@ -195,14 +367,14 @@ class TestSplitByTeam:
 
         digests = debt_digest.split_by_team(debt, _ownership({_PRODUCT_PATH: "team-devex"}))
 
-        assert [d.team_slug for d in digests] == ["team-devex"]
-        assert digests[0].expiring_quarantines == []
-        assert digests[0].triage == [debt_digest.TriageGroup(kind=attribution.kind, items=[item])]
+        assert digests.teams == []
+        assert digests.maintainers is not None
+        assert digests.maintainers.groups == [debt_digest.TriageGroup(kind=attribution.kind, items=[item])]
 
     def test_drops_an_item_nobody_owns(self) -> None:
         debt = debt_digest.RepoDebt(expiring_quarantines=[_item(_STORY_ABSENT)], variant_pileups=[])
 
-        assert debt_digest.split_by_team(debt, _ownership({})) == []
+        assert debt_digest.split_by_team(debt, _ownership({})) == debt_digest.RepoDigests(teams=[], maintainers=None)
 
 
 class TestRouting:
@@ -214,11 +386,11 @@ class TestRouting:
     def test_a_team_that_opted_out_is_skipped(self) -> None:
         registry = {"team-devex": TeamEntry(notifications={"visual_review": False})}
 
-        assert debt_digest.resolve_channel(_digest(), registry, self._CHANNELS) is None
+        assert debt_digest.resolve_channel("team-devex", registry, self._CHANNELS) is None
 
     def test_a_shared_channel_is_refused(self) -> None:
         # A name match onto a shared channel would send an internal reminder out of the workspace.
-        assert debt_digest.resolve_channel(_digest("team-shared"), {}, self._CHANNELS) is None
+        assert debt_digest.resolve_channel("team-shared", {}, self._CHANNELS) is None
 
     @pytest.mark.parametrize("mode", ["preveiw", "shadow", ""])
     def test_an_unknown_mode_evaluates_nothing_and_posts_nothing(self, mode: str) -> None:
@@ -234,10 +406,14 @@ class TestRouting:
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestReposInScope:
-    def test_every_repo_is_in_scope_whatever_team_owns_it(self, team) -> None:
+    def test_only_repos_that_opted_in_are_in_scope_whatever_team_owns_them(self, team) -> None:
         mine = repos.create_repo(team_id=team.id, repo_external_id=77781, repo_full_name="org/mine")
         other_team = Team.objects.create(organization=team.organization, name="other")
         theirs = repos.create_repo(team_id=other_team.id, repo_external_id=77782, repo_full_name="org/theirs")
+        for repo in (mine, theirs):
+            repo.debt_digest_enabled = True
+            repo.save(update_fields=["debt_digest_enabled"])
+        repos.create_repo(team_id=team.id, repo_external_id=77783, repo_full_name="org/switched-off")
 
         assert {(repo.team_id, repo.id) for repo in debt_digest.repos_in_scope()} == {
             (mine.team_id, mine.id),
@@ -352,6 +528,33 @@ class TestCollectAndSend:
         assert [item.identifier for item in debt.expiring_quarantines] == expected_expiring
         assert debt.variant_pileups == []
 
+    @pytest.mark.parametrize(
+        "expires_in,expected",
+        [
+            (timedelta(days=FLAKINESS_EXPIRY_SOON_DAYS, hours=1), [_ABSENT_IDENTIFIER]),
+            (timedelta(days=FLAKINESS_EXPIRY_SOON_DAYS + 2), []),
+        ],
+    )
+    def test_the_expiry_window_overlaps_so_two_weekly_runs_cannot_skip_one(
+        self, repo, team, user, expires_in, expected
+    ):
+        # Two runs a week apart can fall slightly more than seven days apart, and a quarantine
+        # expiring in that gap would lapse without anybody being told.
+        now = timezone.now()
+        quarantine.quarantine_identifier(
+            repo_id=repo.id,
+            identifier=_ABSENT_IDENTIFIER,
+            run_type=RunType.STORYBOOK,
+            reason="non-deterministic",
+            user_id=user.id,
+            team_id=team.id,
+            expires_at=now + expires_in,
+        )
+
+        debt = debt_digest.collect_debt(repo, now)
+
+        assert [item.identifier for item in debt.expiring_quarantines] == expected
+
     def test_preview_renders_every_team_and_posts_nothing(self, repo, mocker):
         self._completed_run(repo, mocker)
         self._pile_up(repo)
@@ -369,7 +572,10 @@ class TestCollectAndSend:
         assert post.call_count == 0
         assert channel_map.call_count == 0
         assert len(rendered) == 1
+        # Preview prints the plain text behind every message, so a by-hand run reads without Slack.
         assert rendered[0].startswith("Visual review debt for team-devex in org/test-debt: ")
+        assert "3 accepted variants of the current baseline" in rendered[0]
+        assert rendered[0].rstrip().endswith("under your team in owners.yaml.")
 
     def test_an_unreadable_owners_file_sends_nothing(self, repo, mocker):
         self._completed_run(repo, mocker)
@@ -389,14 +595,15 @@ class TestCollectAndSend:
         assert post.call_count == 0
 
     def test_one_team_failing_does_not_stop_the_next(self, repo, mocker):
-        self._completed_run(repo, mocker, (_IDENTIFIER, _ABSENT_IDENTIFIER))
+        self._completed_run(repo, mocker, (_IDENTIFIER, _OTHER_IDENTIFIER))
         self._pile_up(repo)
-        self._pile_up(repo, identifier=_ABSENT_IDENTIFIER)
+        self._pile_up(repo, identifier=_OTHER_IDENTIFIER)
+        index = story_index.StoryIndex(path_by_story_id={_STORY_ID: _SOURCE_PATH, _OTHER_STORY_ID: _OTHER_PATH})
         with (
-            _with_index(_INDEX),
+            _with_index(index),
             patch(
                 "products.visual_review.backend.logic.debt_digest.resolve_path_owners",
-                return_value=_ownership({_SOURCE_PATH: "team-one", _PRODUCT_PATH: "team-two"}),
+                return_value=_ownership({_SOURCE_PATH: "team-one", _OTHER_PATH: "team-two", _PRODUCT_PATH: "team-two"}),
             ),
             patch("products.visual_review.backend.logic.debt_digest.Integration") as integration,
             patch("products.visual_review.backend.logic.debt_digest.SlackIntegration"),

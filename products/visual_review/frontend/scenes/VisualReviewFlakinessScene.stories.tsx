@@ -15,6 +15,7 @@ const repo: RepoApi = {
     repo_full_name: 'PostHog/posthog',
     baseline_file_paths: {},
     enable_pr_comments: true,
+    debt_digest_enabled: false,
     created_at: '2026-06-10T00:00:00Z',
 }
 
