@@ -49,6 +49,7 @@ from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
+from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.feature_flags import get_llm_gateway_variant
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.types import (
@@ -415,6 +416,9 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
         except GraphInterrupt:
             # GraphInterrupt is raised when a tool calls interrupt() for approval flow.
             # Let it propagate up to be handled by LangGraph's interrupt
+            raise
+        except GenerationCanceled:
+            # The user pressed stop. The runner treats this as a normal stop, not a tool failure.
             raise
         except Exception as e:
             logger.exception("Error calling tool", extra={"tool_name": tool_call.name, "error": str(e)})
