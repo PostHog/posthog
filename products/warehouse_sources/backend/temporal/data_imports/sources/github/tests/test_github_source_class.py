@@ -148,6 +148,20 @@ class TestGithubSource:
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
+    def test_ssl_eof_error_is_retryable_not_non_retryable(self):
+        # A TLS session cut at the socket while minting the installation access token
+        # (client_request has no in-process retry, unlike _fetch_page). Must stay retryable so a
+        # dropped connection to GitHub doesn't disable the source.
+        observed_error = (
+            "HTTPSConnectionPool(host='api.github.com', port=443): Max retries exceeded with url: "
+            "/app/installations/123/access_tokens (Caused by SSLError(SSLEOFError(8, "
+            "'[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)')))"
+        )
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
     @pytest.mark.parametrize(
         "raised_message,expected_key",
         [

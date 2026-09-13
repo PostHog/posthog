@@ -368,7 +368,20 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # A GithubRetryableError (any transient upstream 5xx) that survives the same tenacity retry
         # gets the same treatment — a GitHub-side outage, not something reconnecting or reconfiguring
         # the source can fix.
-        return {"GitHub API rate limit exceeded", "Github API error (retryable)"}
+        #
+        # A TLS session cut at the socket while minting the installation access token
+        # (``GitHubIntegrationBase.client_request``, called from ``_get_access_token``) has no
+        # in-process retry of its own — unlike ``_fetch_page``'s data requests, whose tenacity retry
+        # already covers ``requests.ConnectionError`` (the base class ``SSLError`` subclasses).
+        # Either way it's a dropped connection, not a GitHub or customer problem, so once Temporal
+        # retries the activity the failure is transient and self-recovering. Mirrors ClickHouse's
+        # equivalent classification of the same urllib3/OpenSSL wording.
+        return {
+            "GitHub API rate limit exceeded",
+            "Github API error (retryable)",
+            "UNEXPECTED_EOF_WHILE_READING",
+            "EOF occurred in violation of protocol",
+        }
 
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
