@@ -30,6 +30,7 @@ export function CategoryDropdown({
 
     const onVisibilityChange = (visible: boolean): void => {
         if (visible) {
+            markUserInteraction()
             posthog.capture('taxonomic filter category dropdown opened', {
                 variant: 'pill',
             })

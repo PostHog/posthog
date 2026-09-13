@@ -618,7 +618,6 @@ export function RecordingsUniversalFilterAddFilterPopover({
         <Popover
             overlay={
                 <UniversalFilters.PureTaxonomicFilter
-                    fullWidth={false}
                     onChange={() => {
                         setIsPopoverVisible(false)
                         setAddFilterSearchQuery('')
@@ -629,6 +628,7 @@ export function RecordingsUniversalFilterAddFilterPopover({
                 />
             }
             placement="bottom-start"
+            matchWidth
             visible={isPopoverVisible}
             onClickOutside={() => {
                 setIsPopoverVisible(false)
