@@ -39,3 +39,30 @@ class TestRampSource:
     def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "Tunnel connection failed: 429 Too Many Requests",
+            "HTTPSConnectionPool(host='api.ramp.com', port=443): Max retries exceeded with url: "
+            "/developer/v1/token (Caused by ProxyError('Cannot connect to proxy.', "
+            "OSError('Tunnel connection failed: 429 Too Many Requests')))",
+        ],
+    )
+    def test_token_mint_proxy_tunnel_429_is_retryable(self, observed_error):
+        # PostHog's own egress proxy throttling the OAuth token-mint CONNECT tunnel is transient
+        # and self-recovering on Temporal's activity retry, so it must stay out of error tracking
+        # as noise rather than mint a fresh issue per burst.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(pattern in observed_error for pattern in retryable_errors)
+
+    def test_token_mint_proxy_auth_rejection_stays_reportable(self):
+        # A 407 shares the "Cannot connect to proxy." wording but is a deterministic proxy-auth
+        # rejection that repeats on every attempt, not a transient throttling burst — it must not
+        # be swallowed by the 429 tunnel pattern.
+        observed_error = (
+            "Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: "
+            "407 Proxy Authentication Required'))"
+        )
+        retryable_errors = self.source.get_retryable_errors()
+        assert not any(pattern in observed_error for pattern in retryable_errors)
