@@ -359,17 +359,19 @@ export const WORKFLOW_PUSH_METRICS: Record<
 
 // How each drillable email metric maps onto the Invocations tab. Each SES event also writes a
 // per-invocation log entry (see the SES webhook handler); the drill-down filters the tab to runs
-// that logged that entry by matching the message text at the right level. The `search` term matches
-// the start of the handler's message (e.g. "Permanent bounce to …"). email_failed is left out: its
-// two SES events emit differently-worded messages ("Rendering failure …" vs "Message rejected by
-// SES …") with no shared substring to match on.
+// that logged that entry by matching the message text at the right level. The `search` term has to
+// be the part of the message that no other outcome at that level writes, or the tab returns runs the
+// clicked number never counted. email_failed is left out: its two SES events emit differently-worded
+// messages ("Rendering failure …" vs "Message rejected by SES …") with no shared substring to match on.
 export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<
     Record<EmailMetric, { search: string; levels: LogEntryLevel[] }>
 > = {
     email_bounced: { search: 'bounce', levels: ['WARN', 'ERROR'] },
-    // MX-validation skips log "Skipping send: …" at INFO (see HogFunctionHandler in the plugin server).
-    email_bounce_prevented: { search: 'Skipping send', levels: ['INFO'] },
-    // Missing-recipient skips log "Skipping send: this person has no address …" at INFO.
+    // Every message channel opens a skip with "Skipping send: …" at INFO, so the term carries the
+    // part only a predicted hard bounce writes (see EmailValidationService in the plugin server).
+    email_bounce_prevented: { search: 'would hard bounce', levels: ['INFO'] },
+    // The email wording of the missing-recipient skip. SMS and push word theirs per channel, which is
+    // what keeps their skips out of an email row (see HogFunctionHandler in the plugin server).
     no_recipient: { search: 'this person has no address', levels: ['INFO'] },
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
     // Suspension skips log "Skipping send: email sending is suspended …" at WARN (EmailService).

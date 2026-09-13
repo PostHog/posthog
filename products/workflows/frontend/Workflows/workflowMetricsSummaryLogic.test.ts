@@ -91,8 +91,9 @@ describe('buildEmailMetricInvocationSearchParams', () => {
     const dateTo = '2026-07-13T00:00:00.000Z'
 
     // Each metric drills into the Invocations tab via the unified search box (`inv_search`), narrowed
-    // to the level that distinguishes it: bounced/marked-as-spam at WARN/ERROR, bounce prevented
-    // ("Skipping send") at INFO.
+    // to the level that distinguishes it: bounced/marked-as-spam at WARN/ERROR, and the two skip
+    // outcomes at INFO. Every channel opens a skip with "Skipping send", so the two INFO terms must
+    // stay specific enough that neither returns the other's runs, or an SMS or push step's.
     it.each<[EmailMetric, Record<string, string>]>([
         [
             'email_bounced',
@@ -104,7 +105,7 @@ describe('buildEmailMetricInvocationSearchParams', () => {
         ],
         [
             'email_bounce_prevented',
-            { inv_date_from: dateFrom, inv_date_to: dateTo, inv_search: 'Skipping send', inv_log_levels: 'INFO' },
+            { inv_date_from: dateFrom, inv_date_to: dateTo, inv_search: 'would hard bounce', inv_log_levels: 'INFO' },
         ],
         [
             'no_recipient',
