@@ -165,8 +165,8 @@ async function dequeueOneBatch(worker: CyclotronV2Worker, timeoutMs = 2000): Pro
 
 // ── Tests ────────────────────────────────────────────────────────────
 
-async function gaugeValueForQueue(queue: string): Promise<number | null> {
-    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_queue_depth')
+async function gaugeValueForQueue(queue: string, name = 'cdp_cyclotron_v2_queue_depth'): Promise<number | null> {
+    const metric = await register.getSingleMetricAsString(name)
     const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
     return line ? Number(line.trim().split(' ').pop()) : null
 }
@@ -2649,6 +2649,29 @@ describe('Cyclotron V2', () => {
             await janitor.stop()
 
             expect(await gaugeValueForQueue('queue-drains')).toBe(0)
+        })
+
+        it('measureQueueDepths reports the age of the oldest ready job, and 0 once the queue drains', async () => {
+            // The fall back to 0 matters: without it an alert on age fires on an idle queue.
+            await insertRawJob({
+                id: uuidv7(),
+                queue_name: 'queue-ages',
+                status: 'available',
+                scheduled: new Date(Date.now() - 120_000),
+            })
+            await insertRawJob({ id: uuidv7(), queue_name: 'queue-ages', status: 'available' })
+
+            const janitor = createJanitor({ stallTimeoutMs: 60_000 })
+            await janitor.runOnce()
+
+            const age = await gaugeValueForQueue('queue-ages', 'cdp_cyclotron_v2_queue_oldest_available_seconds')
+            expect(age).toBeGreaterThanOrEqual(120)
+
+            await assertPool.query(`DELETE FROM cyclotron_jobs WHERE queue_name = 'queue-ages'`)
+            await janitor.runOnce()
+            await janitor.stop()
+
+            expect(await gaugeValueForQueue('queue-ages', 'cdp_cyclotron_v2_queue_oldest_available_seconds')).toBe(0)
         })
 
         it('measureQueueDepths returns correct counts per queue', async () => {
