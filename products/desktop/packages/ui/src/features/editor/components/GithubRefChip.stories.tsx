@@ -123,6 +123,21 @@ const LIFECYCLE_CASES: { number: number; details: PrRefDetails }[] = [
   },
 ];
 
+export const InlineProse: Story = {
+  render: () => (
+    <div className="max-w-xl text-[15px] leading-6">
+      The task will update
+      <PrRefChip
+        href="https://github.com/example-org/example-repo/pull/123456789"
+        details={LIFECYCLE_CASES[0].details}
+      >
+        #123456789
+      </PrRefChip>
+      . Check the result before the next run.
+    </div>
+  ),
+};
+
 export const LifecycleStates: Story = {
   render: () => (
     <div className="flex flex-wrap items-center gap-3 text-[13px]">
