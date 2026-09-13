@@ -135,7 +135,16 @@ The scope is the Azure Resource Manager path to read cost for, without a leading
         }
 
     def get_retryable_errors(self) -> set[str]:
-        return {"Azure Cost Management error (retryable)"}
+        return {
+            "Azure Cost Management error (retryable)",
+            # PostHog's own egress proxy answering the CONNECT tunnel with a 429 while minting the
+            # Azure AD token, surfaced by requests as a ProxyError. Not Azure AD's fault or the
+            # customer's — the proxy itself is throttling, which clears on its own, the same
+            # reasoning ClickHouse, Salesforce, GitHub, Databricks, HubSpot, Bing Ads and LinkedIn
+            # Ads already apply to the same tunnel status. Match the status only; a deterministic
+            # tunnel failure such as 407 (proxy auth required) still stays reportable.
+            "Tunnel connection failed: 429",
+        }
 
     def get_schemas(
         self,

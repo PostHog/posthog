@@ -127,15 +127,32 @@ class TestAzureCostManagementSource:
         [
             "Azure Cost Management error (retryable): status=429, url=https://management.azure.com/q",
             "500 Server Error for url: https://management.azure.com/q",
+            "HTTPSConnectionPool(host='login.microsoftonline.com', port=443): Max retries exceeded with url: "
+            "/00000000-0000-0000-0000-000000000000/oauth2/v2.0/token (Caused by ProxyError('Cannot connect to "
+            "proxy.', OSError('Tunnel connection failed: 429 Too Many Requests')))",
         ],
     )
     def test_non_retryable_errors_ignore_transient_failures(self, observed_error: str) -> None:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
 
-    def test_throttle_exhaustion_is_reported_as_retryable(self) -> None:
-        error = "Azure Cost Management error (retryable): status=429, url=https://management.azure.com/q"
-
+    @pytest.mark.parametrize(
+        "error",
+        [
+            "Azure Cost Management error (retryable): status=429, url=https://management.azure.com/q",
+            "HTTPSConnectionPool(host='login.microsoftonline.com', port=443): Max retries exceeded with url: "
+            "/00000000-0000-0000-0000-000000000000/oauth2/v2.0/token (Caused by ProxyError('Cannot connect to "
+            "proxy.', OSError('Tunnel connection failed: 429 Too Many Requests')))",
+        ],
+    )
+    def test_throttle_exhaustion_is_reported_as_retryable(self, error: str) -> None:
         assert any(key in error for key in self.source.get_retryable_errors())
+
+    def test_retryable_errors_do_not_match_deterministic_proxy_auth_failure(self) -> None:
+        # A 407 (proxy auth required) is a deterministic misconfiguration, not a transient tunnel
+        # gateway status — it must stay reportable rather than being swallowed by the 429 pattern.
+        error = "Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 407 Proxy Authentication Required'))"
+
+        assert not any(key in error for key in self.source.get_retryable_errors())
 
     def test_source_for_pipeline_passes_config_and_schema_through(self) -> None:
         manager = mock.MagicMock(spec=ResumableSourceManager)
