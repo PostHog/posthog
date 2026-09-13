@@ -121,6 +121,11 @@ class EmailIntegration:
 
     def verify(self):
         domain = self.integration.config.get("domain")
+        if not domain:
+            # Only legacy or hand-edited rows miss the domain, and no provider can verify without it.
+            raise ValidationError(
+                "This email sender has no domain. Delete it and set the sender up again to verify a domain."
+            )
         provider = self.integration.config.get("provider", "ses")
         mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
 
