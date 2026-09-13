@@ -31,6 +31,15 @@ def handle_data_quality_check_activity(
     instance = after_update or before_update
     if instance is None:
         return
+
+    changes = changes_between(cast(AuditableScope, scope), previous=before_update, current=after_update)
+
+    # Soft delete and restore go through save(), so the mixin reports them as "updated";
+    # remap so the audit trail reads as the action the user actually took.
+    deleted_change = next((change for change in changes if change.field == "deleted"), None)
+    if deleted_change:
+        activity = "deleted" if deleted_change.after else "restored"
+
     log_activity(
         organization_id=None,
         team_id=instance.team_id,
@@ -39,10 +48,7 @@ def handle_data_quality_check_activity(
         item_id=str(instance.id),
         scope=scope,
         activity=activity,
-        detail=Detail(
-            name=str(instance),
-            changes=changes_between(cast(AuditableScope, scope), previous=before_update, current=after_update),
-        ),
+        detail=Detail(name=str(instance), changes=changes),
     )
 
 

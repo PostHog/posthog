@@ -14,7 +14,7 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.constants import AvailableFeature
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.models import Metric
@@ -460,6 +460,18 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert str(self.view.id) in item_ids
         assert str(check.id) in item_ids
         assert str(other_check.id) not in item_ids
+
+    def test_deleting_a_check_is_logged_as_a_deletion_not_an_update(self) -> None:
+        check = self._create_check()
+        assert self.client.delete(f"{self.url}/{check.id}/").status_code == 204
+
+        entry = (
+            ActivityLog.objects.filter(team_id=self.team.id, scope="DataQualityCheck", item_id=str(check.id))
+            .order_by("-created_at")
+            .first()
+        )
+        assert entry is not None
+        assert entry.activity == "deleted"
 
     def _checks_url(self, saved_query_id) -> str:
         return f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_id}/checks"
