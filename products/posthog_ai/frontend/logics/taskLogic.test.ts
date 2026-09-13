@@ -1,10 +1,13 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -149,6 +152,32 @@ describe('taskLogic', () => {
                 })
             )
             tasksLogicInstance.unmount()
+        })
+    })
+
+    describe('deleteTask', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        // The shared AI navigation opens a task inside `/ai`, so a fixed push to the task list dropped
+        // the user out of the workspace they archived from.
+        it.each([
+            ['the AI workspace', urls.aiTask('task-123'), urls.ai()],
+            ['the task page', urls.taskDetail('task-123'), urls.taskTracker()],
+        ])('returns to the list of %s after archiving', async (_name, openedAt, expectedUrl) => {
+            jest.spyOn(api.tasks, 'delete').mockResolvedValue(undefined)
+            router.actions.push(openedAt)
+
+            logic = taskLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            logic.actions.deleteTask()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search).toBe(
+                expectedUrl
+            )
         })
     })
 

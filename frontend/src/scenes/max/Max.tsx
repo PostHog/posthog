@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import React from 'react'
 
 import {
@@ -16,6 +17,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { isUUIDLike } from 'lib/utils/guards'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -46,17 +48,43 @@ import { MaxLogicProps, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 import { SandboxComposerSurfaces, Thread } from './Thread'
 
-export const scene: SceneExport = {
-    component: Max,
-    logic: maxLogic,
+interface MaxProps {
+    tabId?: string
+    /**
+     * The scene logic's prop only. The rendered component never receives it, because the app spreads
+     * just the route's path params into the element, so `Max` reads the task from the router instead.
+     */
+    taskId?: string
 }
 
-export function Max({ tabId }: { tabId?: string }): JSX.Element {
+/**
+ * The task `/ai?task=` selects, or `undefined` when the URL names none.
+ *
+ * `isUUIDLike` rejects a path-shaped value, because this id is interpolated into API paths.
+ */
+function selectedTaskId(searchParams: Record<string, any>): string | undefined {
+    const taskId = searchParams.task
+
+    return typeof taskId === 'string' && isUUIDLike(taskId) ? taskId : undefined
+}
+
+export const scene: SceneExport<MaxProps> = {
+    component: Max,
+    logic: maxLogic,
+    paramsToProps: ({ searchParams }) => ({ taskId: selectedTaskId(searchParams) }),
+}
+
+export function Max({ tabId }: MaxProps): JSX.Element {
+    // `paramsToProps` builds the scene logic's props, and the app spreads only the route's path
+    // params into the component. `/ai` declares none and carries the task in its query string, so
+    // the selected task has to come from the router here or every task link opens the composer.
+    const { searchParams } = useValues(router)
+    const taskId = selectedTaskId(searchParams)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ panelId: tabId }))
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ panelId: SIDE_PANEL_PANEL_ID }))
-    if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
+    if (!taskId && sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
             <SceneContent className="px-4 py-4 min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]">
                 <SceneTitleSection name={null} resourceType={{ type: 'chat' }} />
@@ -77,7 +105,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
         )
     }
 
-    return <AiFirstMaxInstance tabId={tabId ?? ''} />
+    return <AiFirstMaxInstance tabId={tabId ?? ''} taskId={taskId} />
 }
 
 export interface MaxInstanceProps {

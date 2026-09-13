@@ -97,6 +97,56 @@ describe('taskTrackerSceneLogic', () => {
     })
 
     it.each([
+        ['/ai', '/ai', { task: 'new-task' }],
+        ['/tasks/new', '/tasks/new-task', {}],
+    ])('keeps a newly created task in its host at %s', async (start, pathname, searchParams) => {
+        router.actions.push(start)
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'Summarize a sample funnel' })
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toBe(`/project/997${pathname}`)
+        expect(router.values.searchParams).toEqual(searchParams)
+        expect(logic.values.activeCreation).toMatchObject({ taskId: 'new-task', runId: 'run-1' })
+
+        router.actions.push('/ai?task=another-task')
+        expect(logic.values.activeCreation).toBeNull()
+    })
+
+    // Regression coverage: under the shared navigation a task or a chat is opened through the query
+    // string, so a pending creation that only remembered the pathname stayed attached, and the
+    // success navigation then pulled the user off the page they had just opened.
+    it.each([
+        ['another task', '/ai?task=another-task', { task: 'another-task' }],
+        ['a chat', '/ai?chat=another-chat', { chat: 'another-chat' }],
+    ])(
+        'releases a pending creation when %s is opened from the same page',
+        async (_name, destination, expectedParams) => {
+            let finishCreation!: (response: [number, Record<string, unknown>]) => void
+            const creation = new Promise<[number, Record<string, unknown>]>((resolve) => {
+                finishCreation = resolve
+            })
+            useMocks({ post: { '/api/projects/:team/tasks/': () => creation } })
+            router.actions.push('/ai')
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setNewTaskData({ description: 'Summarize a sample funnel' })
+            logic.actions.submitNewTask()
+
+            router.actions.push(destination)
+            expect(logic.values.activeCreation).toBeNull()
+
+            await expectLogic(logic, () =>
+                finishCreation([200, { id: 'new-task', latest_run: { id: 'run-1' } }])
+            ).toFinishAllListeners()
+
+            expect(router.values.location.pathname).toBe('/project/997/ai')
+            expect(router.values.searchParams).toEqual(expectedParams)
+        }
+    )
+
+    it.each([
         [null, ''],
         ['/tasks/another-task', ''],
         ['/tasks/another-task', 'A different task'],
@@ -649,7 +699,8 @@ describe('taskTrackerSceneLogic', () => {
                 expect(router.values.location.pathname).toContain(destination)
             } else {
                 expect(logic.values.activeCreation).toMatchObject({ taskId: 'new-task', runId: 'run-1' })
-                expect(router.values.location.pathname).toContain('/tasks/new-task')
+                expect(router.values.location.pathname).toBe('/project/997/ai')
+                expect(router.values.searchParams).toEqual({ task: 'new-task' })
             }
         } finally {
             finishCreation([200, { id: 'new-task', latest_run: { id: 'run-1' } }])

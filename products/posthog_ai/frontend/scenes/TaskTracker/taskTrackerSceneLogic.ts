@@ -7,8 +7,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api-error'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { uuid } from 'lib/utils/dom'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { urls } from 'scenes/urls'
 
 import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
@@ -81,6 +83,17 @@ export interface TaskTrackerSceneLogicProps {
 }
 
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
+
+/**
+ * The page a pending creation belongs to, before the created task has an id to compare against.
+ *
+ * `/ai` selects a task or a chat through the query string, so the pathname alone can't tell that the user
+ * opened a different one. `ask` is deliberately left out: the composer seed strips it from the URL as the
+ * seeded creation starts, and reading that as navigation would release the creation it just opened.
+ */
+function creationRouteKey(pathname: string, searchParams: Record<string, any>): string {
+    return `${pathname}|${searchParams.task ?? ''}|${searchParams.chat ?? ''}`
+}
 
 /**
  * The warm request for the current composer selection, or `null` when this selection can't be warmed.
@@ -654,7 +667,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 'active-creation',
                 { pauseOnPageHidden: false }
             )
-            cache.creationPath = router.values.location.pathname
+            cache.creationRoute = creationRouteKey(router.values.location.pathname, router.values.searchParams)
             actions.setActiveCreation({ streamKey, interactionKey: streamKey })
             stream.actions.startOptimisticRun(description)
 
@@ -785,7 +798,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     // An embedded instance (`panelId` set) keeps the run in place because the host renders
                     // `activeCreation` instead of navigating the main app to the `/tasks/:id` detail page.
                     if (!props.panelId) {
-                        router.actions.push(`/tasks/${newTask.id}`)
+                        router.actions.push(
+                            removeProjectIdIfPresent(router.values.location.pathname) === urls.ai()
+                                ? urls.aiTask(newTask.id)
+                                : urls.taskDetail(newTask.id)
+                        )
                     }
                 } else {
                     actions.releaseApplyBackTargets(streamKey)
@@ -890,10 +907,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
     })),
 
-    events(({ actions, values }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadDesktopAccess()
-            actions.loadTasks(values.taskListParams)
             actions.loadRepositories()
             // Roll a headline seed once per mount (pickHeadline forces index 0 under Storybook for
             // stable snapshots regardless of seed).
@@ -919,7 +935,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 activeCreation &&
                 (activeCreation.taskId
                     ? activeCreation.taskId !== taskId
-                    : router.values.location.pathname !== cache.creationPath)
+                    : creationRouteKey(router.values.location.pathname, router.values.searchParams) !==
+                      cache.creationRoute)
             ) {
                 actions.clearActiveCreation()
             }
@@ -928,6 +945,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // An embedded instance never navigates the main app on its own creation (see `submitNewTask`), so
             // main-app URL changes are unrelated to its run — never release the side panel's active creation.
             '/tasks/:taskId': ({ taskId }) => (props.panelId ? undefined : clearIfLeftCreatedTask(taskId)),
+            [urls.ai()]: (_, search) =>
+                props.panelId
+                    ? undefined
+                    : clearIfLeftCreatedTask(typeof search.task === 'string' ? search.task : undefined),
             '*': () => (props.panelId ? undefined : clearIfLeftCreatedTask()),
         }
     }),

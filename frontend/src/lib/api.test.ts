@@ -501,4 +501,17 @@ describe('API helper', () => {
             )
         })
     })
+
+    describe('tasks', () => {
+        it.each([
+            ['task/id', 'projects/2/tasks/task%2Fid'],
+            ['../other', 'projects/2/tasks/..%2Fother'],
+        ])('keeps task ID %s inside the task path', (taskId, expectedPath) => {
+            expect(new ApiRequest().task(taskId).assembleEndpointUrl()).toEqual(expectedPath)
+        })
+
+        it.each(['.', '..'])('rejects task ID dot segment %s', (taskId) => {
+            expect(() => new ApiRequest().task(taskId)).toThrow('Invalid task ID')
+        })
+    })
 })
