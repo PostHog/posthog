@@ -331,6 +331,16 @@ class TestStripeSource:
         assert ok is False
         assert message == expected_message
 
+    def test_parse_config_reads_flat_oauth_auth_method(self):
+        # The source API accepts a flat payload, so an OAuth connection arrives as
+        # `auth_method: "oauth"` with the integration id as a sibling. Parsing must pick the
+        # OAuth branch; the api_key default would report a missing API key for an account the
+        # user connected with OAuth.
+        config = self.source.parse_config({"auth_method": "oauth", "stripe_integration_id": 123})
+
+        assert config.auth_method.selection == "oauth"
+        assert config.auth_method.stripe_integration_id == 123
+
     def test_validate_credentials_does_not_echo_rejected_key(self):
         # Stripe's 401 body echoes the submitted key verbatim; here the user pasted a password into
         # the key field. The validation message must not leak it into the toast or analytics event.
