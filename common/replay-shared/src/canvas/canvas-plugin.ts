@@ -67,6 +67,7 @@ export const CanvasReplayerPlugin = (
     const containers = new Map<number, HTMLImageElement>([])
     const imageMap = new Map<eventWithTime | string, HTMLImageElement>()
     const canvasEventMap = new Map<eventWithTime | string, canvasMutationParam>()
+    const failedPreloadEvents = new Set<eventWithTime>()
     const pruneQueue: eventWithTime[] = []
     let nextPreloadIndex: number | null = null
     let destroyed = false
@@ -190,7 +191,7 @@ export const CanvasReplayerPlugin = (
     const processMutation = async (e: CanvasEventWithTime, replayer: Replayer): Promise<void> => {
         pruneBuffer(e)
         pruneQueue.push(e)
-        void preload(e)
+        void preload(e).catch(onError)
 
         const data = e.data as canvasMutationData
         const source = replayer.getMirror().getNode(data.id) as HTMLCanvasElement
@@ -350,11 +351,22 @@ export const CanvasReplayerPlugin = (
         nextPreloadIndex = currentIndex + 1
 
         for (const event of eventsToPreload) {
-            await deserializeAndPreloadCanvasEvents(event.data as canvasMutationData, event)
+            if (failedPreloadEvents.has(event)) {
+                continue
+            }
+
+            try {
+                await deserializeAndPreloadCanvasEvents(event.data as canvasMutationData, event)
+            } catch (error) {
+                // Preload windows advance one event at a time, so a failed event stays in the window
+                // for up to PRELOAD_BUFFER_SIZE more calls. Report it once and preload the rest.
+                failedPreloadEvents.add(event)
+                onError(error)
+            }
         }
     }
 
-    void preload()
+    void preload().catch(onError)
 
     return {
         onBuild: (node, { id }) => {
@@ -425,6 +437,7 @@ export const CanvasReplayerPlugin = (
             containers.clear()
             imageMap.clear()
             canvasEventMap.clear()
+            failedPreloadEvents.clear()
             handleQueue.clear()
             pruneQueue.length = 0
             nextPreloadIndex = null
