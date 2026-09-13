@@ -3167,37 +3167,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # Deleting the source deletes every table it synced, so it needs editor on each of them.
         self._assert_can_write_schemas(schemas)
 
-        # Soft-delete source, schemas, tables, and companion _cdc tables atomically
-        # first so DB state is consistent even if the external cleanup below fails
-        with transaction.atomic():
-            for schema in schemas:
-                if schema.table:
-                    schema.table.soft_delete()
+        from products.warehouse_sources.backend.models.external_data_source import teardown_external_data_source  # noqa: PLC0415
 
-            # Bulk soft-delete the schema rows in a single UPDATE. Per-row soft_delete()
-            # runs a SELECT + UPDATE + activity-log write each, which does not scale to
-            # sources with thousands of schemas (e.g. a Slack workspace with thousands of
-            # channels).
-            deleted_at = datetime.now(UTC)
-            ExternalDataSchema.objects.filter(team_id=self.team_id, id__in=[schema.id for schema in schemas]).update(
-                deleted=True, deleted_at=deleted_at
-            )
-            # Mirror the bulk update onto the in-memory objects so the post-atomic
-            # `schema.delete_table()` save() below doesn't overwrite deleted=True with the
-            # stale in-memory value.
-            for schema in schemas:
-                schema.deleted = True
-                schema.deleted_at = deleted_at
-
-            # Clean up CDC companion tables (e.g. {name}_cdc) — these are standalone
-            # DataWarehouseTable records linked to the source but not to schema.table.
-            DataWarehouseTable.objects.filter(
-                external_data_source_id=instance.id,
-                team_id=self.team_id,
-                deleted=False,
-            ).exclude(id__in=[s.table_id for s in schemas if s.table_id is not None]).update(deleted=True)
-
-            instance.soft_delete()
+        teardown_result = teardown_external_data_source(instance=instance, team_id=self.team_id)
+        schemas = teardown_result.schemas
+        s3_folders_to_cleanup = teardown_result.s3_folders_to_cleanup
 
         # Best-effort webhook cleanup — soft-deletes are already committed
         source_type = ExternalDataSourceType(instance.source_type)
@@ -3234,9 +3208,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         except Exception as e:
             capture_exception(e)
 
-        for schema in schemas:
+        # S3 physical cleanup consuming computed folders directly (no N+1 delete_table calls)
+        from products.data_warehouse.backend.facade.api import get_s3_client  # noqa: PLC0415
+
+        if s3_folders_to_cleanup:
             try:
-                schema.delete_table()
+                client = get_s3_client()
+                for folder in s3_folders_to_cleanup:
+                    try:
+                        client.delete(f"{settings.BUCKET_URL}/{folder}", recursive=True)
+                    except Exception as e:
+                        capture_exception(e)
             except Exception as e:
                 capture_exception(e)
 
