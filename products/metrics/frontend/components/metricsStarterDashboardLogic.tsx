@@ -63,10 +63,10 @@ export interface metricsStarterDashboardLogicActions {
         errorObject?: any
     }
     loadMetricOptionsSuccess: (
-        metricOptions: _MetricNameApi[],
+        metricOptions: _MetricPickerNameApi[],
         payload?: any
     ) => {
-        metricOptions: _MetricNameApi[]
+        metricOptions: _MetricPickerNameApi[]
         payload?: any
     }
     loadServices: (_: any) => any
@@ -189,12 +189,12 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
             const name = values.dashboardName.trim()
             const selectedMetrics = [...values.selectedMetrics]
             const serviceName = values.serviceName
-            const optionByKey: Record<string, _MetricNameApi> = Object.fromEntries(
+            const optionByKey: Record<string, _MetricPickerNameApi> = Object.fromEntries(
                 values.metricOptions.map((option) => [metricOptionKey(option.name, option.metric_type), option])
             )
             // Resolve keys to options up front so a name shared by two OTel types
             // keeps the type the user actually picked.
-            const pickedMetrics: _MetricNameApi[] = selectedMetrics.map(
+            const pickedMetrics: _MetricPickerNameApi[] = selectedMetrics.map(
                 (key) => optionByKey[key] ?? { name: key, metric_type: '' }
             )
             let dashboard: DashboardType | null = null

@@ -36,7 +36,7 @@ export interface metricNamePickerLogicActions {
             debounce: boolean
         }
     ) => {
-        items: _MetricNameApi[]
+        items: _MetricPickerNameApi[]
         payload?: {
             debounce: boolean
         }

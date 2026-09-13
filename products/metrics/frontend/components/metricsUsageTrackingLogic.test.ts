@@ -9,11 +9,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
-import {
-    metricsQueryCreate,
-    metricsSamplesCreate,
-    metricsNamesRetrieve,
-} from 'products/metrics/frontend/generated/api'
+import { metricsQueryCreate, metricsSamplesCreate, metricsNamesRetrieve } from 'products/metrics/frontend/generated/api'
 import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import { metricsSceneLogic } from '../metricsSceneLogic'
