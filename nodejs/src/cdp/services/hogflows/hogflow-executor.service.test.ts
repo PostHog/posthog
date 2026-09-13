@@ -1611,6 +1611,35 @@ describe('Hogflow Executor', () => {
                         )
                     })
 
+                    // Steps saved before error handling was configurable, and steps the author never
+                    // touched, carry no on_error. They get the documented default: continue.
+                    it('continues to next action when on_error is not set', async () => {
+                        const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
+                        delete action.on_error
+
+                        const functionHandler = executor['actionHandlers']['function']
+                        jest.spyOn(functionHandler, 'execute').mockResolvedValueOnce({
+                            error: new Error('Mocked handler error'),
+                        })
+
+                        const invocation = createExampleHogFlowInvocation(hogFlow, {
+                            event: {
+                                ...createHogExecutionGlobals().event,
+                                properties: { name: 'Test User' },
+                            },
+                        })
+                        invocation.state.currentAction = {
+                            id: 'function_id_1',
+                            startedAtTimestamp: DateTime.now().toMillis(),
+                        }
+
+                        const result = await executor.executeCurrentAction(invocation)
+
+                        expect(result.error).toBe('Mocked handler error')
+                        expect(result.finished).toBe(false)
+                        expect(result.invocation.state.currentAction?.id).toBe('middle_action')
+                    })
+
                     it('does NOT continue to next action when on_error is abort', async () => {
                         const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
                         action.on_error = 'abort'
