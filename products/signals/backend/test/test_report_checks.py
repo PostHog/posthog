@@ -33,6 +33,7 @@ from products.signals.backend.report_checks import (
 from products.signals.backend.report_metric_refresh import MetricMeasurement
 from products.signals.backend.serializers import SignalReportCheckWriteSerializer
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
+from products.signals.backend.views import SignalReportCheckViewSet
 
 _MEASURE = "products.signals.backend.report_check_execution.measure_metric"
 
@@ -331,6 +332,27 @@ class TestReportCheckAPI(APIBaseTest):
 
         already_cancelled = self.client.delete(f"{self.url}{check_id}/")
         assert already_cancelled.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_cancelling_does_not_overwrite_a_verdict_that_landed_first(self) -> None:
+        created = self.client.post(
+            self.url,
+            {"title": "Checkout errors stay low", "kind": "metric_threshold", "config": _threshold_config()},
+            format="json",
+        )
+        check_id = created.json()["id"]
+        # The row the request read before a run committed its verdict.
+        stale = SignalReportCheck.objects.for_team(self.team.id).get(id=check_id)
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=check_id).update(
+            status=SignalReportCheck.Status.PASSED, last_outcome=SignalReportCheck.Outcome.PASSED
+        )
+
+        with patch.object(SignalReportCheckViewSet, "get_object", return_value=stale):
+            refused = self.client.delete(f"{self.url}{check_id}/")
+
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            SignalReportCheck.objects.for_team(self.team.id).get(id=check_id).status == SignalReportCheck.Status.PASSED
+        )
 
     def test_an_invalid_config_is_rejected_by_the_endpoint(self) -> None:
         response = self.client.post(

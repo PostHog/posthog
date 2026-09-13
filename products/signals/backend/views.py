@@ -4285,13 +4285,20 @@ class SignalReportCheckViewSet(
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         check = cast(SignalReportCheck, self.get_object())
-        if check.is_terminal:
+        # One conditional update rather than a read and then a write. A run that commits its verdict
+        # between the two leaves a result artefact on the report, and an unconditional write would
+        # overwrite the status that artefact explains.
+        cancelled = (
+            SignalReportCheck.objects.for_team(self.team.id)
+            .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
+            .update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
+        )
+        check.refresh_from_db()
+        if not cancelled:
             return Response(
                 {"error": f"This check already finished as '{check.status}' and cannot be cancelled."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        check.status = SignalReportCheck.Status.CANCELLED
-        check.save(update_fields=["status", "updated_at"])
         return Response(SignalReportCheckSerializer(check).data)
 
 
