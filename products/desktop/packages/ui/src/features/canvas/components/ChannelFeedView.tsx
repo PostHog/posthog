@@ -155,13 +155,14 @@ interface TaskStatusDisplay {
 // deliberate end state we should not soften with a PR.
 function useTaskStatusDisplay(
   task: Task,
+  // Derived by the caller: `useChannelTaskData` mounts queries, mutations and
+  // store subscriptions, so a card that already holds the data must not mount
+  // a second copy of that graph here.
+  data: TaskData | undefined,
   options?: {
-    data?: TaskData;
     resolvePrStatus?: boolean;
   },
 ): TaskStatusDisplay {
-  const ownData = useChannelTaskData(options?.data ? undefined : task);
-  const data = options?.data ?? ownData;
   const { prState } = useTaskPrStatus({
     id: options?.resolvePrStatus === false ? "" : task.id,
     cloudPrUrl: data?.cloudPrUrl ?? null,
@@ -266,7 +267,7 @@ export function TaskSummaryRow({
   task: Task;
   channelId: string;
 }) {
-  const statusDisplay = useTaskStatusDisplay(task);
+  const statusDisplay = useTaskStatusDisplay(task, useChannelTaskData(task));
   return (
     <Link
       {...taskCardNavigation(channelId, task.id)}
@@ -307,7 +308,7 @@ export function TaskCard({
   inThread?: boolean;
   onOpen?: () => void;
 }) {
-  const statusDisplay = useTaskStatusDisplay(task);
+  const statusDisplay = useTaskStatusDisplay(task, useChannelTaskData(task));
   const prUrl =
     typeof task.latest_run?.output?.pr_url === "string"
       ? task.latest_run.output.pr_url
@@ -761,8 +762,7 @@ const FeedItem = memo(function FeedItem({
 }) {
   const { mutate: markTasksRead } = useMarkTaskActivityRead();
   const taskData = useChannelTaskData(task);
-  const statusDisplay = useTaskStatusDisplay(task, {
-    data: taskData,
+  const statusDisplay = useTaskStatusDisplay(task, taskData, {
     resolvePrStatus: inView,
   });
   const { togglePin } = usePinnedTasks();
