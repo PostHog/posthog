@@ -11,7 +11,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.client import Client as HttpClient
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -34,7 +34,13 @@ from posthog.api.github_callback.team_services import (
     list_org_github_installations,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
+from posthog.api.integration import (
+    IntegrationSerializer,
+    IntegrationViewSet,
+    TwilioIntegrationInvalidCredentialsError,
+    TwilioUnavailableError,
+    _reraise_twilio_api_error,
+)
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models.integration import (
@@ -553,6 +559,67 @@ class TestEmailIntegration:
         assert integration1.config["verified"]
         assert integration2.config["verified"]
         assert not integrationOtherDomain.config["verified"]
+
+
+def _twilio_api_response(status_code: int, payload: dict | None = None) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response._content = json.dumps(payload or {}).encode()
+    return response
+
+
+class TestReraiseTwilioApiError(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unauthorized", 401, TwilioIntegrationInvalidCredentialsError),
+            ("forbidden", 403, TwilioIntegrationInvalidCredentialsError),
+            ("twilio_server_error", 500, TwilioUnavailableError),
+            ("twilio_unreachable", None, TwilioUnavailableError),
+        ]
+    )
+    def test_twilio_failure_maps_to_an_actionable_error(self, _name, twilio_status, expected_error):
+        if twilio_status is None:
+            error = requests.exceptions.ConnectionError()
+        else:
+            error = requests.exceptions.HTTPError(response=_twilio_api_response(twilio_status))
+
+        with pytest.raises(expected_error):
+            _reraise_twilio_api_error(error)
+
+
+class TestTwilioPhoneNumbersAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.twilio_integration = Integration.objects.create(
+            team=self.team,
+            kind="twilio",
+            integration_id="AC_test_sid",
+            config={"account_sid": "AC_test_sid"},
+            sensitive_config={"auth_token": "test-token"},
+        )
+
+    def _get_phone_numbers(self):
+        return self.client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.twilio_integration.id}/twilio_phone_numbers/"
+        )
+
+    @patch("products.workflows.backend.providers.twilio.requests.request")
+    def test_account_that_owns_no_phone_numbers_returns_an_empty_list(self, mock_request):
+        mock_request.return_value = _twilio_api_response(200, {"incoming_phone_numbers": []})
+
+        response = self._get_phone_numbers()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["phone_numbers"] == []
+
+    @patch("products.workflows.backend.providers.twilio.requests.request")
+    def test_twilio_failure_returns_a_readable_error(self, mock_request):
+        mock_request.return_value = _twilio_api_response(401, {"message": "Authenticate"})
+
+        response = self._get_phone_numbers()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "twilio_integration_invalid_credentials"
 
 
 class TestDatabricksIntegration:
