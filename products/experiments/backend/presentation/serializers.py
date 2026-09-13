@@ -50,6 +50,7 @@ from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHO
 from products.experiments.backend.session_buckets import MAX_BUCKET_SCAN_DAYS, MAX_SESSION_BUCKET_LIMIT, SessionBucket
 from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BATCH
 from products.experiments.backend.session_event_deltas import (
+    FIRST_SESSION_HORIZON_HOURS,
     MAX_CARD_HIGHLIGHTS,
     MAX_CARD_RECORDINGS,
     MAX_DELTA_SCAN_DAYS,
@@ -2000,16 +2001,17 @@ class ExperimentWatchVariantSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="The variant key.")
     persons = serializers.IntegerField(
         help_text=(
-            "Exposed people the comparison covered for this variant. People rather than sessions because a "
-            "variant can change how often the flag is evaluated again later, which moves a variant's session "
-            "count without anyone behaving differently. Each person is read from the first session the "
-            "comparison covers them in, so every variant gets the same amount of behavior per person."
+            "Exposed people the comparison covered for this variant: the most recently exposed people, each "
+            "read from their first session after being exposed. People rather than sessions because a variant "
+            "can change how often the flag is evaluated again later, which moves a variant's session count "
+            "without anyone behaving differently. One session each, from the moment of exposure on, so every "
+            "variant gets the same amount of behavior per person."
         )
     )
     sessions = serializers.IntegerField(
         help_text=(
-            "Exposed sessions those people were seen in, which is more than the comparison reads: it says how "
-            "much recorded material sits behind the variant."
+            f"Sessions those people had within {FIRST_SESSION_HORIZON_HOURS} hours of being exposed, which is "
+            "more than the comparison reads: it says how much recorded material sits behind the variant."
         )
     )
 
@@ -2067,14 +2069,20 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     )
     date_from = serializers.DateTimeField(
         help_text=(
-            f"Start of what was actually compared. The requested window is the experiment's run window clamped "
-            f"to its most recent {MAX_DELTA_SCAN_DAYS} days, but a busy experiment reaches the session ceiling "
-            "long before that, and this reports where the compared sessions really begin - often hours rather "
-            "than days back. Display this, not the experiment's own dates."
+            "When the earliest compared person was first exposed. The comparison takes the most recently "
+            "exposed people, newest first, until it has as many as one comparison covers or their first "
+            f"sessions span {MAX_DELTA_SCAN_DAYS} days of events, so on a busy experiment this is hours rather "
+            "than days before date_to, and on an experiment that stopped enrolling it can be long before the "
+            "experiment's end. Display this, not the experiment's own dates. Equal to date_to when nobody has "
+            "been exposed yet."
         )
     )
     date_to = serializers.DateTimeField(
-        help_text="End of what was compared: the experiment's end date, or now while it runs."
+        help_text=(
+            "End of what was compared: the experiment's end date, or now while it runs, unless the newest "
+            f"compared person was first exposed more than {FIRST_SESSION_HORIZON_HOURS} hours before that, in "
+            "which case it is where their first session can last reach."
+        )
     )
     filter_test_accounts = serializers.BooleanField(
         help_text=(
@@ -2091,9 +2099,10 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     )
     sessions_truncated = serializers.BooleanField(
         help_text=(
-            "True when the experiment had more exposed sessions in the requested window than one comparison "
-            "covers, so the most recent ones were used and date_from is later than the experiment's own window. "
-            "Every variant is still covered over the same stretch of time."
+            "True when more people were exposed than one comparison covers, so the most recently exposed were "
+            "used and people exposed before date_from were left out. Every variant is still covered over the "
+            "same stretch of enrollment. Named for the session ceiling it used to report; the name is kept for "
+            "existing readers."
         )
     )
     events_truncated = serializers.BooleanField(
@@ -2126,28 +2135,30 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would "
             "read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: "
             "this is also true when the variants are empty because the people exposed have no sessions we can see, "
-            "which empty_reason reports as 'no_session_linked_exposures' and which more time does not fix on its own."
+            "which empty_reason reports as 'no_session_linked_exposures', and when the newest enrollees are almost "
+            "all in one variant, which it reports as 'one_sided_enrollment'. More time fixes neither."
         )
     )
     empty_reason = serializers.ChoiceField(
         choices=[reason.value for reason in WatchEmptyReason],
         allow_null=True,
         help_text=(
-            "Why cards is empty, and null whenever cards is not empty. Report which of the four happened "
+            "Why cards is empty, and null whenever cards is not empty. Report which of the five happened "
             "rather than reporting an empty shelf, because they ask different things of the reader. "
             "'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared "
-            "yet and the answer can still change. 'no_separation': the variants were compared and no event told "
-            "them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants "
-            "apart, but no recording behind them can be opened, so the project's session replay sampling and "
-            "retention are what decide whether this surface can ever show anything. "
-            "'no_session_linked_exposures': the experiment has exposed people and none of them has a session we "
-            "can see between date_from and date_to, so there was nothing to compare. Who counts as exposed is read "
-            "over the whole run, so the exposures themselves can predate that window: date the claim to the window "
-            "instead of reporting when anyone was exposed. Two things reach this state, and they ask for different "
-            "answers: no browser or mobile SDK is capturing events, because sessions exist nowhere else, or the "
-            "exposed people were last active before the window. Check which one before telling anyone to check "
-            "back, because more exposures captured the same way yield more of the same. Never fill an empty shelf "
-            "with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly "
-            "that reason."
+            "yet and the answer can still change. 'one_sided_enrollment': the experiment has more exposed people "
+            "than one comparison covers, and its newest enrollees are almost all in one variant, so nothing was "
+            "compared and more time will not change that; check whether the rollout split changed during the run. "
+            "'no_separation': the variants were compared and no event told them apart, which is a result rather "
+            "than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can "
+            "be opened, so the project's session replay sampling and retention are what decide whether this "
+            "surface can ever show anything. 'no_session_linked_exposures': the people exposed between date_from "
+            f"and date_to had no session we can see within {FIRST_SESSION_HORIZON_HOURS} hours of being exposed, "
+            "so there was nothing to compare. Two things reach this state, and they ask for different answers: no "
+            "browser or mobile SDK is capturing events, because sessions exist nowhere else, or the exposed people "
+            "never came back within a day of being exposed. Check which one before telling anyone to check back, "
+            "because more exposures captured the same way yield more of the same. Never fill an empty shelf with "
+            "the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that "
+            "reason."
         ),
     )

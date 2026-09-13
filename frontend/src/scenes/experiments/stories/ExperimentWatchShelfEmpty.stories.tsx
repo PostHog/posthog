@@ -17,19 +17,19 @@ import {
 } from 'products/experiments/frontend/generated/api.schemas'
 
 // One story per empty reason: the copy is the feature, and a screenshot is the only way to check
-// that the four read as different answers.
+// that the five read as different answers.
 const DELTAS_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/session_event_deltas/`
 
 // Typed as the generated response so a new required field on the serializer breaks the typecheck here.
 const emptyShelf = (
     emptyReason: ExperimentWatchEmptyReasonEnumApi,
-    variantPersons: number
+    variantPersons: number[]
 ): ExperimentSessionEventDeltaResponseApi => ({
     cards: [],
     variants: [
-        { key: 'control', persons: variantPersons, sessions: Math.round(variantPersons * 1.4) },
-        { key: 'test-1', persons: variantPersons, sessions: Math.round(variantPersons * 1.3) },
-        { key: 'test-2', persons: variantPersons, sessions: Math.round(variantPersons * 1.4) },
+        { key: 'control', persons: variantPersons[0], sessions: Math.round(variantPersons[0] * 1.4) },
+        { key: 'test-1', persons: variantPersons[1], sessions: Math.round(variantPersons[1] * 1.3) },
+        { key: 'test-2', persons: variantPersons[2], sessions: Math.round(variantPersons[2] * 1.4) },
     ],
     multiple_variant_persons: 0,
     multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnumApi.Exclude,
@@ -38,15 +38,18 @@ const emptyShelf = (
     date_to: '2025-06-01T09:00:00Z',
     filter_test_accounts: true,
     used_exposure_fallback: false,
-    sessions_truncated: false,
+    // The one-sided reason is only reported when more people were exposed than one comparison covers.
+    sessions_truncated: emptyReason === ExperimentWatchEmptyReasonEnumApi.OneSidedEnrollment,
     events_truncated: false,
     min_variant_persons: 50,
     max_card_recordings: 20,
     dropped_duplicate_cards: 0,
-    // True for the unsessioned case too: those variants are below the floor, only the reason differs.
+    // True for the unsessioned and one-sided cases too: those variants are below the floor, only
+    // the reason differs.
     too_early:
         emptyReason === ExperimentWatchEmptyReasonEnumApi.TooEarly ||
-        emptyReason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures,
+        emptyReason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures ||
+        emptyReason === ExperimentWatchEmptyReasonEnumApi.OneSidedEnrollment,
     empty_reason: emptyReason,
 })
 
@@ -93,15 +96,26 @@ const openTheShelf: Story['play'] = async ({ canvasElement }) => {
     await makeDelay(500)()
 }
 
-const shelfStory = (emptyReason: ExperimentWatchEmptyReasonEnumApi, variantPersons: number): Story => ({
+const shelfStory = (emptyReason: ExperimentWatchEmptyReasonEnumApi, variantPersons: number[]): Story => ({
     decorators: [mswDecorator({ post: { [DELTAS_PATH]: emptyShelf(emptyReason, variantPersons) } })],
     play: openTheShelf,
 })
 
-export const ExperimentWatchShelfTooEarly: Story = shelfStory(ExperimentWatchEmptyReasonEnumApi.TooEarly, 12)
-export const ExperimentWatchShelfNoSeparation: Story = shelfStory(ExperimentWatchEmptyReasonEnumApi.NoSeparation, 2400)
-export const ExperimentWatchShelfNoRecordings: Story = shelfStory(ExperimentWatchEmptyReasonEnumApi.NoRecordings, 2400)
+export const ExperimentWatchShelfTooEarly: Story = shelfStory(ExperimentWatchEmptyReasonEnumApi.TooEarly, [12, 12, 12])
+// The newest enrollees landed in one variant: the banner must read as a stop, not as a wait.
+export const ExperimentWatchShelfOneSidedEnrollment: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.OneSidedEnrollment,
+    [1900, 3, 0]
+)
+export const ExperimentWatchShelfNoSeparation: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.NoSeparation,
+    [2400, 2400, 2400]
+)
+export const ExperimentWatchShelfNoRecordings: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.NoRecordings,
+    [2400, 2400, 2400]
+)
 export const ExperimentWatchShelfNoSessionLinkedExposures: Story = shelfStory(
     ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures,
-    0
+    [0, 0, 0]
 )

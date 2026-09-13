@@ -43,25 +43,42 @@ exposure linkage the tab's recordings list joins (`replay_linkage.exposed_person
 row per exposed distinct id, carrying the person, the variant the analysis attributes them, and
 their first exposure time. The variant comes from that attribution, never from an event in a
 session, so this surface and the results tab bucket a person the same way. Sessions enter the
-comparison through the person: a session of an exposed person whose last activity is at or after
-their first exposure is comparable, whether or not any exposure event was captured with a session
-id (server-fired exposures carry none).
+comparison through the person, whether or not any exposure event was captured with a session id
+(server-fired exposures carry none); the two rules below say which people and which session.
 
-**One person, one session.** The sessions a variant is exposed in are not a fair denominator: a
-variant that stops re-evaluating the flag once a user has acted contributes fewer later sessions,
-and those missing sessions are the quiet ones. Measured on a production experiment this reached
-3.7x more exposed sessions in one variant off near-identical people, which pushed nine in ten event
-names to one side of the comparison: arithmetic reading as behavior. Counting each exposed person
-once fixes the denominator, and it makes the rows independent, which is what the ranking's noise
-test below assumes. It is not enough on its own, because the same imbalance is still in the
-numerator: on that experiment one variant's people averaged seven covered sessions each against the
-other's two, so they had seven chances to have done anything rather than two, and nine in ten event
-names still leaned one way. So a person is read from one session, the first the comparison covers
-them in, which is the same amount of behavior on both sides. The comparison covers a session from
-that person's first exposure on, so "first" means their first session at or after they were
-exposed. A card's *recordings*, by contrast,
-come from any of the variant's covered sessions containing the event — the statistics need fairness,
-the watchlist needs the behavior on screen.
+**Who is compared.** The people who most recently entered the experiment, newest first exposure
+first, until MAX_DELTA_SCAN_PERSONS people are in or the stretches of time their first sessions
+can fall in add up to MAX_DELTA_SCAN_DAYS. Everyone first exposed at or after the resulting cutoff
+is compared. Selection is on first exposure time, which happens before anyone sees their variant,
+so the randomization keeps the variants balanced over the compared people. Selecting on recent
+activity instead would select on something that happens after treatment and can depend on the
+variant: a variant that brings people back more gets more of its people into the window, and the
+people who met the change and did not come back are never compared. First exposure time also
+spans the whole run rather than a trailing window, so an experiment that stopped enrolling weeks
+ago still compares its last enrollees, in the sessions where they met the change. The one case this
+selection does not cover is a rollout split that changed inside the compared stretch: the newest
+enrollees are then almost all in one variant, and walking further back for the thin variant would
+compare people exposed weeks apart, which is the confound the selection removes. That case is
+reported (`WatchEmptyReason.ONE_SIDED_ENROLLMENT`) rather than widened.
+
+**One person, one session, from the moment they were exposed.** The sessions a variant is exposed
+in are not a fair denominator: a variant that stops re-evaluating the flag once a user has acted
+contributes fewer later sessions, and those missing sessions are the quiet ones. Measured on a
+production experiment this reached 3.7x more exposed sessions in one variant off near-identical
+people, which pushed nine in ten event names to one side of the comparison: arithmetic reading as
+behavior. Counting each exposed person once fixes the denominator, and it makes the rows
+independent, which is what the ranking's noise test below assumes. It is not enough on its own,
+because the same imbalance is still in the numerator: on that experiment one variant's people
+averaged seven covered sessions each against the other's two, so they had seven chances to have
+done anything rather than two, and nine in ten event names still leaned one way. So a person is
+read from one session: the one holding their earliest event at or after their first exposure,
+among their events up to FIRST_SESSION_HORIZON_HOURS after it, which is the session where they met
+the change and the same amount of behavior on both sides. Only rows at or after the first exposure
+count: what a person did in the exposure session before the flag was evaluated is the same in every
+variant, so keeping it only dilutes the comparison. A person with no session in that horizon is
+not compared. A card's *recordings*, by contrast, come from any of a compared person's sessions in
+the horizon that contain the event — the statistics need fairness, the watchlist needs the behavior
+on screen.
 
 **Ranking.** Each variant is compared against all the others pooled, so a five-variant experiment needs no
 pairing and costs the same one scan as two variants. Rates are compared on the log of their ratio, and
@@ -73,15 +90,18 @@ band a card is reported in, so a difference that only cleared the floor because 
 reports as slight, whatever its point estimate.
 
 **Cost.** The scan cannot prune by event name — the whole point is that it does not know which
-events matter yet. So the window is the only thing bounding it, which is why a first query resolves
-what the session ceiling actually covers and the scan is then clamped to that: on a busy project
-the ceiling is reached within hours of a nominally two-week window, and scanning the rest reads the
-project's whole recent history to find nothing. The population read has its own bounds, inherited
-from the linkage: an exposure scan pruned on the exposure event name, or the preaggregated
-exposures table on precomputing teams, and the linkage's memory ceiling where it carries one
-(activation mode). The follow-up queries that back cards with recordings filter by event name, so
-they prune on the events table's primary key and stay cheap. It is still the heaviest read on the
-tab, which is why the caller is expected to load it on demand.
+events matter yet. So time is the only thing bounding it, and the time it reads is the union of the
+compared people's `[first exposure, first exposure + horizon]` stretches, never more than
+MAX_DELTA_SCAN_DAYS of events. The union, not a contiguous window, is what makes stragglers cheap:
+an experiment that enrolled most people in one week and a few stragglers weeks later reads the
+stragglers' days plus the bulk week, and skips the empty weeks between. A first query picks the
+people from the population alone, as per-minute counts of first exposures, so the scan reads events
+once and joins only the chosen people's distinct ids. The population read has its own bounds,
+inherited from the linkage: an exposure scan pruned on the exposure event name, or the
+preaggregated exposures table on precomputing teams, and the linkage's memory ceiling where it
+carries one (activation mode). The follow-up queries that back cards with recordings filter by
+event name, so they prune on the events table's primary key and stay cheap. It is still the
+heaviest read on the tab, which is why the caller is expected to load it on demand.
 """
 
 import json
@@ -105,6 +125,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -131,18 +152,24 @@ from products.experiments.backend.replay_linkage import (
     exposed_persons_select,
     resolve_exposure_linkage,
 )
-from products.experiments.backend.session_exposure import MAX_SESSION_DURATION_HOURS, never_session_linked_events
+from products.experiments.backend.session_exposure import never_session_linked_events
 
-# Tighter than MAX_BUCKET_SCAN_DAYS. The bucket scan filters by event name in its WHERE, so
-# ClickHouse prunes on the events table's primary key; this one compares every event name there is
-# and has no such predicate, so the window is all that stands between it and the team's whole
-# recent history.
+# The most days of events one comparison reads. Tighter than MAX_BUCKET_SCAN_DAYS. The bucket scan
+# filters by event name in its WHERE, so ClickHouse prunes on the events table's primary key; this
+# one compares every event name there is and has no such predicate, so time is all that stands
+# between it and the team's whole history.
 MAX_DELTA_SCAN_DAYS = 14
-# Ceiling on the exposed sessions one comparison covers, most recent first. Bounds the aggregation
-# state rather than the rows read, and because the cut is on recency across both variants at once, the
-# variants stay covered over the same period — a comparison split across different stretches of time
-# would be measuring the calendar as much as the variant.
-MAX_DELTA_SCAN_SESSIONS = 20_000
+# Ceiling on the exposed people one comparison covers, most recent first exposure first. Bounds
+# the aggregation state rather than the rows read, and because the cut is on first exposure time
+# across all variants at once, the variants stay covered over the same stretch of enrollment — a
+# comparison split across different stretches of time would be measuring the calendar as much as
+# the variant.
+MAX_DELTA_SCAN_PERSONS = 20_000
+# How far past a person's first exposure their events are read. Their compared session is the one
+# holding their earliest event in this stretch, so the bound keeps "first session after exposure"
+# meaning the session where they met the change, and it caps the per-(person, session) aggregation
+# state for people with many sessions.
+FIRST_SESSION_HORIZON_HOURS = 24
 # Ceiling on (event name x variant) rows one comparison ranks. Distinct event names per project are
 # normally in the hundreds; a project that keys event names by id is what this is for.
 MAX_DELTA_EVENT_ROWS = 10_000
@@ -310,6 +337,11 @@ class WatchEmptyReason(StrEnum):
 
     # Fewer than two variants cleared MIN_VARIANT_PERSONS.
     TOO_EARLY = "too_early"
+    # A special case of TOO_EARLY that more time does not fix: the experiment has more exposed
+    # people than one comparison covers and its newest enrollees are almost all in one variant, so
+    # comparing them with older enrollees of the other variant would measure the calendar as much
+    # as the variant. A rollout split that changed during the run is the usual cause.
+    ONE_SIDED_ENROLLMENT = "one_sided_enrollment"
     # The variants were compared and no event told them apart.
     NO_SEPARATION = "no_separation"
     # Events told the variants apart, but no recording behind them can be opened.
@@ -415,6 +447,9 @@ class ExperimentWatchResult:
     # Always False. The population is person-scoped now, so no stamped-property stand-in exists to
     # fall back to; the field stays so the payload shape holds for existing readers.
     used_exposure_fallback: bool
+    # True when more people were exposed than one comparison covers, so the most recently exposed
+    # were compared. Named for the session ceiling it used to report, kept so the payload shape
+    # holds for existing readers.
     sessions_truncated: bool
     events_truncated: bool
     min_variant_persons: int
@@ -537,7 +572,6 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
         raise SessionEventDeltasUnavailable("This experiment's feature flag defines fewer than two variants.")
 
     window_end = experiment.end_date or timezone.now()
-    window_start = max(experiment.start_date, window_end - timedelta(days=MAX_DELTA_SCAN_DAYS))
 
     # Resolved once for the whole response, because each call reads the experiment's saved-metric
     # join again.
@@ -548,7 +582,7 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
     default_exposure_event = resolve_default_exposure_event(team, experiment.start_date)
     multiple_variant_handling = get_multiple_variant_handling_from_experiment(experiment.exposure_criteria)
 
-    cache_key = _cache_key(team, user, experiment, window_start, window_end, default_exposure_event)
+    cache_key = _cache_key(team, user, experiment, window_end, default_exposure_event)
     cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached
@@ -583,7 +617,6 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
         experiment=experiment,
         variant_keys=variant_keys,
         linkage=linkage,
-        window_end=window_end,
         shared_hogql=SharedHogQLDatabase(
             # Postgres foreign-key lazy joins are the most expensive part of building the virtual
             # database and these queries only read events and replay summaries.
@@ -592,7 +625,7 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
         ),
     )
 
-    scan = _query_event_deltas(setup, excluded_events=excluded_events, window_start=window_start)
+    scan = _query_event_deltas(setup, excluded_events=excluded_events, window_end=window_end)
 
     variants = [
         ExperimentWatchVariant(key=key, persons=scan.persons.get(("", key), 0), sessions=scan.sessions.get(key, 0))
@@ -601,12 +634,16 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
     compared_variant_keys = [variant.key for variant in variants if variant.persons >= MIN_VARIANT_PERSONS]
     too_early = len(compared_variant_keys) < 2
 
-    # Empty variants read as too early, unless the people exposed have no sessions at all.
-    no_comparison_reason = (
-        WatchEmptyReason.NO_SESSION_LINKED_EXPOSURES
-        if scan.exposed_persons_without_session
-        else WatchEmptyReason.TOO_EARLY
-    )
+    # Empty variants read as too early, unless the people exposed have no sessions at all, or the
+    # run has more people than one comparison covers and only one variant reached the floor among
+    # its newest enrollees: waiting adds enrollees of the same one-sided stretch, and walking back
+    # for the thin variant would compare people exposed weeks apart.
+    if scan.exposed_persons_without_session:
+        no_comparison_reason = WatchEmptyReason.NO_SESSION_LINKED_EXPOSURES
+    elif scan.enrollment.truncated and len(compared_variant_keys) == 1:
+        no_comparison_reason = WatchEmptyReason.ONE_SIDED_ENROLLMENT
+    else:
+        no_comparison_reason = WatchEmptyReason.TOO_EARLY
     shelf = (
         _Shelf(cards=[], empty_reason=no_comparison_reason)
         if too_early
@@ -628,11 +665,11 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
         # at the results tab for `$pageview` would go looking for a row that was never coming
         # either way.
         metric_events=sorted(metric_event_names - UNCOMPARABLE_EVENTS),
-        date_from=scan.covered_from,
-        date_to=window_end,
+        date_from=scan.enrollment.cutoff,
+        date_to=scan.enrollment.end,
         filter_test_accounts=linkage.population_filters_test_accounts,
         used_exposure_fallback=False,
-        sessions_truncated=scan.sessions_truncated,
+        sessions_truncated=scan.enrollment.truncated,
         events_truncated=scan.events_truncated,
         min_variant_persons=MIN_VARIANT_PERSONS,
         max_card_recordings=MAX_CARD_RECORDINGS,
@@ -653,24 +690,55 @@ def _refusal_message(error: ValidationError) -> str:
     return str(detail)
 
 
+@frozen
+class _TimeRange:
+    start: datetime
+    end: datetime
+
+
+@frozen
+class _EnrollmentMinute:
+    """One minute of enrollment: when it began, and how many people were first exposed in it."""
+
+    minute: datetime
+    people: int
+
+
+@frozen
+class _ComparedEnrollment:
+    """The people one comparison covers, and the stretches of time their first sessions can fall in.
+
+    Everyone first exposed at or after `cutoff` is compared; `end` is where the newest stretch
+    stops, the window end while enrollment continues. When nobody has been exposed both sit on the
+    window end, so the compared span is empty rather than a claim about a stretch nobody was read
+    in. The ranges are newest first, the order the walk admits them in, and disjoint.
+    """
+
+    cutoff: datetime
+    end: datetime
+    persons: int
+    ranges: tuple[_TimeRange, ...]
+    # True when more people were exposed than one comparison covers, so the oldest enrollees were
+    # left out.
+    truncated: bool
+
+
 @dataclass(frozen=True)
 class SessionEventDeltaScan:
     """What the scan returned: per (event name, variant) the number of that variant's exposed people
-    who did it in their first covered session, plus each variant's own totals under the empty event
-    name."""
+    who did it in their first session after exposure, plus each variant's own totals under the empty
+    event name."""
 
     persons: dict[tuple[str, str], int]
     sessions: dict[str, int]
     events_truncated: bool
-    sessions_truncated: bool
-    # The start of what was actually compared, which is later than the requested window whenever the
-    # session ceiling bit. Carried here rather than recomputed by the caller: it is a property of
-    # the scan, and reporting the requested window instead would claim coverage that never happened.
-    covered_from: datetime
-    # True when the experiment has exposed people and none of their sessions could be nominated in
-    # the window. The population is the analysis's, read over the whole run, so the exposures behind
-    # a True can be older than the window this scan reports.
-    # Only asked when the scan covered no sessions; False on any populated scan.
+    # Who the scan compared and over which stretches of time. Carried here rather than recomputed
+    # by the caller: it is a property of the scan, and reporting the experiment's own window
+    # instead would claim coverage that never happened.
+    enrollment: _ComparedEnrollment
+    # True when the comparison chose exposed people and none of them has a session the scan can
+    # see within the horizon of their first exposure. More time alone cannot fix it: more traffic
+    # captured the same way produces more exposed people without sessions.
     exposed_persons_without_session: bool
 
 
@@ -686,7 +754,6 @@ class _QuerySetup:
     experiment: Experiment
     variant_keys: list[str]
     linkage: ExperimentExposureLinkage
-    window_end: datetime
     shared_hogql: SharedHogQLDatabase
 
     def population(self) -> ast.SelectQuery:
@@ -695,8 +762,27 @@ class _QuerySetup:
         # aside; the comparison never reads them, because compared variants carry real keys only.
         return exposed_persons_select(self.linkage, include_multiple_variant=True)
 
-    def population_joined(self, left_alias: str) -> ast.JoinExpr:
-        """A join of the population onto `left_alias`, keyed on distinct id.
+    def compared_population(self, cutoff: datetime) -> ast.SelectQuery:
+        """The population narrowed to the people the comparison covers: everyone first exposed at
+        or after the cutoff. Wrapped rather than filtered inside the linkage's select, whose
+        first_exposure_time is an aggregate of its own GROUP BY."""
+        return ast.SelectQuery(
+            select=[
+                ast.Field(chain=["distinct_id"]),
+                ast.Field(chain=["person_id"]),
+                ast.Field(chain=["variant"]),
+                ast.Field(chain=["first_exposure_time"]),
+            ],
+            select_from=ast.JoinExpr(table=self.population()),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["first_exposure_time"]),
+                right=ast.Constant(value=cutoff),
+            ),
+        )
+
+    def population_joined(self, left_alias: str, *, cutoff: datetime) -> ast.JoinExpr:
+        """A join of the compared population onto `left_alias`, keyed on distinct id.
 
         GLOBAL for the same reason the recordings list joins this population GLOBAL: the subquery
         scans events over the whole experiment window (or the preaggregated table), and without it
@@ -704,7 +790,7 @@ class _QuerySetup:
         """
         return ast.JoinExpr(
             join_type="GLOBAL INNER JOIN",
-            table=self.population(),
+            table=self.compared_population(cutoff),
             alias="population",
             constraint=ast.JoinConstraint(
                 expr=ast.CompareOperation(
@@ -716,76 +802,65 @@ class _QuerySetup:
             ),
         )
 
-    def window_conditions(self, start: datetime) -> list[ast.Expr]:
-        """The window every query in this family reads over: bounded timestamps and a session id,
-        because every query compares sessions.
+    def row_conditions(self, enrollment: _ComparedEnrollment) -> list[ast.Expr]:
+        """The rows every query in this family reads: inside one of the compared stretches of
+        time, carrying a session id because every query compares sessions, and within the horizon
+        after the joined person's own first exposure.
+
+        The stretches bound what ClickHouse reads; the per-person bound decides what counts. At most
+        about fifteen stretches, because each disjoint one costs at least one horizon of the day
+        budget.
 
         No test-account filter here: the population applies the experiment's test-account filters
         at the person level, so a per-row filter could only hide behavior of people the analysis
         counts. The recordings list skips re-applying them for the same reason
         (`linkage.population_filters_test_accounts`).
         """
+        stretches: list[ast.Expr] = [
+            ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=time_range.start),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=time_range.end),
+                    ),
+                ]
+            )
+            for time_range in enrollment.ranges
+        ]
         return [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=start),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=self.window_end),
-            ),
+            ast.Or(exprs=stretches) if len(stretches) > 1 else stretches[0],
             ast.CompareOperation(
                 # An SDK that sends `$session_id: null` leaves the string "null" in the column,
                 # because the materialization keeps the raw JSON token. That string is a non-empty
                 # value, so it needs its own exclusion. Without it, every such event of every
-                # exposed person groups into one session whose last activity is always the most
-                # recent. That session takes a slot of the session ceiling, and the scan reads
-                # people from a session they never had. HogQL's own property read of `$session_id`
-                # treats both values as absent.
+                # exposed person groups into one session whose earliest event can precede any real
+                # session's, and the scan reads people from a session they never had. HogQL's own
+                # property read of `$session_id` treats both values as absent.
                 op=ast.CompareOperationOp.NotIn,
                 left=ast.Field(chain=["$session_id"]),
                 right=ast.Constant(value=["", "null"]),
             ),
-        ]
-
-    def covered_sessions(self, start: datetime, *, of: str) -> ast.SelectQuery:
-        # The sessions the comparison can cover: sessions of exposed persons whose last activity
-        # is at or after that person's first exposure, most recent last activity first, capped at
-        # the session ceiling. Its only job is to bound what the scan aggregates, the same
-        # nomination the recordings list applies (join on distinct id, end time at or after first
-        # exposure).
-        #
-        # Nominated from the events table rather than the sessions table: the sessions table would
-        # read one row per session, but its lazy aggregation only prunes when the resolver can push
-        # the time bounds below the per-session GROUP BY, and no such pushdown exists for a join on
-        # distinct_id, so a miss would silently scan the team's whole session history. The events
-        # read is bounded by the window by construction. It has no event-name prune, the same
-        # posture the scan itself takes. Note `sessions.distinct_id` would also be an argMax over
-        # the session's events, while this join sees every distinct id active in the session.
-        #
-        # `of` picks the one column each use site can take: the ceiling has to be applied before
-        # either is read, and an IN subquery may only return one.
-        last_seen = ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])]))
-        return ast.SelectQuery(
-            select=[last_seen if of == "last_seen" else ast.Field(chain=[of])],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), next_join=self.population_joined("events")),
-            where=ast.And(exprs=self.window_conditions(start)),
-            group_by=[ast.Field(chain=["$session_id"])],
-            # A session can hold rows of more than one exposed person; min() nominates it when it
-            # is coverable for any of them, and the scan's own per-person HAVING then decides for
-            # whom. Same shape as the list's `end_time >= min(exposure.first_exposure_time)`.
-            having=ast.CompareOperation(
+            ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
-                left=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])]),
-                right=ast.Call(name="min", args=[ast.Field(chain=["population", "first_exposure_time"])]),
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Field(chain=["population", "first_exposure_time"]),
             ),
-            order_by=[
-                ast.OrderExpr(expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])]), order="DESC"),
-            ],
-            limit=ast.Constant(value=MAX_DELTA_SCAN_SESSIONS),
-        )
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Add,
+                    left=ast.Field(chain=["population", "first_exposure_time"]),
+                    right=ast.Call(name="toIntervalHour", args=[ast.Constant(value=FIRST_SESSION_HORIZON_HOURS)]),
+                ),
+            ),
+        ]
 
     def run(self, query: ast.SelectQuery) -> list[tuple]:
         # Every query here aggregates over the exposed population, and the answer is cached for the
@@ -816,7 +891,6 @@ def _cache_key(
     team: Team,
     user: User,
     experiment: Experiment,
-    window_start: datetime,
     window_end: datetime,
     default_exposure_event: str,
 ) -> str:
@@ -828,12 +902,11 @@ def _cache_key(
             # Which event the default exposure resolved to. The $experiment_exposure rollout can
             # flip under a team, and cards computed on the other event are a different population.
             default_exposure_event,
-            # The window moves with wall-clock time on a running experiment, so it is quantized to
-            # the cache's own TTL rather than to the minute: at minute resolution the key changes
+            # The window end moves with wall-clock time on a running experiment, so it is quantized
+            # to the cache's own TTL rather than to the minute: at minute resolution the key changes
             # every minute and the entry it would have reused is still warm, so every reload pays
             # for a full scan. The cost of the coarser bucket is that an answer can be one TTL
             # stale, which is what the TTL already promised.
-            int(window_start.timestamp()) // DELTA_CACHE_TTL,
             int(window_end.timestamp()) // DELTA_CACHE_TTL,
             # The experiment's metrics decide which cards carry a metric label and which events
             # get shortcut cards, its exposure criteria decide who is compared and how someone who
@@ -870,7 +943,7 @@ def _cache_key(
     # applied on read. One viewer's scan then serves every viewer whose restrictions match, which
     # on the heaviest read in this family is the difference between paying it once per team per
     # TTL and once per viewer.
-    return f"experiment_session_event_deltas_v12_{team.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_event_deltas_v13_{team.pk}_{experiment.pk}_{digest}"
 
 
 def _metric_event_names(metrics: list[MetricEventSource]) -> set[str]:
@@ -889,52 +962,131 @@ def _metric_event_names(metrics: list[MetricEventSource]) -> set[str]:
     }
 
 
+def _nominate_enrollment(setup: _QuerySetup, *, window_end: datetime) -> _ComparedEnrollment:
+    """Which exposed people this comparison covers, decided from the population alone.
+
+    Read as per-minute counts of first exposures, newest minute first, rather than one row per
+    person: the walk below only needs to know how many people each stretch of time admits, minute
+    buckets keep the result under HogQL's returned-rows ceiling however many people the run has,
+    and they make the cutoff a clean boundary the population filter can reproduce exactly. One row
+    past the person cap, so a run with exactly that many minutes of enrollment is not read as cut
+    short. MULTIPLE_VARIANT_KEY people are in, so the count of people the analysis set aside is
+    taken over the same people the comparison reads.
+    """
+    first_exposures = ast.SelectQuery(
+        select=[
+            # One value per person by construction: the exposure linkage stamps a person's first
+            # exposure on every one of their distinct ids.
+            ast.Alias(
+                alias="first_exposure", expr=ast.Call(name="min", args=[ast.Field(chain=["first_exposure_time"])])
+            ),
+        ],
+        select_from=ast.JoinExpr(table=setup.population()),
+        group_by=[ast.Field(chain=["person_id"])],
+    )
+    minutes = ast.SelectQuery(
+        select=[
+            ast.Alias(
+                alias="minute", expr=ast.Call(name="toStartOfMinute", args=[ast.Field(chain=["first_exposure"])])
+            ),
+            ast.Alias(alias="people", expr=ast.Call(name="count", args=[])),
+        ],
+        select_from=ast.JoinExpr(table=first_exposures),
+        group_by=[ast.Field(chain=["minute"])],
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=["minute"]), order="DESC")],
+        limit=ast.Constant(value=MAX_DELTA_SCAN_PERSONS + 1),
+    )
+    buckets = [_EnrollmentMinute(minute=row[0], people=int(row[1])) for row in setup.run(minutes)]
+    return _plan_compared_enrollment(
+        buckets,
+        window_end=window_end,
+        horizon=timedelta(hours=FIRST_SESSION_HORIZON_HOURS),
+        day_budget=timedelta(days=MAX_DELTA_SCAN_DAYS),
+        person_cap=MAX_DELTA_SCAN_PERSONS,
+    )
+
+
+def _plan_compared_enrollment(
+    buckets: list[_EnrollmentMinute],
+    *,
+    window_end: datetime,
+    horizon: timedelta,
+    day_budget: timedelta,
+    person_cap: int,
+) -> _ComparedEnrollment:
+    """Walk the enrollment minutes newest first, admitting whole minutes until the person cap is
+    reached or the union of the admitted stretches would exceed the day budget.
+
+    A minute's stretch runs from its start to one minute plus the horizon later, because the
+    people first exposed in it are read up to the horizon after their own first exposure. Stretches
+    that overlap merge, so a busy week costs the budget once however many minutes it holds, and a
+    gap between two bursts of enrollment costs nothing. A whole minute is admitted or none of it,
+    so at most one minute of enrollment can overshoot the cap. Free of ClickHouse so the cost bound
+    can be tested on its own.
+    """
+    ranges: list[_TimeRange] = []
+    covered = timedelta(0)
+    persons = 0
+    cutoff = window_end
+    truncated = False
+    for bucket in buckets:
+        # An exposure can land between this module reading the clock and the population reading
+        # it, so the newest minute can start past the window end; nothing is read past it.
+        start = min(bucket.minute, window_end)
+        end = min(start + timedelta(minutes=1) + horizon, window_end)
+        # Older than every admitted minute, so it can only touch the oldest range, at its start.
+        merges = bool(ranges) and end >= ranges[-1].start
+        extra = ranges[-1].start - start if merges else end - start
+        if persons >= person_cap or covered + extra > day_budget:
+            truncated = True
+            break
+        if merges:
+            ranges[-1] = replace(ranges[-1], start=start)
+        else:
+            ranges.append(_TimeRange(start=start, end=end))
+        covered += extra
+        persons += bucket.people
+        cutoff = start
+    return _ComparedEnrollment(
+        cutoff=cutoff,
+        end=ranges[0].end if ranges else window_end,
+        persons=persons,
+        ranges=tuple(ranges),
+        truncated=truncated,
+    )
+
+
 def _query_event_deltas(
     setup: _QuerySetup,
     *,
     excluded_events: list[str],
-    window_start: datetime,
+    window_end: datetime,
 ) -> SessionEventDeltaScan:
-    # What the session ceiling actually covers. It is what lets the scan skip the stretch of the
-    # window where none of the covered sessions live. On a busy project that is most of the window.
-    coverage = setup.run(
-        ast.SelectQuery(
-            select=[
-                ast.Call(name="min", args=[ast.Field(chain=["last_seen"])]),
-                ast.Call(name="count", args=[]),
-            ],
-            select_from=ast.JoinExpr(table=setup.covered_sessions(window_start, of="last_seen")),
-        )
-    )
-    covered_sessions = int(coverage[0][1]) if coverage else 0
-    if not covered_sessions:
+    enrollment = _nominate_enrollment(setup, window_end=window_end)
+    if not enrollment.persons:
+        # Nobody has been exposed yet, so there is nothing to read and nobody to be out of sight.
         return SessionEventDeltaScan(
             persons={},
             sessions={},
             events_truncated=False,
-            sessions_truncated=False,
-            covered_from=window_start,
-            # No session was nominated, so a non-empty population means every exposed person is
-            # out of the scan's sight.
-            exposed_persons_without_session=_anyone_exposed(setup),
+            enrollment=enrollment,
+            exposed_persons_without_session=False,
         )
-    oldest_covered: datetime = coverage[0][0]
-    covered_from = max(window_start, oldest_covered - timedelta(hours=MAX_SESSION_DURATION_HOURS))
 
-    # One row per (person, covered session): the variant the population attributes to them, when
-    # their part of the session began, and the comparable event names their rows in it contain,
-    # merged across the person's distinct ids by the GROUP BY. The join runs on the exposed
-    # person's own distinct ids, so a session that a second, unexposed person shares never
-    # produces a row for that person, and rows other people fired into the session never reach
-    # their event names. The uncomparable names are dropped here rather than in the WHERE so a
-    # session whose only events are excluded ones still produces a row and its person still
-    # counts toward their variant's total.
+    # One row per (person, session) among the rows the person fired from their first exposure on,
+    # within the horizon: the variant the population attributes to them, when their part of the
+    # session began, and the comparable event names their rows in it contain, merged across the
+    # person's distinct ids by the GROUP BY. The join runs on the exposed person's own distinct
+    # ids, so a session that a second, unexposed person shares never produces a row for that
+    # person, and rows other people fired into the session never reach their event names. The
+    # uncomparable names are dropped here rather than in the WHERE so a session whose only events
+    # are excluded ones still produces a row and its person still counts toward their variant's
+    # total.
     person_sessions = ast.SelectQuery(
         select=[
             ast.Alias(alias="person_id", expr=ast.Field(chain=["population", "person_id"])),
             # Exact, not an arbitrary pick: the population attributes each person exactly one
-            # variant, carried on every one of their distinct ids. Same for first_exposure_time in
-            # the HAVING below.
+            # variant, carried on every one of their distinct ids.
             ast.Alias(alias="variant", expr=ast.Call(name="any", args=[ast.Field(chain=["population", "variant"])])),
             ast.Alias(alias="started", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(
@@ -964,34 +1116,16 @@ def _query_event_deltas(
                 ),
             ),
         ],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), next_join=setup.population_joined("events")),
-        where=ast.And(
-            exprs=[
-                *setup.window_conditions(covered_from),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GlobalIn,
-                    left=ast.Field(chain=["$session_id"]),
-                    # Re-resolved over the clamped window rather than passed in as ids: the ceiling
-                    # picks the same sessions either way, and 20,000 ids inlined into the SQL is a
-                    # megabyte of query text. GLOBAL, because the nomination joins the population
-                    # and must be evaluated once rather than re-run per shard.
-                    right=setup.covered_sessions(covered_from, of="$session_id"),
-                ),
-            ]
+        select_from=ast.JoinExpr(
+            table=ast.Field(chain=["events"]),
+            next_join=setup.population_joined("events", cutoff=enrollment.cutoff),
         ),
+        where=ast.And(exprs=setup.row_conditions(enrollment)),
         group_by=[ast.Field(chain=["population", "person_id"]), ast.Field(chain=["$session_id"])],
-        # The sessions this person can be compared in: their own activity in the session ends at
-        # or after their first exposure, so a session they left before they were exposed says
-        # nothing about the variant. Per person, unlike the nomination's session-wide bound.
-        having=ast.CompareOperation(
-            op=ast.CompareOperationOp.GtEq,
-            left=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])]),
-            right=ast.Call(name="any", args=[ast.Field(chain=["population", "first_exposure_time"])]),
-        ),
     )
 
-    # One row per exposed person: which variant they saw, how many sessions of theirs the comparison
-    # covers, and what they did in the first of them. Only the first, because the variants don't
+    # One row per exposed person: which variant they saw, how many sessions of theirs fall in the
+    # horizon, and what they did in the first of them. Only the first, because the variants don't
     # necessarily get the same number of sessions per person — a variant that stops re-evaluating
     # the flag once someone has acted contributes fewer later sessions, and a person seen in seven
     # sessions has seven times the chance to have done anything than one seen in two. Measured on a
@@ -1060,28 +1194,11 @@ def _query_event_deltas(
         persons={(event_name, variant): persons for event_name, variant, persons, _sessions in rows},
         sessions={variant: sessions for event_name, variant, _persons, sessions in rows if event_name == ""},
         events_truncated=events_truncated,
-        sessions_truncated=covered_sessions >= MAX_DELTA_SCAN_SESSIONS,
-        covered_from=covered_from,
-        # Sessions were covered, so at least one exposed person has one.
-        exposed_persons_without_session=False,
-    )
-
-
-def _anyone_exposed(setup: _QuerySetup) -> bool:
-    """Whether the experiment has exposed anyone at all.
-
-    Asked only after the coverage query nominated no session. It separates "nobody exposed yet",
-    which is worth waiting for, from "the people exposed have no sessions we can see", which more
-    of the same capture never fixes. LIMIT 1 because one row settles it.
-    """
-    return bool(
-        setup.run(
-            ast.SelectQuery(
-                select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=setup.population()),
-                limit=ast.Constant(value=1),
-            )
-        )
+        enrollment=enrollment,
+        # People were chosen, so no row at all means none of them has a session in sight. It
+        # separates "nobody exposed yet", which is worth waiting for, from "the people exposed have
+        # no sessions we can see", which more of the same capture never fixes.
+        exposed_persons_without_session=not rows,
     )
 
 
@@ -1123,7 +1240,7 @@ def _build_shelf(
         setup,
         candidates=[*comparison_candidates, *metric_cards],
         metric_nodes=_shortcut_nodes(metric_cards, nodes_by_metric_event),
-        covered_from=scan.covered_from,
+        enrollment=scan.enrollment,
     )
     comparison_cards = [card for card in resolved if card.kind != WatchCardKind.METRIC]
     if not _has_finding(resolved):
@@ -1155,7 +1272,7 @@ def _build_shelf(
                     setup,
                     candidates=unqueried,
                     metric_nodes=_shortcut_nodes(unqueried, nodes_by_metric_event),
-                    covered_from=scan.covered_from,
+                    enrollment=scan.enrollment,
                 )
             }
         )
@@ -1458,7 +1575,7 @@ def _resolve_cards(
     *,
     candidates: list[ExperimentWatchCard],
     metric_nodes: dict[str, list[EventsNode]],
-    covered_from: datetime,
+    enrollment: _ComparedEnrollment,
 ) -> list[ExperimentWatchCard]:
     """The candidates that recordings can back, each carrying its recordings and highlights.
 
@@ -1470,7 +1587,7 @@ def _resolve_cards(
     recordings = _recordings_for_cards(
         setup,
         wanted=[(candidate.event, candidate.variant) for candidate in candidates],
-        covered_from=covered_from,
+        enrollment=enrollment,
         metric_nodes=metric_nodes,
     )
     return [
@@ -1489,13 +1606,13 @@ def _recordings_for_cards(
     setup: _QuerySetup,
     *,
     wanted: list[tuple[str, str]],
-    covered_from: datetime,
+    enrollment: _ComparedEnrollment,
     metric_nodes: Optional[dict[str, list[EventsNode]]] = None,
 ) -> dict[tuple[str, str], _CardRecordings]:
     """Recent recorded sessions per (event, variant) pair, most recent first, and which of them to open
     first.
 
-    Unlike the scan this prunes on event names, so it reads a sliver of the window. Every candidate
+    Unlike the scan this prunes on event names, so it reads a sliver of the compared stretches. Every candidate
     then goes through replay's own existence check rather than being trusted because it was exposed:
     replay sampling, retention and deletion mean most exposed sessions have nothing to play, and a
     card is only as good as the recordings behind it.
@@ -1614,18 +1731,11 @@ def _recordings_for_cards(
                 for index, event in enumerate(wanted_events)
             ),
         ],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), next_join=setup.population_joined("events")),
-        where=ast.And(
-            exprs=[
-                *setup.window_conditions(covered_from),
-                wanted_event_rows,
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GlobalIn,
-                    left=ast.Field(chain=["$session_id"]),
-                    right=setup.covered_sessions(covered_from, of="$session_id"),
-                ),
-            ]
+        select_from=ast.JoinExpr(
+            table=ast.Field(chain=["events"]),
+            next_join=setup.population_joined("events", cutoff=enrollment.cutoff),
         ),
+        where=ast.And(exprs=[*setup.row_conditions(enrollment), wanted_event_rows]),
         group_by=[ast.Field(chain=["$session_id"])],
     )
 
@@ -1639,8 +1749,8 @@ def _recordings_for_cards(
         ],
         select_from=ast.JoinExpr(table=session_rows),
         # Drops the MULTIPLE_VARIANT_KEY sessions (see the variant column above). A card's
-        # recordings still come from any of the variant's covered sessions, not only each person's
-        # first: the comparison needs a fair population, the watchlist needs the behavior on
+        # recordings still come from any of a compared person's sessions in the horizon, not only
+        # their first: the comparison needs a fair population, the watchlist needs the behavior on
         # screen, the module docstring's split.
         where=ast.CompareOperation(
             op=ast.CompareOperationOp.In, left=ast.Field(chain=["variant"]), right=ast.Constant(value=wanted_variants)
