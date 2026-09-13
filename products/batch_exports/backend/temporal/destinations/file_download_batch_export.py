@@ -372,7 +372,16 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
                 batch_export_id=inputs.batch_export_id,
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
-                data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+                # HogQL on demand queries run over all data at the time the export starts, so a
+                # `None` start lets the record batch model substitute the epoch sentinel for any
+                # interval placeholders.
+                data_interval_start=(
+                    None
+                    if on_demand and inputs.batch_export_model and inputs.batch_export_model.name == "hogql"
+                    else data_interval.start.isoformat()
+                )
+                if not should_backfill_from_beginning
+                else None,
                 data_interval_end=data_interval.end.isoformat(),
                 destination_default_fields=s3_default_fields(),
                 on_demand=on_demand,
