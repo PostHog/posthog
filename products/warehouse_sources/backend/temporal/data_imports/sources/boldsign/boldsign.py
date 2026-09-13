@@ -1,10 +1,10 @@
 import dataclasses
-from collections.abc import Iterable
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 import structlog
 from requests import Request, Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.fanout import boldsign_fanout_source
 from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.settings import (
     BOLDSIGN_ENDPOINTS,
     PAGE_SIZE,
@@ -15,15 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-    build_dependent_resource,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -35,8 +30,8 @@ BOLDSIGN_HOSTS = {
     "us": "https://api.boldsign.com",
     "eu": "https://api-eu.boldsign.com",
 }
-# Page-number access is capped at 10,000 records; the document list endpoints page past it
-# via NextCursor.
+# Page-number access is capped at 10,000 records; the document list endpoints page past it via
+# NextCursor.
 RECORD_CURSOR_THRESHOLD = 10_000
 
 
@@ -168,60 +163,6 @@ def validate_credentials(region: str, api_key: str) -> tuple[bool, str | None]:
     return False, f"Unexpected response from BoldSign (status {status})"
 
 
-def _client_config(region: str, api_key: str, paginator: BasePaginator) -> ClientConfig:
-    return {
-        "base_url": _base_url(region),
-        # The API key is supplied via the framework auth config so its value is redacted
-        # from logs; only the non-secret Accept header is set here.
-        "headers": {"Accept": "application/json"},
-        "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-KEY", "location": "header"},
-        "paginator": paginator,
-    }
-
-
-def _fanout_source(
-    region: str,
-    api_key: str,
-    endpoint: str,
-    config: BoldSignEndpointConfig,
-    fanout: DependentEndpointConfig,
-    team_id: int,
-    job_id: str,
-) -> SourceResponse:
-    parent_config = BOLDSIGN_ENDPOINTS[fanout.parent_name]
-    # Neither side of this fan-out paginates, and the shared fan-out helper has no resume
-    # support — the brand list is small and the children are replaced wholesale each run.
-    resource = cast(
-        Iterable[Any],
-        build_dependent_resource(
-            endpoint_configs=BOLDSIGN_ENDPOINTS,
-            child_endpoint=endpoint,
-            fanout=fanout,
-            client_config=_client_config(region, api_key, SinglePagePaginator()),
-            path_format_values={},
-            team_id=team_id,
-            job_id=job_id,
-            db_incremental_field_last_value=None,
-            # Neither endpoint takes a page-size param.
-            page_size_param=None,
-            parent_endpoint_extra={
-                "data_selector": parent_config.data_key,
-                "paginator": SinglePagePaginator(),
-            },
-            child_endpoint_extra={
-                "data_selector": config.data_key,
-                "paginator": SinglePagePaginator(),
-            },
-        ),
-    )
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=config.primary_keys,
-        partition_mode=None,
-    )
-
-
 def boldsign_source(
     region: str,
     api_key: str,
@@ -233,7 +174,7 @@ def boldsign_source(
     config: BoldSignEndpointConfig = BOLDSIGN_ENDPOINTS[endpoint]
 
     if config.fanout is not None:
-        return _fanout_source(region, api_key, endpoint, config, config.fanout, team_id, job_id)
+        return boldsign_fanout_source(_base_url(region), api_key, endpoint, team_id, job_id)
 
     paginator: BasePaginator
     if config.paginated:
@@ -243,7 +184,14 @@ def boldsign_source(
         paginator = SinglePagePaginator()
 
     rest_config: RESTAPIConfig = {
-        "client": _client_config(region, api_key, paginator),
+        "client": {
+            "base_url": _base_url(region),
+            # The API key is supplied via the framework auth config so its value is redacted
+            # from logs; only the non-secret Accept header is set here.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-KEY", "location": "header"},
+            "paginator": paginator,
+        },
         "resources": [
             {
                 "name": endpoint,

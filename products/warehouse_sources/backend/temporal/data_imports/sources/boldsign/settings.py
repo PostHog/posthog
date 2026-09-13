@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -8,7 +10,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 PAGE_SIZE = 100
 
 
-@dataclass
+@frozen
 class BoldSignEndpointConfig:
     name: str
     path: str
