@@ -16,8 +16,10 @@ to empty to disable the job). Self-hosted instances default to no teams so the
 job never precomputes for unrelated teams that happen to share those IDs. There
 is no dependency on the v2 team-selection dictionary or flag.
 
-The write path is not yet wired into any query runner — this job only populates
-the tables (so the new output can be compared with v2's side by side).
+No query runner reads these tables: this job only populates them, so the new
+output can be compared with v2's side by side. Serving filtered dashboard reads
+from them was measured and rejected
+(`docs/internal/web-analytics-dimensional-read-evaluation.md`).
 """
 
 import os
