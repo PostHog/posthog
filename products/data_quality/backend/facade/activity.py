@@ -20,5 +20,5 @@ def model_activity(queryset: QuerySet[ActivityLog], team_id: int, saved_query_id
         .values("activity_item_id")
     )
     return queryset.filter(team_id=team_id).filter(
-        Q(scope="DataWarehouseSavedQuery", item_id=saved_query_id) | Q(scope="DataQualityCheck", item_id__in=checks)
+        Q(item_id=saved_query_id) | Q(scope="DataQualityCheck", item_id__in=checks)
     )

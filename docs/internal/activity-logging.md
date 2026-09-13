@@ -151,8 +151,6 @@ Explicit logging at a bulk-write site should read its before-values from the wri
 ## Reading the log
 
 - `GET /api/projects/:id/activity_log/` - the list the side panel reads.
-  The model history tab opts into related check activity with `include_model_checks=true` and a saved query `item_id`.
-  Without that option, `item_id` always filters to the exact resource, including when multiple scopes are requested.
 - `GET /api/projects/:id/advanced_activity_logs/` - filters, field discovery, and export.
 - Access control: resource `activity_log`, default level `viewer`.
 - Entitlement: the advanced endpoint is gated by `AvailableFeature.AUDIT_LOGS` and applies the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). The plain list the side panel reads is not gated the same way. Writes always happen.

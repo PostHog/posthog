@@ -284,13 +284,7 @@ export const ActivityLogRow = ({
     )
 }
 
-export const ActivityLog = ({
-    scope,
-    id,
-    caption,
-    startingPage = 1,
-    includeModelChecks,
-}: ActivityLogProps): JSX.Element | null => {
+export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element | null => {
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -308,26 +302,14 @@ export const ActivityLog = ({
                 featureDetail="activity-log"
                 overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
             >
-                <ActivityLogContents
-                    scope={scope}
-                    id={id}
-                    caption={caption}
-                    startingPage={startingPage}
-                    includeModelChecks={includeModelChecks}
-                />
+                <ActivityLogContents scope={scope} id={id} caption={caption} startingPage={startingPage} />
             </PayGateMini>
         </div>
     )
 }
 
-const ActivityLogContents = ({
-    scope,
-    id,
-    caption,
-    startingPage = 1,
-    includeModelChecks,
-}: ActivityLogProps): JSX.Element => {
-    const logic = activityLogLogic({ scope, id, caption, startingPage, includeModelChecks })
+const ActivityLogContents = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element => {
+    const logic = activityLogLogic({ scope, id, caption, startingPage })
     const { humanizedActivity, activityLoading, pagination, highlightedActivityId } = useValues(logic)
 
     const paginationState = usePagination(humanizedActivity || [], pagination)

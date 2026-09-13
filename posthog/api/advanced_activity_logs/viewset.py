@@ -268,11 +268,6 @@ class ActivityLogQueryParamsSerializer(serializers.Serializer):
         required=False,
         help_text="Filter by the ID of the affected resource.",
     )
-    include_model_checks = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text="Include related data quality check activity when item_id identifies a saved query.",
-    )
     ordering = serializers.ChoiceField(
         choices=ACTIVITY_LOG_ORDERING_CHOICES,
         required=False,
@@ -332,7 +327,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             scopes = str(params.get("scopes", "")).split(",")
             queryset = queryset.filter(scope__in=scopes)
         if params.get("item_id"):
-            if params.get("include_model_checks", "").lower() == "true":
+            if set(str(params.get("scopes", "")).split(",")) == {"DataWarehouseSavedQuery", "DataQualityCheck"}:
                 # Load the product relationship only for a model's combined history feed.
                 from products.data_quality.backend.facade.activity import model_activity  # noqa: PLC0415
 

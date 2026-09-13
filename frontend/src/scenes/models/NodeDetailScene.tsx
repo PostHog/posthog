@@ -87,7 +87,6 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
                     <ActivityLog
                         scope={[ActivityScope.DATA_WAREHOUSE_SAVED_QUERY, ActivityScope.DATA_QUALITY_CHECK]}
                         id={savedQueryId ?? ''}
-                        includeModelChecks
                     />
                 )
             case 'tests':

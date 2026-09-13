@@ -94852,10 +94852,6 @@ export namespace Schemas {
 
     export type ActivityLogListParams = {
     /**
-     * Include related data quality check activity when item_id identifies a saved query.
-     */
-    include_model_checks?: boolean;
-    /**
      * Filter by the ID of the affected resource.
      * @minLength 1
      */
