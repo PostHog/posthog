@@ -194,6 +194,16 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
             "databricks-sql-access or workspace-consume entitlements": "Your Databricks credentials don't have the databricks-sql-access or workspace-consume entitlement. Grant one of those entitlements to the connecting user or service principal in your Databricks workspace admin settings, then resync.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `ThriftBackend.make_request` already retries a 429 from Databricks itself before
+        # re-raising, so a 429 that still reaches us here came from PostHog's own egress proxy
+        # throttling the CONNECT tunnel (the same class ClickHouse and Salesforce already treat
+        # this way), not from Databricks or the customer. Once Temporal retries the whole activity
+        # the failure is transient and self-recovering, so don't surface it as tracked exception
+        # noise. Matches only the 429 gateway status; a deterministic tunnel failure (e.g. 407
+        # proxy-auth) still stays reportable.
+        return {"Tunnel connection failed: 429"}
+
     def validate_credentials(
         self,
         config: DatabricksSourceConfig,
