@@ -7,14 +7,15 @@
     conv.id AS id,
     conv.source AS source,
     multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign) AS match_key,
-    sum(conv.conversion_0) AS conversion_0
+    sumIf(conv.conversion_goal_value, equals(conv.conversion_goal_index, 0)) AS conversion_0
   FROM
   (
     SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
       if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
-      count() AS conversion_0
+      0 AS conversion_goal_index,
+      count() AS conversion_goal_value
     FROM
     (
       SELECT
@@ -169,14 +170,15 @@
     conv.id AS id,
     conv.source AS source,
     conv.campaign AS match_key,
-    sum(conv.conversion_0) AS conversion_0
+    sumIf(conv.conversion_goal_value, equals(conv.conversion_goal_index, 0)) AS conversion_0
   FROM
   (
     SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
       if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
-      count() AS conversion_0
+      0 AS conversion_goal_index,
+      count() AS conversion_goal_value
     FROM
     (
       SELECT
@@ -331,14 +333,15 @@
     conv.id AS id,
     conv.source AS source,
     multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign) AS match_key,
-    sum(conv.conversion_0) AS conversion_0
+    sumIf(conv.conversion_goal_value, equals(conv.conversion_goal_index, 0)) AS conversion_0
   FROM
   (
     SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
       if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
-      count() AS conversion_0
+      0 AS conversion_goal_index,
+      count() AS conversion_goal_value
     FROM
     (
       SELECT
@@ -493,14 +496,15 @@
     conv.id AS id,
     conv.source AS source,
     multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign) AS match_key,
-    sum(conv.conversion_0) AS conversion_0
+    sumIf(conv.conversion_goal_value, equals(conv.conversion_goal_index, 0)) AS conversion_0
   FROM
   (
     SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
       if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
-      count() AS conversion_0
+      0 AS conversion_goal_index,
+      count() AS conversion_goal_value
     FROM
     (
       SELECT
@@ -649,24 +653,56 @@
 # ---
 # name: TestConversionGoalsAggregator.test_multiple_goals_sql_snapshot
   '''
-  
+  WITH
+    ucg_shared_0 AS (
+    SELECT
+      person_id,
+      groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
+      groupArray(campaign_name) AS utm_campaigns,
+      groupArray(source_name) AS utm_sources,
+      groupArray(medium_name) AS utm_mediums,
+      groupArray(content_name) AS utm_contents,
+      groupArray(term_name) AS utm_terms,
+      groupArray(referring_domain_name) AS utm_referring_domains,
+      groupArray(gclid_name) AS utm_gclids,
+      groupArray(fbclid_name) AS utm_fbclids,
+      groupArray(gad_source_name) AS utm_gad_sources
+    FROM
+    (
+      SELECT
+        DISTINCT person_id,
+        touchpoint_timestamp,
+        campaign_name,
+        source_name,
+        medium_name,
+        content_name,
+        term_name,
+        referring_domain_name,
+        gclid_name,
+        fbclid_name,
+        gad_source_name
+      FROM
+        marketing_touchpoints_preaggregated
+      WHERE
+        and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+    GROUP BY
+      person_id)
   SELECT
     conv.campaign AS campaign,
     conv.id AS id,
     conv.source AS source,
     conv.campaign AS match_key,
-    sum(conv.conversion_0) AS conversion_0,
-    sum(conv.conversion_1) AS conversion_1,
-    sum(conv.conversion_2) AS conversion_2
+    sumIf(conv.conversion_goal_value, equals(conv.conversion_goal_index, 0)) AS conversion_0,
+    sumIf(conv.conversion_goal_value, equals(conv.conversion_goal_index, 1)) AS conversion_1,
+    sumIf(conv.conversion_goal_value, equals(conv.conversion_goal_index, 2)) AS conversion_2
   FROM
   (
     SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
       if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
-      count() AS conversion_0,
-      0 AS conversion_1,
-      0 AS conversion_2
+      0 AS conversion_goal_index,
+      count() AS conversion_goal_value
     FROM
     (
       SELECT
@@ -765,42 +801,10 @@
               FROM
                 marketing_conversions_preaggregated
               WHERE
-                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS c
-            LEFT JOIN (
-            SELECT
-              person_id,
-              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              groupArray(campaign_name) AS utm_campaigns,
-              groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
-              groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
-              groupArray(gad_source_name) AS utm_gad_sources
-            FROM
-            (
-              SELECT
-                DISTINCT person_id,
-                touchpoint_timestamp,
-                campaign_name,
-                source_name,
-                medium_name,
-                content_name,
-                term_name,
-                referring_domain_name,
-                gclid_name,
-                fbclid_name,
-                gad_source_name
-              FROM
-                marketing_touchpoints_preaggregated
-              WHERE
-                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
-            GROUP BY
-              person_id) AS t ON equals(c.person_id, t.person_id))
+            LEFT JOIN ucg_shared_0 AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
     GROUP BY
       campaign,
@@ -811,9 +815,8 @@
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
       if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
-      0 AS conversion_0,
-      count() AS conversion_1,
-      0 AS conversion_2
+      1 AS conversion_goal_index,
+      count() AS conversion_goal_value
     FROM
     (
       SELECT
@@ -915,39 +918,7 @@
                 and(in(job_id, tuple('00000000-0000-0000-0000-000000000003')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS c
-            LEFT JOIN (
-            SELECT
-              person_id,
-              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              groupArray(campaign_name) AS utm_campaigns,
-              groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
-              groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
-              groupArray(gad_source_name) AS utm_gad_sources
-            FROM
-            (
-              SELECT
-                DISTINCT person_id,
-                touchpoint_timestamp,
-                campaign_name,
-                source_name,
-                medium_name,
-                content_name,
-                term_name,
-                referring_domain_name,
-                gclid_name,
-                fbclid_name,
-                gad_source_name
-              FROM
-                marketing_touchpoints_preaggregated
-              WHERE
-                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
-            GROUP BY
-              person_id) AS t ON equals(c.person_id, t.person_id))
+            LEFT JOIN ucg_shared_0 AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
     GROUP BY
       campaign,
@@ -958,9 +929,8 @@
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
       if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
-      0 AS conversion_0,
-      0 AS conversion_1,
-      count() AS conversion_2
+      2 AS conversion_goal_index,
+      count() AS conversion_goal_value
     FROM
     (
       SELECT
@@ -1062,39 +1032,7 @@
                 and(in(job_id, tuple('00000000-0000-0000-0000-000000000004')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS c
-            LEFT JOIN (
-            SELECT
-              person_id,
-              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              groupArray(campaign_name) AS utm_campaigns,
-              groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
-              groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
-              groupArray(gad_source_name) AS utm_gad_sources
-            FROM
-            (
-              SELECT
-                DISTINCT person_id,
-                touchpoint_timestamp,
-                campaign_name,
-                source_name,
-                medium_name,
-                content_name,
-                term_name,
-                referring_domain_name,
-                gclid_name,
-                fbclid_name,
-                gad_source_name
-              FROM
-                marketing_touchpoints_preaggregated
-              WHERE
-                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
-            GROUP BY
-              person_id) AS t ON equals(c.person_id, t.person_id))
+            LEFT JOIN ucg_shared_0 AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
     GROUP BY
       campaign,
@@ -1109,22 +1047,55 @@
 # ---
 # name: TestConversionGoalsAggregator.test_unified_cte_sql_snapshot
   '''
-  
+  WITH
+    ucg_shared_0 AS (
+    SELECT
+      person_id,
+      groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
+      groupArray(campaign_name) AS utm_campaigns,
+      groupArray(source_name) AS utm_sources,
+      groupArray(medium_name) AS utm_mediums,
+      groupArray(content_name) AS utm_contents,
+      groupArray(term_name) AS utm_terms,
+      groupArray(referring_domain_name) AS utm_referring_domains,
+      groupArray(gclid_name) AS utm_gclids,
+      groupArray(fbclid_name) AS utm_fbclids,
+      groupArray(gad_source_name) AS utm_gad_sources
+    FROM
+    (
+      SELECT
+        DISTINCT person_id,
+        touchpoint_timestamp,
+        campaign_name,
+        source_name,
+        medium_name,
+        content_name,
+        term_name,
+        referring_domain_name,
+        gclid_name,
+        fbclid_name,
+        gad_source_name
+      FROM
+        marketing_touchpoints_preaggregated
+      WHERE
+        and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+    GROUP BY
+      person_id)
   SELECT
     conv.campaign AS campaign,
     conv.id AS id,
     conv.source AS source,
     conv.campaign AS match_key,
-    sum(conv.conversion_0) AS conversion_0,
-    sum(conv.conversion_1) AS conversion_1
+    sumIf(conv.conversion_goal_value, equals(conv.conversion_goal_index, 0)) AS conversion_0,
+    sumIf(conv.conversion_goal_value, equals(conv.conversion_goal_index, 1)) AS conversion_1
   FROM
   (
     SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
       if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
-      count() AS conversion_0,
-      0 AS conversion_1
+      0 AS conversion_goal_index,
+      count() AS conversion_goal_value
     FROM
     (
       SELECT
@@ -1223,42 +1194,10 @@
               FROM
                 marketing_conversions_preaggregated
               WHERE
-                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS c
-            LEFT JOIN (
-            SELECT
-              person_id,
-              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              groupArray(campaign_name) AS utm_campaigns,
-              groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
-              groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
-              groupArray(gad_source_name) AS utm_gad_sources
-            FROM
-            (
-              SELECT
-                DISTINCT person_id,
-                touchpoint_timestamp,
-                campaign_name,
-                source_name,
-                medium_name,
-                content_name,
-                term_name,
-                referring_domain_name,
-                gclid_name,
-                fbclid_name,
-                gad_source_name
-              FROM
-                marketing_touchpoints_preaggregated
-              WHERE
-                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
-            GROUP BY
-              person_id) AS t ON equals(c.person_id, t.person_id))
+            LEFT JOIN ucg_shared_0 AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
     GROUP BY
       campaign,
@@ -1269,8 +1208,8 @@
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
       if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
-      0 AS conversion_0,
-      count() AS conversion_1
+      1 AS conversion_goal_index,
+      count() AS conversion_goal_value
     FROM
     (
       SELECT
@@ -1372,39 +1311,7 @@
                 and(in(job_id, tuple('00000000-0000-0000-0000-000000000003')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS c
-            LEFT JOIN (
-            SELECT
-              person_id,
-              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              groupArray(campaign_name) AS utm_campaigns,
-              groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
-              groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
-              groupArray(gad_source_name) AS utm_gad_sources
-            FROM
-            (
-              SELECT
-                DISTINCT person_id,
-                touchpoint_timestamp,
-                campaign_name,
-                source_name,
-                medium_name,
-                content_name,
-                term_name,
-                referring_domain_name,
-                gclid_name,
-                fbclid_name,
-                gad_source_name
-              FROM
-                marketing_touchpoints_preaggregated
-              WHERE
-                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
-            GROUP BY
-              person_id) AS t ON equals(c.person_id, t.person_id))
+            LEFT JOIN ucg_shared_0 AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
     GROUP BY
       campaign,
