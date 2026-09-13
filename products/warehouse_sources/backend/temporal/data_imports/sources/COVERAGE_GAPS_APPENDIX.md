@@ -828,14 +828,14 @@ Diffed against: <https://api.bitbucket.org/swagger.json>
 
 ## Bitrise — gaps
 
-Today (4): `apps`, `artifacts`, `builds`, `workflows`
+Today (8): `apps`, `artifacts`, `branches`, `builds`, `organization_members`, `organizations`, `pipelines`, `workflows`
 
 Diffed against: <https://api-docs.bitrise.io/docs/swagger.json>
 
-- [ ] `/apps/{app-slug}/pipelines (and /pipelines)` — pipeline runs are Bitrise's modern CI execution unit; we sync builds and workflows but not pipeline executions (high)
-- [ ] `/organizations/{org-slug}/members` — org membership records for attributing builds to people (medium)
-- [ ] `/organizations` — lookup resolving the org that owns each app we already sync (medium)
-- [ ] `/apps/{app-slug}/branches` — branch lookup for grouping build history (medium)
+- [x] `/apps/{app-slug}/pipelines (and /pipelines)` — pipeline runs are Bitrise's modern CI execution unit; we sync builds and workflows but not pipeline executions (high). Synced per app, which is the only variant with an `after` time filter; the account-wide `/pipelines` returns the same runs with no filter.
+- [x] `/organizations/{org-slug}/members` — org membership records for attributing builds to people (medium)
+- [x] `/organizations` — lookup resolving the org that owns each app we already sync (medium)
+- [x] `/apps/{app-slug}/branches` — branch lookup for grouping build history (medium)
 - [ ] `/apps/{app-slug}/archived-builds` — extends build history past the live builds window (medium)
 - [ ] `/apps/{app-slug}/build-requests` — queued/pending build requests reveal CI backlog (low)
 - [ ] `/me/activities` — account-level activity event feed (low)
