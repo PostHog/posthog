@@ -36,6 +36,15 @@ SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
 
 pytestmark = [SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS, pytest.mark.asyncio]
 
+# Stand-in credentials so a blank-identifier case exercises only the missing-field check, never a
+# real BigQuery call. The values are placeholders, not usable secrets.
+BLANK_TEST_SERVICE_ACCOUNT_INFO = {
+    "private_key": "not-a-real-key",
+    "private_key_id": "not-a-real-key-id",
+    "token_uri": "https://example.com/token",
+    "client_email": "test@example.com",
+}
+
 
 @pytest.fixture
 def bigquery_config() -> dict[str, str]:
@@ -331,16 +340,41 @@ async def test_bigquery_verify_service_account_ownership_test_step_with_no_imper
 
 
 @pytest.mark.parametrize(
-    "step",
+    "step,expected_message",
     [
-        BigQueryImpersonateServiceAccountTestStep(),
-        BigQueryVerifyServiceAccountOwnershipTestStep(),
-        BigQueryTableTestStep(),
-        BigQueryProjectTestStep(),
-        BigQueryDatasetTestStep(),
+        (BigQueryImpersonateServiceAccountTestStep(), "The test step cannot run as it's not configured."),
+        (BigQueryVerifyServiceAccountOwnershipTestStep(), "The test step cannot run as it's not configured."),
+        (
+            BigQueryTableTestStep(),
+            "The test step cannot run because these fields are missing: Table ID, Dataset ID, BigQuery project, credentials.",
+        ),
+        (BigQueryProjectTestStep(), "The test step cannot run as it's not configured."),
+        (
+            BigQueryDatasetTestStep(),
+            "The test step cannot run because these fields are missing: Dataset ID, BigQuery project, credentials.",
+        ),
+        # A cleared field arrives as an empty or whitespace-only string, not as an absent key, so it
+        # must still be named as missing rather than passed through to BigQuery.
+        (
+            BigQueryTableTestStep(
+                project_id="project",
+                dataset_id="dataset",
+                table_id="   ",
+                service_account_info=BLANK_TEST_SERVICE_ACCOUNT_INFO,
+            ),
+            "The test step cannot run because these fields are missing: Table ID.",
+        ),
+        (
+            BigQueryDatasetTestStep(
+                project_id="project",
+                dataset_id="",
+                service_account_info=BLANK_TEST_SERVICE_ACCOUNT_INFO,
+            ),
+            "The test step cannot run because these fields are missing: Dataset ID.",
+        ),
     ],
 )
-async def test_test_steps_fail_if_not_configured(step):
+async def test_test_steps_fail_if_not_configured(step, expected_message):
     result = await step.run()
     assert result.status == Status.FAILED
-    assert result.message == "The test step cannot run as it's not configured."
+    assert result.message == expected_message
