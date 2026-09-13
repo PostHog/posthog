@@ -49,10 +49,6 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("@posthog/ui/features/canvas/components/ChannelBackRow", () => ({
   ChannelBackRow: () => null,
 }));
-vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
-  ChannelsFab: () => null,
-}));
-
 // The row menu's spaces list reaches for a QueryClient the unit test has no
 // stack for. Stubbed at the module boundary, as ShellLayout.test.tsx does for
 // the same reason.

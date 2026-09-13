@@ -133,7 +133,6 @@ export function ChannelItemsPane({
   cap,
   channelIdFor,
   emptyState,
-  overlay,
   searchLabel = "Search sessions",
 }: {
   items: readonly ChannelItemModel[];
@@ -147,7 +146,6 @@ export function ChannelItemsPane({
   cap?: number;
   channelIdFor?: (item: ChannelItemModel) => string | undefined;
   emptyState: ReactNode;
-  overlay?: ReactNode;
   searchLabel?: string;
 }) {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -415,7 +413,6 @@ export function ChannelItemsPane({
             </Empty>
           ))}
       </div>
-      {overlay}
       <MarqueeOverlay rect={marquee} />
 
       <SidebarBulkActionBar
