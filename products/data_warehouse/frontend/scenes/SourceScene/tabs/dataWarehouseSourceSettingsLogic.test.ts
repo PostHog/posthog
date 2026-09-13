@@ -375,9 +375,10 @@ describe('sourceSettingsLogic', () => {
     })
 
     it('drops a source poll that lands while polling is paused', async () => {
+        jest.useFakeTimers()
         logic = sourceSettingsLogic({ id: 'source-1' })
         logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
+        await jest.advanceTimersByTimeAsync(0)
 
         const sourceBeforePoll = logic.values.source
         let resolvePoll: ((source: ExternalDataSource) => void) | null = null
@@ -385,12 +386,30 @@ describe('sourceSettingsLogic', () => {
             () => new Promise<ExternalDataSource>((resolve) => (resolvePoll = resolve))
         )
 
-        logic.actions.loadSource()
+        await jest.advanceTimersByTimeAsync(5000)
         logic.actions.pausePolling()
         resolvePoll!(makeSource([makeSchema({ id: 'schema-2', name: 'public.other' })]))
-        await expectLogic(logic).toFinishAllListeners()
+        await jest.advanceTimersByTimeAsync(0)
 
         expect(logic.values.source).toBe(sourceBeforePoll)
+    })
+
+    it('applies a manual refresh that lands while a menu is open', async () => {
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        let resolveRefresh: ((source: ExternalDataSource) => void) | null = null
+        jest.spyOn(api.externalDataSources, 'get').mockImplementationOnce(
+            () => new Promise<ExternalDataSource>((resolve) => (resolveRefresh = resolve))
+        )
+
+        logic.actions.loadSource()
+        logic.actions.pausePolling()
+        resolveRefresh!(makeSource([makeSchema({ id: 'schema-2', name: 'public.other' })]))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.source?.schemas.map((schema) => schema.id)).toEqual(['schema-2'])
     })
 
     it('re-throws non-transient errors from loadJobs so the failure path runs', async () => {
