@@ -104,12 +104,9 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = MetricNamesQueryRunner(team=self.team, search=search)
         self.assertEqual([row["name"] for row in runner.run()], expected)
 
-    def test_reads_series_written_without_a_raw_datapoint_row(self):
-        # seed_metric_event writes metric_series1 + metric_samples1 and no metrics1
-        # row, so this is the one test that fails if the runner goes back to
-        # aggregating posthog.metrics. Seeding twice lands two unmerged
-        # ReplacingMergeTree parts for one fingerprint, which must still collapse
-        # to a single picker row without FINAL.
+    def test_collapses_unmerged_series_parts_without_final(self):
+        # Seeding twice lands two unmerged ReplacingMergeTree parts for one
+        # fingerprint, which must still collapse to a single picker row.
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
         for offset in (10, 1):
             seed_metric_event(
@@ -300,8 +297,7 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
 class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
     """The catalog is the picker row plus what makes a card scannable: the unit,
     when the metric was last heard from, and a small sparkline of its recent
-    shape. Sparkline points come from `metric_samples`, so a series written
-    without a pre-aggregated `metrics` row still draws."""
+    shape. Sparkline points come from the raw `metrics` data points."""
 
     CLASS_DATA_LEVEL_SETUP = True
 
@@ -332,8 +328,6 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # A clear rise across the window: any faithful downsampling keeps the
         # last value above the first.
         points = [(anchor + dt.timedelta(minutes=i), float(i)) for i in range(30)]
-        # Sparklines read metric_samples, so seed through the raw-sample path
-        # (seed_metric writes only the pre-aggregated metrics row).
         seed_metric_event(team_id=self.team.id, metric_name="queue.depth", points=points, metric_type="gauge")
 
         runner = MetricNamesQueryRunner(team=self.team)
@@ -346,7 +340,6 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_sparkline_is_bounded(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=120)
         points = [(anchor + dt.timedelta(minutes=i), float(i % 7)) for i in range(120)]
-        # Sparklines read metric_samples, so seed through the raw-sample path.
         seed_metric_event(team_id=self.team.id, metric_name="busy.metric", points=points, metric_type="gauge")
 
         runner = MetricNamesQueryRunner(team=self.team)
@@ -356,9 +349,7 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertGreater(len(row["sparkline"]), 1)
         self.assertLessEqual(len(row["sparkline"]), 24)
 
-    def test_sparkline_reads_samples_without_a_preaggregated_row(self):
-        # seed_metric_event writes metric_series + metric_samples and no metrics
-        # row, so this fails if the sparkline goes back to aggregating posthog.metrics.
+    def test_sparkline_draws_from_a_short_recent_run(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=20)
         points = [(anchor + dt.timedelta(minutes=i), float(i)) for i in range(10)]
         seed_metric_event(team_id=self.team.id, metric_name="samples.only", points=points, metric_type="gauge")
@@ -388,7 +379,6 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_sparkline_scoped_to_services(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=20)
         for service, metric_name in (("web", "http.duration"), ("worker", "jobs.processed")):
-            # Sparklines read metric_samples, so seed through the raw-sample path.
             seed_metric_event(
                 team_id=self.team.id,
                 metric_name=metric_name,
@@ -406,7 +396,6 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # web and worker emit the same metric name. A card scoped to web must
         # draw only web's series; an unscoped card averages both.
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=20)
-        # Sparklines read metric_samples, so seed through the raw-sample path.
         seed_metric_event(
             team_id=self.team.id,
             metric_name="shared.metric",

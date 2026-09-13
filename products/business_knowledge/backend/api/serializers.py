@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 from django.core.files.uploadedfile import UploadedFile
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.security.url_validation import is_url_allowed
@@ -584,3 +584,37 @@ class GapTopicActionResultSerializer(serializers.Serializer):
         read_only=True, help_text="The normalized topic cluster that was acted on."
     )
     updated = serializers.IntegerField(read_only=True, help_text="Number of gap rows whose status changed.")
+
+
+# ---------------------------------------------------------------------------
+# Learning settings
+# ---------------------------------------------------------------------------
+
+
+@extend_schema_serializer(component_name="BusinessKnowledgeSettings")
+class BusinessKnowledgeSettingsSerializer(serializers.Serializer):
+    learn_from_support_enabled = serializers.BooleanField(
+        help_text=(
+            "When true, PostHog learns reusable knowledge from public human replies on resolved "
+            "support tickets. Requires Support to be enabled for this environment."
+        ),
+    )
+    support_enabled = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether Support is enabled for this environment. Learning cannot be turned on while this is false.",
+    )
+
+
+class BusinessKnowledgeSettingsUpdateSerializer(serializers.Serializer):
+    learn_from_support_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When true, PostHog learns reusable knowledge from public human replies on resolved "
+            "support tickets. Rejected when Support is off for this environment."
+        ),
+    )
+
+    def validate_learn_from_support_enabled(self, value: bool) -> bool:
+        if value and not bool(getattr(self.context.get("team"), "conversations_enabled", False)):
+            raise serializers.ValidationError("Turn on Support to learn from resolved tickets.")
+        return value

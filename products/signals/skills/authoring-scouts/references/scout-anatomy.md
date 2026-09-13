@@ -18,7 +18,7 @@ Any valid skill name works: lowercase letters, numbers, and hyphens.
 The `SignalScoutConfig` row is what makes a skill a scout.
 Name it in lowercase kebab-case after the surface or question the scout watches: `error-tracking`, `checkout-funnel`, `mcp-feedback`.
 The canonical fleet keeps the `signals-scout-` prefix, and a per-team scout can use it too.
-The prefix only controls whether the coordinator auto-registers a config for a skill that has none, so a scout named anything else comes in through `scout-create-prepare` / `-execute`, which writes the skill and its config in one call.
+The prefix only controls whether the coordinator auto-registers a config for a skill that has none, so a scout named anything else comes in through `scout-create`, which writes the skill and its config in one call.
 
 ## Frontmatter
 

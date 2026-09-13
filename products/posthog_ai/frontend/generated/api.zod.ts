@@ -155,6 +155,21 @@ export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObje
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
 
 /**
+ * Invoke an MCP tool by name.
+ *
+ * This endpoint allows MCP callers to invoke Max AI tools directly
+ * without going through the full LangChain conversation flow.
+ *
+ * Scopes are resolved dynamically per tool via dangerously_get_required_scopes.
+ */
+export const McpToolsCreateBody = /* @__PURE__ */ zod.object({
+    args: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe("Arguments validated against the selected tool's schema."),
+})
+
+/**
  * Run a hybrid (semantic + full-text) RAG search over the PostHog documentation via Inkeep. Returns a markdown body with title, URL, and excerpt for each match for the agent to cite back to the user.
  * @summary Search PostHog documentation
  */

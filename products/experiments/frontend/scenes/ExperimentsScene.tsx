@@ -74,9 +74,9 @@ import {
 import { ExperimentsSettingsScene } from 'products/experiments/frontend/scenes/ExperimentsSettingsScene'
 import { ExperimentsSharedMetricsScene } from 'products/experiments/frontend/scenes/ExperimentsSharedMetricsScene'
 
-// "NPS - Experiments" in project 2: https://us.posthog.com/project/2/surveys/01902c1f-6675-0000-913b-686c40c3a957
-// The survey also self-triggers as a popover on experiment URLs; this is the on-demand path.
-const EXPERIMENTS_NPS_SURVEY_ID = '01902c1f-6675-0000-913b-686c40c3a957'
+// "Experiments open feedback" in project 2: https://us.posthog.com/project/2/surveys/01a08364-270e-0000-585b-147d32bf96ed
+// Button-only: its URL condition never matches, so this button is the survey's sole entry point.
+const EXPERIMENTS_FEEDBACK_SURVEY_ID = '01a08364-270e-0000-585b-147d32bf96ed'
 
 export const scene: SceneExport = {
     component: ExperimentsScene,
@@ -577,7 +577,7 @@ export function ExperimentsScene(): JSX.Element {
                 actions={
                     <>
                         <FeedbackSurveyButton
-                            surveyId={EXPERIMENTS_NPS_SURVEY_ID}
+                            surveyId={EXPERIMENTS_FEEDBACK_SURVEY_ID}
                             data-attr="experiments-feedback-button"
                         />
                         {tab !== ExperimentsTabs.SharedMetrics && tab !== ExperimentsTabs.Holdouts ? (

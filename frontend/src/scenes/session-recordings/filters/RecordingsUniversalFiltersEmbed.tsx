@@ -22,6 +22,7 @@ import {
 } from '@posthog/icons'
 import {
     LemonBadge,
+    LemonBanner,
     LemonButton,
     LemonDivider,
     LemonInput,
@@ -56,7 +57,7 @@ import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
-import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
+import { TimestampFormatToLabel, hasPageFilter } from 'scenes/session-recordings/utils'
 import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -1020,6 +1021,15 @@ export const ReplayFiltersTab = ({
                     </div>
                 </div>
             </UniversalFilters>
+
+            {hasPageFilter(filters) && (
+                <div className="px-2 mt-4">
+                    <LemonBanner type="info" dismissKey="replay-filters-page-filter-vs-visited-page">
+                        Filtering on a URL matches pageview events from anywhere in the session, including time the
+                        recording doesn't cover. "Visited page" only matches URLs captured in the video.
+                    </LemonBanner>
+                </div>
+            )}
 
             {!compactActions && (
                 <>

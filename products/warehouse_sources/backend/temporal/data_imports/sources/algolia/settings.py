@@ -3,7 +3,11 @@ from enum import Enum
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
 class PaginationStyle(Enum):
@@ -13,6 +17,8 @@ class PaginationStyle(Enum):
     PAGE = "page"
     # Analytics and A/B testing endpoints page via `offset`/`limit`.
     OFFSET = "offset"
+    # Analytics time-series and click-position endpoints answer the whole period at once.
+    SINGLE = "single"
 
 
 class AlgoliaApi(Enum):
@@ -32,7 +38,7 @@ class AlgoliaEndpointConfig:
     pagination: PaginationStyle
     # Key in the JSON response that holds the list of rows (`hits`, `items`, `searches`, `abtests`).
     data_selector: str
-    primary_keys: list[str] = field(default_factory=lambda: ["objectID"])
+    primary_keys: list[str] | None = field(default_factory=lambda: ["objectID"])
     # Whether the endpoint targets a specific index (so it needs the `index_name` field).
     requires_index: bool = True
     should_sync_default: bool = True
@@ -43,13 +49,25 @@ class AlgoliaEndpointConfig:
     api: AlgoliaApi = AlgoliaApi.SEARCH
     # Request click/conversion metrics alongside the base analytics table (analytics endpoints only).
     click_analytics: bool = False
+    # Query param carrying the incremental cursor. None means the endpoint is full refresh.
+    start_param: str | None = None
+    # Set when the path takes a parameter resolved from another endpoint's rows.
+    fanout: DependentEndpointConfig | None = None
+
+    @property
+    def default_incremental_field(self) -> str | None:
+        return self.incremental_fields[0]["field"] if self.incremental_fields else None
 
 
-# All Algolia endpoints below are full-refresh: the index browse endpoint and the
-# synonyms/rules search endpoints expose no server-side "updated since" filter, so an
-# incremental sync would still page the whole resource. The cursor (browse) and page
-# (search/list) tokens make every endpoint resumable, so a heartbeat timeout picks back
-# up where it left off rather than restarting.
+# Algolia keeps attributing events to recent days after those days close, so an incremental sync
+# re-reads a trailing window from the stored watermark and merges it back on `date`.
+ANALYTICS_LOOKBACK_DAYS = 3
+
+_DATE_INCREMENTAL_FIELDS: list[IncrementalField] = [incremental_field("date", IncrementalFieldType.Date)]
+
+
+# Everything without a `start_param` is full refresh, because no server-side "updated since"
+# filter exists for it. Its page token still makes it resumable after a heartbeat timeout.
 ALGOLIA_ENDPOINTS: dict[str, AlgoliaEndpointConfig] = {
     "records": AlgoliaEndpointConfig(
         name="records",
@@ -141,6 +159,140 @@ ALGOLIA_ENDPOINTS: dict[str, AlgoliaEndpointConfig] = {
         data_selector="abtests",
         primary_keys=["abTestID"],
         requires_index=False,
+        should_sync_default=False,
+        api=AlgoliaApi.ANALYTICS,
+    ),
+    # Analytics API time series: one row per day, filtered forward from `startDate`.
+    "conversion_rate": AlgoliaEndpointConfig(
+        name="conversion_rate",
+        path="/2/conversions/conversionRate",
+        method="GET",
+        pagination=PaginationStyle.SINGLE,
+        data_selector="dates",
+        primary_keys=["date"],
+        should_sync_default=False,
+        api=AlgoliaApi.ANALYTICS,
+        start_param="startDate",
+        incremental_fields=_DATE_INCREMENTAL_FIELDS,
+    ),
+    "add_to_cart_rate": AlgoliaEndpointConfig(
+        name="add_to_cart_rate",
+        path="/2/conversions/addToCartRate",
+        method="GET",
+        pagination=PaginationStyle.SINGLE,
+        data_selector="dates",
+        primary_keys=["date"],
+        should_sync_default=False,
+        api=AlgoliaApi.ANALYTICS,
+        start_param="startDate",
+        incremental_fields=_DATE_INCREMENTAL_FIELDS,
+    ),
+    "purchase_rate": AlgoliaEndpointConfig(
+        name="purchase_rate",
+        path="/2/conversions/purchaseRate",
+        method="GET",
+        pagination=PaginationStyle.SINGLE,
+        data_selector="dates",
+        primary_keys=["date"],
+        should_sync_default=False,
+        api=AlgoliaApi.ANALYTICS,
+        start_param="startDate",
+        incremental_fields=_DATE_INCREMENTAL_FIELDS,
+    ),
+    "revenue": AlgoliaEndpointConfig(
+        name="revenue",
+        path="/2/conversions/revenue",
+        method="GET",
+        pagination=PaginationStyle.SINGLE,
+        data_selector="dates",
+        primary_keys=["date"],
+        should_sync_default=False,
+        api=AlgoliaApi.ANALYTICS,
+        start_param="startDate",
+        incremental_fields=_DATE_INCREMENTAL_FIELDS,
+    ),
+    "click_through_rate": AlgoliaEndpointConfig(
+        name="click_through_rate",
+        path="/2/clicks/clickThroughRate",
+        method="GET",
+        pagination=PaginationStyle.SINGLE,
+        data_selector="dates",
+        primary_keys=["date"],
+        should_sync_default=False,
+        api=AlgoliaApi.ANALYTICS,
+        start_param="startDate",
+        incremental_fields=_DATE_INCREMENTAL_FIELDS,
+    ),
+    "average_click_position": AlgoliaEndpointConfig(
+        name="average_click_position",
+        path="/2/clicks/averageClickPosition",
+        method="GET",
+        pagination=PaginationStyle.SINGLE,
+        data_selector="dates",
+        primary_keys=["date"],
+        should_sync_default=False,
+        api=AlgoliaApi.ANALYTICS,
+        start_param="startDate",
+        incremental_fields=_DATE_INCREMENTAL_FIELDS,
+    ),
+    "users_count": AlgoliaEndpointConfig(
+        name="users_count",
+        path="/2/users/count",
+        method="GET",
+        pagination=PaginationStyle.SINGLE,
+        data_selector="dates",
+        primary_keys=["date"],
+        should_sync_default=False,
+        api=AlgoliaApi.ANALYTICS,
+        start_param="startDate",
+        incremental_fields=_DATE_INCREMENTAL_FIELDS,
+    ),
+    # Analytics API breakdowns: a "top N over the period" snapshot with no date column.
+    "top_filters": AlgoliaEndpointConfig(
+        name="top_filters",
+        path="/2/filters",
+        method="GET",
+        pagination=PaginationStyle.OFFSET,
+        data_selector="attributes",
+        primary_keys=["attribute"],
+        should_sync_default=False,
+        api=AlgoliaApi.ANALYTICS,
+    ),
+    "top_filter_values": AlgoliaEndpointConfig(
+        name="top_filter_values",
+        path="/2/filters/{attribute}",
+        method="GET",
+        pagination=PaginationStyle.OFFSET,
+        data_selector="values",
+        # Every child row repeats the attribute, so the key is unique table-wide, not per parent.
+        primary_keys=["attribute", "operator", "value"],
+        should_sync_default=False,
+        api=AlgoliaApi.ANALYTICS,
+        fanout=DependentEndpointConfig(
+            parent_name="top_filters",
+            resolve_param="attribute",
+            resolve_field="attribute",
+            include_from_parent=[],
+        ),
+    ),
+    "top_countries": AlgoliaEndpointConfig(
+        name="top_countries",
+        path="/2/countries",
+        method="GET",
+        pagination=PaginationStyle.OFFSET,
+        data_selector="countries",
+        primary_keys=["country"],
+        should_sync_default=False,
+        api=AlgoliaApi.ANALYTICS,
+    ),
+    "click_positions": AlgoliaEndpointConfig(
+        name="click_positions",
+        path="/2/clicks/positions",
+        method="GET",
+        pagination=PaginationStyle.SINGLE,
+        data_selector="positions",
+        # A row's only identity is its `position` range, which arrives as a two-element array.
+        primary_keys=None,
         should_sync_default=False,
         api=AlgoliaApi.ANALYTICS,
     ),

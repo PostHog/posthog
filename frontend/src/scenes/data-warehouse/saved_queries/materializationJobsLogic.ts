@@ -13,10 +13,11 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiConfig, PaginatedResponse } from 'lib/api'
+import api, { ApiConfig, ApiError, PaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -208,7 +209,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         // doesn't count as the user touching it.
         seedIncrementalDraft: (draft: IncrementalConfigDraft) => ({ draft }),
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, cache }) => ({
         savedQuery: [
             null as DataWarehouseSavedQuery | null,
             {
@@ -228,7 +229,18 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                     if (!sql) {
                         return null
                     }
-                    return await api.dataWarehouseSavedQueries.checkIncremental({ query: sql })
+                    // A rejected check is not the user's error, so never toast: the panel just omits the
+                    // incremental option. A 4xx is a deterministic refusal, so it is not retried. Anything
+                    // else is ours to look at, and the next savedQuery reload gets to try again.
+                    try {
+                        return await api.dataWarehouseSavedQueries.checkIncremental({ query: sql })
+                    } catch (e) {
+                        if (!(e instanceof ApiError && e.status && e.status >= 400 && e.status < 500)) {
+                            posthog.captureException(e)
+                            cache.incrementalCheckRequested = false
+                        }
+                        return null
+                    }
                 },
             },
         ],

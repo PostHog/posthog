@@ -51,6 +51,7 @@ from products.ai_observability.backend.models.evaluation_configs import (
 )
 from products.ai_observability.backend.text_repr.formatters import (
     FormatterOptions,
+    RenderBudgetExceeded,
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
@@ -336,11 +337,11 @@ user's conversation, in order — according to this criteria:
 def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
     """Render a session as the canonical text representation, one section per trace.
 
-    The char budget is split evenly across traces so one long trace can't crowd the others out,
-    which matters for "did the user accomplish their goal" — the answer often lives in the
-    opening and closing turns, not the biggest one.
+    Preserve message content when the full session fits, including when one trace uses more
+    than an equal share of the budget. Oversized sessions split the budget evenly across traces
+    so one long trace cannot crowd out the opening and closing turns.
 
-    Returns `None` only when the *rendered* transcript overshoots the budget, meaning a final slice
+    Returns `None` when the fallback transcript still overshoots the budget, meaning a final slice
     would silently drop trailing traces. The caller must treat that as a `session_too_long_to_judge`
     skip rather than judge a transcript that's missing its close.
 
@@ -352,22 +353,33 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
     if not traces:
         return ""
     per_trace_budget = max(JUDGE_SESSION_MAX_CHARS // len(traces), _MIN_TRACE_CHARS_IN_SESSION)
-    options: FormatterOptions = {
-        "include_markers": False,
-        "collapsed": False,
-        "truncated": True,
-        "include_line_numbers": True,
-        "max_length": per_trace_budget,
-    }
-    sections: list[str] = []
-    for index, trace in enumerate(traces, start=1):
-        trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
-        text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
-        sections.append(f"=== Trace {index} of {len(traces)} (id: {trace.id}) ===\n{text}")
-    rendered = "\n\n".join(sections)
-    if len(rendered) > JUDGE_SESSION_MAX_CHARS:
-        return None
-    return rendered
+    for truncated in (False, True):
+        options: FormatterOptions = {
+            "include_markers": False,
+            "collapsed": False,
+            "truncated": truncated,
+            "include_line_numbers": True,
+            "max_length": per_trace_budget if truncated else None,
+        }
+        sections: list[str] = []
+        rendered_length = 0
+        for index, trace in enumerate(traces, start=1):
+            header = f"=== Trace {index} of {len(traces)} (id: {trace.id}) ===\n"
+            rendered_length += len(header) + (2 if sections else 0)
+            if not truncated:
+                options["max_render_length"] = JUDGE_SESSION_MAX_CHARS - rendered_length
+            trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
+            try:
+                text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
+            except RenderBudgetExceeded:
+                break
+            sections.append(header + text)
+            rendered_length += len(text)
+        else:
+            rendered = "\n\n".join(sections)
+            if len(rendered) <= JUDGE_SESSION_MAX_CHARS:
+                return rendered
+    return None
 
 
 def build_session_skip_result(allows_na: bool, skip_reason: str) -> EvaluationActivityResult:

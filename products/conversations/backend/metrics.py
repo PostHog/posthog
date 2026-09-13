@@ -24,5 +24,5 @@ INBOUND_ATTEMPTS_TOTAL = Counter(
 INBOUND_LEASES_TOTAL = Counter(
     "posthog_conversations_inbound_leases_total",
     "Inbound receipt lease outcomes",
-    labelnames=["result"],  # claimed | expired_reclaim | busy
+    labelnames=["result"],  # claimed | expired_reclaim | busy | renewed | renew_rejected
 )

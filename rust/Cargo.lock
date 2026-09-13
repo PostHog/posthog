@@ -8727,7 +8727,6 @@ dependencies = [
  "envconfig",
  "futures",
  "lifecycle",
- "metrics",
  "metrics-exporter-prometheus",
  "personhog-common",
  "personhog-proto",

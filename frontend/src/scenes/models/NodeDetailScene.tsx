@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
@@ -35,6 +35,21 @@ const TAB_LABELS: Record<NodeDetailSceneTab, string> = {
     lineage: 'Lineage',
     materialization: 'Materialization',
     tests: 'Tests',
+}
+
+function tabLabel(tab: NodeDetailSceneTab, savedQueryId: string | null | undefined): JSX.Element | string {
+    if (tab === 'tests' && savedQueryId) {
+        return <NodeDetailTestsTabLabel subjectId={savedQueryId} />
+    }
+    if (tab === 'materialization') {
+        return (
+            <span className="flex items-center gap-1">
+                {TAB_LABELS[tab]}
+                <LemonTag type="warning">BETA</LemonTag>
+            </span>
+        )
+    }
+    return TAB_LABELS[tab]
 }
 
 export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element {
@@ -76,7 +91,7 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
 
     const tabs: LemonTab<NodeDetailSceneTab>[] = availableTabs.map((tab) => ({
         key: tab,
-        label: tab === 'tests' && savedQueryId ? <NodeDetailTestsTabLabel subjectId={savedQueryId} /> : TAB_LABELS[tab],
+        label: tabLabel(tab, savedQueryId),
         link: urls.nodeDetail(id, tab),
         'data-attr': `node-detail-${tab}-tab`,
     }))

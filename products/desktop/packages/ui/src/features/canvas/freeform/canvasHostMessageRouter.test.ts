@@ -3,6 +3,53 @@ import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
 
 describe("createCanvasHostMessageRouter", () => {
   it.each([false, true])(
+    "requires activation for task composition (%s)",
+    async (active) => {
+      const onNavigate = vi.fn();
+      const route = createCanvasHostMessageRouter({
+        post: vi.fn(),
+        callbacks: () => ({ onDataRequest: vi.fn(), onNavigate }),
+        hasUserActivation: () => active,
+        openExternal: vi.fn(),
+      });
+      await route({
+        channel: "posthog-canvas",
+        type: "navigate",
+        nav: {
+          target: "compose-task",
+          prompt: "Inspect this PR",
+          repository: "example/app",
+        },
+      });
+      expect(onNavigate).toHaveBeenCalledTimes(active ? 1 : 0);
+      if (active)
+        expect(onNavigate).toHaveBeenCalledWith({
+          target: "compose-task",
+          prompt: "Inspect this PR",
+          repository: "example/app",
+        });
+    },
+  );
+
+  it.each([false, true])(
+    "opens GitHub PR links only after a click (%s)",
+    async (active) => {
+      const openExternal = vi.fn();
+      const route = createCanvasHostMessageRouter({
+        post: vi.fn(),
+        callbacks: () => ({ onDataRequest: vi.fn() }),
+        hasUserActivation: () => active,
+        openExternal,
+      });
+      await route({
+        channel: "posthog-canvas",
+        type: "open-external",
+        url: "https://github.com/example/app/pull/42",
+      });
+      expect(openExternal).toHaveBeenCalledTimes(active ? 1 : 0);
+    },
+  );
+  it.each([false, true])(
     "requires activation for connector navigation (%s)",
     async (active) => {
       const onNavigate = vi.fn();

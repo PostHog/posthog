@@ -7,6 +7,7 @@ import httpx
 from google.genai.errors import APIError
 from pydantic import BaseModel
 
+from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _maybe_create_video_cache,
     _run_mission,
@@ -16,7 +17,9 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     _step_config,
 )
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
-from products.replay_vision.backend.temporal.scanners.base import MissionStep
+from products.replay_vision.backend.temporal.scanners.base import MissionStep, SignalFinding, SignalsResponse
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
+from products.replay_vision.backend.temporal.types import ScannerSnapshot
 
 _LABELS = {"provider": "gemini", "model": "gemini-3-flash-preview", "scanner_type": "monitor"}
 # The driver treats the video part opaquely (just appended to the conversation), so a sentinel is fine.
@@ -240,6 +243,77 @@ async def test_non_required_step_failure_is_skipped_not_raised() -> None:
     out = await _run(client, steps)
     assert "core" in out
     assert "side" not in out
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "duration_seconds,end_times,expected_end",
+    [
+        (10.9, [10], 10),
+        (10.0, [10], 10),
+        (0.9, [0], 0),
+        (10.9, [11, 11], None),
+        (10.9, [11, 10], 10),
+        (None, [0, 0], None),
+        (0.0, [0, 0], None),
+        (-1.0, [0, 0], None),
+        (float("nan"), [0, 0], None),
+        (float("inf"), [0, 0], None),
+        (None, [None], None),
+    ],
+)
+async def test_signal_timestamps_use_recording_duration(
+    duration_seconds: float | None, end_times: list[int | None], expected_end: int | None
+) -> None:
+    scanner = MonitorScanner(prompt="Did the dialog block input?", emits_signals=True)
+    snapshot = ScannerSnapshot(
+        name="monitor",
+        scanner_type=ScannerType.MONITOR,
+        scanner_version=1,
+        model="gemini-3-flash-preview",
+        provider="gemini",
+        emits_signals=True,
+        scanner_config={"prompt": scanner.prompt},
+    )
+    signal = SignalFinding(
+        problem_type="bug",
+        start_time=0,
+        end_time=0,
+        url="https://example.com/editor",
+        description="A blank dialog covers the editor and prevents input.",
+        confidence=0.9,
+    )
+    core = MonitorLlmResponse(verdict="yes", reasoning="The dialog blocked input.", confidence=0.9)
+    client = _FakeClient(
+        [_Resp(text=core.model_dump_json())]
+        + [
+            _Resp(
+                text=SignalsResponse(
+                    signals=[] if end_time is None else [signal.model_copy(update={"end_time": end_time})]
+                ).model_dump_json()
+            )
+            for end_time in end_times
+        ]
+    )
+    module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
+    with (
+        patch(f"{module}.genai.AsyncClient", return_value=client),
+        patch(f"{module}.GoogleGenAIClient"),
+        patch(f"{module}.build_events_index", return_value={}),
+        patch(f"{module}._maybe_create_video_cache", new=AsyncMock(return_value=None)),
+    ):
+        finalized, signals = await _run_mission(
+            scanner=scanner,
+            snapshot=snapshot,
+            video_part=_VIDEO,
+            preamble_text="PRE",
+            team_id=1,
+            llm_inputs=MagicMock(metadata=MagicMock(duration_seconds=duration_seconds)),
+            trace_id="trace-1",
+        )
+    assert cast(MonitorOutput, finalized).verdict == "yes"
+    assert signals == ([] if expected_end is None else [signal.model_copy(update={"end_time": expected_end})])
+    assert len(client.models.calls) == 1 + len(end_times)
 
 
 @pytest.mark.asyncio
