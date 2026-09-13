@@ -1027,8 +1027,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         inputs = response.json()["inputs"]
         assert inputs["url"]["value"] == "http://localhost:2080/changed"
-        assert inputs["headers"]["value"] == EXAMPLE_FULL["inputs"]["headers"]["value"]
-        assert inputs["payload"]["value"] == EXAMPLE_FULL["inputs"]["payload"]["value"]
+        assert inputs["headers"]["value"] == {"version": "v={event.properties.$lib_version}"}
+        assert inputs["payload"]["value"]["event"] == "{event}"
         assert inputs["method"]["value"] == "POST"
 
         # An input the caller names with no value is still a clear, so a merge cannot trap a value.

@@ -224,9 +224,9 @@ class TestHogFunctionDrafts(DraftTestCase):
         response = self._publish(function_id)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        function = HogFunction.objects.get(id=function_id)
-        assert function.inputs.get("headers") is None
-        assert function.inputs["url"]["value"] == "https://example.com/live"
+        inputs = HogFunction.objects.get(id=function_id).inputs or {}
+        assert inputs.get("headers") is None
+        assert inputs["url"]["value"] == "https://example.com/live"
 
     @parameterized.expand(
         [
