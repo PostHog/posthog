@@ -2,9 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonCard, LemonSwitch, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -23,8 +25,11 @@ import {
 } from '../../utils/credits'
 import { verdictColorVar, verdictTextClass } from '../../utils/spendVerdict'
 import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
-import { ReplayScanner } from '../types'
+import { replayScannersLogic } from '../replayScannersLogic'
+import { ReplayScanner, homeRedesignVariant } from '../types'
 import { visionUsageLogic } from '../visionUsageLogic'
+import { EnabledScannersCard } from './EnabledScannersCard'
+import { ObservationsOverTimeCard } from './ObservationsOverTimeCard'
 import { SpendTrajectoryChart } from './SpendTrajectoryChart'
 
 const ORG_WIDE_NOTE = 'Spend and limits are shared by every project in the organization.'
@@ -59,6 +64,13 @@ export function VisionUsageTab(): JSX.Element {
         billedLimitCredits,
         showStartupCap,
     } = useValues(visionQuotaLogic)
+    const { chartDateFrom, chartDateTo } = useValues(replayScannersLogic)
+    const { setChartDateRange } = useActions(replayScannersLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    // Reading the flags proxy reports exposure; this component only renders once the Usage tab is
+    // open, so exposure covers exactly the users who saw either arm of this tab.
+    const isRedesign =
+        homeRedesignVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]) === 'test'
 
     const statusText = verdictTextClass(verdict.kind)
     const hasCap = verdict.hasCap
@@ -262,6 +274,18 @@ export function VisionUsageTab(): JSX.Element {
                     <span className="text-xs text-secondary">{resetsOn ? resetsOn.format('MMMM D') : ''}</span>
                 </LemonCard>
             </div>
+
+            {isRedesign && (
+                <div className="grid grid-cols-1 @xl:grid-cols-2 gap-4">
+                    <ObservationsOverTimeCard
+                        dateFrom={chartDateFrom}
+                        dateTo={chartDateTo}
+                        onDateChange={setChartDateRange}
+                        className="border min-h-80"
+                    />
+                    <EnabledScannersCard />
+                </div>
+            )}
 
             <LemonCard hoverEffect={false} className="p-4 flex flex-col gap-2">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
