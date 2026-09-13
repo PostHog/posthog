@@ -638,14 +638,14 @@ Note: Aviator also ships a GraphQL API for pull request data at https://app.avia
 
 ## Awin — gaps
 
-Today (4): `accounts`, `programmes`, `reports_advertiser`, `transactions`
+Today (8): `accounts`, `advertiser_publishers`, `commission_groups`, `programme_details`, `programmes`, `reports_advertiser`, `reports_publisher`, `transactions`
 
 Diffed against: <https://help.awin.com/llms.txt>
 
-- [ ] `GET publisher performance report (advertiser)` — per-publisher clicks/sales/commission breakdown - the headline advertiser metric and the counterpart to the advertiser report we already sync (high)
-- [ ] `GET publishers information for advertiser` — lookup table resolving the publisherId on every transaction and performance row (high)
-- [ ] `GET commission groups for an advertiser` — lookup resolving the commissionGroupId carried on transactions (high)
-- [ ] `GET programme details for publisher` — commission ranges, currency and terms per programme; programmes table only carries the summary (high)
+- [x] `GET publisher performance report (advertiser)` — per-publisher clicks/sales/commission breakdown - the headline advertiser metric and the counterpart to the advertiser report we already sync (high)
+- [x] `GET publishers information for advertiser` — lookup table resolving the publisherId on every transaction and performance row (high)
+- [x] `GET commission groups for an advertiser` — lookup resolving the commissionGroupId carried on transactions (high)
+- [x] `GET programme details for publisher` — commission ranges, currency and terms per programme; programmes table only carries the summary (high)
 - [ ] `GET campaign performance report (publisher and advertiser)` — revenue and clicks broken down by campaign - a core reporting dimension we do not expose (medium)
 - [ ] `GET creative performance report (publisher and advertiser)` — performance by creative/banner, the other main report dimension (medium)
 - [ ] `GET transaction queries for a publisher` — dispute/query state on transactions - transition history for revenue we already sync (medium)
