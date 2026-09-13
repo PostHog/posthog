@@ -212,7 +212,7 @@ export function InfiniteSelectResults({
         taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
 
     return (
-        <div ref={wrapperRef} className="flex flex-row h-full">
+        <div ref={wrapperRef} className="@container flex flex-row h-full">
             {showCategoryColumn && (
                 <div className="TaxonomicFilter__category-rail border-r pr-2 mr-2 flex-shrink-0 border-primary @max-[32rem]:hidden">
                     <div className="taxonomic-group-title justify-between gap-1">

@@ -208,7 +208,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
         <LemonInput
             {...props}
             ref={ref}
-            className="TaxonomicFilter__search-input--with-category"
+            className="TaxonomicFilter__search-input--with-category @container"
             data-attr="taxonomic-filter-searchfield"
             type="search"
             suffixAfterClear
