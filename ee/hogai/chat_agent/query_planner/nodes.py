@@ -104,7 +104,7 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
 
         output_message = chain.invoke(
             {
-                "core_memory": self.core_memory.text if self.core_memory else "",
+                "core_memory": self.core_memory_text,
                 "react_property_filters": self._get_react_property_filters_prompt(),
                 "react_human_in_the_loop": HUMAN_IN_THE_LOOP_PROMPT,
                 "groups": self._team_group_types,
@@ -193,16 +193,22 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
         """
         # Initial conversation setup
         database = Database.create_for(team=self._team, user=self._user)
+        warehouse_table_names = set(database.get_warehouse_table_names())
+        # Only the most important core tables, plus all warehouse tables. `serialize` resolves the
+        # fields of each table it returns, so it gets the set too and does no work on the rest.
+        included_table_names = {"events", "groups", "persons", *warehouse_table_names}
         serialized_database = database.serialize(
-            HogQLContext(team=self._team, user=self._user, database=database, enable_select_queries=True)
+            HogQLContext(team=self._team, user=self._user, database=database, enable_select_queries=True),
+            include_only=included_table_names,
         )
         hogql_schema_description = "\n\n".join(
             (
-                f"Table `{table_name}` with fields:\n"
+                f"Table `{table_name}`"
+                + (" (data warehouse table)" if table_name in warehouse_table_names else "")
+                + " with fields:\n"
                 + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
                 for table_name, table in serialized_database.items()
-                # Only the most important core tables, plus all warehouse tables
-                if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_table_names()
+                if table_name in included_table_names
             )
         )
         enriched_messages = async_to_sync(self.context_manager.artifacts.aenrich_messages)(state.messages)
