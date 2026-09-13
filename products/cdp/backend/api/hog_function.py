@@ -197,6 +197,19 @@ def _without(value: Any, keys: tuple[str, ...]) -> Any:
     return {k: v for k, v in value.items() if k not in keys} if isinstance(value, dict) else value
 
 
+def _merge_stored_inputs(sent: Any, stored: Any) -> Any:
+    """The `inputs` a partial update validates, from the object the caller sent and the stored one.
+
+    `InputsSerializer` reads every key of `inputs_schema` out of that single object, so an input the
+    caller leaves out reaches storage empty. A one-field edit has silently removed a webhook's
+    authorization header and its request body this way. The caller can still clear one input,
+    because an explicit empty value overrides the stored one.
+    """
+    if not isinstance(sent, dict) or not isinstance(stored, dict):
+        return sent
+    return {**stored, **sent}
+
+
 def _inputs_without_derived(inputs: Any) -> Any:
     if not isinstance(inputs, dict):
         return inputs
@@ -525,7 +538,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         data["type"] = data.get("type", instance.type if instance else "destination")
         data["template_id"] = instance.template_id if instance else data.get("template_id")
         data["inputs_schema"] = data.get("inputs_schema", instance.inputs_schema if instance else [])
-        data["inputs"] = data.get("inputs", instance.inputs if instance else {})
+        if "inputs" not in data:
+            data["inputs"] = instance.inputs if instance else {}
+        elif instance and not self.context.get("inputs_are_complete"):
+            data["inputs"] = _merge_stored_inputs(data["inputs"], instance.inputs)
 
         # Always ensure filters is initialized as an empty object if it's null
         data["filters"] = data.get("filters", instance.filters if instance else {}) or {}
@@ -1549,7 +1565,14 @@ class HogFunctionViewSet(
             }
             # The draft goes back through the normal serializer so publish revalidates strictly and
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
-            serializer = self.get_serializer(locked, data=dict(locked.draft), partial=True)
+            # A draft is a full config snapshot, so its `inputs` replace the live ones outright. A
+            # partial update merges instead, and merging here would restore an input the draft drops.
+            serializer = self.get_serializer(
+                locked,
+                data=dict(locked.draft),
+                partial=True,
+                context={**self.get_serializer_context(), "inputs_are_complete": True},
+            )
             serializer.is_valid(raise_exception=True)
             serializer.save()
             self._record_revision(locked, before_update, before_content)

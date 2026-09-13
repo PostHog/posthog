@@ -208,6 +208,26 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert function.bytecode is not None
         assert self._revisions(function_id).count() == 2
 
+    def test_publish_does_not_restore_an_input_the_draft_clears(self):
+        function_id = self._create(
+            inputs_schema=[
+                {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
+                {"key": "headers", "type": "dictionary", "label": "Headers", "required": False},
+            ],
+            inputs={
+                "url": {"value": "https://example.com/live"},
+                "headers": {"value": {"Authorization": "Bearer live"}},
+            },
+        )
+        self._stage(function_id, {"inputs": {"headers": {}}})
+
+        response = self._publish(function_id)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        function = HogFunction.objects.get(id=function_id)
+        assert function.inputs.get("headers") is None
+        assert function.inputs["url"]["value"] == "https://example.com/live"
+
     @parameterized.expand(
         [
             ("no_token", {"confirm": True}, status.HTTP_400_BAD_REQUEST),
