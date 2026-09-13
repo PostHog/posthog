@@ -235,6 +235,15 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         icon_domain="neon.tech",
     ),
     CatalogEntry(
+        name="Noodle",
+        url="https://api.helena.bio/noodle/v1/mcp",
+        description="Search biomedical literature and traverse citation and semantic research graphs.",
+        auth_type="api_key",
+        category="data",
+        icon_domain="helena.bio",
+        docs_url="https://noodle.helena.bio",
+    ),
+    CatalogEntry(
         name="Notion",
         url="https://mcp.notion.com/mcp",
         description="Search and manage Notion pages, databases, and knowledge base content.",
