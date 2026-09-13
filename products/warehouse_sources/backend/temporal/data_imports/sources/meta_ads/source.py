@@ -182,6 +182,11 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             # for volume. Only waiting helps, and the sync already retries via Temporal, so this
             # shouldn't page us as a bug either.
             META_RATE_LIMIT_ERROR_MESSAGE,
+            # PostHog's own egress proxy answering the CONNECT tunnel with a 429 (`requests.ProxyError`,
+            # a `ConnectionError` subclass). Not Meta's fault or the customer's — the proxy itself is
+            # throttling, which clears on its own, the same reasoning applied to this pattern for other
+            # sources (LinkedIn Ads, GitHub, HubSpot, Bing Ads, Databricks).
+            "Tunnel connection failed: 429",
         }
 
     def get_schemas(
