@@ -1132,6 +1132,208 @@ const customPropertySourcesSync = (): ToolBase<ReturnType<typeof CustomPropertyS
     },
 })
 
+const CustomerTasksActivitiesListSchema = () => {
+    const CustomerTasksActivitiesListParams = orvalSchemas.CustomerTasksActivitiesListParams()
+    const CustomerTasksActivitiesListQueryParams = orvalSchemas.CustomerTasksActivitiesListQueryParams()
+    return CustomerTasksActivitiesListParams.omit({ project_id: true }).extend(
+        CustomerTasksActivitiesListQueryParams.shape
+    )
+}
+
+const customerTasksActivitiesList = (): ToolBase<
+    ReturnType<typeof CustomerTasksActivitiesListSchema>,
+    WithPostHogUrl<Schemas.CustomerTaskActivityPage>
+> => ({
+    name: 'customer-tasks-activities-list',
+    schema: CustomerTasksActivitiesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CustomerTasksActivitiesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomerTaskActivityPage>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/customer_tasks/${encodeURIComponent(String(params.id))}/activities/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
+
+const CustomerTasksArchiveCreateSchema = () => {
+    const CustomerTasksArchiveCreateParams = orvalSchemas.CustomerTasksArchiveCreateParams()
+    return CustomerTasksArchiveCreateParams.omit({ project_id: true })
+}
+
+const customerTasksArchiveCreate = (): ToolBase<
+    ReturnType<typeof CustomerTasksArchiveCreateSchema>,
+    Schemas.CustomerTask
+> => ({
+    name: 'customer-tasks-archive-create',
+    schema: CustomerTasksArchiveCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CustomerTasksArchiveCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomerTask>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/customer_tasks/${encodeURIComponent(String(params.id))}/archive/`,
+        })
+        return result
+    },
+})
+
+const CustomerTasksCreateSchema = () => {
+    const CustomerTasksCreateBody = orvalSchemas.CustomerTasksCreateBody()
+    return CustomerTasksCreateBody
+}
+
+const customerTasksCreate = (): ToolBase<ReturnType<typeof CustomerTasksCreateSchema>, Schemas.CustomerTask> => ({
+    name: 'customer-tasks-create',
+    schema: CustomerTasksCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CustomerTasksCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.account_id !== undefined) {
+            body['account_id'] = params.account_id
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.assigned_to_id !== undefined) {
+            body['assigned_to_id'] = params.assigned_to_id
+        }
+        if (params.due_at !== undefined) {
+            body['due_at'] = params.due_at
+        }
+        if (params.status !== undefined) {
+            body['status'] = params.status
+        }
+        const result = await context.api.request<Schemas.CustomerTask>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/customer_tasks/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CustomerTasksListSchema = () => {
+    const CustomerTasksListQueryParams = orvalSchemas.CustomerTasksListQueryParams()
+    return CustomerTasksListQueryParams
+}
+
+const customerTasksList = (): ToolBase<
+    ReturnType<typeof CustomerTasksListSchema>,
+    WithPostHogUrl<Schemas.CustomerTaskPage>
+> => ({
+    name: 'customer-tasks-list',
+    schema: CustomerTasksListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CustomerTasksListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomerTaskPage>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/customer_tasks/`,
+            query: {
+                account_id: params.account_id,
+                archive_state: params.archive_state,
+                assigned_to: params.assigned_to,
+                due_after: params.due_after,
+                due_before: params.due_before,
+                has_due_at: params.has_due_at,
+                limit: params.limit,
+                offset: params.offset,
+                ordering: params.ordering,
+                search: params.search,
+                statuses: params.statuses,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
+
+const CustomerTasksPartialUpdateSchema = () => {
+    const CustomerTasksPartialUpdateBody = orvalSchemas.CustomerTasksPartialUpdateBody()
+    const CustomerTasksPartialUpdateParams = orvalSchemas.CustomerTasksPartialUpdateParams()
+    return CustomerTasksPartialUpdateParams.omit({ project_id: true }).extend(CustomerTasksPartialUpdateBody.shape)
+}
+
+const customerTasksPartialUpdate = (): ToolBase<
+    ReturnType<typeof CustomerTasksPartialUpdateSchema>,
+    Schemas.CustomerTask
+> => ({
+    name: 'customer-tasks-partial-update',
+    schema: CustomerTasksPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CustomerTasksPartialUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.account_id !== undefined) {
+            body['account_id'] = params.account_id
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.assigned_to_id !== undefined) {
+            body['assigned_to_id'] = params.assigned_to_id
+        }
+        if (params.due_at !== undefined) {
+            body['due_at'] = params.due_at
+        }
+        if (params.status !== undefined) {
+            body['status'] = params.status
+        }
+        const result = await context.api.request<Schemas.CustomerTask>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/customer_tasks/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CustomerTasksRestoreCreateSchema = () => {
+    const CustomerTasksRestoreCreateParams = orvalSchemas.CustomerTasksRestoreCreateParams()
+    return CustomerTasksRestoreCreateParams.omit({ project_id: true })
+}
+
+const customerTasksRestoreCreate = (): ToolBase<
+    ReturnType<typeof CustomerTasksRestoreCreateSchema>,
+    Schemas.CustomerTask
+> => ({
+    name: 'customer-tasks-restore-create',
+    schema: CustomerTasksRestoreCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CustomerTasksRestoreCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomerTask>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/customer_tasks/${encodeURIComponent(String(params.id))}/restore/`,
+        })
+        return result
+    },
+})
+
+const CustomerTasksRetrieveSchema = () => {
+    const CustomerTasksRetrieveParams = orvalSchemas.CustomerTasksRetrieveParams()
+    return CustomerTasksRetrieveParams.omit({ project_id: true })
+}
+
+const customerTasksRetrieve = (): ToolBase<ReturnType<typeof CustomerTasksRetrieveSchema>, Schemas.CustomerTask> => ({
+    name: 'customer-tasks-retrieve',
+    schema: CustomerTasksRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CustomerTasksRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomerTask>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/customer_tasks/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const EventStreamsAddAccountSchema = () => {
     const EventStreamsAddAccountCreateBody = orvalSchemas.EventStreamsAddAccountCreateBody()
     const EventStreamsAddAccountCreateParams = orvalSchemas.EventStreamsAddAccountCreateParams()
@@ -2055,6 +2257,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'custom-property-sources-retrieve': customPropertySourcesRetrieve,
     'custom-property-sources-runs-list': customPropertySourcesRunsList,
     'custom-property-sources-sync': customPropertySourcesSync,
+    'customer-tasks-activities-list': customerTasksActivitiesList,
+    'customer-tasks-archive-create': customerTasksArchiveCreate,
+    'customer-tasks-create': customerTasksCreate,
+    'customer-tasks-list': customerTasksList,
+    'customer-tasks-partial-update': customerTasksPartialUpdate,
+    'customer-tasks-restore-create': customerTasksRestoreCreate,
+    'customer-tasks-retrieve': customerTasksRetrieve,
     'event-streams-add-account': eventStreamsAddAccount,
     'event-streams-create': eventStreamsCreate,
     'event-streams-destroy': eventStreamsDestroy,

@@ -1,7 +1,7 @@
 """Attribute key/value autocomplete for the metrics filter bar.
 
-Queries the `metric_attributes` aggregate table (fed by MVs on `metrics1`)
-rather than the raw events table, mirroring the logs product's
+Queries the `metric_attributes` aggregate table (fed by MVs on the metrics
+ingest stream) rather than the raw data point table, mirroring the logs product's
 `LogAttributesQueryRunner`/`LogValuesQueryRunner` pair. Keys are searched
 across both datapoint ('metric') and resource attributes in one pass — the
 viewer filters with scope 'auto', so the split is invisible to users.
@@ -26,10 +26,10 @@ from products.metrics.backend.search import ilike_pattern
 # `metric_query_runner.attribute_field`.
 _SERVICE_NAME_KEYS: frozenset[str] = frozenset({"service_name", "service.name"})
 
-# `time_bucket` floors timestamps to 10-minute buckets (see the MVs in
-# posthog/clickhouse/metrics/metrics1.py); widen the lower bound so points near
+# `time_bucket` floors timestamps to hourly buckets (see `_attributes_mv` in
+# posthog/clickhouse/metrics/metrics2.py); widen the lower bound so points near
 # the window start aren't dropped with their bucket.
-_TIME_BUCKET_INTERVAL = dt.timedelta(minutes=10)
+_TIME_BUCKET_INTERVAL = dt.timedelta(hours=1)
 
 # Without an explicit window, suggest from recent data only — same lookback the
 # metric names picker uses.

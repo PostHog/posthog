@@ -1,7 +1,7 @@
 import './TaxonomicFilter.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, batchChanges, useActions, useValues } from 'kea'
 import { forwardRef, useEffect, useId, useRef, useState } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
@@ -217,25 +217,35 @@ export const TaxonomicFilterSearchInput = forwardRef<
     } = useActions(taxonomicFilterLogic)
 
     const _onChange = (query: string): void => {
+        // Batch the search query update to reduce re-renders while keeping the controlled input responsive.
+        batchChanges(() => setTaxonomicSearchQuery(query))
         // Only the input's onChange path counts as user interaction. The controlled-prop
         // useEffect above also calls setSearchQuery directly, but that's programmatic and
         // shouldn't unmute the `taxonomic filter closed` capture — keep this dispatch separate.
         markUserInteraction()
-        setTaxonomicSearchQuery(query)
         onChange?.(query)
     }
 
     const categoriesAreInDropdown = categoryDropdownVariant !== 'control'
     const categoryDropdown = categoriesAreInDropdown ? (
-        <CategoryDropdown variant={categoryDropdownVariant} eventName={eventName} onAfterChange={focusInput} />
+        <CategoryDropdown
+            variant={categoryDropdownVariant}
+            eventName={eventName}
+            onAfterChange={focusInput}
+            joinedToInput
+        />
     ) : null
 
     return (
         <LemonInput
             {...props}
             ref={ref}
+            className={clsx({
+                'TaxonomicFilter__search-input--with-category': categoriesAreInDropdown,
+            })}
             data-attr="taxonomic-filter-searchfield"
             type="search"
+            suffixAfterClear={categoriesAreInDropdown}
             fullWidth
             placeholder={placeholder ?? `Search ${searchPlaceholder}`}
             value={searchQuery}

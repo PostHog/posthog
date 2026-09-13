@@ -3890,7 +3890,7 @@ class TestKeepaliveShim:
         [("coder.devbox-test-user", True), ("nobody@127.0.0.1", False)],
         ids=["devbox-host-bumped", "non-devbox-host-untouched"],
     )
-    def test_shim_rewrites_keepalive_only_for_devbox_hosts(
+    def test_shim_rewrites_ssh_options_only_for_devbox_hosts(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, target: str, bumped: bool
     ) -> None:
         # End-to-end of the generated shim script: run it like mutagen would and
@@ -3920,9 +3920,14 @@ class TestKeepaliveShim:
 
         forwarded = log.read_text().splitlines()
         if bumped:
-            bump = f"-oServerAliveCountMax={devbox_mutagen._KEEPALIVE_COUNT}"
-            assert forwarded == [bump if a.startswith("-oServerAliveCountMax=") else a for a in incoming]
+            rewrites = {
+                "-oServerAliveCountMax=": f"-oServerAliveCountMax={devbox_mutagen._KEEPALIVE_COUNT}",
+                "-oConnectTimeout=": f"-oConnectTimeout={devbox_mutagen._CONNECT_TIMEOUT_SECONDS}",
+            }
+            expected = [next((v for k, v in rewrites.items() if a.startswith(k)), a) for a in incoming]
+            assert forwarded == expected
             assert "-oServerAliveCountMax=1" not in forwarded
+            assert "-oConnectTimeout=5" not in forwarded
         else:
             # Non-devbox ssh must pass through byte-for-byte, keepalive included.
             assert forwarded == incoming

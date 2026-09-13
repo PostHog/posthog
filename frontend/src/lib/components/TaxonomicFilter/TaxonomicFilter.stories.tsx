@@ -41,6 +41,32 @@ const meta: Meta<TaxonomicFilterProps> = {
 type Story = StoryObj<TaxonomicFilterProps>
 export default meta
 
+export const DashboardPropertySearch: Story = {
+    args: {
+        taxonomicFilterLogicKey: 'dashboard-property-search',
+        taxonomicGroupTypes: [
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.EventFeatureFlags,
+            TaxonomicFilterGroupType.EventMetadata,
+            TaxonomicFilterGroupType.PageviewUrls,
+            TaxonomicFilterGroupType.Screens,
+            TaxonomicFilterGroupType.EmailAddresses,
+            TaxonomicFilterGroupType.Cohorts,
+            TaxonomicFilterGroupType.Elements,
+            TaxonomicFilterGroupType.SessionProperties,
+            TaxonomicFilterGroupType.HogQLExpression,
+            TaxonomicFilterGroupType.DataWarehousePersonProperties,
+        ],
+        enableKeywordShortcuts: true,
+        collapseUrlsToContainsRow: true,
+    },
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill' },
+        testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+    },
+}
+
 function EventsStoryRender(args: TaxonomicFilterProps): JSX.Element {
     useMountedLogic(actionsModel)
 

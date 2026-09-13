@@ -85,6 +85,7 @@ class SeriesBandsWindowInvalid(Exception):
 
 
 CoarsenedReason = Literal["sparse", "quiet"]
+BandVerdict = Literal["above", "below"]
 
 
 @frozen
@@ -93,6 +94,16 @@ class BandBucket:
     observed: int
     lower: float | None
     upper: float | None
+
+    @property
+    def verdict(self) -> BandVerdict | None:
+        if self.lower is None or self.upper is None:
+            return None
+        if self.observed > self.upper:
+            return "above"
+        if self.observed < self.lower:
+            return "below"
+        return None
 
 
 @frozen

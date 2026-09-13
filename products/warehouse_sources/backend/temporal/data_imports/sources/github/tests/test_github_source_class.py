@@ -494,7 +494,10 @@ class TestGithubSource:
         "selection,expected_message",
         [
             ("oauth", "No GitHub account is connected. Connect a GitHub account and try again."),
-            ("pat", "GitHub personal access token is not configured. Please update the source configuration."),
+            (
+                "pat",
+                "No GitHub personal access token is set. Enter one, or switch the authentication type to OAuth and connect a GitHub account.",
+            ),
         ],
     )
     def test_validate_credentials_maps_config_errors_to_friendly_message(self, selection, expected_message):

@@ -16,10 +16,12 @@ class Migration(migrations.Migration):
                 # Django no longer knows the table, so it cannot include it when tests truncate
                 # posthog_team and posthog_user, and Postgres refuses to truncate a table a foreign
                 # key points to. Both statements are IF EXISTS, so a bin/migrate retry is a no-op.
+                # The table is IF EXISTS too: 1351 drops it with a no-op reverse, so a migration test
+                # that rewinds past 1351 and replays forward reaches this step with no table.
                 migrations.RunSQL(
                     sql="""
-                        ALTER TABLE posthog_persistedfolder DROP CONSTRAINT IF EXISTS posthog_persistedfolder_team_id_a8bb8f3e_fk_posthog_team_id;
-                        ALTER TABLE posthog_persistedfolder DROP CONSTRAINT IF EXISTS posthog_persistedfolder_user_id_dee73fbd_fk_posthog_user_id;
+                        ALTER TABLE IF EXISTS posthog_persistedfolder DROP CONSTRAINT IF EXISTS posthog_persistedfolder_team_id_a8bb8f3e_fk_posthog_team_id;
+                        ALTER TABLE IF EXISTS posthog_persistedfolder DROP CONSTRAINT IF EXISTS posthog_persistedfolder_user_id_dee73fbd_fk_posthog_user_id;
                     """,
                     reverse_sql=migrations.RunSQL.noop,
                 ),

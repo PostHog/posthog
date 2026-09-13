@@ -82,7 +82,6 @@ posthog/api/test/test_csp.py::TestCSPModule
 posthog/api/test/test_event_definition_base.py::TestEventDefinitionGeneratorBase
 posthog/api/test/test_event_definition_typescript.py::TestTypeScriptGeneratorOptionalInTypes
 posthog/api/test/test_github.py::TestRelayToEu
-posthog/api/test/test_mixins.py::TestValidatedRequestDecorator
 posthog/api/test/test_organization_domain.py::TestOrganizationDomains
 posthog/api/test/test_proxy_record_diagnostics.py::TestCheckCaa
 posthog/api/test/test_proxy_record_diagnostics.py::TestCheckCloudflare
@@ -382,7 +381,6 @@ products/tasks/backend/temporal/process_task/tests/test_utils.py::TestBuildSandb
 products/tasks/backend/temporal/process_task/tests/test_utils.py::TestGetImportedMcpServerConfigs
 products/tasks/backend/temporal/process_task/tests/test_utils.py::TestGetRelayedMcpServerNames
 products/tasks/backend/temporal/process_task/tests/test_utils.py::TestGetSandboxGitHubToken
-products/tasks/backend/temporal/process_task/tests/test_utils.py::TestGetSandboxMcpConfigs
 products/tasks/backend/temporal/process_task/tests/test_utils.py::TestMcpServerConfigToDict
 products/tasks/backend/temporal/slack_relay/tests/test_activities.py::TestSplitTextForSlack
 products/tasks/backend/tests/test_agentsh.py::TestBuildAuditQueryCommand

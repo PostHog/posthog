@@ -5,7 +5,6 @@ import { IconWarning } from '@posthog/icons'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import {
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
     MathDefinition,
@@ -23,6 +22,8 @@ import {
     isTrendsQuery,
 } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, CountPerActorMathType, HogQLMathType, PropertyMathType } from '~/types'
+
+import { GroupIntroductionFooter } from 'products/groups/frontend/components/GroupsIntroduction'
 
 import {
     getDefaultPropertyMathType,

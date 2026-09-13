@@ -42,9 +42,11 @@ import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scen
 import { configurationRedirect, resolveSettingSlug } from '../../products/error_tracking/frontend/settingsRedirects'
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
+import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
 import type { NodeDetailSceneTab } from './scenes/models/nodeDetailSceneLogic'
 import {
     ActionType,
+    AnnotationType,
     DashboardType,
     FileSystemIconColor,
     InsightSceneSource,
@@ -93,6 +95,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
     '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
     '/alerts': ['Alerts', 'alerts'],
+    '/data-management/annotations': ['Annotations', 'annotations'],
+    '/data-management/annotations/:id': ['Annotations', 'annotation'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
     '/transformations': ['Transformations', 'transformations'],
@@ -173,6 +177,10 @@ export const productRoutes: Record<string, [string, string]> = {
     '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
+    '/groups/:groupTypeIndex': ['Groups', 'groups'],
+    '/groups/:groupTypeIndex/new': ['GroupsNew', 'groupsNew'],
+    '/groups/:groupTypeIndex/:groupKey': ['Group', 'group'],
+    '/groups/:groupTypeIndex/:groupKey/:groupTab': ['Group', 'groupWithTab'],
     '/identity-matching': ['IdentityMatching', 'identityMatching'],
     '/ai-enrichment': ['AIEnrichment', 'aiEnrichment'],
     '/ai-enrichment/:label': ['AIEnrichment', 'aiEnrichment'],
@@ -556,6 +564,13 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'inbox',
         description: 'Monitor insight metrics and get notified when conditions are met.',
     },
+    Annotations: {
+        name: 'Annotations',
+        projectBased: true,
+        description:
+            'Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics.',
+        iconType: 'annotation',
+    },
     BusinessKnowledge: {
         name: 'Business knowledge',
         projectBased: true,
@@ -741,6 +756,9 @@ export const productConfiguration: Record<string, any> = {
     FeatureFlagsStaffTools: { instanceLevel: true, name: 'Flags staff tools' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
+    Group: { name: 'People & groups', projectBased: true },
+    Groups: { name: 'Groups', projectBased: true },
+    GroupsNew: { projectBased: true },
     IdentityMatching: {
         name: 'Identity matching',
         projectBased: true,
@@ -1115,6 +1133,8 @@ export const productUrls = {
         `/ai-observability/clusters/${encodeURIComponent(runId)}/${clusterId}`,
     alert: (alertId: string): string => `/alerts?alert_type=insights&alert_id=${alertId}`,
     alerts: (): string => '/alerts',
+    annotations: (): string => '/data-management/annotations',
+    annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     businessKnowledge: (): string => '/business-knowledge',
     businessKnowledgeSettings: (): string => '/business-knowledge/settings',
     transformations: (): string => '/transformations',
@@ -1168,7 +1188,7 @@ export const productUrls = {
         const query = params.toString()
         return query ? `/data-ops?${query}` : '/data-ops'
     },
-    models: (): string => '/models',
+    models: (tab?: ModelsSceneTab): string => (tab && tab !== 'overview' ? `/models?tab=${tab}` : '/models'),
     nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
     sources: (): string => '/data-management/sources',
     dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
