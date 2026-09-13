@@ -15,6 +15,7 @@ import {
     startDevServer,
 } from '@posthog/esbuilder'
 
+import { keyChunksBySceneId } from './bin/scene-chunk-map.mjs'
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
 import { WORKER_ENTRIES } from './workers.config.mjs'
 
@@ -109,7 +110,7 @@ await buildInParallel(
                     reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
                     writePreloadManifest(buildResponse.outputs)
                 }
-                writeIndexHtml(chunks, entrypoints)
+                writeIndexHtml(isDev ? chunks : sceneChunkMap(buildResponse), entrypoints)
             }
 
             if (config.name === 'Exporter') {
@@ -131,6 +132,22 @@ await buildInParallel(
         },
     }
 )
+
+/**
+ * The chunk map sceneLogic reads must be keyed by scene id, not by the entry's export name that
+ * getChunks falls back to. The manifest also generates the lazy imports, so every entry must resolve
+ * through the metafile. Fail the build instead of silently disabling prefetch for a scene.
+ */
+function sceneChunkMap(buildResponse) {
+    const sceneModules = JSON.parse(fs.readFileSync(path.join(__dirname, 'src/sceneModules.json'), 'utf8'))
+    const chunks = keyChunksBySceneId({
+        inputs: buildResponse.inputs,
+        outputs: buildResponse.outputs,
+        sceneModules,
+    })
+    console.info(`Chunk map: all ${Object.keys(sceneModules).length} scenes keyed by id`)
+    return chunks
+}
 
 /**
  * Write dist/preload-manifest.json, read by the Django backend (posthog/utils.py) to emit
