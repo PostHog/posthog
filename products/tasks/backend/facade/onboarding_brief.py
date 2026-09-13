@@ -87,7 +87,7 @@ def _joining_brief(facts: OnboardingFacts) -> list[str]:
     status = _status_line(facts)
     if status:
         brief.append(status)
-    brief.extend(_offer_and_close(facts, researched=True))
+    brief.extend(_offer_and_close(facts, knows_the_company=True))
     return brief
 
 
@@ -122,15 +122,15 @@ def _status_line(facts: OnboardingFacts) -> str | None:
     return f"Tell them PostHog is already watching {enabled}. Then say the write-ups land in {_WHERE}."
 
 
-def _closing_question(facts: OnboardingFacts, *, researched: bool) -> str:
-    if not researched:
+def _closing_question(facts: OnboardingFacts, *, knows_the_company: bool) -> str:
+    if not knows_the_company:
         return NO_RESEARCH_QUESTION
     if facts.has_events and not facts.signal_reports_waiting:
         return NOTHING_YET
     return TOP_OF_MIND
 
 
-def _offer_and_close(facts: OnboardingFacts, *, researched: bool) -> list[str]:
+def _offer_and_close(facts: OnboardingFacts, *, knows_the_company: bool) -> list[str]:
     """The offer and the question the message ends on, which is always one ask.
 
     Nothing connected means the instrumentation offer is both, because the repository
@@ -139,7 +139,7 @@ def _offer_and_close(facts: OnboardingFacts, *, researched: bool) -> list[str]:
     if not facts.has_events:
         return [INSTRUMENT_OFFER]
     lines = [FINDINGS_OFFER] if facts.signal_reports_waiting else []
-    lines.append(_closing_question(facts, researched=researched))
+    lines.append(_closing_question(facts, knows_the_company=knows_the_company))
     return lines
 
 
@@ -164,7 +164,9 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
     if status:
         brief.append(status)
 
-    brief.extend(_offer_and_close(facts, researched=scraped or unreachable))
+    # A site we could not read tells us nothing about the company, so this branch still has to ask
+    # what they are working on.
+    brief.extend(_offer_and_close(facts, knows_the_company=scraped))
     return brief
 
 
