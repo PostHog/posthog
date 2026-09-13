@@ -22,8 +22,8 @@ from posthog.schema import (
 )
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import FieldOrTable
+from posthog.hogql.database.database import Database, DatabaseSchemaTable
+from posthog.hogql.database.models import FieldOrTable, Table
 from posthog.hogql.database.schema.table_descriptions import TableDescriptions
 
 from posthog.models import Team, User
@@ -609,15 +609,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             return f"Table `{table_name}` not found. Available tables include: {available}..."
 
         serialized = database.serialize(hogql_context, include_only={table_name})
-
-        # Warehouse tables serialize under their dotted key (`zendesk.groups`) but are also queryable by
-        # their raw underscore name (`zendesk_groups`), carried in `search_aliases`. Accept either form.
-        table = serialized.get(table_name)
-        if table is None:
-            table = next(
-                (t for t in serialized.values() if table_name in (getattr(t, "search_aliases", None) or [])),
-                None,
-            )
+        table = self._resolve_serialized_table(serialized, table_name)
         if table is None:
             return f"Could not serialize schema for table `{table_name}`."
 
@@ -629,50 +621,20 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         semantics = self._warehouse_table_semantics({db_name}).get(db_name) or {}
         descriptions = self._get_table_descriptions()
         raw_table = database.get_table(db_name)
-        raw_fields = raw_table.fields
 
-        # Source-table description (warehouse only) wins; otherwise fall back to the resolver, which
-        # covers warehouse/view annotations and native schema descriptions uniformly. The resolver
-        # returns raw text, so sanitize; `semantics` is already sanitized.
-        table_description = semantics.get("description")
-        if not table_description:
-            resolved = descriptions.for_table(raw_table)
-            table_description = _sanitize_semantic_text(resolved) if resolved else None
+        table_description = self._resolve_table_description(semantics, descriptions, raw_table)
+        field_lines, rendered_column_description = self._render_field_lines(table, raw_table, descriptions)
 
         header = f"Table `{table_name}`"
         if table_description:
             header += f" — {table_description}"
-        lines = [f"{header} with fields:"]
+        lines = [f"{header} with fields:", *field_lines]
 
-        rendered_column_description = False
-        for field in table.fields.values():
-            line = self._format_schema_field(field, raw_fields.get(field.name))
-            resolved_column = descriptions.for_column(raw_table, field.name, raw_fields.get(field.name))
-            if resolved_column:
-                line += f" — {_sanitize_semantic_text(resolved_column)}"
-                rendered_column_description = True
-            lines.append(line)
-
-        foreign_keys = semantics.get("foreign_keys")
-        if foreign_keys:
-            fk_lines: list[str] = []
-            for fk in foreign_keys:
-                if not (fk.get("column") and fk.get("target_table") and fk.get("target_column")):
-                    continue
-                # Don't leak the name of a table this user can't read: a FK target the user is denied
-                # is filtered out, mirroring the object-level access check on the source table itself.
-                if fk["target_table"] not in accessible_tables:
-                    continue
-                # FK identifiers come from the source DB and are untrusted (see _sanitize_semantic_text):
-                # a quoted identifier could carry newlines or instruction-like text. Sanitize before rendering.
-                column = _sanitize_semantic_text(fk["column"])
-                target_table = _sanitize_semantic_text(fk["target_table"])
-                target_column = _sanitize_semantic_text(fk["target_column"])
-                fk_lines.append(f"- {column} → {target_table}.{target_column}")
-            if fk_lines:
-                lines.append("")
-                lines.append("Foreign keys (use these to join related tables):")
-                lines.extend(fk_lines)
+        fk_lines = self._render_foreign_key_lines(semantics.get("foreign_keys"), accessible_tables)
+        if fk_lines:
+            lines.append("")
+            lines.append("Foreign keys (use these to join related tables):")
+            lines.extend(fk_lines)
 
         if table_description or rendered_column_description:
             lines.append("")
@@ -683,6 +645,62 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             )
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _resolve_serialized_table(serialized: dict, table_name: str) -> DatabaseSchemaTable | None:
+        # Warehouse tables serialize under their dotted key (`zendesk.groups`) but are also queryable by
+        # their raw underscore name (`zendesk_groups`), carried in `search_aliases`. Accept either form.
+        table = serialized.get(table_name)
+        if table is None:
+            table = next(
+                (t for t in serialized.values() if table_name in (getattr(t, "search_aliases", None) or [])),
+                None,
+            )
+        return table
+
+    @staticmethod
+    def _resolve_table_description(semantics: dict, descriptions: TableDescriptions, raw_table: Table) -> str | None:
+        # Source-table description (warehouse only) wins; otherwise fall back to the resolver, which
+        # covers warehouse/view annotations and native schema descriptions uniformly. The resolver
+        # returns raw text, so sanitize; `semantics` is already sanitized.
+        table_description = semantics.get("description")
+        if table_description:
+            return table_description
+        resolved = descriptions.for_table(raw_table)
+        return _sanitize_semantic_text(resolved) if resolved else None
+
+    def _render_field_lines(
+        self, table: DatabaseSchemaTable, raw_table: Table, descriptions: TableDescriptions
+    ) -> tuple[list[str], bool]:
+        raw_fields = raw_table.fields
+        lines: list[str] = []
+        rendered_column_description = False
+        for field in table.fields.values():
+            line = self._format_schema_field(field, raw_fields.get(field.name))
+            resolved_column = descriptions.for_column(raw_table, field.name, raw_fields.get(field.name))
+            if resolved_column:
+                line += f" — {_sanitize_semantic_text(resolved_column)}"
+                rendered_column_description = True
+            lines.append(line)
+        return lines, rendered_column_description
+
+    @staticmethod
+    def _render_foreign_key_lines(foreign_keys: list[dict] | None, accessible_tables: set[str]) -> list[str]:
+        fk_lines: list[str] = []
+        for fk in foreign_keys or []:
+            if not (fk.get("column") and fk.get("target_table") and fk.get("target_column")):
+                continue
+            # Don't leak the name of a table this user can't read: a FK target the user is denied
+            # is filtered out, mirroring the object-level access check on the source table itself.
+            if fk["target_table"] not in accessible_tables:
+                continue
+            # FK identifiers come from the source DB and are untrusted (see _sanitize_semantic_text):
+            # a quoted identifier could carry newlines or instruction-like text. Sanitize before rendering.
+            column = _sanitize_semantic_text(fk["column"])
+            target_table = _sanitize_semantic_text(fk["target_table"])
+            target_column = _sanitize_semantic_text(fk["target_column"])
+            fk_lines.append(f"- {column} → {target_table}.{target_column}")
+        return fk_lines
 
     @staticmethod
     def _format_schema_field(field: DatabaseSchemaField, raw_field: FieldOrTable | None) -> str:
