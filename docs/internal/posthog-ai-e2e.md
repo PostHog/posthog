@@ -44,6 +44,19 @@ The successor asks the model to continue the old conversation before processing 
 Replay rejects that undeclared turn even when the eventual follow-up and history assertions pass.
 The test remains enabled so this regression blocks the AI check until corrected.
 
+The queue and steering layer adds the next five flows in `flows-queue-steering.spec.ts`:
+
+6. A queued follow-up waits for both approval confirmation and turn completion, in either order.
+7. Steer and Escape deliver the saved queue once while preserving a separate unsent draft.
+8. Steering requested during approval delivery waits for confirmation and clears its deferred action after failure.
+9. Failed queue delivery preserves message order and supports explicit retry, editing, removal, and fresh delivery.
+10. Escape with an empty saved queue cancels the active turn and preserves an unsent draft.
+
+An additional case within queue submission freezes the draft debounce and submits immediately.
+It reproduces queued text remaining in the composer after submission; this test also remains enabled.
+The other queue cases advance that debounce with the browser clock so they independently exercise their delivery transitions.
+These are browser interaction checks with held task commands, not real agent-delivery checks.
+
 The browser suite runs three cases for each of Claude and Codex:
 
 - Submit from the new-chat composer while a seeded warm workflow waits for registration, recover on the original run, send a follow-up, and reload without duplicate messages.
