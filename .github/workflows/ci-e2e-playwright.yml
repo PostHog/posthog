@@ -602,13 +602,20 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: /tmp/ai-e2e-image-cache
-                  key: ai-e2e-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.dockerignore', 'products/desktop/package.json', 'products/desktop/pnpm-lock.yaml', 'products/desktop/pnpm-workspace.yaml', 'products/desktop/.npmrc', 'products/desktop/patches/**', 'products/desktop/scripts/rimraf.mjs', 'products/desktop/packages/agent/**', 'products/desktop/packages/agent-shadow/**', 'products/desktop/packages/harness/**', 'products/desktop/packages/shared/**', 'products/desktop/packages/git/**', 'products/desktop/packages/enricher/**', 'products/tasks/backend/sandbox/images/**', 'products/tasks/backend/logic/services/docker_sandbox.py', 'products/posthog_ai/skills/**', 'products/posthog_ai/frontend/e2e/image.py') }}
+                  key: ai-e2e-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.dockerignore', 'products/desktop/package.json', 'products/desktop/pnpm-lock.yaml', 'products/desktop/pnpm-workspace.yaml', 'products/desktop/.npmrc', 'products/desktop/patches/**', 'products/desktop/scripts/rimraf.mjs', 'products/desktop/packages/agent/**', 'products/desktop/packages/agent-shadow/**', 'products/desktop/packages/harness/**', 'products/desktop/packages/shared/**', 'products/desktop/packages/git/**', 'products/desktop/packages/enricher/**', 'products/tasks/backend/sandbox/images/**', 'products/tasks/backend/logic/services/docker_sandbox.py', 'products/posthog_ai/skills/**', 'products/posthog_ai/frontend/e2e/image.py', 'products/posthog_ai/eval_harness/test/e2e/image.py') }}
 
             - name: Prepare development environment
               if: steps.tooling.outputs.available == 'true'
               run: |
                   echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
-                  .codex/with-flox --prepare true
+                  if ! .codex/with-flox --prepare true; then
+                      for activation_log in .flox/cache/activation-error-logs/*.log; do
+                          if [[ -f "$activation_log" ]]; then
+                              cat "$activation_log"
+                          fi
+                      done
+                      exit 1
+                  fi
 
             - name: Restore matching database schema
               if: steps.tooling.outputs.available == 'true' && needs.changes.outputs.schema_migrations_key != ''

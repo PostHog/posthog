@@ -4,6 +4,10 @@ The [AI browser suite](../../products/posthog_ai/frontend/e2e/architecture.md) c
 registration, queued worker startup, and approval delivery for Claude and Codex. It runs real services with reusable
 synthetic provider responses. See its architecture guide for local and CI commands, evidence, and troubleshooting.
 
+Python orchestration and replay unit tests live in `products/posthog_ai/eval_harness/test/e2e/`.
+Browser specs, provider fixtures, and artifacts remain in `products/posthog_ai/frontend/e2e/`; the existing CLI entrypoints forward to the harness.
+CI prints full Flox activation logs when dependency preparation fails before the browser suite starts.
+
 The browser handles two explicit startup rejections:
 
 - Task creation and resume return `503 warm_run_activation_unavailable` with a signed retry token when Temporal confirms nondelivery.
@@ -21,13 +25,32 @@ An ambiguous transport failure could follow successful execution; replaying it c
 
 ## Coverage and remaining flows
 
+The startup and approvals layer adds these five regression flows:
+
+1. Cold creation and an idle follow-up keep the same task/run, model, and permission mode. Attached event context reaches the first submission once.
+2. A completed conversation resumes on its intended warm successor after a real Temporal registration rejection, retaining each message once.
+3. Exhausted startup retries return the draft for an explicit retry with the same payload.
+4. Permission, question, and plan submissions immediately reveal an editable composer while delivery remains pending.
+5. Failed approval delivery restores multi-select answers or feedback. Retrying sends the same response and preserves a separate composer draft.
+
+`startup.ai.spec.ts` runs the first two through real services with Claude and Codex.
+`flows-startup-approvals.spec.ts` checks the remaining visible interactions with controlled task API and stream responses.
+The controlled suite runs with regular Playwright, or with `.codex/with-flox hogli test:e2e:ai --surface` for an isolated local server.
+The task composer attaches entity context; it does not expose file uploads.
+These new cases require their own ten-repeat CI validation before being described as stable.
+
+The warm-resume case currently reproduces an extra continuation turn in both runtimes when activation precedes agent readiness.
+The successor asks the model to continue the old conversation before processing the new user message.
+Replay rejects that undeclared turn even when the eventual follow-up and history assertions pass.
+The test remains enabled so this regression blocks the AI check until corrected.
+
 The browser suite runs three cases for each of Claude and Codex:
 
 - Submit from the new-chat composer while a seeded warm workflow waits for registration, recover on the original run, send a follow-up, and reload without duplicate messages.
 - Submit while the worker is held, then release it and verify one persisted message and response on the original run.
 - Submit one approval through an explicit startup rejection, keep the composer available, and verify exactly one real insight update.
 
-The following flows still need browser coverage across the real services.
+The table below is the broader regression checklist. Controlled browser cases do not establish delivery across real services.
 Existing Kea, component, and backend tests cover many individual transitions; they do not establish end-to-end behavior.
 
 | Area                       | Flow and expected result                                                                                                                                          |

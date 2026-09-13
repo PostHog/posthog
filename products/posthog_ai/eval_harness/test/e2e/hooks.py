@@ -21,8 +21,13 @@ def install_hooks(stack: ExitStack, controller: Controller, image_id: str) -> No
 
     from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
     from products.tasks.backend.presentation.views.api import TaskRunViewSet
-    from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
-    from products.tasks.backend.temporal.process_task.activities.start_agent_server import _LaunchParams, _prepare_launch
+    from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
+        TaskProcessingContext,
+    )
+    from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
+        _LaunchParams,
+        _prepare_launch,
+    )
 
     proxy = TaskRunViewSet._proxy_command_to_agent_server
 

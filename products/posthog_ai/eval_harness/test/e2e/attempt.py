@@ -20,12 +20,13 @@ if TYPE_CHECKING:
 
 
 class Attempt:
-    def __init__(self, provider: str, output: Path) -> None:
+    def __init__(self, provider: str, output: Path, *, surface: bool = False) -> None:
         if provider not in {"claude", "codex"}:
             raise ValueError("Unknown runtime")
         self.id = uuid4().hex
         self.emails = (f"ai-e2e-{self.id}@example.com", f"ai-e2e-connected-{self.id}@example.com")
         self.provider = provider
+        self.surface = surface
         self.model = "claude-sonnet-4-6" if provider == "claude" else "gpt-5.5"
         self.output = output / self.id
         self.output.mkdir(parents=True)
@@ -37,6 +38,7 @@ class Attempt:
         self.task_id: str | None = None
         self.run_id: str | None = None
         self.workflow_id: str | None = None
+        self.workflow_ids: list[str] = []
         self.run_created = threading.Event()
         self.workflow_registered = threading.Event()
         self.dispatch_finished = threading.Event()
@@ -57,6 +59,7 @@ class Attempt:
         from django.utils import timezone
 
         from posthog.models import (
+            EventDefinition,
             Integration,
             OAuthAccessToken,
             OAuthApplication,
@@ -85,13 +88,16 @@ class Attempt:
             )
             self.team = Team.objects.create(
                 id=secrets.randbelow(1_000_000_000) + 1_000_000_000,
-                organization=self.organization, name="Synthetic workspace", completed_snippet_onboarding=True
+                organization=self.organization,
+                name="Synthetic workspace",
+                completed_snippet_onboarding=True,
             )
             self.user.current_organization = self.organization
             self.user.current_team = self.team
             self.user.is_email_verified = True
             self.user.credentials_reviewed_at = timezone.now()
             self.user.save()
+            EventDefinition.objects.create(team=self.team, name="synthetic_workspace_opened")
             UserTasksConfig.objects.for_team(self.team.id).create(
                 team_id=self.team.id,
                 user=self.user,
@@ -115,7 +121,9 @@ class Attempt:
             )
             self.connected_team = Team.objects.create(
                 id=secrets.randbelow(1_000_000_000) + 1_000_000_000,
-                organization=self.organization, name="Synthetic connected project", completed_snippet_onboarding=True
+                organization=self.organization,
+                name="Synthetic connected project",
+                completed_snippet_onboarding=True,
             )
             self.connected_user = User.objects.create_and_join(
                 self.organization,
@@ -186,7 +194,7 @@ class Attempt:
         self.threads.append(thread)
         thread.start()
 
-    def start(self) -> None:
+    def start(self, *, warm: bool = True) -> None:
         if self.replay is None:
             raise ValueError("Configure responses before starting")
 
@@ -227,9 +235,54 @@ class Attempt:
             )
 
         self.background(start_worker)
-        self.background(start_run)
-        if not self.run_created.wait(60):
+        if warm:
+            self.background(start_run)
+        if not (self.run_created if warm else self.worker_ready).wait(60):
             raise TimeoutError(f"Run was not created: {self.errors}")
+
+    def complete_run(self) -> None:
+        from asgiref.sync import async_to_sync
+
+        from posthog.temporal.common.client import async_connect
+
+        if self.workflow_id is None:
+            raise ValueError("No workflow to complete")
+        workflow_id = self.workflow_id
+
+        async def complete() -> None:
+            client = await async_connect()
+            handle = client.get_workflow_handle(workflow_id)
+            await handle.signal("complete_task", "completed")
+            await handle.result()
+
+        async_to_sync(complete)()
+
+    def warm_resume(self) -> None:
+        from products.tasks.backend.facade.api import warm_task_resume_sandbox
+
+        if self.task_id is None or self.run_id is None:
+            raise ValueError("No conversation to resume")
+        task_id, previous_run_id = self.task_id, self.run_id
+        for event in (self.run_created, self.workflow_registered, self.signal_not_found, self.signal_accepted):
+            event.clear()
+
+        def resume() -> None:
+            result = warm_task_resume_sandbox(
+                task_id,
+                self.team.id,
+                self.user.id,
+                resume_from_run_id=previous_run_id,
+                runtime_adapter=self.provider,
+                model=self.model,
+                reasoning_effort="medium",
+                initial_permission_mode="auto",
+            )
+            if result is None:
+                raise ValueError("The completed conversation could not be warmed")
+
+        self.background(resume)
+        if not self.run_created.wait(60):
+            raise TimeoutError(f"Successor run was not created: {self.errors}")
 
     def snapshot(self) -> dict[str, JsonValue]:
         return {
@@ -254,6 +307,11 @@ class Attempt:
 
         if self.errors:
             raise AssertionError(self.errors)
+        if self.surface:
+            if self.replay is not None or self.task_id is not None or self.title_requests:
+                raise AssertionError("A surface test unexpectedly started a real agent")
+            return
+        assert self.run_id is not None
         if self.title_requests != 1:
             raise AssertionError(f"Expected one Django title request, got {self.title_requests}")
         if self.replay is None:
@@ -261,10 +319,10 @@ class Attempt:
         self.replay.verify()
         for fault in self.faults.values():
             fault.verify()
-        dispatches = TaskWorkflowDispatch.objects.for_team(self.team.id).filter(task_run_id=self.run_id)
+        run = TaskRun.objects.get(id=self.run_id, team_id=self.team.id)
+        dispatches = TaskWorkflowDispatch.objects.for_team(self.team.id).filter(task_run=run)
         if dispatches.count() != 1 or dispatches.get().status != TaskWorkflowDispatch.Status.ACCEPTED:
             raise AssertionError("Expected one accepted durable workflow dispatch")
-        run = TaskRun.objects.for_team(self.team.id).get(id=self.run_id)
         if run.state.get("sandbox_event_ingest_enabled") is not True:
             raise AssertionError("Run did not capture sandbox event ingest")
         if self.agent_configuration != {
@@ -287,8 +345,7 @@ class Attempt:
                     entries.append(entry)
             (self.output / "proxy-ingest.json").write_text(json.dumps(entries, indent=2))
             if any(
-                entry.get("event") in {"ingest", "ingest:client_disconnect"}
-                and int(str(entry.get("accepted", 0))) > 0
+                entry.get("event") in {"ingest", "ingest:client_disconnect"} and int(str(entry.get("accepted", 0))) > 0
                 for entry in entries
             ):
                 return
@@ -367,17 +424,17 @@ class Attempt:
             run = TaskRun.objects.filter(id=self.run_id, team_id=self.team.id).first()
             if run and not run.is_terminal:
                 run.mark_failed("AI E2E attempt cleanup")
-        if self.workflow_id:
-            workflow_id = self.workflow_id
 
-            async def terminate() -> None:
-                client = await async_connect()
+        async def terminate() -> None:
+            client = await async_connect()
+            for workflow_id in self.workflow_ids:
                 try:
                     await client.get_workflow_handle(workflow_id).terminate(reason="AI E2E attempt cleanup")
                 except RPCError as error:
                     if error.status != RPCStatusCode.NOT_FOUND:
                         raise
 
+        if self.workflow_ids:
             async_to_sync(terminate)()
         if self.worker:
             self.worker.stop()

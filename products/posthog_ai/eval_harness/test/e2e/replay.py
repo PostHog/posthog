@@ -45,7 +45,8 @@ def fixture_events(step: ResponseStep) -> list[dict[str, JsonValue]]:
     allowed = {"message_id", "tool_call_id", "resource_id", "text", "model", "arguments", "tool_name", "tool_namespace"}
     if set(step.substitutions) - allowed:
         raise ValueError("Unknown fixture substitution")
-    path = Path(__file__).parent / "fixtures" / step.provider / f"{step.fixture}.ndjson"
+    fixtures = Path(__file__).resolve().parents[5] / "products/posthog_ai/frontend/e2e/fixtures"
+    path = fixtures / step.provider / f"{step.fixture}.ndjson"
     return [object_value(substitute(json.loads(line), step.substitutions)) for line in path.read_text().splitlines()]
 
 

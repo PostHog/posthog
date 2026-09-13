@@ -21,7 +21,7 @@ export interface ResponseStep {
     substitutions: Record<string, string>
 }
 
-interface Seed {
+export interface Seed {
     id: string
     provider: Provider
     model: string
@@ -30,15 +30,18 @@ interface Seed {
     password: string
     insight_id: number
     connection_id: string
-    task_id: string
-    run_id: string
+    task_id: string | null
+    run_id: string | null
 }
 
 interface Snapshot {
+    task_id: string | null
+    run_id: string | null
     insight_name: string
     task_count: number
     run_count: number
     tool_executions: number
+    runs: { status: string; state: Record<string, unknown> }[]
     timeline: { fault: Fault; event: string; status?: number; request_id?: string }[]
 }
 
@@ -70,8 +73,8 @@ export class AiAttempt {
         }
     }
 
-    async open(page: Page): Promise<void> {
-        this.seed = await this.control<Seed>('start')
+    async open(page: Page, options: { warm?: boolean } = {}): Promise<void> {
+        this.seed = await this.control<Seed>('start', options)
         const login = await page.request.post('/api/login/', {
             data: { email: this.seed.email, password: this.seed.password },
         })
@@ -84,8 +87,14 @@ export class AiAttempt {
                     .map(([key, flag]) => [key, flag.value])
             )
         )
+        // The controller seeds the exact warm target; speculative UI warming would create unrelated runs.
+        await page.route(/\/tasks\/(?:[^/]+\/)?warm\/$/, (route) => route.fulfill({ json: {} }))
         await page.goto(`/project/${this.seed.team_id}/tasks/new`)
         await expect(page.getByTestId('task-composer-input')).toBeVisible()
+    }
+
+    async warmResume(): Promise<void> {
+        this.seed = await this.control<Seed>('warm_resume')
     }
 
     async snapshot(): Promise<Snapshot> {
@@ -121,7 +130,7 @@ export class AiAttempt {
     }
 }
 
-async function controllerRequest<T>(request: APIRequestContext, path: string, data: unknown): Promise<T> {
+export async function controllerRequest<T>(request: APIRequestContext, path: string, data: unknown): Promise<T> {
     if (!process.env.AI_E2E_CONTROLLER || !process.env.AI_E2E_TOKEN) {
         throw new Error('Run through hogli test:e2e:ai so services and fault controls are installed')
     }
@@ -183,7 +192,10 @@ export const test = base.extend<{ ai: AiAttempt; provider: Provider }>({
         try {
             await provide(attempt)
             expect(djangoStreams, 'The production profile must not fall back to Django SSE').toEqual([])
-            expect(streams.some((stream) => stream.status === 200), 'Expected a real agent-proxy stream').toBeTruthy()
+            expect(
+                streams.some((stream) => stream.status === 200),
+                'Expected a real agent-proxy stream'
+            ).toBeTruthy()
         } finally {
             await testInfo.attach('proxy-streams', { body: JSON.stringify(streams), contentType: 'application/json' })
             await testInfo.attach('browser-console', { body: browserLog.join('\n'), contentType: 'text/plain' })

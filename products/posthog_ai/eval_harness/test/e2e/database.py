@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import psycopg
 from psycopg import sql
+from psycopg.conninfo import make_conninfo
 
 
 @contextmanager
@@ -22,7 +23,7 @@ def isolated_database(root: Path) -> Iterator[None]:
 
     configuration = settings.DATABASES["default"]
     original_name = configuration["NAME"]
-    name = f"ai_e2e_{uuid4().hex}"
+    name = f"test_ai_e2e_{uuid4().hex}"
     admin: dict[str, str] = {
         "dbname": "postgres",
         "user": str(configuration["USER"]),
@@ -39,10 +40,10 @@ def isolated_database(root: Path) -> Iterator[None]:
     if template:
         if template != "posthog_ai_e2e" or os.environ.get("CI") != "true":
             raise ValueError("Only the CI provisioner's empty database can serve as a schema template")
-        with psycopg.connect(**{**admin, "dbname": template}) as connection:
+        with psycopg.connect(make_conninfo(**{**admin, "dbname": template})) as connection:
             if connection.execute("SELECT 1 FROM posthog_task LIMIT 1").fetchone():
                 raise ValueError("The AI E2E schema template contains tasks")
-    with psycopg.connect(**admin, autocommit=True) as connection:
+    with psycopg.connect(make_conninfo(**admin), autocommit=True) as connection:
         query = (
             sql.SQL("CREATE DATABASE {} TEMPLATE {}").format(sql.Identifier(name), sql.Identifier(template))
             if template
@@ -73,7 +74,7 @@ def isolated_database(root: Path) -> Iterator[None]:
                     },
                 )
                 if restored.returncode:
-                    with psycopg.connect(**admin, autocommit=True) as connection:
+                    with psycopg.connect(make_conninfo(**admin), autocommit=True) as connection:
                         connection.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
                         connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
             if not template:
@@ -84,7 +85,7 @@ def isolated_database(root: Path) -> Iterator[None]:
         for alias in aliases:
             settings.DATABASES[alias]["NAME"] = original_name
             connections[alias].settings_dict["NAME"] = original_name
-        with psycopg.connect(**admin, autocommit=True) as connection:
+        with psycopg.connect(make_conninfo(**admin), autocommit=True) as connection:
             owned_databases = connection.execute(
                 "SELECT datname FROM pg_database WHERE datname = %s OR starts_with(datname, %s)",
                 (name, f"{name}_"),

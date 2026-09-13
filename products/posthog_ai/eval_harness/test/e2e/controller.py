@@ -255,11 +255,13 @@ class Controller:
             attempt = self.attempt
             if attempt is None:
                 raise ValueError("Dispatcher registration outside an attempt")
-            run = TaskRun.objects.for_team(attempt.team.id).get(id=str(body["run_id"]))
-            if str(run.task_id) != attempt.task_id:
+            run = TaskRun.objects.get(id=str(body["run_id"]), team_id=attempt.team.id)
+            if attempt.task_id is not None and str(run.task_id) != attempt.task_id:
                 raise ValueError("Dispatcher registration belongs to another task")
+            attempt.task_id = str(run.task_id)
             attempt.run_id = str(run.id)
             attempt.workflow_id = str(body["workflow_id"])
+            attempt.workflow_ids.append(attempt.workflow_id)
             attempt.dispatch_finished.clear()
             attempt.run_created.set()
             fault = attempt.faults["registration"]
@@ -270,7 +272,7 @@ class Controller:
             with self.lock:
                 if self.attempt is not None:
                     raise ValueError("Only one active sandbox is allowed")
-                self.attempt = Attempt(str(body["provider"]), self.output)
+                self.attempt = Attempt(str(body["provider"]), self.output, surface=body.get("surface") is True)
                 try:
                     self.attempt.seed()
                 except Exception:
@@ -309,7 +311,12 @@ class Controller:
             else:
                 raise ValueError("Unknown fault action")
         elif operation == "start":
-            attempt.start()
+            attempt.start(warm=body.get("warm", True) is True)
+            return attempt.public()
+        elif operation == "complete_run":
+            attempt.complete_run()
+        elif operation == "warm_resume":
+            attempt.warm_resume()
             return attempt.public()
         elif operation.startswith("wait/"):
             events = {
@@ -329,6 +336,10 @@ class Controller:
                 "insight_name": attempt.insight.name,
                 "task_count": Task.objects.filter(team=attempt.team).count(),
                 "run_count": TaskRun.objects.filter(task__team=attempt.team).count(),
+                "runs": [
+                    {"status": status, "state": state}
+                    for status, state in TaskRun.objects.filter(task__team=attempt.team).values_list("status", "state")
+                ],
             }
         elif operation == "finish":
             try:
@@ -341,7 +352,8 @@ class Controller:
             finally:
                 attempt.cleanup()
                 self.attempt = None
-            attempt.verify_proxy_ingest()
+            if not attempt.surface:
+                attempt.verify_proxy_ingest()
         else:
             raise ValueError(f"Unexpected controller operation {operation}")
         return {"ok": True}

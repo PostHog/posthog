@@ -3,6 +3,15 @@
 This suite exercises chat submission, workflow startup, and approval delivery with Claude and Codex.
 It uses the real application and sandbox agent with synthetic model responses. Chart coverage belongs in a later increment.
 `run-surface.spec.ts` remains a separate, fast suite that mocks the tasks API and stream.
+The `flows-*.spec.ts` cases use held command responses and controlled SSE frames to check composer and approval interactions.
+They run in regular Playwright; `--surface` runs them against the launcher's isolated server without starting agents.
+The controller rejects any real agent creation during a surface case. These cases establish UI behavior, not Temporal delivery.
+
+`startup.ai.spec.ts` adds cold creation and completed-conversation resume for both runtimes.
+The browser suppresses speculative warming: the controller owns the exact warm target, or starts cold without one.
+Task creation, initial submission, and follow-up delivery remain real.
+Resume completes the original workflow through its normal signal, then warms a successor behind the registration barrier.
+The attempt owns and cleans up every workflow and run in that conversation.
 
 ## Boundaries
 
@@ -35,6 +44,9 @@ flowchart LR
 Authentication, run creation, persistence, Temporal, agent execution, MCP tool execution, and browser streaming stay real.
 The launcher reuses the eval harness's Django server, Temporal worker, service startup, local skills, and sandbox lifecycle helpers.
 It does not start the eval engine or require Braintrust credentials.
+
+Python orchestration lives in `products/posthog_ai/eval_harness/test/e2e/` alongside the existing harness tests.
+Browser cases, replay fixtures, and artifacts stay in `frontend/e2e/`, with thin Python entrypoints preserving the CLI commands.
 
 Only model responses and peripheral external services are simulated. Model discovery, Anthropic token counting, and Django
 title generation have explicit handlers. Claude SDK session titles also use an independent, correlated handler.
@@ -113,11 +125,11 @@ Each control exposes `arm`, `waitUntilReached`, `release`, and `reset`. Its time
 release, and observations such as Temporal NOT_FOUND or the insight save. Reset releases a barrier but retains the audit of
 an arm that never fired. Teardown fails if any required fault was missed.
 
-| Control        | Boundary                                                                        | What remains live                                     |
-| -------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `registration` | In the dispatcher child, immediately before real `Client.start_workflow`       | Outbox claiming, leases, Temporal, and signals         |
-| `worker`       | Before starting the attempt's tasks worker                                      | Temporal registration and signal acceptance           |
-| `approval`     | Before forwarding the targeted `permission_response`                            | Agent session, approval card, and tool implementation |
+| Control        | Boundary                                                                 | What remains live                                     |
+| -------------- | ------------------------------------------------------------------------ | ----------------------------------------------------- |
+| `registration` | In the dispatcher child, immediately before real `Client.start_workflow` | Outbox claiming, leases, Temporal, and signals        |
+| `worker`       | Before starting the attempt's tasks worker                               | Temporal registration and signal acceptance           |
+| `approval`     | Before forwarding the targeted `permission_response`                     | Agent session, approval card, and tool implementation |
 
 `approval` latches the first matching permission request ID and rejects retries of that request until released. A different
 request does not inherit the fault. This tests recovery from a known rejection before execution. It does not reproduce or
@@ -160,6 +172,7 @@ Run from the repository root:
 ```bash
 .codex/with-flox hogli test:e2e:ai --grep 'claude.*workflow waits' --retries 0
 .codex/with-flox hogli test:e2e:ai --attach --repeat-each 10 --retries 0
+.codex/with-flox hogli test:e2e:ai --surface --grep 'Startup and approvals' --retries 0
 ```
 
 Every launch creates and drops its own application database, including attach mode. This is necessary because the real
@@ -212,6 +225,7 @@ launch and are never baked into the image.
 ## CI integration
 
 The existing `ci-e2e-playwright.yml` contains the isolated AI job. One browser worker runs one sandbox at a time.
+Failed environment preparation prints the full activation logs, preserving dependency errors that the terminal summary truncates.
 The AI job reuses the backend's schema cache only when its migration, dependency, Postgres image, and routing fingerprint
 matches. The existing schema restore helper seeds migration defaults; migrations still run afterwards. A miss or failed
 restore falls back to the full migration history.
@@ -226,9 +240,12 @@ selection, reporting, and retry behavior remain in place. The AI job also defaul
 The job runs alongside regular Playwright, with one AI browser worker and one active sandbox. It does not create a provider
 matrix or duplicate stack setup. The normal AI job timeout is 30 minutes, including provisioning and artifact steps.
 
+The product's `backend:test` command also collects the replay unit tests under `eval_harness/test/e2e/`.
+Those checks validate fixture matching and fault controls without booting a browser or sandbox agent.
+
 For runner validation, dispatch the workflow on the tested branch with `ai_repeat_each=10`. This selects a 90-minute job
 and forces zero AI retries; an explicit nonzero retry override is rejected. `ai_repeat_each=1` selects the normal job.
-This runs all six runtime/case combinations ten times. Retain the workflow URL, commit, image provenance, runtime, and peak
+This runs every real-service runtime/case combination ten times. Retain the workflow URL, commit, image provenance, runtime, and peak
 memory with the review evidence. A local repetition run does not substitute for this runner validation.
 
 ### Runner validation: 2026-09-07
