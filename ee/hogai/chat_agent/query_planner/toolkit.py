@@ -492,31 +492,55 @@ class TaxonomyAgentToolkit:
         if property_name in self._restricted_property_names(restricted_type):
             return f"The property {property_name} does not exist in the taxonomy for the entity {entity}."
 
-        if entity == "person":
-            query = ActorsPropertyTaxonomyQuery(properties=[property_name], maxPropertyValues=25)
-        elif entity == "event":
-            query = ActorsPropertyTaxonomyQuery(properties=[property_name], maxPropertyValues=50)
-        else:
-            group_index = next((g["group_type_index"] for g in self._groups if g["group_type"] == entity), None)
-            if group_index is None:
-                return f"The entity {entity} does not exist in the taxonomy."
-            query = ActorsPropertyTaxonomyQuery(
-                groupTypeIndex=group_index, properties=[property_name], maxPropertyValues=25
-            )
+        query = self._build_actor_property_query(entity, property_name)
+        if isinstance(query, str):
+            return query
 
         virtual_definition = get_virtual_property_definition(virtual_group_for_entity(entity), property_name)
-        property_definition: PropertyDefinitionOrVirtual
+        property_definition = self._resolve_actor_property_definition(entity, query, property_name, virtual_definition)
+        if isinstance(property_definition, str):
+            return property_definition
+
+        response = self._run_actor_property_query(query)
+        if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
+            return f"The entity {entity} does not exist in the taxonomy."
+
+        return self._format_actor_property_response(
+            entity, property_name, response, property_definition, virtual_definition
+        )
+
+    def _build_actor_property_query(self, entity: str, property_name: str) -> ActorsPropertyTaxonomyQuery | str:
+        """Build the taxonomy query for a person, event, or group entity, or an error message."""
+        if entity == "person":
+            return ActorsPropertyTaxonomyQuery(properties=[property_name], maxPropertyValues=25)
+        if entity == "event":
+            return ActorsPropertyTaxonomyQuery(properties=[property_name], maxPropertyValues=50)
+
+        group_index = next((g["group_type_index"] for g in self._groups if g["group_type"] == entity), None)
+        if group_index is None:
+            return f"The entity {entity} does not exist in the taxonomy."
+        return ActorsPropertyTaxonomyQuery(groupTypeIndex=group_index, properties=[property_name], maxPropertyValues=25)
+
+    def _resolve_actor_property_definition(
+        self,
+        entity: str,
+        query: ActorsPropertyTaxonomyQuery,
+        property_name: str,
+        virtual_definition: CoreFilterDefinition | None,
+    ) -> PropertyDefinitionOrVirtual | str:
+        """Look up the stored property definition, falling back to a virtual one or an error message."""
+        if query.groupTypeIndex is not None:
+            prop_type = PropertyDefinition.Type.GROUP
+            group_type_index = query.groupTypeIndex
+        elif entity == "event":
+            prop_type = PropertyDefinition.Type.EVENT
+            group_type_index = None
+        else:
+            prop_type = PropertyDefinition.Type.PERSON
+            group_type_index = None
+
         try:
-            if query.groupTypeIndex is not None:
-                prop_type = PropertyDefinition.Type.GROUP
-                group_type_index = query.groupTypeIndex
-            elif entity == "event":
-                prop_type = PropertyDefinition.Type.EVENT
-                group_type_index = None
-            else:
-                prop_type = PropertyDefinition.Type.PERSON
-                group_type_index = None
-            property_definition = PropertyDefinition.objects.get(
+            return PropertyDefinition.objects.get(
                 team=self._team,
                 name=property_name,
                 type=prop_type,
@@ -525,23 +549,29 @@ class TaxonomyAgentToolkit:
         except PropertyDefinition.DoesNotExist:
             if virtual_definition is None:
                 return f"The property {property_name} does not exist in the taxonomy for the entity {entity}."
-            property_definition = virtual_definition
+            return virtual_definition
 
+    def _run_actor_property_query(self, query: ActorsPropertyTaxonomyQuery):
         with tags_context(
             product=Product.MAX_AI,
             feature=Feature.POSTHOG_AI,
             team_id=self._team.pk,
             org_id=self._team.organization_id,
         ):
-            response = ActorsPropertyTaxonomyQueryRunner(query, self._team, user=self._user).run(
+            return ActorsPropertyTaxonomyQueryRunner(query, self._team, user=self._user).run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
                 user=self._user,
                 analytics_props={"source": self._event_source},
             )
 
-        if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
-            return f"The entity {entity} does not exist in the taxonomy."
-
+    def _format_actor_property_response(
+        self,
+        entity: str,
+        property_name: str,
+        response: CachedActorsPropertyTaxonomyQueryResponse,
+        property_definition: PropertyDefinitionOrVirtual,
+        virtual_definition: CoreFilterDefinition | None,
+    ) -> str:
         if not response.results:
             if virtual_definition is not None:
                 return self._format_virtual_property_values(property_name, virtual_definition)
