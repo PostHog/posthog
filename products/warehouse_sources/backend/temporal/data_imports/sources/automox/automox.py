@@ -1,5 +1,5 @@
-import dataclasses
-from collections.abc import Iterator
+import json
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -10,9 +10,12 @@ from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.automox.settings import (
     AUTOMOX_ENDPOINTS,
     AutomoxEndpointConfig,
+    AutomoxFanOutConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -34,6 +37,10 @@ CREDENTIAL_FIELD_NAMES = frozenset({"access_key", "intercom_hmac"})
 ORG_NOT_FOUND_ERROR = "Automox organization not found"
 MULTIPLE_ORGS_ERROR = "Automox API key has access to multiple organizations"
 
+# Reshapes one raw endpoint payload into warehouse rows, for the endpoints that don't already
+# answer with a flat row list.
+PayloadTransform = Callable[[Any], list[dict[str, Any]]]
+
 
 class AutomoxRetryableError(Exception):
     pass
@@ -43,7 +50,7 @@ class AutomoxOrganizationError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class AutomoxResumeConfig:
     # Zero-indexed page of the next request. Automox paginates with page/limit, so persisting the
     # page number lets a sync pick back up after a heartbeat timeout.
@@ -52,6 +59,10 @@ class AutomoxResumeConfig:
     # recomputing it from the (possibly advanced) watermark would change the filtered result set
     # and make the saved page number point at different rows.
     incremental_param_value: str | None = None
+    # Fan-out endpoints only: the parent-list page the interrupted run was on, and the index within
+    # that page of the parent whose children `page` refers to.
+    parent_page: int | None = None
+    parent_index: int = 0
 
 
 def _make_session(api_key: str) -> requests.Session:
@@ -95,6 +106,69 @@ def _scope_row_to_org(row: dict[str, Any], org_id: int | None, field_map: dict[s
     return scoped
 
 
+def _inventory_value(value: Any) -> str | None:
+    """Render one inventory reading as text.
+
+    Automox types a reading's `value` per attribute — a plain string for most, a list of records
+    for `data_records` entries — so storing it as-is would give the column a different type
+    depending on which devices synced.
+    """
+    if value is None or isinstance(value, str):
+        return value
+    return json.dumps(value)
+
+
+def _flatten_device_inventory(payload: Any) -> list[dict[str, Any]]:
+    """Flatten a device's nested inventory tree into one row per collected attribute.
+
+    Automox answers with `categories -> <category> -> sub_categories -> <sub category> -> data`,
+    where each data entry is a single named reading. A row per reading keeps the table's columns
+    stable, which the tree is not: the categories present vary by OS and by the customer's tier.
+    """
+    documents = payload if isinstance(payload, list) else [payload]
+    rows: list[dict[str, Any]] = []
+    for document in documents:
+        if not isinstance(document, dict):
+            continue
+        categories = document.get("categories")
+        # The reference documents a second `Categories` level under `categories`, while the
+        # example responses omit it. Accept either.
+        if isinstance(categories, dict) and isinstance(categories.get("Categories"), dict):
+            categories = categories["Categories"]
+        if not isinstance(categories, dict):
+            continue
+        for category_name, category in categories.items():
+            sub_categories = category.get("sub_categories") if isinstance(category, dict) else None
+            if not isinstance(sub_categories, dict):
+                continue
+            for sub_category_name, sub_category in sub_categories.items():
+                entries = sub_category.get("data") if isinstance(sub_category, dict) else None
+                if not isinstance(entries, list):
+                    continue
+                for entry in entries:
+                    if not isinstance(entry, dict) or entry.get("name") is None:
+                        continue
+                    rows.append(
+                        {
+                            "category": category_name,
+                            "sub_category": sub_category_name,
+                            "name": entry.get("name"),
+                            "friendly_name": entry.get("friendly_name"),
+                            "description": entry.get("description"),
+                            "type": entry.get("type"),
+                            "value": _inventory_value(entry.get("value")),
+                            "tags": entry.get("tags"),
+                            "collected_at": entry.get("collected_at"),
+                        }
+                    )
+    return rows
+
+
+PAYLOAD_TRANSFORMS: dict[str, PayloadTransform] = {
+    "device_inventory": _flatten_device_inventory,
+}
+
+
 def _build_url(path: str, params: dict[str, Any]) -> str:
     query = {key: value for key, value in params.items() if value is not None and value != ""}
     return f"{AUTOMOX_BASE_URL}{path}?{urlencode(query)}"
@@ -121,7 +195,11 @@ def _fetch_json(session: requests.Session, url: str, logger: FilteringBoundLogge
 
 
 def _fetch_page(
-    session: requests.Session, config: AutomoxEndpointConfig, url: str, logger: FilteringBoundLogger
+    session: requests.Session,
+    config: AutomoxEndpointConfig,
+    url: str,
+    logger: FilteringBoundLogger,
+    transform: Optional["PayloadTransform"] = None,
 ) -> list[dict[str, Any]]:
     payload = _fetch_json(session, url, logger)
 
@@ -129,6 +207,9 @@ def _fetch_page(
         if not isinstance(payload, dict):
             raise ValueError(f"Automox API returned a non-object response: url={url}")
         payload = payload.get(config.data_selector) or []
+
+    if transform is not None:
+        return transform(payload)
 
     # A non-list 200 is a permanent API-contract violation (wrapped payload, proxy HTML, …), not a
     # transient failure — raise a plain ValueError so it surfaces immediately instead of burning
@@ -226,6 +307,149 @@ def _incremental_param_value(config: AutomoxEndpointConfig, last_value: Any) -> 
     return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _fan_out_configs(config: AutomoxEndpointConfig) -> list[AutomoxEndpointConfig]:
+    return [config] if config.fan_out is None else [config, config.fan_out.parent]
+
+
+def _needs_organization(config: AutomoxEndpointConfig) -> bool:
+    return any(
+        c.needs_org_id_param or c.org_uuid_param or c.restrict_to_org or "{org_id}" in c.path or "{org_uuid}" in c.path
+        for c in _fan_out_configs(config)
+    )
+
+
+def _requires_org_uuid(config: AutomoxEndpointConfig) -> bool:
+    return any(c.org_uuid_param is not None or "{org_uuid}" in c.path for c in _fan_out_configs(config))
+
+
+def _resolve_path(path: str, org_id: int | None, org_uuid: str | None) -> str:
+    if org_id is not None:
+        path = path.replace("{org_id}", str(org_id))
+    if org_uuid is not None:
+        path = path.replace("{org_uuid}", org_uuid)
+    return path
+
+
+def _request_params(
+    config: AutomoxEndpointConfig,
+    page: int,
+    org_id: int | None,
+    org_uuid: str | None,
+    incremental_value: str | None,
+) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if config.paginated:
+        params["page"] = page
+        params["limit"] = config.page_size
+    params.update(config.extra_params)
+    if config.needs_org_id_param and org_id is not None:
+        params["o"] = org_id
+    if config.org_uuid_param and org_uuid is not None:
+        params[config.org_uuid_param] = org_uuid
+    if config.incremental_param and incremental_value is not None:
+        params[config.incremental_param] = incremental_value
+    return params
+
+
+@frozen
+class _EndpointPage:
+    number: int
+    # `True` when this is the resource's last page, so the caller stops instead of advancing.
+    is_last: bool
+    rows: list[dict[str, Any]]
+
+
+def _iter_pages(
+    session: requests.Session,
+    config: AutomoxEndpointConfig,
+    path: str,
+    logger: FilteringBoundLogger,
+    start_page: int,
+    org_id: int | None,
+    org_uuid: str | None,
+    incremental_value: str | None = None,
+    transform: Optional[PayloadTransform] = None,
+) -> Iterator[_EndpointPage]:
+    """Walk one endpoint path, yielding a page at a time until the resource is exhausted."""
+    page = start_page
+    while True:
+        url = _build_url(path, _request_params(config, page, org_id, org_uuid, incremental_value))
+        rows = _fetch_page(session, config, url, logger, transform)
+        if not rows:
+            return
+
+        # Decide on the raw page length: the caller's filtering can shrink a page without meaning
+        # the resource is exhausted.
+        is_last = not config.paginated or len(rows) < config.page_size
+        yield _EndpointPage(number=page, is_last=is_last, rows=rows)
+        if is_last:
+            return
+        page += 1
+
+
+def _sanitize_rows(
+    config: AutomoxEndpointConfig, rows: list[dict[str, Any]], org_id: int | None
+) -> list[dict[str, Any]]:
+    if config.restrict_to_org:
+        rows = [row for row in rows if org_id is not None and str(row.get("id")) == str(org_id)]
+    rows = [_strip_credentials(row) for row in rows]
+    if config.org_scoped_list_fields:
+        rows = [_scope_row_to_org(row, org_id, config.org_scoped_list_fields) for row in rows]
+    return rows
+
+
+def _iter_fan_out_rows(
+    session: requests.Session,
+    config: AutomoxEndpointConfig,
+    fan_out: AutomoxFanOutConfig,
+    path: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[AutomoxResumeConfig],
+    resume: AutomoxResumeConfig | None,
+    org_id: int | None,
+    org_uuid: str | None,
+    transform: Optional[PayloadTransform] = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk the parent list and call the child endpoint once per parent row."""
+    parent_path = _resolve_path(fan_out.parent.path, org_id, org_uuid)
+    parent_page, skip_parents, child_page = 0, 0, 0
+    if resume is not None and resume.parent_page is not None:
+        parent_page, skip_parents, child_page = resume.parent_page, resume.parent_index, resume.page
+
+    for parent_batch in _iter_pages(session, fan_out.parent, parent_path, logger, parent_page, org_id, org_uuid):
+        # Resuming re-reads the parent page and skips the parents already walked. Automox does not
+        # promise a stable order across requests, so a parent added mid-sync can shift the page;
+        # the merge dedupes whatever is re-read, and the next full sync picks up anything shifted.
+        for index in range(skip_parents, len(parent_batch.rows)):
+            start_child_page, child_page = child_page, 0
+            parent = parent_batch.rows[index]
+            parent_value = parent.get(fan_out.parent_field)
+            if parent_value is None:
+                continue
+
+            child_path = path.replace(fan_out.placeholder, str(parent_value))
+            parent_columns = {column: parent.get(field) for field, column in fan_out.include_from_parent.items()}
+
+            for child_batch in _iter_pages(
+                session, config, child_path, logger, start_child_page, org_id, org_uuid, transform=transform
+            ):
+                rows = [{**parent_columns, **row} for row in _sanitize_rows(config, child_batch.rows, org_id)]
+                if rows:
+                    yield rows
+                # Save AFTER yielding so a crash re-runs the last batch rather than skipping it.
+                if not child_batch.is_last:
+                    resumable_source_manager.save_state(
+                        AutomoxResumeConfig(
+                            page=child_batch.number + 1, parent_page=parent_batch.number, parent_index=index
+                        )
+                    )
+
+            resumable_source_manager.save_state(
+                AutomoxResumeConfig(page=0, parent_page=parent_batch.number, parent_index=index + 1)
+            )
+        skip_parents = 0
+
+
 def get_rows(
     api_key: str,
     organization_id: str | None,
@@ -241,15 +465,14 @@ def get_rows(
 
     org_id: int | None = None
     org_uuid: str | None = None
-    if config.needs_org_id_param or config.org_uuid_param or config.restrict_to_org or "{org_id}" in config.path:
+    if _needs_organization(config):
         org_id, org_uuid = resolve_organization(session, organization_id, logger)
-        if config.org_uuid_param and not org_uuid:
+        if _requires_org_uuid(config) and not org_uuid:
             raise AutomoxOrganizationError(
                 f"{ORG_NOT_FOUND_ERROR}: the organization has no UUID, which the {endpoint} endpoint requires"
             )
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.page if resume else 0
 
     incremental_value: str | None = None
     if config.incremental_param and should_use_incremental_field:
@@ -258,48 +481,47 @@ def get_rows(
         else:
             incremental_value = _incremental_param_value(config, db_incremental_field_last_value)
     if resume:
-        logger.debug(f"Automox: resuming {endpoint} from page={page}")
+        logger.debug(f"Automox: resuming {endpoint} from page={resume.page}")
 
-    path = config.path.replace("{org_id}", str(org_id)) if org_id is not None else config.path
+    path = _resolve_path(config.path, org_id, org_uuid)
+    transform = PAYLOAD_TRANSFORMS.get(endpoint)
 
-    while True:
-        params: dict[str, Any] = {
-            "page": page,
-            "limit": config.page_size,
-            **config.extra_params,
-        }
-        if config.needs_org_id_param and org_id is not None:
-            params["o"] = org_id
-        if config.org_uuid_param and org_uuid is not None:
-            params[config.org_uuid_param] = org_uuid
-        if config.incremental_param and incremental_value is not None:
-            params[config.incremental_param] = incremental_value
+    if config.fan_out is not None:
+        yield from _iter_fan_out_rows(
+            session=session,
+            config=config,
+            fan_out=config.fan_out,
+            path=path,
+            logger=logger,
+            resumable_source_manager=resumable_source_manager,
+            resume=resume,
+            org_id=org_id,
+            org_uuid=org_uuid,
+            transform=transform,
+        )
+        return
 
-        rows = _fetch_page(session, config, _build_url(path, params), logger)
-        if not rows:
-            break
-
-        # Terminate on the raw page length: filtering below can shrink the page without meaning
-        # the resource is exhausted.
-        reached_end = len(rows) < config.page_size
-
-        if config.restrict_to_org:
-            rows = [row for row in rows if org_id is not None and str(row.get("id")) == str(org_id)]
-
-        rows = [_strip_credentials(row) for row in rows]
-        if config.org_scoped_list_fields:
-            rows = [_scope_row_to_org(row, org_id, config.org_scoped_list_fields) for row in rows]
+    for batch in _iter_pages(
+        session,
+        config,
+        path,
+        logger,
+        resume.page if resume else 0,
+        org_id,
+        org_uuid,
+        incremental_value,
+        transform,
+    ):
+        rows = _sanitize_rows(config, batch.rows, org_id)
         if rows:
             yield rows
 
-        # A short page means we've reached the end of the resource.
-        if reached_end:
-            break
-
-        page += 1
         # Save AFTER yielding so a crash re-runs from the last persisted page rather than skipping
         # ahead; the merge dedupes any re-pulled rows on the primary key.
-        resumable_source_manager.save_state(AutomoxResumeConfig(page=page, incremental_param_value=incremental_value))
+        if not batch.is_last:
+            resumable_source_manager.save_state(
+                AutomoxResumeConfig(page=batch.number + 1, incremental_param_value=incremental_value)
+            )
 
 
 def automox_source(
