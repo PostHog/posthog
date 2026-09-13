@@ -1,10 +1,12 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
+import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -72,5 +74,51 @@ describe('InboxWaitingForWork', () => {
 
         await waitFor(() => expect(screen.getByText('Your agents are working in the background')).toBeInTheDocument())
         expect(screen.queryByText("Setup isn't finished")).toBeNull()
+    })
+
+    // Before the detector reports, "no run in flight" is only "nobody has asked yet", so a user
+    // whose setup run is under way was told to go and run it again.
+    it('waits for the wizard verdict before saying setup is unfinished', async () => {
+        // The detector only watches the setup program on this variant, so its verdict is the one
+        // thing the surface is waiting on. The failing poll keeps it from reaching one.
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_AUTONOMY], {
+            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+            [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: 'self-driving',
+        })
+        mockWatchers([])
+        useMocks({ get: { '/api/projects/:project_id/wizard/sessions/latest/': () => [500, {}] } })
+
+        render(<InboxWaitingForWork />)
+
+        await waitFor(() => expect(screen.getByText('Your agents are working in the background')).toBeInTheDocument())
+        expect(screen.queryByText("Setup isn't finished")).toBeNull()
+
+        act(() => {
+            wizardActiveSessionDetectorLogic.actions.markInactive()
+        })
+
+        await waitFor(() => expect(screen.getByText("Setup isn't finished")).toBeInTheDocument())
+    })
+
+    // A run that ends refetches every config, and the loaded ones hold their pre-run values until
+    // the fresh ones land, so the surface used to greet a finished run with "run it again".
+    it('waits for the refetched configs when a run ends', async () => {
+        mockWatchers([])
+
+        render(<InboxWaitingForWork />)
+
+        await waitFor(() => expect(screen.getByText("Setup isn't finished")).toBeInTheDocument())
+
+        act(() => {
+            wizardActiveSessionDetectorLogic.actions.markActive(SELF_DRIVING_WORKFLOW_ID)
+        })
+        expect(screen.getByText('Your agents are working in the background')).toBeInTheDocument()
+
+        act(() => {
+            wizardActiveSessionDetectorLogic.actions.markInactive()
+        })
+        expect(screen.queryByText("Setup isn't finished")).toBeNull()
+
+        await waitFor(() => expect(screen.getByText("Setup isn't finished")).toBeInTheDocument())
     })
 })

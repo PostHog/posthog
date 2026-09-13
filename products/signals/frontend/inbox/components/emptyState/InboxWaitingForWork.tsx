@@ -1,4 +1,5 @@
 import { useMountedLogic, useValues } from 'kea'
+import { useRef } from 'react'
 
 import { IconCheckCircle, IconPullRequest } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -41,7 +42,8 @@ export function InboxWaitingForWork(): JSX.Element {
 
     const { sourceConfigs, sourceConfigsLoading } = useValues(signalSourcesLogic)
     const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
-    const { isSetupLoaded, isSelfDrivingSetUp, isWizardRunning } = useValues(inboxOnboardingLogic)
+    const { isSetupLoaded, isSelfDrivingSetUp, isWizardRunning, isWizardStateResolved, isRefetching } =
+        useValues(inboxOnboardingLogic)
     const enabledSources = uniqueEnabledSources(sourceConfigs)
     const enabledScouts = (scoutConfigs ?? []).filter((scout) => scout.enabled && scout.emit)
     const visibleSources = enabledSources.slice(0, MAX_VISIBLE_ITEMS)
@@ -54,7 +56,17 @@ export function InboxWaitingForWork(): JSX.Element {
     // session once "Set up manually" has been pressed. Read from the same verdict the scene decides
     // the onboarding with, not from the lists below: those exclude a non-emitting scout and a
     // Replay Vision scanner, so a project watching through either would be told setup is unfinished.
-    if (isSetupLoaded && !isSelfDrivingSetUp && !isWizardRunning) {
+    // The same two holds the scene applies: before the detector reports, `isWizardRunning === false`
+    // only means nobody has asked yet, and a refetch in flight leaves every config on the value it
+    // had before the run that is about to land.
+    const isSetupVerdictSettled = isSetupLoaded && isWizardStateResolved && !isRefetching
+    // Keep the last settled answer through those windows instead of swapping the surface for one
+    // request round trip: the copy-the-command flow comes back to this tab, which refetches.
+    const setupIsUnfinished = useRef(false)
+    if (isSetupVerdictSettled) {
+        setupIsUnfinished.current = !isSelfDrivingSetUp && !isWizardRunning
+    }
+    if (setupIsUnfinished.current) {
         return <InboxSetupIncomplete />
     }
 
