@@ -3,7 +3,9 @@
 Endpoint versions can pause unused materialization after 30 days.
 The cleanup task considers API-key calls only; Playground and other session-authenticated calls do not count as usage.
 A version is eligible when its materialization is at least 30 days old and has run within the past 24 hours.
-Versions that have never received an API-key call are eligible once the version is also 30 days old.
+Versions that have never received an API-key call are eligible once the version is also 30 days old and the endpoint itself has no recorded API-key call.
+A never-called current version stays materialized while the endpoint records recent calls, such as calls that pin an older version.
+Per-version tracking is newer than the endpoint timestamp, so a missing version timestamp alone does not prove that no client called the version.
 Superseded versions with no execution timestamp remain eligible.
 
 Pausing reverts and soft-deletes the backing saved query and records `materialization_hibernated_at` on the endpoint version.

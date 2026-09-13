@@ -160,6 +160,24 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         assert version.saved_query is None
         assert version.materialization_hibernated_at is not None
 
+    def test_keeps_never_called_version_when_the_endpoint_has_a_recent_call(self):
+        now = timezone.now()
+        # The version has no call of its own, but the endpoint does — a missing version
+        # timestamp alone does not prove the version was never called.
+        endpoint, version = self._create_materialized_endpoint(
+            "never_called_current_version",
+            last_run_at=now - timedelta(hours=1),
+            last_executed_at=now - timedelta(hours=1),
+            materialization_created_at=now - timedelta(days=45),
+        )
+        EndpointVersion.objects.filter(pk=version.pk).update(created_at=now - timedelta(days=45))
+
+        deactivate_stale_materializations()
+
+        version.refresh_from_db()
+        assert version.saved_query is not None
+        assert version.materialization_hibernated_at is None
+
     def test_skips_endpoints_not_materialized_recently(self):
         now = timezone.now()
         # Materialization ran 2 days ago (not within 24h)
