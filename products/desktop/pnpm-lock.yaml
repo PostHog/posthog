@@ -1452,8 +1452,8 @@ importers:
         specifier: ^11.17.0
         version: 11.17.0
       posthog-js:
-        specifier: ^1.429.2
-        version: 1.429.2(@types/react@19.2.17)(react@19.2.6)
+        specifier: ^1.430.3
+        version: 1.430.3(@types/react@19.2.17)(react@19.2.6)
       radix-themes-tw:
         specifier: 0.2.3
         version: 0.2.3
@@ -1748,8 +1748,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       posthog-js:
-        specifier: ^1.429.2
-        version: 1.429.2(@types/react@19.2.17)(react@19.2.6)
+        specifier: ^1.430.3
+        version: 1.430.3(@types/react@19.2.17)(react@19.2.6)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -6253,8 +6253,8 @@ packages:
       react:
         optional: true
 
-  '@posthog/browser-common@0.8.2':
-    resolution: {integrity: sha512-8g7+ijrx8bfWmpDjmP07e0ZmdRnJoFqZ6PCcMQvfBTUrr422GRXvQWpQn7yD028zIJHIIn/rUTipKgUC5UkWpw==}
+  '@posthog/browser-common@0.8.3':
+    resolution: {integrity: sha512-4Hlbwyn+Hioc2+pjqSGWMTDrA5XsDshssPnGfv34khPKoJaeBe2YvPvsEPoH78jezOS6Wo3LJvCPhqyolg3S8w==}
 
   '@posthog/cli@0.16.2':
     resolution: {integrity: sha512-h8bpf9ffBUH/Z9IoyGV+wiI+vS8rIPorKT3eKQXuzuwawO0G7Qvy+hDd7HQ9YJjHByYZ77yPPQvrSs4WsqTUCg==}
@@ -6263,9 +6263,6 @@ packages:
 
   '@posthog/core@1.51.1':
     resolution: {integrity: sha512-k0aDkW2XR7G0CWVnL0MZdY8wS5PhYvFtpWLdC2vD/sIUB6BGHhxNLgfVd2mLpmuf1zCBz5Q+p8g/01VL88s0Hg==}
-
-  '@posthog/core@1.52.1':
-    resolution: {integrity: sha512-WT4TUgmsyBYHAmhsifg+LdaFH9wzOcp3UNWnIaeVOgodfMeG/X39V9n0lyebaxoHLR/NMCMq8gsrF69ldzuMhg==}
 
   '@posthog/core@1.53.2':
     resolution: {integrity: sha512-Knx8442G2LyPVIzLvhcBX/TIdeHpZhrYrtZou3Uw8FWfbr9gQtQeOZDCog3MWcDxJ+4vAnMAAOzf5cYpc7Gxyw==}
@@ -6308,9 +6305,6 @@ packages:
 
   '@posthog/types@1.409.2':
     resolution: {integrity: sha512-hZ4EXZ1+BstMaxUkmAEg3qvgMR/S00Xb+wEwY/Tx2Dr9dBgiBWrERxaq2UwICh/Fh/vVXpKZT/0SkRtO8JKQ2A==}
-
-  '@posthog/types@1.410.0':
-    resolution: {integrity: sha512-741sltt/h+l0eYH+Nkow96qKfDmRxwKacfjF93Z+kMySjzL0a87ptmpklZxGkbjBp/DJH/CSowGrolYWK/1ToA==}
 
   '@posthog/types@1.411.1':
     resolution: {integrity: sha512-Gd7tnSYctcSXup3naVlAgavvenByRao6rsSYdMgWgP35KE9jFn+rMHNRJeI5LNjJuLzMXHEVcgzAN7xcATefdw==}
@@ -13950,8 +13944,8 @@ packages:
     resolution: {integrity: sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg==}
     engines: {node: ^10 || ^12 || >=14}
 
-  posthog-js@1.429.2:
-    resolution: {integrity: sha512-BIwH7JWjJ5Z1iknQ1pVm9nJR1c/3hRvfRPiuU+z0WCB9CvOVZYFgCjRlM86dkVt11khcC772aBBXQB+QO99gbg==}
+  posthog-js@1.430.3:
+    resolution: {integrity: sha512-+j/0wa36fXdXsiKhN7ghHOA4z9/ik893ZpMOLeqCluqXZSt/oe+iClIavWqLRcYhvvmJvl2D3EfKpt8Kg8GbUQ==}
     peerDependencies:
       '@types/react': ^19.2.15
       react: 19.2.6
@@ -20981,10 +20975,10 @@ snapshots:
     optionalDependencies:
       react: 19.2.6
 
-  '@posthog/browser-common@0.8.2':
+  '@posthog/browser-common@0.8.3':
     dependencies:
-      '@posthog/core': 1.52.1
-      '@posthog/types': 1.410.0
+      '@posthog/core': 1.53.2
+      '@posthog/types': 1.411.1
 
   '@posthog/cli@0.16.2':
     dependencies:
@@ -20993,10 +20987,6 @@ snapshots:
   '@posthog/core@1.51.1':
     dependencies:
       '@posthog/types': 1.409.2
-
-  '@posthog/core@1.52.1':
-    dependencies:
-      '@posthog/types': 1.410.0
 
   '@posthog/core@1.53.2':
     dependencies:
@@ -21068,8 +21058,6 @@ snapshots:
       rollup: 4.62.2
 
   '@posthog/types@1.409.2': {}
-
-  '@posthog/types@1.410.0': {}
 
   '@posthog/types@1.411.1': {}
 
@@ -30067,11 +30055,11 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  posthog-js@1.429.2(@types/react@19.2.17)(react@19.2.6):
+  posthog-js@1.430.3(@types/react@19.2.17)(react@19.2.6):
     dependencies:
-      '@posthog/browser-common': 0.8.2
-      '@posthog/core': 1.52.1
-      '@posthog/types': 1.410.0
+      '@posthog/browser-common': 0.8.3
+      '@posthog/core': 1.53.2
+      '@posthog/types': 1.411.1
       core-js: 3.50.0
       dompurify: 3.4.13
       fflate: 0.4.8
