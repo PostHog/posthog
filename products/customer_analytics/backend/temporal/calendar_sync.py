@@ -106,9 +106,15 @@ class GoogleAccountBackfillOutput:
 
 def _collect_calendar_integrations() -> list[CalendarSyncInput]:
     # Deferred: keeps Django models out of the workflow sandbox import path.
-    from posthog.models.integration import Integration  # noqa: PLC0415
+    from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration  # noqa: PLC0415
 
-    rows = Integration.objects.filter(kind="google-calendar").values_list("id", "team_id")[:MAX_SYNCS_PER_RUN]
+    rows = (
+        Integration.objects.filter(kind="google-calendar")
+        # A dead refresh token only heals when the user reconnects, so every hourly retry
+        # raises the same non-retryable error.
+        .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
+        .values_list("id", "team_id")[:MAX_SYNCS_PER_RUN]
+    )
     return [CalendarSyncInput(integration_id=row[0], team_id=row[1]) for row in rows]
 
 
