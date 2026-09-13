@@ -30,6 +30,11 @@ Unreviewed, AI-generated bug reports and security disclosures will be closed wit
 If you didn't write the code and aren't a maintainer, don't point an LLM at someone else's PR and leave its output as a review comment.
 This is generally never helpful.
 
+**Don't respond to humans with AI-generated responses.**
+If a human takes time to review your PR and asks one or more questions they probably want to hear from you, not your LLM.
+All maintainers have access to their own LLMs they can check with when they need, they do not need to read the output of yours.
+If you need to reference content produced by an LLM, then do so in a quote and add your own thoughts on why it's relevant to the discussion.
+
 ## What happens when contributions don't meet this bar
 
 - **First time:** We'll close the PR/issue with a link to this policy and a brief explanation.
