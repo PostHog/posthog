@@ -1,5 +1,7 @@
 import { cleanup, render, waitFor } from '@testing-library/react'
 
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
@@ -79,6 +81,35 @@ describe('DataTableVisualization', () => {
             }
             expect(mockLatestLemonTableProps.embedded).toBe(embedded)
             expect(mockLatestLemonTableProps.allowContentScroll).toBe(expectedAllowContentScroll)
+        }
+    )
+
+    test.each([{ readOnly: true }, { readOnly: false }])(
+        'renders the export button, and mounts insightDataLogic for it, only when readOnly is false (readOnly $readOnly)',
+        async ({ readOnly }) => {
+            const uniqueKey = `data-visualization-export-${readOnly}`
+
+            const { container } = render(
+                <DataTableVisualization
+                    uniqueKey={uniqueKey}
+                    query={query}
+                    setQuery={jest.fn()}
+                    cachedResults={cachedResults}
+                    readOnly={readOnly}
+                />
+            )
+
+            await waitFor(() => {
+                if (!mockLatestLemonTableProps) {
+                    throw new Error('Expected LemonTable to render')
+                }
+            })
+
+            expect(!!container.querySelector('[data-attr="export-button"]')).toBe(!readOnly)
+            const mounted = insightDataLogic.findMounted({
+                dashboardItemId: `new-AdHoc.DataVisualizationNode.${uniqueKey}`,
+            })
+            expect(!!mounted).toBe(!readOnly)
         }
     )
 })
