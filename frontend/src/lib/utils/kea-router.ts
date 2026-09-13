@@ -19,6 +19,7 @@ const pathsWithoutProjectId = [
     'interview',
     'cli',
     'render_query',
+    'uploaded_media',
 ]
 
 // Instance-level pages that live under a product's own path prefix rather than

@@ -42,6 +42,11 @@ describe('router-utils', () => {
         const altered = addProjectIdIfMissing('/feature_flags/staff/cohorts', 123)
         expect(altered).toEqual('/feature_flags/staff/cohorts')
     })
+    it('does not add a project id to backend-served media URLs', () => {
+        expect(addProjectIdIfMissing('/uploaded_media/017f2e65-1518-7933-be09-ff2b7ee6741f', 123)).toEqual(
+            '/uploaded_media/017f2e65-1518-7933-be09-ff2b7ee6741f'
+        )
+    })
     it('does not add a project id to billing URLs, which are organization-scoped', () => {
         expect(addProjectIdIfMissing('/billing', 123)).toEqual('/billing')
         expect(addProjectIdIfMissing('/billing/authorization_status', 123)).toEqual('/billing/authorization_status')
