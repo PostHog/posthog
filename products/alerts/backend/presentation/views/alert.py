@@ -6,6 +6,7 @@ from django.db import transaction
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
+import pydantic
 import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
 from pydantic import (
@@ -92,6 +93,26 @@ from products.alerts.backend.insight_alert_state_machine import (
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
+
+# DetectorConfig is discriminated on `type`, so a rejected config normally yields one
+# error naming the offending field. Cap the list anyway: an ensemble reports one per
+# failing sub-detector, and an unbounded dump buries the first, most actionable one.
+MAX_REPORTED_DETECTOR_CONFIG_ERRORS = 3
+
+
+def _describe_detector_config_error(error: pydantic.ValidationError) -> str:
+    """Name the rejected fields and the constraint each one broke.
+
+    Callers are overwhelmingly agents, which retry the same malformed config unless the
+    rejection says which field to change — "Invalid detector configuration." tells them
+    nothing. Pydantic's own messages state the constraint ("Input should be 'and' or
+    'or'") without echoing the submitted value, so they are safe to pass through.
+    """
+    described = []
+    for detail in error.errors()[:MAX_REPORTED_DETECTOR_CONFIG_ERRORS]:
+        location = ".".join(str(part) for part in detail["loc"])
+        described.append(f"{location}: {detail['msg']}" if location else detail["msg"])
+    return "Invalid detector configuration. " + "; ".join(described)
 
 
 def _validate_interval_entitlement(
@@ -721,15 +742,16 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if value is None:
             return value
 
-        import pydantic
-
         try:
             validated = DetectorConfig.model_validate(value)
-        except pydantic.ValidationError:
-            raise ValidationError("Invalid detector configuration.")
+        except pydantic.ValidationError as e:
+            raise ValidationError(_describe_detector_config_error(e))
 
         # Ensemble requires at least 2 sub-detectors
         root = validated.root if hasattr(validated, "root") else validated
+        # Range-check the dump rather than the request body: pydantic coerces a numeric string
+        # such as "30", and comparing that raw string against a numeric bound raises.
+        normalized = validated.model_dump() if hasattr(validated, "model_dump") else value
         if getattr(root, "type", None) == "ensemble" and hasattr(root, "detectors"):
             if len(root.detectors) < 2:
                 raise ValidationError("Ensemble detector requires at least 2 sub-detectors.")
@@ -737,9 +759,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 sub_dict: dict = sub.model_dump() if hasattr(sub, "model_dump") else sub  # type: ignore[assignment]
                 self._validate_detector_params(sub_dict)
         else:
-            self._validate_detector_params(value)
+            self._validate_detector_params(normalized)
 
-        return validated.model_dump() if hasattr(validated, "model_dump") else value
+        return normalized
 
     @staticmethod
     def _validate_detector_params(config: dict) -> None:
@@ -985,14 +1007,13 @@ class AlertSimulateSerializer(serializers.Serializer):
         return value
 
     def validate_detector_config(self, value):
-        import pydantic
-
         try:
             validated = DetectorConfig.model_validate(value)
-        except pydantic.ValidationError:
-            raise ValidationError("Invalid detector configuration.")
+        except pydantic.ValidationError as e:
+            raise ValidationError(_describe_detector_config_error(e))
 
         root = validated.root if hasattr(validated, "root") else validated
+        normalized = validated.model_dump() if hasattr(validated, "model_dump") else value
         if getattr(root, "type", None) == "ensemble" and hasattr(root, "detectors"):
             if len(root.detectors) < 2:
                 raise ValidationError("Ensemble detector requires at least 2 sub-detectors.")
@@ -1000,9 +1021,9 @@ class AlertSimulateSerializer(serializers.Serializer):
                 sub_dict: dict = sub.model_dump() if hasattr(sub, "model_dump") else sub  # type: ignore[assignment]
                 AlertSerializer._validate_detector_params(sub_dict)
         else:
-            AlertSerializer._validate_detector_params(value)
+            AlertSerializer._validate_detector_params(normalized)
 
-        return validated.model_dump() if hasattr(validated, "model_dump") else value
+        return normalized
 
 
 class BreakdownSimulationResultSerializer(serializers.Serializer):
