@@ -8,6 +8,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import SharingConfiguration
+from posthog.test.regex_timeout import assert_regex_completes
 
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.util import (
@@ -275,6 +276,25 @@ class TestExtractInlineQueryNodes(TestCase):
 
 
 class TestFilterNotebookContentForSharing(TestCase):
+    def test_large_unterminated_component_remains_plain_text(self) -> None:
+        def check() -> None:
+            content = _markdown_doc("<Query " + ">" * 100_000 + "!")
+            self.assertEqual(filter_notebook_content_for_sharing(content), content)
+
+        assert_regex_completes(check)
+
+    @parameterized.expand(
+        [
+            ('<Embed src="https://example.com">caption</Embed>', '<Embed src="https://example.com" />'),
+            ("<Query>text</Query></Query>", "<Query />"),
+            ("<QueryExtra title=x></Query>", "<QueryExtra />"),
+            ("<Query></Q>", "<Query />"),
+            ('<Query title="unfinished />', "<Query />"),
+        ]
+    )
+    def test_component_closing_tag_compatibility(self, markdown: str, expected: str) -> None:
+        self.assertEqual(filter_notebook_content_for_sharing(_markdown_doc(markdown)), _markdown_doc(expected))
+
     @parameterized.expand(
         [
             ("none", None, None),
