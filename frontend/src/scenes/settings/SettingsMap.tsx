@@ -1336,7 +1336,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                         </LemonTag>
                     </>
                 ),
-                description: 'Get told when several customers raise the same topic in support within an hour.',
+                description: 'Get told when several customers raise the same topic in support inside a short window.',
                 component: <TicketPatternsSection />,
                 flag: 'PRODUCT_SUPPORT_TICKET_PATTERNS',
                 allowForTeam: (t) => !!t?.conversations_enabled,

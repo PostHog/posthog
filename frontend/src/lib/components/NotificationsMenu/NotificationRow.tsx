@@ -79,7 +79,7 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
     },
     support_pattern_detected: {
         label: 'Support ticket patterns',
-        description: 'When several customers raise the same topic in support within an hour',
+        description: 'When several customers raise the same topic in support inside a short window',
     },
 }
 
