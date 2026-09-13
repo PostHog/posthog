@@ -4,7 +4,12 @@ import dataclasses
 
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.dataclasses import frozen
 from posthog.slo.types import SloConfig
+
+# Leaves headroom below Temporal's recommendation of at most 1,000 children per parent.
+# Operators can override this through the Schedule action input when backlog conditions change.
+DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_RUN = 500
 
 # Type names of these failures never appear in recipient-facing copy. When a safe code and message
 # exist, they are available to query-access owners; this mask only governs the legacy fallback that
@@ -139,14 +144,16 @@ class DueSubscription:
     resource_type: str = ""
 
 
-@dataclasses.dataclass
+@frozen
 class FetchDueSubscriptionsActivityInputs:
     buffer_minutes: int = 15
+    max_subscriptions_per_run: int = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_RUN
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
         return {
             "buffer_minutes": self.buffer_minutes,
+            "max_subscriptions_per_run": self.max_subscriptions_per_run,
         }
 
 
@@ -386,12 +393,14 @@ class SnapshotInsightsResult:
     summary_skipped_over_budget: bool = False
 
 
-@dataclasses.dataclass
+@frozen
 class ScheduleAllSubscriptionsWorkflowInputs:
     buffer_minutes: int = 15
+    max_subscriptions_per_run: int = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_RUN
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
         return {
             "buffer_minutes": self.buffer_minutes,
+            "max_subscriptions_per_run": self.max_subscriptions_per_run,
         }

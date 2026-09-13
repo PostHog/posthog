@@ -26,7 +26,7 @@ from posthog.hogql.errors import QueryError
 
 from posthog.email import EmailDeliveryError
 from posthog.errors import CHQueryErrorS3Error
-from posthog.models import OrganizationMembership
+from posthog.models import OrganizationMembership, Team
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import Integration
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
@@ -350,6 +350,10 @@ async def test_subscription_delivery_scheduling(
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
+            for subscription in subscriptions[:2]:
+                await activity_environment.client.get_workflow_handle(
+                    f"process-subscription-{subscription.id}"
+                ).result()
 
     # Each subscription has 2 recipients -> 4 emails expected (only first two subs within buffer)
     assert mock_send_email.call_count == 4
@@ -2377,6 +2381,43 @@ async def test_fetch_due_subscriptions_excludes_disabled(team, user):
     assert disabled_sub.id not in fetched_ids
 
 
+async def test_fetch_due_subscriptions_limits_fairly_across_teams(team, user):
+    other_team = await sync_to_async(Team.objects.create)(organization=team.organization, name="other")
+    dashboards = {
+        team.id: await sync_to_async(Dashboard.objects.create)(team=team, name="first", created_by=user),
+        other_team.id: await sync_to_async(Dashboard.objects.create)(team=other_team, name="second", created_by=user),
+    }
+    now = datetime.now(tz=ZoneInfo("UTC"))
+
+    subscriptions = []
+    for owner_team in (team, team, team, other_team):
+        subscriptions.append(
+            await sync_to_async(Subscription.objects.create)(
+                team=owner_team,
+                dashboard=dashboards[owner_team.id],
+                title="due subscription",
+                target_type="email",
+                target_value="subscriber@example.com",
+                frequency="daily",
+                start_date=now,
+                enabled=True,
+                created_by=user,
+            )
+        )
+
+    await sync_to_async(Subscription.objects.filter(id__in=[sub.id for sub in subscriptions]).update)(
+        next_delivery_date=now,
+    )
+
+    result = await ActivityEnvironment().run(
+        fetch_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(buffer_minutes=15, max_subscriptions_per_run=2),
+    )
+
+    assert len(result) == 2
+    assert {subscription.team_id for subscription in result} == {team.id, other_team.id}
+
+
 @patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
 @patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
 @patch(
@@ -2929,6 +2970,7 @@ async def test_schedule_ai_subscription_over_credit_budget_lands_skipped(
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
+            await env.client.get_workflow_handle(f"process-ai-subscription-{sub.id}").result()
 
     mock_generate.assert_not_called()  # no LLM spend while over budget
     mock_send_report.assert_not_called()  # delivery skipped
@@ -2981,6 +3023,7 @@ async def test_schedule_routes_ai_subscription_through_full_workflow(
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
+            await env.client.get_workflow_handle(f"process-ai-subscription-{sub.id}").result()
 
     # The LLM ran once, the report was shipped, and the delivery record landed COMPLETED.
     mock_generate.assert_called_once()

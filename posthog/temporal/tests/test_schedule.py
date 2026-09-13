@@ -10,9 +10,27 @@ from posthog.temporal.ai_observability.trace_clustering import constants as trac
 from posthog.temporal.ai_observability.trace_summarization import constants as trace_summarization_constants
 from posthog.temporal.schedule import (
     cleanup_non_cloud_ai_observability_schedules,
+    create_schedule_all_subscriptions_schedule,
     create_wa_digest_notification_schedule,
     create_wa_weekly_digest_schedule,
 )
+
+
+@pytest.mark.asyncio
+async def test_subscription_schedule_uses_bounded_default_and_execution_timeout() -> None:
+    create_schedule = mock.AsyncMock()
+
+    with (
+        mock.patch("posthog.temporal.schedule.a_schedule_exists", new=mock.AsyncMock(return_value=False)),
+        mock.patch("posthog.temporal.schedule.a_create_schedule", new=create_schedule),
+    ):
+        await create_schedule_all_subscriptions_schedule(mock.MagicMock())
+
+    assert create_schedule.await_args is not None
+    schedule = create_schedule.await_args.args[2]
+    assert schedule.action.args == [{"buffer_minutes": 15, "max_subscriptions_per_run": 500}]
+    assert schedule.action.execution_timeout.total_seconds() == 600
+    assert schedule.policy.catchup_window.total_seconds() == 900
 
 
 # Both WA digest schedules pin their task queue, and the worker registers those workflows on
