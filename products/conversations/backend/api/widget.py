@@ -39,6 +39,7 @@ from posthog.rate_limit import WIDGET_POLL_THROTTLES, WIDGET_WRITE_THROTTLES
 
 from products.conversations.backend.api.serializers import (
     WIDGET_TICKETS_DEFAULT_LIMIT,
+    WidgetAuthSerializer,
     WidgetCloseTicketSerializer,
     WidgetMarkReadSerializer,
     WidgetMessageSerializer,
@@ -325,6 +326,52 @@ def _authorize_ticket_write(data: dict, team: Team, ticket: Ticket) -> _WidgetTi
         return _WidgetTicketAccess(cache_invalidation_keys=(widget_session_id,), rotate_identity_cache=False)
 
     return None
+
+
+@frozen
+class _WidgetTicketRequest:
+    """A widget write to one ticket, past authentication, validation and the ownership check."""
+
+    team: Team
+    ticket: Ticket
+    access: _WidgetTicketAccess
+
+
+def _resolve_ticket_request(
+    request: Request, ticket_id: str, serializer_class: type[WidgetAuthSerializer]
+) -> _WidgetTicketRequest | Response:
+    """Run the preamble every widget ticket write shares.
+
+    Returns the resolved request, or the error Response the view has to return as is.
+    """
+    team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+    if not team:
+        return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
+
+    # Validate ticket_id (URL parameter)
+    try:
+        validated_ticket_id = str(serializers.UUIDField().to_internal_value(ticket_id))
+    except ValidationError:
+        return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Validate request body
+    body_serializer = serializer_class(data=request.data)
+    if not body_serializer.is_valid():
+        return Response(
+            {"error": "Invalid request data", "details": body_serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        ticket = Ticket.objects.get(id=validated_ticket_id, team=team)
+    except Ticket.DoesNotExist:
+        return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    # Verify ownership: identity mode uses distinct_id, legacy uses widget_session_id
+    access = _authorize_ticket_write(body_serializer.validated_data, team, ticket)
+    if access is None:
+        return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+    return _WidgetTicketRequest(team=team, ticket=ticket, access=access)
 
 
 def _log_customer_status_change(ticket: Ticket, old_status: str, new_status: str) -> None:
@@ -818,39 +865,16 @@ class WidgetMarkReadView(APIView):
     def post(self, request: Request, ticket_id: str) -> Response:
         """Mark ticket messages as read by customer."""
 
-        team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-        if not team:
-            return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
-
-        # Validate ticket_id (URL parameter)
-        try:
-            ticket_id = str(serializers.UUIDField().to_internal_value(ticket_id))
-        except ValidationError:
-            return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Validate request body
-        body_serializer = WidgetMarkReadSerializer(data=request.data)
-        if not body_serializer.is_valid():
-            return Response(
-                {"error": "Invalid request data", "details": body_serializer.errors}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Get ticket
-        try:
-            ticket = Ticket.objects.get(id=ticket_id, team=team)
-        except Ticket.DoesNotExist:
-            return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        # Verify ownership: identity mode uses distinct_id, legacy uses widget_session_id
-        access = _authorize_ticket_write(body_serializer.validated_data, team, ticket)
-        if access is None:
-            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        resolved = _resolve_ticket_request(request, ticket_id, WidgetMarkReadSerializer)
+        if isinstance(resolved, Response):
+            return resolved
+        ticket = resolved.ticket
 
         # Reset unread count for customer
         if ticket.unread_customer_count > 0:
             ticket.unread_customer_count = 0
             ticket.save(update_fields=["unread_customer_count", "updated_at"])
-            access.invalidate_ticket_lists(team.id)
+            resolved.access.invalidate_ticket_lists(resolved.team.id)
 
         return Response({"success": True, "unread_count": 0})
 
@@ -872,29 +896,11 @@ class WidgetCloseTicketView(APIView):
     def post(self, request: Request, ticket_id: str) -> Response:
         """Withdraw a ticket on behalf of its requester."""
 
-        team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-        if not team:
-            return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
-
-        try:
-            ticket_id = str(serializers.UUIDField().to_internal_value(ticket_id))
-        except ValidationError:
-            return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
-
-        body_serializer = WidgetCloseTicketSerializer(data=request.data)
-        if not body_serializer.is_valid():
-            return Response(
-                {"error": "Invalid request data", "details": body_serializer.errors}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            ticket = Ticket.objects.get(id=ticket_id, team=team)
-        except Ticket.DoesNotExist:
-            return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        access = _authorize_ticket_write(body_serializer.validated_data, team, ticket)
-        if access is None:
-            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        resolved = _resolve_ticket_request(request, ticket_id, WidgetCloseTicketSerializer)
+        if isinstance(resolved, Response):
+            return resolved
+        team = resolved.team
+        ticket = resolved.ticket
 
         # Identity mode also lists the requester's Slack, email and GitHub tickets. Those
         # threads live on the other platform too, where withdrawing here would be invisible.
@@ -908,7 +914,7 @@ class WidgetCloseTicketView(APIView):
             ticket.unread_team_count = 0
             ticket.save(update_fields=["status", "withdrawn_at", "unread_team_count", "updated_at"])
             invalidate_unread_count_cache(team.id)
-            access.invalidate_ticket_lists(team.id)
+            resolved.access.invalidate_ticket_lists(team.id)
             _log_customer_status_change(ticket, old_status, Status.RESOLVED)
 
         return Response({"success": True, "status": ticket.status})
