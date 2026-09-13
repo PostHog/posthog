@@ -3,8 +3,22 @@ from typing import Any, NoReturn, cast
 from uuid import UUID
 
 from django.db import IntegrityError, models, transaction
-from django.db.models import CharField, Count, F, IntegerField, OuterRef, Prefetch, Q, QuerySet, Subquery, Sum, Value
-from django.db.models.functions import Coalesce, NullIf
+from django.db.models import (
+    CharField,
+    Count,
+    Exists,
+    F,
+    IntegerField,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+    Sum,
+    Value,
+    Window,
+)
+from django.db.models.functions import Coalesce, NullIf, RowNumber
 from django.utils import timezone
 
 import structlog
@@ -59,6 +73,7 @@ from products.replay_vision.backend.api.filters import (
     split_csv,
     validate_csv_choices,
 )
+from products.replay_vision.backend.api.observations import ReplayObservationSerializer
 from products.replay_vision.backend.api.trigger import (
     WorkflowStartOutcome,
     check_observation_quota,
@@ -82,7 +97,9 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
+    hydrate_for_serialization,
 )
+from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     SamplingMode,
@@ -109,7 +126,11 @@ from products.replay_vision.backend.quota import (
     current_period_bounds,
     spend_projection,
 )
-from products.replay_vision.backend.scanner_access import is_experiment_accessible
+from products.replay_vision.backend.scanner_access import (
+    accessible_observations,
+    is_experiment_accessible,
+    readable_observation_scanner_ids,
+)
 from products.replay_vision.backend.scanner_config import (
     MAX_PROMPT_LENGTH,
     MAX_TAG_LENGTH,
@@ -123,10 +144,12 @@ from products.replay_vision.backend.scanning import (
     scan_existing_scanner,
     scan_outcome_counts,
 )
+from products.replay_vision.backend.search import parse_date_bound
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
+from products.replay_vision.backend.watch_feed import rank_watch_feed_candidates
 from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
@@ -1329,6 +1352,137 @@ class ScannerStatsResponseSerializer(serializers.Serializer):
     )
 
 
+WATCH_FEED_DEFAULT_LIMIT = 20
+WATCH_FEED_MAX_LIMIT = 50
+WATCH_FEED_DEFAULT_DATE_FROM = "-7d"
+# Rank at most this many of the newest succeeded observations in the window. A very high-volume
+# team ranks only the newest slice, which recency-biases the feed — acceptable for a preview surface.
+WATCH_FEED_CANDIDATE_CAP = 1000
+# Within that slice, one scanner contributes at most this many rows. Without it, a busy scanner fills
+# the whole cap and quiet scanners lose not just feed slots but their own baselines — "unusual for
+# this scanner lately" silently stops firing for exactly the scanners the cap crowded out.
+WATCH_FEED_PER_SCANNER_CAP = 100
+
+
+class WatchFeedReason(models.TextChoices):
+    SIGNAL_EMITTED = "signal_emitted"
+    UNUSUAL_VERDICT = "unusual_verdict"
+    VERDICT_YES = "verdict_yes"
+    OUTLIER_SCORE = "outlier_score"
+    RARE_TAG = "rare_tag"
+    NOVEL_SUMMARY = "novel_summary"
+    FRICTION = "friction"
+    UNVIEWED_RECENT = "unviewed_recent"
+    RECENT = "recent"
+
+
+class WatchFeedQuerySerializer(serializers.Serializer):
+    """Query parameters of GET /vision/scanners/watch_feed/."""
+
+    date_from = serializers.CharField(
+        required=False,
+        default=WATCH_FEED_DEFAULT_DATE_FROM,
+        help_text=(
+            "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, "
+            "or `now`; values without an explicit offset are interpreted in the project's timezone."
+        ),
+    )
+    date_to = serializers.CharField(
+        required=False,
+        help_text=(
+            "Only observations created at or before this time. Same formats as `date_from`; omit it to "
+            "query through the current time."
+        ),
+    )
+    scanner_ids = serializers.CharField(
+        required=False,
+        help_text="Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.",
+    )
+    scanner_type = serializers.ChoiceField(
+        required=False,
+        choices=ScannerType.choices,
+        help_text="Restrict the feed to observations from scanners of this type.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=WATCH_FEED_DEFAULT_LIMIT,
+        min_value=1,
+        max_value=WATCH_FEED_MAX_LIMIT,
+        help_text=f"Feed items to return, at most {WATCH_FEED_MAX_LIMIT}. The feed is bounded, not paginated.",
+    )
+
+    def validate_scanner_ids(self, value: str) -> list[UUID]:
+        raw_ids = split_csv(value)
+        if not raw_ids:
+            raise serializers.ValidationError("At least one scanner id is required when the filter is set.")
+        try:
+            return [UUID(raw_id) for raw_id in raw_ids]
+        except ValueError:
+            raise serializers.ValidationError("Scanner ids must be UUIDs.")
+
+
+class WatchFeedReasonSerializer(serializers.Serializer):
+    """Machine-readable reason an observation made the feed; the frontend renders the copy."""
+
+    kind = serializers.ChoiceField(
+        choices=WatchFeedReason.choices,
+        help_text=(
+            "Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), "
+            "`unusual_verdict` (a monitor answer that is the minority for that scanner this window), "
+            "`verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), "
+            "`outlier_score` (far from the scanner's window average), "
+            "`rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that "
+            "reads unlike the scanner's other sessions this window), `friction` (the scan describes "
+            "errors, retries, or dead ends), `unviewed_recent` (new to you), "
+            "`recent` (nothing special, newest available)."
+        ),
+    )
+    signals_count = serializers.IntegerField(
+        required=False, allow_null=True, help_text="Signals this observation emitted, for `signal_emitted`."
+    )
+    verdict = serializers.CharField(
+        required=False, allow_null=True, help_text="The monitor's answer, for `unusual_verdict`."
+    )
+    verdict_share = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Share (0-1) of the scanner's window observations with this answer, for `unusual_verdict`.",
+    )
+    score = serializers.FloatField(
+        required=False, allow_null=True, help_text="The observation's score, for `outlier_score`."
+    )
+    window_mean = serializers.FloatField(
+        required=False, allow_null=True, help_text="The scanner's mean score in the window, for `outlier_score`."
+    )
+    tag = serializers.CharField(
+        required=False, allow_null=True, help_text="The rare tag that ranked the observation, for `rare_tag`."
+    )
+    tag_share = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Share (0-1) of the scanner's window observations carrying `tag`, for `rare_tag`.",
+    )
+
+
+class WatchFeedItemSerializer(serializers.Serializer):
+    """One feed entry: the observation plus why it ranked."""
+
+    observation = ReplayObservationSerializer(help_text="The observation, in the standard shape.")
+    reason = WatchFeedReasonSerializer(help_text="Why this observation made the feed.")
+
+
+class WatchFeedResponseSerializer(serializers.Serializer):
+    """Response of GET /vision/scanners/watch_feed/."""
+
+    results = WatchFeedItemSerializer(
+        many=True,
+        help_text=(
+            "Succeeded observations in the window worth watching, most interesting first: unviewed before "
+            "viewed, then signal emitters, then type-specific hits, then newest."
+        ),
+    )
+
+
 class ScannerCreatorsResponseSerializer(serializers.Serializer):
     """Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown."""
 
@@ -1672,7 +1826,14 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     scope_object = "replay_scanner"
     # Custom actions must be listed explicitly or personal-API-key callers 403 silently.
-    scope_object_read_actions = ["list", "retrieve", "creators", "stats", "self_driving_stats"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "creators",
+        "stats",
+        "self_driving_stats",
+        "watch_feed",
+    ]
     scope_object_write_actions = [
         "create",
         "update",
@@ -1862,6 +2023,89 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 bucket["enabled"] += row["c"]
                 enabled += row["c"]
         return Response({"total": total, "enabled": enabled, "by_type": by_type})
+
+    @extend_schema(
+        parameters=[WatchFeedQuerySerializer],
+        responses={200: WatchFeedResponseSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        pagination_class=None,
+        required_scopes=["replay_scanner:read", "session_recording:read"],
+    )
+    def watch_feed(self, request: Request, **kwargs: Any) -> Response:
+        """Succeeded observations in the window worth watching, ranked — feeds the What to watch tab."""
+        query = WatchFeedQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        params = query.validated_data
+        # Observations expose recording-derived output, so reading them requires session_recording read.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading replay observations requires session_recording read access.")
+        try:
+            date_from = parse_date_bound(params["date_from"], self.team.timezone_info, end_of_range=False)
+            date_to = (
+                parse_date_bound(params["date_to"], self.team.timezone_info, end_of_range=True)
+                if params.get("date_to")
+                else None
+            )
+        except ValueError as e:
+            raise ValidationError(str(e))
+        # Scanner RBAC plus current experiment targeting; unreadable ids drop out silently so the
+        # response never confirms which of the requested scanners exist.
+        allowed_ids = readable_observation_scanner_ids(self.user_access_control, self.team_id)
+        if params.get("scanner_ids"):
+            requested = set(params["scanner_ids"])
+            allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in requested]
+        candidates = ReplayObservation.objects.filter(
+            team_id=self.team_id,
+            scanner_id__in=allowed_ids,
+            status=ObservationStatus.SUCCEEDED,
+            created_at__gte=date_from,
+        )
+        if date_to is not None:
+            candidates = candidates.filter(created_at__lte=date_to)
+        if params.get("scanner_type"):
+            candidates = candidates.filter(scanner_snapshot__scanner_type=params["scanner_type"])
+        # Row-gate on each row's snapshot experiment before ranking, so a restricted row can't take a slot.
+        candidates = accessible_observations(self.user_access_control, self.team_id, candidates)
+        viewer_id = cast(User, request.user).id
+        viewed = Exists(ReplayObservationView.objects.filter(observation_id=OuterRef("id"), user_id=viewer_id))
+        candidate_rows = list(
+            candidates.annotate(
+                feed_viewed=viewed,
+                scanner_recency_rank=Window(
+                    RowNumber(),
+                    partition_by=F("scanner_id"),
+                    order_by=[F("created_at").desc(), F("id").desc()],
+                ),
+            )
+            .filter(scanner_recency_rank__lte=WATCH_FEED_PER_SCANNER_CAP)
+            .values("id", "scanner_id", "created_at", "scanner_result", "feed_viewed")
+            .order_by("-created_at", "-id")[:WATCH_FEED_CANDIDATE_CAP]
+        )
+        ranked = rank_watch_feed_candidates(candidate_rows)[: params["limit"]]
+        reasons_by_id = {entry.observation_id: entry.reason for entry in ranked}
+        rows = {
+            row.id: row
+            for row in hydrate_for_serialization(
+                # team_id is redundant with the already-scoped candidate query these ids came from,
+                # but keeps the re-fetch fail-closed on its own.
+                ReplayObservation.objects.filter(team_id=self.team_id, id__in=list(reasons_by_id)),
+                viewer_id=request.user.id,
+            )
+        }
+        # A row deleted between the ranking query and this re-fetch just drops out, so `limit` is a
+        # soft ceiling rather than a guarantee — harmless for a feed, not worth a retry loop.
+        results = [
+            {
+                "observation": ReplayObservationSerializer(rows[entry.observation_id]).data,
+                "reason": entry.reason,
+            }
+            for entry in ranked
+            if entry.observation_id in rows
+        ]
+        return Response({"results": results})
 
     @extend_schema(
         request=ObserveRequestSerializer,
