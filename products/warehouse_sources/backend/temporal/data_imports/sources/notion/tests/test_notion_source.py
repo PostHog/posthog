@@ -69,11 +69,16 @@ class TestNotionSource:
             self.source.source_for_pipeline(NotionSourceConfig(api_key="tok"), manager, inputs)
         assert notion_source_mock.call_args.kwargs["api_version"] == expected_version
 
-    def test_get_schemas_returns_all_endpoints_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(NotionSourceConfig(api_key="tok"), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
+    def test_get_schemas_marks_only_database_rows_incremental(self) -> None:
+        # database_rows reads through the query endpoint, which filters on last_edited_time; the
+        # search-backed streams cannot, so they must stay full refresh. A regression either way
+        # (all-full-refresh, or a search stream flipped incremental) silently syncs the wrong shape.
+        schemas = {s.name: s for s in self.source.get_schemas(NotionSourceConfig(api_key="tok"), team_id=1)}
+        assert set(schemas) == set(ENDPOINTS)
+        assert schemas["database_rows"].supports_incremental is True
+        assert [f["field"] for f in schemas["database_rows"].incremental_fields] == ["last_edited_time"]
+        assert all(s.supports_incremental is False for name, s in schemas.items() if name != "database_rows")
+        assert all(s.supports_append is False for s in schemas.values())
 
     def test_get_schemas_honors_names_filter(self) -> None:
         schemas = self.source.get_schemas(NotionSourceConfig(api_key="tok"), team_id=1, names=["users"])
@@ -105,6 +110,23 @@ class TestNotionSource:
         assert response.name == "users"
         assert response.partition_mode is None
         assert response.partition_keys is None
+
+    @parameterized.expand(
+        [
+            # database_rows is the one incremental stream, and its fan-out drains each data source in
+            # turn so the combined stream is not globally ascending. It must sync "desc" so the
+            # watermark write is deferred to job end; a failed mid-sync attempt that advanced an "asc"
+            # watermark would skip a later data source's older rows.
+            ("database_rows", "desc"),
+            ("pages", "asc"),
+        ]
+    )
+    def test_source_for_pipeline_sort_mode(self, schema_name: str, expected_sort_mode: str) -> None:
+        inputs = _make_inputs(schema_name)
+        manager = self.source.get_resumable_source_manager(inputs)
+        response = self.source.source_for_pipeline(NotionSourceConfig(api_key="tok"), manager, inputs)
+
+        assert response.sort_mode == expected_sort_mode
 
     @parameterized.expand(
         [

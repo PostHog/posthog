@@ -26,8 +26,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     validate_credentials as validate_notion_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.settings import (
-    ENDPOINTS,
     INCREMENTAL_FIELDS,
+    NOTION_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -125,11 +125,13 @@ Then **share** each page or database you want to sync with the integration (via 
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                # Only `database_rows` can filter server-side on `last_edited_time`; the rest read
+                # through the search endpoint, which sorts but cannot filter, so they stay full refresh.
+                supports_incremental=config.supports_incremental,
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint, config in NOTION_ENDPOINTS.items()
         ]
         if names is not None:
             names_set = set(names)
@@ -162,4 +164,8 @@ Then **share** each page or database you want to sync with the integration (via 
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             api_version=self.resolve_api_version(inputs.api_version),
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )

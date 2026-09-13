@@ -722,11 +722,11 @@ Eight tables.
 
 ### Notion — needs confirmation
 
-Five tables (`pages`, `databases`, `users`, `blocks`, `comments`).
+Six tables (`pages`, `databases`, `database_rows`, `users`, `blocks`, `comments`).
 
-- [ ] Database rows via the query endpoint. We list databases but never read their contents, which is where all the structured data lives. Biggest gap by far.
-- [ ] Data sources (the newer multi-source database model).
-- [ ] Page property values as columns rather than raw blocks.
+- [x] Database rows via the query endpoint — shipped as `database_rows`. It enumerates every data source and reads its pages through `POST /v1/data_sources/{id}/query`, so the structured data inside databases is finally synced. This is the one incremental stream: the query endpoint filters on `last_edited_time`, which the search endpoint the other streams use cannot.
+- [x] Data sources (the newer multi-source database model) — `database_rows` queries each data source id, which is what the `databases` stream already lists under API version 2025-09-03+.
+- [x] Page property values as columns rather than raw blocks — `database_rows` flattens each property into its own text column beside the page's system fields.
 
 ### Airtable — needs confirmation
 
