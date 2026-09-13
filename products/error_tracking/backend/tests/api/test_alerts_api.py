@@ -188,6 +188,18 @@ class TestErrorTrackingAlerts(APIBaseTest):
             ("unknown_trigger", {"triggers": ["issue_deleted"]}),
             ("empty_triggers", {"triggers": []}),
             ("empty_destinations", {"destinations": []}),
+            (
+                "non_boolean_reply_broadcast",
+                {
+                    "destinations": [
+                        {
+                            "channel_type": "slack",
+                            "integration_id": VALID_INTEGRATION,
+                            "config": {"channel": "C1", "reply_broadcast": 2},
+                        }
+                    ]
+                },
+            ),
             ("negative_throttle", {"throttle_seconds": -1}),
             ("throttle_over_30_days", {"throttle_seconds": 30 * 24 * 60 * 60 + 1}),
             (
@@ -295,6 +307,34 @@ class TestErrorTrackingAlerts(APIBaseTest):
         assert third.status_code == 400, third.json()
         assert "at most 2 alerts" in str(third.json())
         assert ErrorTrackingAlert.objects.for_team(self.team.id).count() == 2
+
+    def test_reply_broadcast_off_survives_the_round_trip_and_toggling_keeps_the_row(self):
+        integration = self._create_slack_integration()
+        quiet = {
+            "channel_type": "slack",
+            "integration_id": integration.id,
+            "config": {"channel": "C0123", "reply_broadcast": False},
+        }
+        created = self._create_alert(integration, destinations=[quiet])
+        destination = created["destinations"][0]
+        assert destination["config"] == {"channel": "C0123", "reply_broadcast": False}
+
+        # Toggling the option keeps the row, so its open thread keeps posting into place.
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
+        with team_scope(self.team.id):
+            thread = ErrorTrackingAlertThread.objects.create(
+                team=self.team, alert_id=created["id"], issue=issue, destination_id=destination["id"]
+            )
+        loud = {**quiet, "config": {"channel": "C0123", "reply_broadcast": True}}
+        update = self.client.patch(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/{created['id']}/",
+            data={"destinations": [loud]},
+            format="json",
+        )
+        assert update.status_code == 200, update.json()
+        assert update.json()["destinations"] == [{**destination, "config": loud["config"]}]
+        with team_scope(self.team.id):
+            assert ErrorTrackingAlertThread.objects.filter(id=thread.id, destination_id=destination["id"]).exists()
 
     def test_alert_rejects_duplicate_destinations(self):
         integration = self._create_slack_integration()
