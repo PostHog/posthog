@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { FeatureFlagKey } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { objectsEqual } from 'lib/utils/objects'
@@ -84,6 +84,20 @@ export interface CatalogItem {
     selfManaged?: boolean
     /** The sources most people connect (Stripe, Postgres, the ad platforms, ...). Led with when browsing. */
     featured?: boolean
+}
+
+// PostHog's own webhook endpoint isn't a warehouse connector, so it never reaches this catalog
+// through `availableSources` — but it's where people look for one, and the only other entry point
+// is the sources list. Gated on the same preview flag as that list's section.
+const EVENT_WEBHOOK_CATALOG_ITEM: CatalogItem = {
+    name: 'event-webhook',
+    label: 'Incoming webhook',
+    iconType: 'PostHog',
+    category: 'Engineering & monitoring',
+    keywords: ['webhook', 'webhooks', 'http', 'https', 'endpoint', 'events', 'incoming', 'custom', 'real time'],
+    status: 'stable',
+    releaseStatus: 'alpha',
+    url: urls.hogFunctionNew('template-source-webhook'),
 }
 
 export interface CatalogCategory {
@@ -1646,7 +1660,12 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     })
                 )
 
-                return [...managed, ...selfManaged, ...fileUpload]
+                // `allowedSources` restricts the catalog to warehouse connectors, so the webhook
+                // source has no place in it.
+                const eventWebhook =
+                    !allowedSources && featureFlags[FEATURE_FLAGS.CDP_HOG_SOURCES] ? [EVENT_WEBHOOK_CATALOG_ITEM] : []
+
+                return [...managed, ...selfManaged, ...fileUpload, ...eventWebhook]
             },
             // featureFlags is a broad dependency that changes identity on every flag refresh;
             // keeping the previous array when the derived catalog is unchanged stops the Fuse
