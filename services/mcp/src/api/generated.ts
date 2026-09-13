@@ -61109,6 +61109,24 @@ export namespace Schemas {
       Cloud: 'cloud',
     } as const;
 
+    /**
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed
+     * * `unknown` - unknown
+     */
+    export type PrStateEnum = typeof PrStateEnum[keyof typeof PrStateEnum];
+
+
+    export const PrStateEnum = {
+      Open: 'open',
+      Draft: 'draft',
+      Merged: 'merged',
+      Closed: 'closed',
+      Unknown: 'unknown',
+    } as const;
+
     export interface TaskRunSummary {
       /** ID of the latest run. */
       id: string;
@@ -61119,6 +61137,19 @@ export namespace Schemas {
        * * `interactive` - interactive
        * * `background` - background */
       mode: TaskExecutionModeEnum;
+      /**
+         * URL of the pull request the latest run opened, or null when it opened none.
+         * @nullable
+         */
+      pr_url: string | null;
+      /** State of that pull request: open, draft, merged, closed, or unknown. Null when the latest run opened no pull request.
+       *
+       * * `open` - open
+       * * `draft` - draft
+       * * `merged` - merged
+       * * `closed` - closed
+       * * `unknown` - unknown */
+      pr_state: PrStateEnum | null;
     }
 
     /**

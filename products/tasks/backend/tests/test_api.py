@@ -5162,6 +5162,10 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         self.assertFalse(response.json()["internal"])
 
 
+_PR_URL = "https://github.com/posthog/posthog-js/pull/1"
+_OTHER_PR_URL = "https://github.com/posthog/posthog-js/pull/2"
+
+
 class TestTaskSummariesAPI(BaseTaskAPITest):
     SUMMARIES_URL = "/api/projects/@current/tasks/summaries/"
     SUMMARY_FIELDS = {
@@ -5238,6 +5242,8 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
                 "status": valid_run.status,
                 "environment": valid_run.environment,
                 "mode": "background",
+                "pr_url": None,
+                "pr_state": None,
             },
         )
 
@@ -5274,11 +5280,39 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
                 "status": run.status,
                 "environment": run.environment,
                 "mode": expected_mode,
+                "pr_url": None,
+                "pr_state": None,
             }
             if run
             else None
         )
         self.assertEqual(payload["latest_run"], expected_run)
+
+    @parameterized.expand(
+        [
+            ("no_pr", {}, None, None),
+            ("pr_without_state", {"pr_url": _PR_URL}, _PR_URL, "unknown"),
+            ("open_pr", {"pr_url": _PR_URL, "pr_state": "open"}, _PR_URL, "open"),
+            ("merged_by_state", {"pr_url": _PR_URL, "pr_state": "merged"}, _PR_URL, "merged"),
+            ("merged_by_webhook_flag", {"pr_url": _PR_URL, "pr_state": "open", "pr_merged": True}, _PR_URL, "merged"),
+        ]
+    )
+    def test_summaries_latest_run_pull_request(self, _name, output, expected_pr_url, expected_pr_state):
+        task = self.create_task("Task")
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.COMPLETED,
+            environment=TaskRun.Environment.CLOUD,
+            output=output,
+        )
+
+        response = self.post_summaries([str(task.id)])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        [payload] = response.json()["results"]
+        self.assertEqual(payload["latest_run"]["pr_url"], expected_pr_url)
+        self.assertEqual(payload["latest_run"]["pr_state"], expected_pr_state)
 
     def test_summaries_paginates_large_id_sets(self):
         tasks = [self.create_task(f"Task {i}") for i in range(3)]
@@ -5313,10 +5347,6 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
     def test_summaries_rejects_invalid_payload(self, _name, ids_factory):
         response = self.post_summaries(ids_factory())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-
-_PR_URL = "https://github.com/posthog/posthog-js/pull/1"
-_OTHER_PR_URL = "https://github.com/posthog/posthog-js/pull/2"
 
 
 class TestTaskRunAPI(BaseTaskAPITest):

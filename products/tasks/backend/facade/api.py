@@ -3,7 +3,7 @@ import time
 import hashlib
 import logging
 from collections import Counter
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -37,7 +37,7 @@ from django.db.models import (
     Value,
     When,
 )
-from django.db.models.fields.json import KeyTextTransform
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Coalesce
 from django.utils import timezone as django_timezone
 from django.utils.http import content_disposition_header
@@ -983,6 +983,15 @@ def get_tasks_by_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) ->
     return [_task_to_dto(task) for task in Task.objects.filter(id__in=ids, team_id__in=teams)]
 
 
+def _pull_request_state(output: Mapping[str, object]) -> str:
+    """The state of the PR in ``output.pr_url``. ``pr_merged`` wins over ``pr_state``: it is the
+    webhook-attested flag, and runs merged before ``pr_state`` existed only carry it."""
+    if output.get("pr_merged"):
+        return "merged"
+    state = output.get("pr_state")
+    return state if isinstance(state, str) and state in PR_STATES else "unknown"
+
+
 def get_pull_requests_for_tasks(
     team_id: int, task_ids: Iterable[str | UUID], *conditions: Q
 ) -> dict[str, list[contracts.TaskPullRequest]]:
@@ -1004,12 +1013,8 @@ def get_pull_requests_for_tasks(
             if key in seen:
                 continue
             seen.add(key)
-            state = "unknown"
-            if url == output.get("pr_url"):
-                state = "merged" if output.get("pr_merged") else output.get("pr_state", "unknown")
-            result.setdefault(str(task_id), []).append(
-                contracts.TaskPullRequest(url=url, state=state if isinstance(state, str) else "unknown")
-            )
+            state = _pull_request_state(output) if url == output.get("pr_url") else "unknown"
+            result.setdefault(str(task_id), []).append(contracts.TaskPullRequest(url=url, state=state))
     return result
 
 
@@ -5684,11 +5689,16 @@ def _search_latest_run_summary(run: TaskRun | None) -> contracts.TaskLatestRunSu
     if run is None:
         return None
     interactive = (run.state or {}).get("mode") == "interactive"
+    output = run.output if isinstance(run.output, dict) else {}
+    pr_url = output.get("pr_url")
+    pr_url = pr_url if isinstance(pr_url, str) and pr_url else None
     return contracts.TaskLatestRunSummaryDTO(
         id=run.id,
         status=run.status,
         environment=run.environment,
         mode="interactive" if interactive else "background",
+        pr_url=pr_url,
+        pr_state=_pull_request_state(output) if pr_url else None,
     )
 
 
@@ -5792,6 +5802,21 @@ def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
     return sorted(set(plural) | {repository for repository in legacy if repository})
 
 
+def _latest_run_summary(raw: object) -> contracts.TaskLatestRunSummaryDTO | None:
+    if not isinstance(raw, dict):
+        return None
+    pr_url = raw.get("pr_url")
+    pr_url = pr_url if isinstance(pr_url, str) and pr_url else None
+    return contracts.TaskLatestRunSummaryDTO(
+        id=raw["id"],
+        status=raw.get("status"),
+        environment=raw.get("environment"),
+        mode=raw.get("mode", "background"),
+        pr_url=pr_url,
+        pr_state=_pull_request_state(raw) if pr_url else None,
+    )
+
+
 def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[contracts.TaskSummaryDTO]:
     """Summary fields for the requested tasks, mirroring ``TaskViewSet.summaries``."""
     from django.db.models.functions import JSONObject  # noqa: PLC0415
@@ -5805,7 +5830,15 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
                 default=Value("background"),
                 output_field=CharField(),
             ),
-            _data=JSONObject(id="id", status="status", environment="environment", mode="_mode"),
+            _data=JSONObject(
+                id="id",
+                status="status",
+                environment="environment",
+                mode="_mode",
+                pr_url=KeyTransform("pr_url", "output"),
+                pr_state=KeyTransform("pr_state", "output"),
+                pr_merged=KeyTransform("pr_merged", "output"),
+            ),
         )
     )
     tasks = (
@@ -5814,32 +5847,19 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
         .annotate(_latest_run=Subquery(latest_run.values("_data")[:1]))
         .order_by("-created_at", "id")
     )
-    summaries: list[contracts.TaskSummaryDTO] = []
-    for task in tasks:
-        raw = getattr(task, "_latest_run", None)
-        latest = (
-            contracts.TaskLatestRunSummaryDTO(
-                id=raw["id"],
-                status=raw.get("status"),
-                environment=raw.get("environment"),
-                mode=raw.get("mode", "background"),
-            )
-            if isinstance(raw, dict)
-            else None
+    return [
+        contracts.TaskSummaryDTO(
+            id=task.id,
+            title=task.title,
+            repository=task.repository,
+            created_by_id=task.created_by_id,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            origin_product=task.origin_product,
+            latest_run=_latest_run_summary(getattr(task, "_latest_run", None)),
         )
-        summaries.append(
-            contracts.TaskSummaryDTO(
-                id=task.id,
-                title=task.title,
-                repository=task.repository,
-                created_by_id=task.created_by_id,
-                created_at=task.created_at,
-                updated_at=task.updated_at,
-                origin_product=task.origin_product,
-                latest_run=latest,
-            )
-        )
-    return summaries
+        for task in tasks
+    ]
 
 
 def compute_repository_readiness(team_id: int, *, repository: str, window_days: int, refresh: bool) -> dict:
