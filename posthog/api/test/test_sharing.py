@@ -8,7 +8,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, patch
 
 from django.core.exceptions import ImproperlyConfigured
+from django.db import connection
 from django.http import HttpResponse
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.timezone import now
 
@@ -26,7 +28,7 @@ from posthog.api.sharing import (
 )
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models import ActivityLog, OrganizationMembership
+from posthog.models import ActivityLog, OrganizationMembership, SessionRecording
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.filters.filter import Filter
 from posthog.models.share_password import SharePassword
@@ -1875,6 +1877,20 @@ class TestSharedCohortInlining(APIBaseTest):
                 assert tile["insight"]["alerts"] == []
         for theme in exported["themes"]:
             assert "created_by" not in theme
+
+
+class TestSharedResourceLoading(APIBaseTest):
+    @mock_exporter_template
+    def test_shared_insight_page_does_not_read_the_other_shareable_tables(self):
+        insight = Insight.objects.create(team=self.team, name="Shared insight")
+        config = SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+        unrelated_tables = [Notebook._meta.db_table, SessionRecording._meta.db_table]
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/shared/{config.access_token}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not [q["sql"] for q in queries.captured_queries if any(t in q["sql"] for t in unrelated_tables)]
 
 
 class TestSharingResourceEditChecks(APIBaseTest):
