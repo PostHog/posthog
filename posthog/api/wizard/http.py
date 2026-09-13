@@ -322,7 +322,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 "expires_at": minted["expires_at"],
                 "cap_usd": minted.get("cap_usd"),
                 "gateway_url": wizard_gateway_base_url(),
-                # The CLI stamps this on each generation as `team_id`, matching the obo pin.
+                # The CLI stamps this on each generation as `team_id`.
                 "team_id": team.id,
             },
             status=status.HTTP_201_CREATED,
