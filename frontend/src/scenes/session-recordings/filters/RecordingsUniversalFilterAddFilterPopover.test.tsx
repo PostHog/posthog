@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
+import posthog from 'posthog-js'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
@@ -29,6 +30,7 @@ jest.mock('lib/components/AutoSizer', () => ({
 
 describe('RecordingsUniversalFilterAddFilterPopover', () => {
     beforeEach(() => {
+        localStorage.clear()
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions': mockGetEventDefinitions,
@@ -103,5 +105,56 @@ describe('RecordingsUniversalFilterAddFilterPopover', () => {
         // ...and the main filter stays open with its search query intact.
         expect(screen.getByTestId('replay-filters-add-filter-input')).toBeInTheDocument()
         expect(screen.getByTestId('replay-filters-add-filter-input')).toHaveValue('email')
+    })
+
+    it.each([
+        {
+            name: 'a filter is selected',
+            close: async () => {
+                await waitFor(() => {
+                    expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+                })
+                await userEvent.click(screen.getByTestId('prop-filter-events-0'))
+            },
+            hadSelection: true,
+            categoryRailDocked: false,
+        },
+        {
+            name: 'the person clicks outside',
+            close: async () => {
+                await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
+                await userEvent.click(screen.getByText('Dock categories'))
+                await userEvent.click(document.body)
+            },
+            hadSelection: false,
+            categoryRailDocked: true,
+        },
+        {
+            name: 'the person presses Escape',
+            close: async () => {
+                await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
+                await userEvent.click(screen.getByText('Dock categories'))
+                fireEvent.keyDown(screen.getByTestId('replay-filters-add-filter-input'), { key: 'Escape' })
+            },
+            hadSelection: false,
+            categoryRailDocked: true,
+        },
+    ])('captures final category rail state when $name', async ({ close, hadSelection, categoryRailDocked }) => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        renderPopover()
+
+        const input = screen.getByTestId('replay-filters-add-filter-input')
+        await userEvent.click(input)
+        await close()
+
+        await waitFor(() => {
+            const closedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'taxonomic filter closed')
+            expect(closedCalls).toHaveLength(1)
+            expect(closedCalls[0]?.[1]).toMatchObject({
+                hadSelection,
+                categoryRailDocked,
+                dwellMs: expect.any(Number),
+            })
+        })
     })
 })

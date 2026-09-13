@@ -601,7 +601,7 @@ export function RecordingsUniversalFilterAddFilterPopover({
     const inputRef = useRef<HTMLInputElement | null>(null)
     const focusInput = (): void => inputRef.current?.focus()
 
-    const taxonomicFilterLogicKey = `session-recordings-add-filter-${useId()}`
+    const taxonomicFilterLogicKey = `session-recordings-add-filter-${useId()}-${isPopoverVisible ? 'open' : 'closed'}`
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         taxonomicFilterLogicKey,
@@ -614,14 +614,16 @@ export function RecordingsUniversalFilterAddFilterPopover({
     // visually on top of the menu.
     const suffix = !isPopoverVisible ? undefined : <CategoryDropdown onAfterChange={focusInput} />
 
+    const closePopover = (): void => {
+        setIsPopoverVisible(false)
+        setAddFilterSearchQuery('')
+    }
+
     const popover = (
         <Popover
             overlay={
                 <UniversalFilters.PureTaxonomicFilter
-                    onChange={() => {
-                        setIsPopoverVisible(false)
-                        setAddFilterSearchQuery('')
-                    }}
+                    onChange={closePopover}
                     searchQuery={addFilterSearchQuery}
                     hideSearchInput
                     taxonomicFilterLogicKey={taxonomicFilterLogicKey}
@@ -630,10 +632,7 @@ export function RecordingsUniversalFilterAddFilterPopover({
             placement="bottom-start"
             matchWidth
             visible={isPopoverVisible}
-            onClickOutside={() => {
-                setIsPopoverVisible(false)
-                setAddFilterSearchQuery('')
-            }}
+            onClickOutside={closePopover}
         >
             <div className="w-full max-w-[600px] shrink grow-0 @container">
                 <LemonInput
@@ -654,8 +653,7 @@ export function RecordingsUniversalFilterAddFilterPopover({
                     onFocus={() => setIsPopoverVisible(true)}
                     onKeyDown={(e) => {
                         if (e.key === 'Escape') {
-                            setIsPopoverVisible(false)
-                            setAddFilterSearchQuery('')
+                            closePopover()
                             e.preventDefault()
                         }
                     }}
