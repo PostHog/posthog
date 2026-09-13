@@ -6,6 +6,7 @@ import { LemonButton, LemonCheckbox, Link, Spinner } from '@posthog/lemon-ui'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
 
+import { ExampleSubject } from './ExampleSubject'
 import { EXAMPLE_COUNT, isSelectableValue, taxonomicExampleBrowserLogic } from './taxonomicExampleBrowserLogic'
 import { TaxonomicFilterGroupType } from './types'
 
@@ -48,7 +49,7 @@ export function ExampleBrowser(): JSX.Element {
 
     return (
         <div className="taxonomic-infinite-list flex flex-col h-full" data-attr="taxonomic-example-browser">
-            <div className="flex items-center gap-1 px-2 pt-2">
+            <div className="flex items-start gap-1 px-2 pt-2">
                 <LemonButton
                     size="xsmall"
                     icon={<IconArrowLeft />}
@@ -56,7 +57,9 @@ export function ExampleBrowser(): JSX.Element {
                     data-attr="taxonomic-example-browser-back"
                     tooltip="Back to the list"
                 />
-                <span className="font-semibold truncate">Properties of recent {pluralNoun}</span>
+                <span className="font-semibold min-w-0">
+                    Properties on the <ExampleSubject position={exampleIndex + 1} />
+                </span>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2 py-1">
                 <LemonCheckbox
@@ -153,7 +156,7 @@ export function ExampleBrowser(): JSX.Element {
                             <TZLabel time={currentExample.timestamp} />
                         </>
                     ) : (
-                        `Shows up to ${EXAMPLE_COUNT} recent ${exampleNoun.plural}`
+                        `Loads the ${EXAMPLE_COUNT} most recent ${exampleNoun.plural}`
                     )}
                 </span>
                 {exploreUrl && (

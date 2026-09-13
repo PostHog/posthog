@@ -71,7 +71,9 @@ describe('ExampleBrowser', () => {
         )
 
         // Hidden tabs render their own empty state, so more than one open button exists.
-        await userEvent.click((await screen.findAllByTestId('taxonomic-example-browser-open'))[0])
+        const openButton = (await screen.findAllByTestId('taxonomic-example-browser-open'))[0]
+        expect(openButton).toHaveTextContent('See properties on the most recent checkout completed event')
+        await userEvent.click(openButton)
 
         expect(await screen.findByText('plan')).toBeInTheDocument()
         expect(screen.queryByText('$browser')).not.toBeInTheDocument()
