@@ -52,10 +52,10 @@ def select_pinned_ip(
     return None
 
 
-def _canonical_host(hostname: str) -> str:
-    """Return the host in the same ASCII form ``requests`` connects to.
+def canonical_pin_host(hostname: str) -> str:
+    """Return the host in the same ASCII form an HTTP client connects to.
 
-    ``requests`` IDNA-encodes non-ASCII hosts before opening the connection
+    ``requests`` and ``httpx`` both IDNA-encode non-ASCII hosts before opening the connection
     (``éxample.com`` -> ``xn--xample-9ua.com``), so a pin stored under the raw
     Unicode host would never match the host seen in ``send()`` and the request
     would silently fall back to a fresh DNS lookup — reopening the rebinding
@@ -68,7 +68,7 @@ def _canonical_host(hostname: str) -> str:
     try:
         return idna.encode(host, uts46=True).decode("ascii")
     except idna.IDNAError:
-        # requests rejects such a host during URL prep and never reaches send();
+        # The client rejects such a host during URL prep and never reaches send();
         # keep the raw value so the map stays consistent if it somehow does.
         return host
 
@@ -91,7 +91,7 @@ class PinnedIPAdapter(HTTPAdapter):
         self._current_original_host: str | None = None
 
     def pin(self, hostname: str, ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> None:
-        self._pin_map[_canonical_host(hostname)] = str(ip)
+        self._pin_map[canonical_pin_host(hostname)] = str(ip)
 
     def send(  # type: ignore[override]
         self,
@@ -103,7 +103,7 @@ class PinnedIPAdapter(HTTPAdapter):
         proxies: dict[str, str] | None = None,
     ) -> requests.Response:
         parsed = urlparse.urlparse(request.url or "")
-        host = _canonical_host(parsed.hostname or "")
+        host = canonical_pin_host(parsed.hostname or "")
         ip_str = self._pin_map.get(host)
 
         if ip_str is None:

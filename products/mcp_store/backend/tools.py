@@ -17,7 +17,7 @@ from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
 from .policy import SYNC_DEFAULT_APPROVAL_STATE
 from .proxy import build_upstream_auth_headers, validated_same_origin_redirect_url
-from .url_policy import check_mcp_url_policy, trust_environment_proxy
+from .upstream_http import upstream_mcp_client, validate_upstream_url
 
 logger = structlog.get_logger(__name__)
 
@@ -77,9 +77,9 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
     Shares the proxy's SSRF guard + timeout + auth-header builder so behavior stays
     consistent between proxy traffic and sync traffic.
     """
-    allowed, reason = check_mcp_url_policy(installation.url, installation.team_id)
-    if not allowed:
-        raise ToolsFetchError(f"URL not allowed: {reason}")
+    url_verdict = validate_upstream_url(installation.url, installation.team_id)
+    if not url_verdict.allowed:
+        raise ToolsFetchError(f"URL not allowed: {url_verdict.reason}")
 
     _ensure_valid_token_for_fetch(installation)
 
@@ -91,9 +91,11 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
     }
 
     try:
-        with httpx.Client(
+        with upstream_mcp_client(
+            installation.url,
+            installation.team_id,
+            url_verdict,
             timeout=HANDSHAKE_TIMEOUT,
-            trust_env=trust_environment_proxy(installation.url, installation.team_id),
         ) as client:
             session_id, upstream_url = _mcp_initialize(client, installation.url, base_headers)
             session_headers = dict(base_headers)
@@ -129,9 +131,9 @@ def call_upstream_tool(
     the gateway's policy engine first (see ``enforce_tool_approval``), so this stays
     a transport concern.
     """
-    allowed, reason = check_mcp_url_policy(installation.url, installation.team_id)
-    if not allowed:
-        raise ToolCallError(f"URL not allowed: {reason}")
+    url_verdict = validate_upstream_url(installation.url, installation.team_id)
+    if not url_verdict.allowed:
+        raise ToolCallError(f"URL not allowed: {url_verdict.reason}")
 
     _ensure_valid_token_for_fetch(installation)
 
@@ -143,9 +145,11 @@ def call_upstream_tool(
     }
 
     try:
-        with httpx.Client(
+        with upstream_mcp_client(
+            installation.url,
+            installation.team_id,
+            url_verdict,
             timeout=CALL_TIMEOUT,
-            trust_env=trust_environment_proxy(installation.url, installation.team_id),
         ) as client:
             session_id, upstream_url = _mcp_initialize(client, installation.url, base_headers)
             session_headers = dict(base_headers)
