@@ -7,8 +7,8 @@ import { TaskArtifactsList } from "@posthog/ui/features/canvas/components/TaskAr
 import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCommentsList";
 import { AgentStatusLine } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
-import { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
+import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useConversationItems";
 import {
   useOptimisticItemsForTask,
   useSessionIsCloud,
@@ -64,17 +64,17 @@ export function ActivityPanelBody({
   // the server copy is dropped, so raw events alone would name a row it does not render.
   const optimisticItems = useOptimisticItemsForTask(taskId);
   const isCloudSession = useSessionIsCloud(taskId);
+  const { items: liveItems } = useConversationItems(events, isPromptPending);
   const conversationItems = useMemo(
     () =>
       tab === "timeline"
         ? mergeConversationItems({
-            conversationItems: buildConversationItems(events, isPromptPending)
-              .items,
+            conversationItems: liveItems,
             optimisticItems,
             isCloud: isCloudSession,
           })
         : [],
-    [tab, events, isPromptPending, optimisticItems, isCloudSession],
+    [tab, liveItems, optimisticItems, isCloudSession],
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);
