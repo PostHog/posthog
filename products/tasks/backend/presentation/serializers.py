@@ -35,6 +35,7 @@ from products.tasks.backend.facade.contracts import (
     SlackThreadReferenceDTO,
     TaskActivityDTO,
     TaskActivityPageDTO,
+    TaskCreateResponseDTO,
     TaskDetailDTO,
     TaskMentionDTO,
     TaskRunDetailDTO,
@@ -75,13 +76,21 @@ TASK_RUN_REASONING_EFFORT_CHOICES = [
 
 
 def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
+    if "task_runtime" in context:
+        return context["task_runtime"] == tasks_facade.TaskRuntime.PI
     view = context.get("view")
     request = context.get("request")
     team = context.get("team")
     task_id = getattr(view, "kwargs", {}).get("parent_lookup_task_id")
+    if task_id is None and getattr(view, "action", None) == "run":
+        task_id = getattr(view, "kwargs", {}).get("pk")
     user_id = getattr(getattr(request, "user", None), "id", None)
 
     if task_id is None or team is None:
+        return False
+    try:
+        task_id = serializers.UUIDField().run_validation(task_id)
+    except serializers.ValidationError:
         return False
 
     task_runtime = tasks_facade.task_runtime(
@@ -104,13 +113,11 @@ def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]
         task_id = kwargs.get("parent_lookup_task_id") or kwargs.get("pk")
         team = context.get("team")
         if team is not None and task_id is not None:
-            run = tasks_facade.get_task_run_detail(run_id, task_id, team.id)
-            if run is not None:
-                access = run.state.get("claude_model_access")
-                if access == "own-subscription" and not is_sandbox_oauth_request(request):
-                    raise serializers.ValidationError(
-                        {"claude_model_access": "Open PostHog Desktop to resume this run with your Claude plan."}
-                    )
+            access = tasks_facade.get_task_run_claude_model_access(run_id, task_id, team.id)
+            if access == "own-subscription" and not is_sandbox_oauth_request(request):
+                raise serializers.ValidationError(
+                    {"claude_model_access": "Open PostHog Desktop to resume this run with your Claude plan."}
+                )
     if access == "own-subscription" and is_sandbox_oauth_request(request):
         raise serializers.ValidationError({"claude_model_access": "Only a user can select a Claude subscription."})
 
@@ -608,6 +615,21 @@ class TaskSerializer(DataclassSerializer):
         ]
 
 
+class TaskCreateResponseSerializer(TaskSerializer):
+    run_error = serializers.CharField(
+        required=False,
+        help_text="Error returned when the task was created but its first run could not start.",
+    )
+
+    class Meta(TaskSerializer.Meta):
+        dataclass = TaskCreateResponseDTO
+        fields = [*TaskSerializer.Meta.fields, "run_error"]
+
+
+class TaskRunResponseSerializer(TaskCreateResponseSerializer):
+    run_error = serializers.CharField(required=False, help_text="Error returned when the run could not start.")
+
+
 TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
 TASK_DESCRIPTION_PREVIEW_HELP_TEXT = (
     f"First {TASK_DESCRIPTION_PREVIEW_LENGTH} characters of the description, so a summary "
@@ -742,9 +764,8 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_blank=True,
         write_only=True,
         help_text=(
-            "Branch the user has selected for this cloud task. Write-only and not persisted on the "
-            "task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch "
-            "is otherwise carried on the run). Omit to match a warm Run on the default branch."
+            "Base branch for the first run when start_run is true, or for matching a pre-warmed run. "
+            "Omit to use the repository's default branch. Write-only and not persisted on the task."
         ),
     )
     # These three warm-reuse hints are all optional: clients send an explicit
@@ -759,9 +780,8 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_null=True,
         write_only=True,
         help_text=(
-            "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: "
-            "used only to reuse a pre-warmed Run started on the same runtime. A value differing from the "
-            "warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime."
+            "Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. "
+            "A different adapter prevents warm reuse. Write-only and not persisted on the task."
         ),
     )
     model = serializers.CharField(
@@ -770,7 +790,7 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_blank=False,
         allow_null=True,
         write_only=True,
-        help_text="Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.",
+        help_text="LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.",
     )
     reasoning_effort = serializers.ChoiceField(
         choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
@@ -778,7 +798,7 @@ class TaskWriteSerializer(serializers.Serializer):
         default=None,
         allow_null=True,
         write_only=True,
-        help_text="Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.",
+        help_text="Reasoning effort for the first run when start_run is true, or for matching a pre-warmed run. Write-only.",
     )
     initial_permission_mode = serializers.ChoiceField(
         choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -787,8 +807,8 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_null=True,
         write_only=True,
         help_text=(
-            "Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same "
-            "mode. Omit to reuse a warm Run whatever mode it booted on."
+            "Agent permission mode for the first run when start_run is true, or for matching a pre-warmed run. "
+            "Omit to match any warm permission mode. Write-only."
         ),
     )
     pending_user_message = serializers.CharField(
@@ -798,10 +818,9 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_blank=True,
         write_only=True,
         help_text=(
-            "First user message to forward when creation reuses a pre-warmed Run. Write-only and not "
-            "persisted on the task: lets clients deliver a message that differs from `description` "
-            "(e.g. a resolved skill invocation with channel context folded in). Ignored when no warm "
-            "Run is reused — cold creation takes the first message via the run start endpoint instead."
+            "First user message when start_run is true or creation reuses a pre-warmed run. "
+            "This message can differ from description. Ignored if creation does not start a run. "
+            "Write-only and not persisted on the task."
         ),
     )
     pending_user_artifact_ids = serializers.ListField(
@@ -813,7 +832,7 @@ class TaskWriteSerializer(serializers.Serializer):
             "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded "
             "first message when creation reuses that warm Run, e.g. skill bundles or file attachments. "
             "If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is "
-            "created cold. Ignored when no warm Run is matched."
+            "created cold. Ignored when no warm Run is matched. Not supported when start_run is true."
         ),
     )
     auto_publish = serializers.BooleanField(
@@ -822,11 +841,9 @@ class TaskWriteSerializer(serializers.Serializer):
         default=None,
         write_only=True,
         help_text=(
-            "When true, the cloud run agent pushes its work and opens a draft pull request on "
-            "completion without waiting for an explicit ask. Write-only and not persisted on the "
-            "task: persisted into the reused warm Run's state when creation activates one, so "
-            "resumes of that Run honor it. Ignored when no warm Run is reused — cold creation "
-            "takes it via the run start endpoint instead."
+            "When true, the agent pushes its work and opens a draft pull request on completion without an explicit request. "
+            "Applies when start_run is true or creation reuses a pre-warmed run. Resumed runs keep this setting. "
+            "Ignored if creation does not start a run. Write-only and not persisted on the task."
         ),
     )
     channel = TeamScopedPrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
@@ -1007,6 +1024,12 @@ class TaskWriteSerializer(serializers.Serializer):
 
 
 class TaskCreateSerializer(TaskWriteSerializer):
+    start_run = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text="Start the task's first cloud run immediately after creation.",
+    )
     signal_report_discussion_question = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -1034,14 +1057,14 @@ class TaskCreateSerializer(TaskWriteSerializer):
         default=None,
         allow_null=True,
         write_only=True,
-        help_text="Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.",
+        help_text="Sandbox environment for the first run when start_run is true, or for matching a pre-warmed run. Not persisted on the task.",
     )
     custom_image_id = serializers.UUIDField(
         required=False,
         default=None,
         allow_null=True,
         write_only=True,
-        help_text="Custom image selected for matching a pre-warmed cloud run. Not persisted on the task.",
+        help_text="Custom image for the first run when start_run is true, or for matching a pre-warmed run. Not persisted on the task.",
     )
     runtime = serializers.ChoiceField(
         choices=tasks_facade.TaskRuntime.choices,
@@ -1059,6 +1082,41 @@ class TaskCreateSerializer(TaskWriteSerializer):
             "signal_report"
         ):
             raise serializers.ValidationError({"signal_report": "Requires signal_report when set."})
+        if attrs.get("start_run"):
+            if attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
+                raise serializers.ValidationError(
+                    {
+                        "start_run": "Create signal-report tasks without start_run, then start them through the report workflow."
+                    }
+                )
+            if attrs.get("pending_user_artifact_ids"):
+                raise serializers.ValidationError(
+                    {"pending_user_artifact_ids": "Create the task before you upload artifacts and start its run."}
+                )
+            run_payload = {
+                key: attrs[key]
+                for key in (
+                    "branch",
+                    "runtime_adapter",
+                    "model",
+                    "reasoning_effort",
+                    "sandbox_environment_id",
+                    "custom_image_id",
+                    "initial_permission_mode",
+                    "pending_user_message",
+                    "auto_publish",
+                )
+                if attrs.get(key) is not None
+            }
+            run_payload.update(mode="background", run_source=RunSource.AGENT)
+            run_serializer = TaskRunCreateRequestSerializer(
+                data=run_payload,
+                context={**self.context, "task_runtime": attrs.get("runtime", tasks_facade.TaskRuntime.ACP)},
+            )
+            run_serializer.is_valid(raise_exception=True)
+            attrs["run_data"] = {
+                key: run_serializer.validated_data[key] for key in run_payload if key in run_serializer.validated_data
+            }
         return attrs
 
 
@@ -3256,6 +3314,11 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
     def validate(self, attrs):
         _validate_subscription_caller(attrs, self.context)
         errors: dict[str, str] = {}
+        is_pi_task = _is_pi_task_run_request(self.context)
+        if is_pi_task:
+            for field in ("runtime_adapter", "model", "reasoning_effort", "initial_permission_mode"):
+                if attrs.get(field) is not None:
+                    errors[field] = "This field cannot be used with a Pi task. Remove it and try again."
         if collision_error := get_relayed_imported_mcp_name_collision_error(attrs):
             errors["relayed_mcp_servers"] = collision_error
         initial_permission_mode = attrs.get("initial_permission_mode")
@@ -3265,7 +3328,7 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
 
         pending_user_message = attrs.get("pending_user_message")
         pending_user_artifact_ids = attrs.get("pending_user_artifact_ids") or []
-        if attrs.get("claude_model_access") == "own-subscription" and _is_pi_task_run_request(self.context):
+        if attrs.get("claude_model_access") == "own-subscription" and is_pi_task:
             errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
         if pending_user_message is not None:
             trimmed_message = pending_user_message.strip()
@@ -3319,7 +3382,7 @@ class TaskRunBootstrapCreateRequestSerializer(
     """Request body for creating a task run without starting execution yet."""
 
     PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
-    RUN_SOURCE_CHOICES = [source.value for source in RunSource]
+    RUN_SOURCE_CHOICES = [source.value for source in RunSource if source != RunSource.AGENT]
     RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
     REASONING_EFFORT_CHOICES = TASK_RUN_REASONING_EFFORT_CHOICES
 

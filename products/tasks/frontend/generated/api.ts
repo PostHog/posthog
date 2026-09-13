@@ -82,6 +82,7 @@ import type {
     TaskCommentDetailApi,
     TaskCommentsResponseApi,
     TaskCreateApi,
+    TaskCreateResponseDTOApi,
     TaskDetailDTOApi,
     TaskHandoffRequestApi,
     TaskMentionsListParams,
@@ -1304,8 +1305,8 @@ export const tasksCreate = async (
     projectId: string,
     taskCreateApi?: TaskCreateApi,
     options?: RequestInit
-): Promise<TaskDetailDTOApi> => {
-    return apiMutator<TaskDetailDTOApi>(getTasksCreateUrl(projectId), {
+): Promise<TaskCreateResponseDTOApi> => {
+    return apiMutator<TaskCreateResponseDTOApi>(getTasksCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1567,8 +1568,8 @@ export const tasksRunCreate = async (
     id: string,
     taskRunCreateRequestSchemaApi?: TaskRunCreateRequestSchemaApi,
     options?: RequestInit
-): Promise<TaskDetailDTOApi> => {
-    return apiMutator<TaskDetailDTOApi>(getTasksRunCreateUrl(projectId, id), {
+): Promise<TaskCreateResponseDTOApi> => {
+    return apiMutator<TaskCreateResponseDTOApi>(getTasksRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

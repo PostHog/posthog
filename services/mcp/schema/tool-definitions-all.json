@@ -11965,7 +11965,7 @@
         "feature_flag": "tasks"
     },
     "tasks-create": {
-        "description": "Create an agent task in the current project — a unit of work an AI agent picks up and actions, such as investigating an inbox report, fixing an error, or opening a pull request. `description` is the prompt handed to the agent, so make it specific and actionable. Pass `repository` in `organization/repo` format for code tasks so the agent knows where to work; omit it for investigation-only tasks. This creates the task record only — it does not start the agent. Returns the created task including its URL; open that URL to start the run. Requires the calling token's organization to have Tasks access enabled.",
+        "description": "Create a task without starting a run. Set `description` to the agent's instructions. For code tasks, set `repository` to `organization/repo`. A person can start the task at the returned URL. Use `tasks-create-and-run` to start a run immediately when that tool is available.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Create task",
@@ -11978,6 +11978,21 @@
             "readOnlyHint": false
         },
         "feature_flag": "tasks"
+    },
+    "tasks-create-and-run": {
+        "description": "Create a task and start its first background run. Set `description` to the agent's instructions. For code tasks, set `repository` to `organization/repo`. Omit `branch` to use the default branch. Check `run_error` if the run does not start. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. If the response is lost, search for the task before you retry. A repeated call can create another task.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Create task and start run",
+        "title": "Create task and start run",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks-mcp-agent-run-start"
     },
     "tasks-list": {
         "description": "Search agent tasks before starting related work. Use `search` to match task titles and descriptions, and `channel` to limit results to the current space. The results identify who created each task and whether its latest run is active. Supports additional filtering by status, repository, creator, origin product, and archived or internal state. Requires the calling token's organization to have Tasks access enabled.",
@@ -12053,6 +12068,21 @@
             "readOnlyHint": true
         },
         "feature_flag": "tasks"
+    },
+    "tasks-run-create": {
+        "description": "Start a cloud run for an existing task. Use `pending_user_message` for follow-up work and `resume_from_run_id` to continue a prior run. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. Check `run_error` for a start failure. If the response is lost, check the runs before you retry. A repeated call can start another run.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Start task run",
+        "title": "Start task run",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks-mcp-agent-run-start"
     },
     "tasks-runs-list": {
         "description": "List all runs for a specific task. Returns lightweight run metadata only — call tasks-runs-retrieve for full run detail including state, output, and artifacts.",

@@ -198,7 +198,11 @@ export const getToolsFromContext = async (
     const apiKey = await context.stateManager.getApiKey()
     const scopes = apiKey?.scopes ?? []
 
-    const candidates = tools.filter((tool) => hasScopes(scopes, tool.scopes))
+    const candidates = tools.filter(
+        (tool) =>
+            hasScopes(scopes, tool.scopes) &&
+            (!scopes.includes('internal_run:read') || !['tasks-run-create', 'tasks-create-and-run'].includes(tool.name))
+    )
 
     return filterStaffOnlyTools(candidates, apiKey ?? { scopes: [] }, () => context.stateManager.getUser())
 }
