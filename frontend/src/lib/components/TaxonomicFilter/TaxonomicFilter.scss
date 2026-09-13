@@ -33,3 +33,23 @@
         margin-bottom: 8px;
     }
 }
+
+.TaxonomicFilter__search-input--with-category {
+    padding-block: 0;
+    padding-right: 0;
+    overflow: hidden;
+}
+
+.TaxonomicFilter__category-dropdown {
+    align-self: stretch;
+    order: 1;
+    min-width: 8rem;
+    max-width: 50%;
+    height: auto;
+    border-left: 1px solid var(--color-border-primary);
+    border-radius: 0;
+
+    .LemonButton__chrome {
+        min-height: 100%;
+    }
+}
