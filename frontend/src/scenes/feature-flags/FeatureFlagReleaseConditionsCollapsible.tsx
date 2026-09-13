@@ -75,7 +75,7 @@ import { FractionalRolloutWarning } from 'products/feature_flags/frontend/Fracti
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
 import { BlastRadiusErrorMessage } from './BlastRadiusErrorMessage'
-import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
+import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, matchingEstimateTooltip } from './constants'
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
@@ -348,6 +348,7 @@ interface ConditionProps {
     affectedCounts: Record<string, number | undefined>
     totalCounts: Record<string, number | undefined>
     blastRadiusErrors: Record<string, BlastRadiusError | undefined>
+    activityWindowDays: number | null
     calculateBlastRadiusForCondition: (
         sortKey: string,
         properties: AnyPropertyFilter[] | undefined,
@@ -426,6 +427,7 @@ const ConditionContent = ({
     affectedCounts,
     totalCounts,
     blastRadiusErrors,
+    activityWindowDays,
     calculateBlastRadiusForCondition,
     aggregationTargetName,
     getDistinctIdName,
@@ -751,10 +753,15 @@ const ConditionContent = ({
                                                                 </b>
                                                                 {resolvedGroupTypeIndex == null && (
                                                                     <Tooltip
-                                                                        title={MATCHING_ESTIMATE_TOOLTIP}
+                                                                        title={matchingEstimateTooltip(
+                                                                            activityWindowDays
+                                                                        )}
                                                                         interactive
                                                                     >
-                                                                        <IconInfo className="text-muted text-xs ml-0.5" />
+                                                                        <IconInfo
+                                                                            className="text-muted text-xs ml-0.5"
+                                                                            data-attr="matching-estimate-info"
+                                                                        />
                                                                     </Tooltip>
                                                                 )}
                                                             </span>
@@ -896,6 +903,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         affectedCounts,
         totalCounts,
         blastRadiusErrors,
+        activityWindowDays,
         aggregationTargetName,
         getDistinctIdName,
         getFlagKey,
@@ -1299,6 +1307,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 affectedCounts={affectedCounts}
                                                 totalCounts={totalCounts}
                                                 blastRadiusErrors={blastRadiusErrors}
+                                                activityWindowDays={activityWindowDays}
                                                 calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                                 aggregationTargetName={aggregationTargetName}
                                                 getDistinctIdName={getDistinctIdName}
@@ -1380,6 +1389,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         affectedCounts={affectedCounts}
                                         totalCounts={totalCounts}
                                         blastRadiusErrors={blastRadiusErrors}
+                                        activityWindowDays={activityWindowDays}
                                         calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                         aggregationTargetName={aggregationTargetName}
                                         getDistinctIdName={getDistinctIdName}
@@ -1435,6 +1445,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         affectedCounts={affectedCounts}
                                         totalCounts={totalCounts}
                                         blastRadiusErrors={blastRadiusErrors}
+                                        activityWindowDays={activityWindowDays}
                                         calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                         aggregationTargetName={aggregationTargetName}
                                         getDistinctIdName={getDistinctIdName}
@@ -1472,6 +1483,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 affectedCounts={affectedCounts}
                                 totalCounts={totalCounts}
                                 blastRadiusErrors={blastRadiusErrors}
+                                activityWindowDays={activityWindowDays}
                                 calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                 aggregationTargetName={aggregationTargetName}
                                 getDistinctIdName={getDistinctIdName}

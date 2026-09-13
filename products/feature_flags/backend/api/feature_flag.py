@@ -76,6 +76,8 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    FlagSizingBurstRateThrottle,
+    FlagSizingSustainedRateThrottle,
     PersonalOrProjectSecretApiKeyRateThrottle,
     ProjectSecretApiKeyTeamRateThrottle,
 )
@@ -130,7 +132,7 @@ from products.feature_flags.backend.session_recording_links import (
     teams_linking_flag_in_project,
 )
 from products.feature_flags.backend.types import PropertyFilterType
-from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
+from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, recently_active_sizing_enabled
 from products.feature_flags.backend.version_history import (
     VersionHistoryIncomplete,
     VersionNotFound,
@@ -2934,9 +2936,24 @@ class UserBlastRadiusRequestSerializer(serializers.Serializer):
 
 class UserBlastRadiusResponseSerializer(serializers.Serializer):
     affected = serializers.IntegerField(
-        help_text="Number of entities matching the condition (users or groups depending on group_type_index)"
+        help_text=(
+            "Number of entities matching the condition. Bounded by activity_window_days when that field is set, "
+            "and all-time otherwise."
+        )
     )
-    total = serializers.IntegerField(help_text="Total number of entities of this type in the project")
+    total = serializers.IntegerField(
+        help_text=(
+            "Denominator the affected count is shown against: persons for person-based flags, groups of this type "
+            "for group-based ones. Bounded by activity_window_days when that field is set, and all-time otherwise."
+        )
+    )
+    activity_window_days = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Number of days of recent activity both counts are drawn from. Null means they are all-time, which is "
+            "the case for group-based flags and for projects where the recent-activity basis is switched off."
+        ),
+    )
 
 
 # HYPERCACHE CONTRACT: This serializer defines the JSON schema that the Rust feature-flags
@@ -4664,7 +4681,12 @@ class FeatureFlagViewSet(
         request=UserBlastRadiusRequestSerializer,
         responses={200: UserBlastRadiusResponseSerializer},
     )
-    @action(methods=["POST"], detail=False, required_scopes=["feature_flag:read"])
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["feature_flag:read"],
+        throttle_classes=[FlagSizingBurstRateThrottle, FlagSizingSustainedRateThrottle],
+    )
     def user_blast_radius(self, request: request.Request, **kwargs):
         if "condition" not in request.data:
             raise exceptions.ValidationError("Missing condition for which to get blast radius")
@@ -4672,9 +4694,16 @@ class FeatureFlagViewSet(
         condition = request.data.get("condition") or {}
         group_type_index = request.data.get("group_type_index", None)
 
-        result = get_user_blast_radius(self.team, condition, group_type_index)
+        result = get_user_blast_radius(
+            self.team,
+            condition,
+            group_type_index,
+            recently_active_only=recently_active_sizing_enabled(self.team),
+        )
 
-        return Response({"affected": result.affected, "total": result.total})
+        # Serialize through the declared response serializer, so the wire shape cannot drift from
+        # the OpenAPI schema that the frontend and MCP types are generated from.
+        return Response(UserBlastRadiusResponseSerializer(result).data)
 
     @action(methods=["POST"], detail=True)
     def create_static_cohort_for_flag(self, request: request.Request, **kwargs):

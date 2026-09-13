@@ -638,6 +638,23 @@ class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# Flag sizing scans a 60-day events window once per condition group, and the release-conditions
+# editor fans one request out per group on every mount with no dedup. That editor is the only real
+# caller, and the ClickHouse*RateThrottle pair does not cover it: those derive from
+# PersonalApiKeyRateThrottle, which lets an authenticated request carrying no personal API key
+# through before counting it. A team bucket caps the project's scan spend whatever the auth method.
+# Repeat empty-properties requests are served from a 5-minute cache, so a legitimate session needs
+# one cold scan per distinct condition group.
+class FlagSizingBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "flag_sizing_burst"
+    rate = "60/minute"
+
+
+class FlagSizingSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "flag_sizing_sustained"
+    rate = "600/hour"
+
+
 # Feature flag request usage scans up to 31 days of billing events in ClickHouse. Its primary
 # caller is the session-authenticated feature flags UI, which the generic ClickHouse throttle
 # pair does not cover. Use a team-wide bucket so users and API keys share one query budget.

@@ -89908,10 +89908,15 @@ export namespace Schemas {
     }
 
     export interface UserBlastRadiusResponse {
-      /** Number of entities matching the condition (users or groups depending on group_type_index) */
+      /** Number of entities matching the condition. Bounded by activity_window_days when that field is set, and all-time otherwise. */
       affected: number;
-      /** Total number of entities of this type in the project */
+      /** Denominator the affected count is shown against: persons for person-based flags, groups of this type for group-based ones. Bounded by activity_window_days when that field is set, and all-time otherwise. */
       total: number;
+      /**
+         * Number of days of recent activity both counts are drawn from. Null means they are all-time, which is the case for group-based flags and for projects where the recent-activity basis is switched off.
+         * @nullable
+         */
+      activity_window_days: number | null;
     }
 
     export interface UserCustomerAnalyticsConfig {

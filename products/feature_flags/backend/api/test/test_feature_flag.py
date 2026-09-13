@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -8,6 +9,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     FuzzyInt,
+    _create_event,
     _create_person,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
@@ -75,7 +77,12 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
-from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
+from products.feature_flags.backend.user_blast_radius import (
+    RECENTLY_ACTIVE_DAYS,
+    get_user_blast_radius,
+    get_user_blast_radius_persons,
+    recently_active_sizing_enabled,
+)
 from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -9569,11 +9576,30 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(history.error_code, CohortErrorCode.UNKNOWN)
 
 
+def _create_active_person(*, team_id: int, distinct_ids: list[str], **kwargs):
+    # Blast radius counts persons active in the recent window, so every person a blast-radius test
+    # relies on needs a recent event. Wrap person creation to emit one $pageview per person.
+    person = _create_person(team_id=team_id, distinct_ids=distinct_ids, **kwargs)
+    _create_event(team_id=team_id, event="$pageview", distinct_id=distinct_ids[0])
+    return person
+
+
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # The activity window sits behind a kill switch that evaluates to False without a flag
+        # client, so the endpoint tests below would silently exercise the all-time path instead.
+        gate = patch(
+            "products.feature_flags.backend.api.feature_flag.recently_active_sizing_enabled",
+            return_value=True,
+        )
+        gate.start()
+        self.addCleanup(gate.stop)
+
     @snapshot_clickhouse_queries
     def test_user_blast_radius(self):
         for i in range(10):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -9633,6 +9659,171 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         for query in denominator_queries:
             assert "in(tuple(person.id, person.version)" not in query
 
+    def test_user_blast_radius_excludes_inactive_matching_persons(self):
+        # A person matching the filter but with no recent activity is not reachable audience, so it
+        # must not count toward "affected" — otherwise inactive matches inflate the sized audience,
+        # which is the bug this fix guards against.
+        _create_active_person(team_id=self.team.pk, distinct_ids=["active-match"], properties={"group": "match"})
+        # The two window edges use fixed day offsets rather than RECENTLY_ACTIVE_DAYS +/- 1, so a
+        # typo in the constant moves the boundary past a fixture instead of moving both together.
+        _create_person(team_id=self.team.pk, distinct_ids=["edge-match"], properties={"group": "match"})
+        _create_event(
+            team_id=self.team.pk,
+            event="$pageview",
+            distinct_id="edge-match",
+            timestamp=now() - timedelta(days=59),
+        )
+        _create_person(team_id=self.team.pk, distinct_ids=["stale-match"], properties={"group": "match"})
+        _create_event(
+            team_id=self.team.pk,
+            event="$pageview",
+            distinct_id="stale-match",
+            timestamp=now() - timedelta(days=61),
+        )
+        # Matches the filter but emits no event at all, so it drops out of the count.
+        _create_person(team_id=self.team.pk, distinct_ids=["inactive-match"], properties={"group": "match"})
+        # Active but does not match, so it keeps the total above the matched count.
+        _create_active_person(team_id=self.team.pk, distinct_ids=["active-nonmatch"], properties={"group": "other"})
+        # A corrupt far-future timestamp must not keep a person "active" past the window's end.
+        _create_person(team_id=self.team.pk, distinct_ids=["future-match"], properties={"group": "match"})
+        _create_event(
+            team_id=self.team.pk,
+            event="$pageview",
+            distinct_id="future-match",
+            timestamp=now() + timedelta(days=365),
+        )
+        flush_persons_and_events()
+
+        condition = {
+            "properties": [{"key": "group", "type": "person", "value": ["match"], "operator": "exact"}],
+            "rollout_percentage": 100,
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {"condition": condition},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Only the two in-window matches count; the stale, inactive, and far-future matches are
+        # excluded, and the active non-match keeps the total at three.
+        self.assertLessEqual({"affected": 2, "total": 3}.items(), response.json().items())
+
+        # The window is an opt-in for the flags endpoint only. The workflows audience preview calls
+        # this function without it and must keep counting every matching person, because the batch
+        # send it previews enumerates persons with no activity window.
+        unwindowed = get_user_blast_radius(self.team, condition)
+        self.assertEqual((unwindowed.affected, unwindowed.total), (5, 6))
+
+    def test_user_blast_radius_falls_back_to_the_all_time_count_when_gated_off(self):
+        # The kill switch has to restore the count the window replaced, so a disable gives back the
+        # inactive matches rather than leaving the window half applied.
+        _create_active_person(team_id=self.team.pk, distinct_ids=["active-match"], properties={"group": "match"})
+        _create_person(team_id=self.team.pk, distinct_ids=["inactive-match"], properties={"group": "match"})
+        flush_persons_and_events()
+
+        condition = {
+            "properties": [{"key": "group", "type": "person", "value": ["match"], "operator": "exact"}],
+            "rollout_percentage": 100,
+        }
+        with patch(
+            "products.feature_flags.backend.api.feature_flag.recently_active_sizing_enabled",
+            return_value=False,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+                {"condition": condition},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 2, "total": 2}.items(), response.json().items())
+
+    def test_user_blast_radius_excludes_personless_events(self):
+        # An event captured with $process_person_profile: false carries a synthetic person_id and no
+        # persons row, so counting it would put anonymous traffic in a denominator the matched
+        # subquery can never return.
+        _create_active_person(team_id=self.team.pk, distinct_ids=["identified"], properties={"group": "match"})
+        _create_event(
+            team_id=self.team.pk,
+            event="$pageview",
+            distinct_id="anonymous-visitor",
+            person_id=uuid.uuid4(),
+            person_mode="propertyless",
+        )
+        flush_persons_and_events()
+
+        for condition in (
+            {"properties": [], "rollout_percentage": 100},
+            {
+                "properties": [{"key": "group", "type": "person", "value": ["match"], "operator": "exact"}],
+                "rollout_percentage": 100,
+            },
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+                {"condition": condition},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertLessEqual({"affected": 1, "total": 1}.items(), response.json().items())
+
+    def test_user_blast_radius_caches_the_unfiltered_active_count(self):
+        # The flag editor sizes one condition group per mount, so repeat requests inside the TTL
+        # must not re-scan events each time. A second project asserts the key is scoped per team:
+        # an unscoped key would serve this project's count as the other one's.
+        other_team = Team.objects.create(organization=self.organization)
+        _create_active_person(team_id=self.team.pk, distinct_ids=["active"], properties={"group": "match"})
+        for i in range(2):
+            _create_active_person(team_id=other_team.pk, distinct_ids=[f"other-active-{i}"])
+        flush_persons_and_events()
+
+        condition = {"properties": [], "rollout_percentage": 50}
+        with self.capture_select_queries() as queries:
+            responses = [
+                self.client.post(
+                    f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+                    {"condition": condition},
+                )
+                for _ in range(2)
+            ]
+            other_response = self.client.post(
+                f"/api/projects/{other_team.id}/feature_flags/user_blast_radius",
+                {"condition": condition},
+            )
+
+        for response in responses:
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertLessEqual({"affected": 1, "total": 1}.items(), response.json().items())
+
+        self.assertEqual(other_response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 2, "total": 2}.items(), other_response.json().items())
+
+        events_scans = [query for query in queries if "uniq(" in query]
+        self.assertEqual(len(events_scans), 2)
+
+    def test_user_blast_radius_reports_the_basis_that_produced_the_counts(self):
+        # The window is gated per project, so the response has to say which basis ran: the tooltip
+        # beside the number reads from this field rather than asserting the window unconditionally.
+        _create_active_person(team_id=self.team.pk, distinct_ids=["active"], properties={"group": "match"})
+        flush_persons_and_events()
+
+        condition = {
+            "properties": [{"key": "group", "type": "person", "value": ["match"], "operator": "exact"}],
+            "rollout_percentage": 100,
+        }
+        windowed = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius", {"condition": condition}
+        )
+        with patch(
+            "products.feature_flags.backend.api.feature_flag.recently_active_sizing_enabled",
+            return_value=False,
+        ):
+            all_time = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/user_blast_radius", {"condition": condition}
+            )
+
+        self.assertEqual(windowed.json()["activity_window_days"], RECENTLY_ACTIVE_DAYS)
+        self.assertIsNone(all_time.json()["activity_window_days"])
+
     @parameterized.expand(
         [
             (
@@ -9687,7 +9878,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_with_flag_dependency(self):
         for i in range(10):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -9723,7 +9914,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_with_flag_dependency_and_person_property(self):
         for i in range(10):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -9869,7 +10060,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     @time_machine.travel("2024-01-11", tick=False)
     def test_user_blast_radius_with_relative_date_filters(self):
         for i in range(8):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}", "created_at": f"2023-0{i + 1}-04"},
@@ -9922,7 +10113,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_with_zero_selected_users(self):
         for i in range(5):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -9952,7 +10143,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_with_all_selected_users(self):
         for i in range(5):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -9973,7 +10164,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         # person_distinct_id2 table and must be joined via pdi. Filtering by distinct_id
         # in a release condition should match the persons that own that distinct_id.
         for i in range(5):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -10004,12 +10195,12 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_user_blast_radius_with_distinct_id_filter_multiple_distinct_ids_per_person(self):
         # A single person can own multiple distinct_ids; filtering by any one should still
         # count that person exactly once.
-        _create_person(
+        _create_active_person(
             team_id=self.team.pk,
             distinct_ids=["alias-a", "alias-b"],
             properties={"group": "0"},
         )
-        _create_person(
+        _create_active_person(
             team_id=self.team.pk,
             distinct_ids=["other"],
             properties={"group": "1"},
@@ -10041,7 +10232,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_user_blast_radius_with_single_cohort(self):
         # Just to shake things up, we're using integers for the group property
         for i in range(10):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": i},
@@ -10107,7 +10298,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_multiple_precalculated_cohorts(self):
         for i in range(10):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -10184,7 +10375,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_multiple_static_cohorts(self):
         for i in range(10):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -10510,17 +10701,17 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_with_integer_property_values(self):
         """Test that integer property values are correctly normalized to strings for matching"""
-        _create_person(
+        _create_active_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
             properties={"age": 25, "score": 100},
         )
-        _create_person(
+        _create_active_person(
             distinct_ids=["p2"],
             team_id=self.team.pk,
             properties={"age": "25", "score": "100"},
         )
-        _create_person(
+        _create_active_person(
             distinct_ids=["p3"],
             team_id=self.team.pk,
             properties={"age": 30, "score": 200},
@@ -10694,12 +10885,12 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        _create_person(
+        _create_active_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
             properties={"email": "user@posthog.com"},
         )
-        _create_person(
+        _create_active_person(
             distinct_ids=["p2"],
             team_id=self.team.pk,
             properties={"email": "user@example.com"},
@@ -11027,7 +11218,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             "2.1.0",
         ]
         for version in versions:
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person_{version}"],
                 properties={"app_version": version},
@@ -11245,7 +11436,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             "1.0.0",
         ]
         for version in versions:
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person_{version}"],
                 properties={"app_version": version},
@@ -11315,7 +11506,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         # Create persons in organizations
         for i, version in enumerate(versions):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person_{i}"],
                 properties={"$group_0": f"org-{version}"},
@@ -11354,7 +11545,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
 
         for i in range(10):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"plan": "pro" if i < 6 else "free"},
@@ -11415,7 +11606,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_pure_person_condition_has_no_group_counts(self):
         for i in range(5):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"plan": "pro" if i < 3 else "free"},
@@ -11495,7 +11686,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
 
         for i in range(8):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"plan": "pro" if i < 5 else "free"},
@@ -11572,7 +11763,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_no_error_fields_for_successful_queries(self):
         for i in range(3):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"plan": "pro"},
@@ -14988,3 +15179,19 @@ class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
         assert old_flag.key == f"replay-gate:deleted:{old_flag.id}"
         self.team.refresh_from_db()
         assert self.team.session_recording_linked_flag == {"id": old_flag.id, "key": old_flag.key}
+
+
+class TestRecentlyActiveSizingFlag(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("enabled", True, True),
+            ("disabled", False, False),
+            ("client_raises", Exception("flag client down"), False),
+        ]
+    )
+    def test_kill_switch_never_propagates_a_flag_client_failure(self, _name, flag_result, expected):
+        # A broken flag client must read as "window off", not as a 500 on the sizing panel. Both
+        # sides of the endpoint patch this symbol, so nothing else runs its body.
+        kwargs = {"side_effect": flag_result} if isinstance(flag_result, Exception) else {"return_value": flag_result}
+        with patch("products.feature_flags.backend.user_blast_radius.feature_enabled_or_false", **kwargs):
+            self.assertEqual(recently_active_sizing_enabled(self.team), expected)
