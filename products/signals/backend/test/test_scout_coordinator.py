@@ -1501,6 +1501,191 @@ async def test_seed_launch_cadence_stamped_on_disabled_canonical(ateam):
     assert rows["signals-scout-error-tracking"] == (False, 720)
 
 
+# ── Operational scouts (scout-role: operational) ──────────────────────────────────
+
+# The one canonical scout that watches the self-driving system rather than a product surface.
+# Read from disk by the harness, so a rename here is a real fleet rename, not a fixture choice.
+_OPERATIONAL_SCOUT = "signals-scout-inbox-validation"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_operational_scout_seeds_enabled_and_exempt_outside_the_allowlist(ateam):
+    # The launch allowlist decides what a project spends on watching its own product. An
+    # operational scout is the harness watching itself, so it seeds enabled anyway — and exempt,
+    # because the sweep judges consumption and this scout is designed to report rarely.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-general")
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-error-tracking")
+    await database_sync_to_async(_create_skill)(ateam, _OPERATIONAL_SCOUT)
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {"enabled_skills": ["signals-scout-general"]},
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        await _run_activity()
+
+    rows = await database_sync_to_async(
+        lambda: {
+            c.skill_name: (c.enabled, c.auto_pause_exempt) for c in SignalScoutConfig.all_teams.filter(team_id=ateam.id)
+        }
+    )()
+    assert rows[_OPERATIONAL_SCOUT] == (True, True)
+    assert rows["signals-scout-general"] == (True, False)
+    assert rows["signals-scout-error-tracking"] == (False, False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_operational_scout_seeds_enabled_past_the_enabled_cap(ateam):
+    # The cap bounds a project's own fleet. A specialist authored at the cap registers disabled;
+    # the operational scout still seeds enabled, so a full fleet can't silence the follow-up check.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-existing")
+    await database_sync_to_async(_create_config)(ateam, "signals-scout-existing", enabled=True)
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-fresh")
+    await database_sync_to_async(_create_skill)(ateam, _OPERATIONAL_SCOUT)
+
+    with patch("products.signals.backend.scout_harness.config_registry.MAX_ENABLED_SCOUTS_PER_TEAM", 1):
+        await _run_activity()
+
+    rows = await database_sync_to_async(
+        lambda: {c.skill_name: c.enabled for c in SignalScoutConfig.all_teams.filter(team_id=ateam.id)}
+    )()
+    assert rows[_OPERATIONAL_SCOUT] is True
+    assert rows["signals-scout-fresh"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_withheld_operational_scout_is_still_held_back(ateam):
+    # The role skips the allowlist and the cap, never the holdback: an unreleased scout must not
+    # let itself out by declaring what it is.
+    await database_sync_to_async(_create_skill)(ateam, _OPERATIONAL_SCOUT)
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {"withheld_skills": [_OPERATIONAL_SCOUT]},
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        planned = await _run_activity()
+
+    exists = await database_sync_to_async(
+        lambda: SignalScoutConfig.all_teams.filter(team_id=ateam.id, skill_name=_OPERATIONAL_SCOUT).exists()
+    )()
+    assert exists is False
+    assert [p.skill_name for p in planned] == []
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "status,pause_reason",
+    [
+        # Warned by the sweep: still running, but a week from a pause it can never work off.
+        (SignalScoutConfig.Status.PENDING_PAUSE, SignalScoutConfig.PauseReason.NO_OUTPUT),
+        # Already paused by the sweep — the state this role exists to prevent.
+        (SignalScoutConfig.Status.PAUSED_BY_SYSTEM, SignalScoutConfig.PauseReason.IGNORED),
+    ],
+)
+def test_reconcile_resumes_an_operational_scout_the_sweep_silenced(status, pause_reason):
+    # The seed posture is forward-only, so a row that predates the role only recovers if the
+    # reconcile pass runs on every tick.
+    org = Organization.objects.create(name="op-sweep-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="op-sweep-team")
+    with team_scope(team.id, canonical=True):
+        _create_skill(team, _OPERATIONAL_SCOUT)
+        _create_config(team, _OPERATIONAL_SCOUT, status=status, pause_reason=pause_reason)
+
+        register_missing_configs(team.id)
+
+        config = SignalScoutConfig.all_teams.get(team_id=team.id, skill_name=_OPERATIONAL_SCOUT)
+        assert config.status == SignalScoutConfig.Status.ACTIVE
+        assert config.enabled is True
+        assert config.pause_reason is None
+        assert config.auto_pause_exempt is True
+
+
+@pytest.mark.django_db
+def test_reconcile_resumes_an_operational_scout_seeded_disabled():
+    # A row the allowlist seeded disabled is stored as `paused_by_user` (that is what an
+    # enabled=False create means to the model), so the reconcile has to tell an untouched seed
+    # apart from a person switching the scout off.
+    org = Organization.objects.create(name="op-seeded-off-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="op-seeded-off-team")
+    with team_scope(team.id, canonical=True):
+        _create_skill(team, _OPERATIONAL_SCOUT)
+        seeded_off = _create_config(team, _OPERATIONAL_SCOUT, enabled=False)
+        assert seeded_off.status == SignalScoutConfig.Status.PAUSED_BY_USER
+        assert seeded_off.status_changed_at is None
+
+        register_missing_configs(team.id)
+
+        config = SignalScoutConfig.all_teams.get(team_id=team.id, skill_name=_OPERATIONAL_SCOUT)
+        assert config.enabled is True
+        assert config.status == SignalScoutConfig.Status.ACTIVE
+        assert config.auto_pause_exempt is True
+
+
+@pytest.mark.django_db
+def test_reconcile_leaves_a_human_pause_alone():
+    # A person switching an operational scout off is a decision the harness must not overrule;
+    # the recorded transition is what separates it from the seed's own `paused_by_user` row.
+    org = Organization.objects.create(name="op-human-off-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="op-human-off-team")
+    with team_scope(team.id, canonical=True):
+        _create_skill(team, _OPERATIONAL_SCOUT)
+        config = _create_config(team, _OPERATIONAL_SCOUT, enabled=False)
+        SignalScoutConfig.all_teams.filter(pk=config.pk).update(status_changed_at=timezone.now())
+
+        register_missing_configs(team.id)
+
+        config.refresh_from_db()
+        assert config.enabled is False
+        assert config.status == SignalScoutConfig.Status.PAUSED_BY_USER
+        # Still exempted: the sweep must not re-warn it if the person turns it back on.
+        assert config.auto_pause_exempt is True
+
+
+@pytest.mark.django_db
+def test_reconcile_leaves_a_failure_pause_alone():
+    # The failure breaker owns this pause and probes it back itself. Resuming it here would spend
+    # runs on a scout that cannot finish one.
+    org = Organization.objects.create(name="op-failing-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="op-failing-team")
+    with team_scope(team.id, canonical=True):
+        _create_skill(team, _OPERATIONAL_SCOUT)
+        _create_config(
+            team,
+            _OPERATIONAL_SCOUT,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+        )
+
+        register_missing_configs(team.id)
+
+        config = SignalScoutConfig.all_teams.get(team_id=team.id, skill_name=_OPERATIONAL_SCOUT)
+        assert config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+        assert config.pause_reason == SignalScoutConfig.PauseReason.REPEATED_FAILURES
+
+
+@pytest.mark.django_db
+def test_a_teams_own_scout_sharing_an_operational_name_gets_no_exemption():
+    # The role is read from disk and only claimed for a scout the harness seeded. A hand-authored
+    # skill under the same name must not inherit a posture that skips the harness's controls.
+    org = Organization.objects.create(name="op-lookalike-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="op-lookalike-team")
+    with team_scope(team.id, canonical=True):
+        _create_skill(team, _OPERATIONAL_SCOUT, seeded=False)
+
+        register_missing_configs(team.id)
+
+        config = SignalScoutConfig.all_teams.get(team_id=team.id, skill_name=_OPERATIONAL_SCOUT)
+        assert config.auto_pause_exempt is False
+
+
 # ── Per-scout holdback denylist (withheld_skills) ─────────────────────────────────
 
 
