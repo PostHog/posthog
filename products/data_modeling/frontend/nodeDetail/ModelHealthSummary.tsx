@@ -2,6 +2,8 @@ import { LemonCard, LemonTag, LemonTagType, Link, Tooltip, LemonSkeleton } from 
 
 import { TZLabel } from 'lib/components/TZLabel'
 
+import { STATUS_TOOLTIPS } from '../lineage/nodeStyles'
+
 export interface ModelHealthSummaryProps {
     status: string | null
     suspended: boolean
@@ -20,6 +22,8 @@ const STATUS_TAG_TYPES: Record<string, LemonTagType> = {
     Running: 'warning',
     Cancelled: 'muted',
     Skipped: 'muted',
+    // Not a run outcome: the query was edited and has not been materialized since.
+    Modified: 'warning',
 }
 
 export function ModelHealthSummary({
@@ -35,16 +39,26 @@ export function ModelHealthSummary({
 }: ModelHealthSummaryProps): JSX.Element {
     const failed = status === 'Failed'
     const statusLabel = suspended ? 'Suspended' : status === 'Cancelled' ? 'Canceled' : status
-    const title = suspended ? 'Scheduled refreshes' : status === 'Running' ? 'Current run' : 'Last run'
+    const title = suspended
+        ? 'Scheduled refreshes'
+        : status === 'Running'
+          ? 'Current run'
+          : status === 'Modified'
+            ? 'Status'
+            : 'Last run'
+    // A suspended model explains itself in the paragraph below, so it needs no second explanation.
+    const statusExplanation = suspended ? undefined : STATUS_TOOLTIPS[status ?? '']
     return (
         <LemonCard hoverEffect={false} className="!p-4 w-fit max-w-full self-start" data-attr="node-detail-health">
             <div className="flex flex-col gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold">{title}</span>
                     {statusLabel ? (
-                        <LemonTag type={suspended ? 'danger' : (STATUS_TAG_TYPES[status ?? ''] ?? 'default')}>
-                            {statusLabel}
-                        </LemonTag>
+                        <Tooltip title={statusExplanation}>
+                            <LemonTag type={suspended ? 'danger' : (STATUS_TAG_TYPES[status ?? ''] ?? 'default')}>
+                                {statusLabel}
+                            </LemonTag>
+                        </Tooltip>
                     ) : historyError ? (
                         <span className="text-secondary">Status unavailable</span>
                     ) : historyLoaded ? (
