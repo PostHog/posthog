@@ -802,6 +802,27 @@ describe('CookielessManager', () => {
                 const actual1 = await processEvent(nonCookielessEvent)
                 expect(actual1).toBe(nonCookielessEvent)
             })
+            it('should emit a warning when the team has cookieless disabled', async () => {
+                const response = await infra.cookielessManager.doBatch([
+                    { event, team, message, headers: createTestEventHeaders() },
+                ])
+                expect(response.length).toBe(1)
+                const result = response[0]
+
+                expect(result.type).toBe(PipelineResultType.DROP)
+                if (result.type === PipelineResultType.DROP) {
+                    expect(result.reason).toBe('cookieless_team_disabled')
+                }
+                expect(result.warnings).toHaveLength(1)
+                expect(result.warnings[0]).toMatchObject({
+                    type: 'cookieless_team_disabled',
+                    details: {
+                        eventUuid: event.uuid,
+                        event: event.event,
+                        distinctId: event.distinct_id,
+                    },
+                })
+            })
             it('should not return dropped cookieless events but should not throw', async () => {
                 const testHeaders = createTestEventHeaders({
                     token: 'test-token',
