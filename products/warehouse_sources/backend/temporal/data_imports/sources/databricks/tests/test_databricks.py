@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 from databricks.sql.exc import RequestError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.databricks.databricks import (
@@ -519,6 +520,31 @@ class TestDatabricksSource:
     def test_permanent_failures_are_non_retryable(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable), f"Error should be non-retryable: {error_msg}"
+
+    def test_proxy_tunnel_429_error_is_retryable_not_non_retryable(self, source):
+        # A `requests.ProxyError` from PostHog's own egress proxy throttling the CONNECT tunnel
+        # while fetching the service-principal OAuth token, surfaced once the connector's own
+        # request-retry loop is exhausted. Not Databricks' or the customer's fault, so it must
+        # stay retryable rather than disabling the source.
+        observed_error = (
+            "Error during request to server: HTTPSConnectionPool(host='dbc-abc123.cloud.databricks.com', port=443):"
+            " Max retries exceeded with url: /oidc/v1/token (Caused by ProxyError('Cannot connect to proxy.',"
+            " OSError('Tunnel connection failed: 429 Too Many Requests')))"
+        )
+        non_retryable_errors = source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
+    def test_proxy_tunnel_407_error_is_not_retryable(self, source):
+        # A deterministic proxy-auth rejection, not a transient tunnel gateway status — must stay
+        # reportable rather than being swallowed by the 429 tunnel pattern.
+        observed_error = (
+            "Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed:"
+            " 407 Proxy Authentication Required'))"
+        )
+        retryable_errors = source.get_retryable_errors()
+        assert not error_message_matches(observed_error, retryable_errors)
 
     def test_validate_credentials_requires_access_token(self, source):
         config = DatabricksSourceConfig.from_dict(
