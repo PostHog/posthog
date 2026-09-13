@@ -144,6 +144,12 @@ export function MaterializationRunActions({
         !!Object.keys(savedQuery.suspended ?? {}).length
     const cadenceReason = modeDisabledReason(savedQuery.sync_frequency_bounds)
     const paused = !savedQuery.sync_frequency || savedQuery.sync_frequency === 'never'
+    // Resuming clears the suspension that repeated failures set, and it schedules nothing. A model
+    // with no cadence has no scheduled run to go back into, so the action would promise one that
+    // cannot fire. Modes with a `cadenceReason` are left alone because their cadence is not the
+    // user's to pick. Sync now still clears the suspension, so this is not a dead end.
+    const noScheduleReason =
+        paused && !cadenceReason ? 'Scheduled refreshes are paused. Pick a cadence first, then resume.' : undefined
     const run = (rebuild = false): void => {
         setStartingMaterialization(true)
         runDataWarehouseSavedQuery(viewId, rebuild)
@@ -157,7 +163,7 @@ export function MaterializationRunActions({
                     size="small"
                     onClick={resumeMaterialization}
                     loading={resumingMaterialization}
-                    disabledReason={accessReason || busyReason}
+                    disabledReason={accessReason || busyReason || noScheduleReason}
                     data-attr="node-detail-resume"
                 >
                     Resume schedule
