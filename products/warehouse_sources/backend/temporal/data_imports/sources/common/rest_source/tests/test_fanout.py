@@ -789,9 +789,7 @@ def test_path_format_values_bind_both_the_parent_and_the_child_path(mock_rest_ap
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 def test_parent_data_map_reaches_the_parent_resource(mock_rest_api_resources) -> None:
     mock_rest_api_resources.return_value = [_stub_child_resource()]
-
-    def derive_resolve_field(row: dict[str, Any]) -> dict[str, Any]:
-        return row
+    derive_resolve_field = Mock()
 
     build_dependent_resource(
         endpoint_configs=_build_endpoint_configs(),
@@ -811,7 +809,6 @@ def test_parent_data_map_reaches_the_parent_resource(mock_rest_api_resources) ->
     )
 
     config = mock_rest_api_resources.call_args.args[0]
-    # Only the parent runs it — the child rows never go through this hook.
     assert config["resources"][0]["data_map"] is derive_resolve_field
     assert "data_map" not in config["resources"][1]
 
@@ -878,7 +875,6 @@ def test_incremental_config_is_bound_to_the_child_request(mock_rest_api_resource
         incremental_config_factory=cast(Any, factory),
     )
 
-    # No explicit incremental_field, so the child's declared default drives the cursor.
     assert cursor_paths == ["created_at"]
     child_resource = mock_rest_api_resources.call_args.args[0]["resources"][1]
     assert child_resource["endpoint"]["incremental"] == {"cursor_path": "created_at", "start_param": "since"}
