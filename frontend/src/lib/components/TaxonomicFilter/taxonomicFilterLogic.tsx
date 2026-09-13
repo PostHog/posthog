@@ -31,6 +31,7 @@ import {
     recentTaxonomicFiltersLogic,
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { taxonomicFilterCategoryLayoutLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterCategoryLayoutLogic'
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomicFilterSurface'
 import {
@@ -506,6 +507,7 @@ export interface taxonomicFilterLogicValues {
     currentProjectId: number | null // projectLogic
     eventMetadataPropertyDefinitions: PropertyDefinition[] // propertyDefinitionsModel
     personMetadataPropertyDefinitions: PropertyDefinition[] // propertyDefinitionsModel
+    categoryRailPinned: boolean // taxonomicFilterCategoryLayoutLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
     activeTab: TaxonomicFilterGroupType
@@ -737,8 +739,7 @@ export interface taxonomicFilterLogicMeta {
         taxonomicGroupTypes: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             taxonomicGroups: TaxonomicFilterGroup[],
-            eventNames: any,
-            featureFlags: FeatureFlagsSet
+            eventNames: any
         ) => TaxonomicFilterGroupType[]
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
@@ -827,6 +828,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['eventMetadataPropertyDefinitions', 'personMetadataPropertyDefinitions'],
             featureFlagLogic,
             ['featureFlags'],
+            taxonomicFilterCategoryLayoutLogic,
+            ['categoryRailPinned'],
             primaryEventPropertiesModel,
             ['primaryProperties'],
         ],
@@ -2508,6 +2511,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 dwellMs: Date.now() - (cache.openedAt ?? Date.now()),
                 hadSelection: !!cache.hadSelection,
                 groupType: values.activeTab,
+                categoryRailDocked: values.categoryRailPinned,
             })
         }
     }),

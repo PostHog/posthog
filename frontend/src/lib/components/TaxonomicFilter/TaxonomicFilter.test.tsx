@@ -772,14 +772,22 @@ describe('TaxonomicFilter', () => {
                 interact: async () => {
                     await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event')
                 },
-                expected: { hadSelection: false },
+                expected: { hadSelection: false, categoryRailDocked: true },
             },
             {
                 name: 'fires when the user selected an item before closing',
                 interact: async () => {
                     await userEvent.click(screen.getByTestId('prop-filter-events-0'))
                 },
-                expected: { hadSelection: true },
+                expected: { hadSelection: true, categoryRailDocked: true },
+            },
+            {
+                name: 'fires with an undocked category rail',
+                interact: async () => {
+                    taxonomicFilterCategoryLayoutLogic.actions.setCategoryRailPinned(false)
+                    await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event')
+                },
+                expected: { hadSelection: false, categoryRailDocked: false },
             },
         ])('$name', async ({ interact, expected }) => {
             const captureSpy = jest.spyOn(posthog, 'capture')

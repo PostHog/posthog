@@ -311,6 +311,7 @@ export function TaxonomicFilterMenu({
                 surface: TAXONOMIC_FILTER_SURFACE,
                 dwellMs,
                 hadSelection: hadCommitRef.current,
+                categoryRailDocked: false,
             })
             lastMenuClosedAtMs = closedAt
             openedAtRef.current = null

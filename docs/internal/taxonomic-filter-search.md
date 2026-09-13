@@ -4,6 +4,8 @@ The classic picker and the rebuilt menu hold aggregated search results until the
 
 The classic picker shows its active category in the search input. A person can dock the category rail from that menu. This preference persists for that person and project. A narrow picker hides the rail and shows the category control in the search input.
 
+The rail starts undocked. `taxonomic filter category rail toggled` records whether it is docked. `taxonomic filter closed` records the final `categoryRailDocked` state so reports can show which people keep the rail docked.
+
 A category shows results for the current query only. It clears its earlier rows when the current query cannot fetch, such as a query below the category minimum length or a request that failed.
 
 Scoped property searches return properties associated with the selected events. A separate unscoped request counts matches across the project so the picker can offer an expansion to other properties.

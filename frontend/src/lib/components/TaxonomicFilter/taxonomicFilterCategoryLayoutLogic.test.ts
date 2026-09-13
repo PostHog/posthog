@@ -26,7 +26,7 @@ describe('taxonomicFilterCategoryLayoutLogic', () => {
             .toDispatchActions(['setCategoryRailPinned'])
             .toMatchValues({ categoryRailPinned: true })
 
-        expect(posthog.capture).toHaveBeenCalledWith('taxonomic filter category rail toggled', { pinned: true })
+        expect(posthog.capture).toHaveBeenCalledWith('taxonomic filter category rail toggled', { docked: true })
 
         logic.unmount()
     })
