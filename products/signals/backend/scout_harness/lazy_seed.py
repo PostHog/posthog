@@ -84,11 +84,6 @@ HARNESS_SEEDED_BY = "signals_scout_harness"
 # product treats `category` as an opaque string; this is the value the harness writes.
 SCOUT_SKILL_CATEGORY = "scout"
 
-# What a canonical scout is to the harness, declared as `scout-role` in SKILL.md frontmatter.
-# `specialist` (the default) watches a product surface: the harness may gate it behind the launch
-# allowlist, count it against the per-team cap, warn it for silence and pause it. `operational`
-# watches the self-driving system itself, where a silenced scout removes the only check on whether
-# the rest of the fleet's work held — so the harness seeds it enabled and exempt instead.
 ScoutRole = Literal["specialist", "operational"]
 
 SCOUT_ROLE_SPECIALIST: ScoutRole = "specialist"

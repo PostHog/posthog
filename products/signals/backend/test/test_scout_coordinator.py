@@ -1503,7 +1503,6 @@ async def test_seed_launch_cadence_stamped_on_disabled_canonical(ateam):
 
 # ── Operational scouts (scout-role: operational) ──────────────────────────────────
 
-# The one canonical scout that watches the self-driving system rather than a product surface.
 # Read from disk by the harness, so a rename here is a real fleet rename, not a fixture choice.
 _OPERATIONAL_SCOUT = "signals-scout-inbox-validation"
 
@@ -1511,9 +1510,8 @@ _OPERATIONAL_SCOUT = "signals-scout-inbox-validation"
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_operational_scout_seeds_enabled_and_exempt_outside_the_allowlist(ateam):
-    # The launch allowlist decides what a project spends on watching its own product. An
-    # operational scout is the harness watching itself, so it seeds enabled anyway — and exempt,
-    # because the sweep judges consumption and this scout is designed to report rarely.
+    # The allowlist decides what a project spends watching its own product, and the harness
+    # watching itself is not that.
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-general")
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-error-tracking")
     await database_sync_to_async(_create_skill)(ateam, _OPERATIONAL_SCOUT)
@@ -1540,8 +1538,7 @@ async def test_operational_scout_seeds_enabled_and_exempt_outside_the_allowlist(
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_operational_scout_seeds_enabled_past_the_enabled_cap(ateam):
-    # The cap bounds a project's own fleet. A specialist authored at the cap registers disabled;
-    # the operational scout still seeds enabled, so a full fleet can't silence the follow-up check.
+    # A full fleet must not silence the follow-up check.
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-existing")
     await database_sync_to_async(_create_config)(ateam, "signals-scout-existing", enabled=True)
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-fresh")
@@ -1560,8 +1557,7 @@ async def test_operational_scout_seeds_enabled_past_the_enabled_cap(ateam):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_withheld_operational_scout_is_still_held_back(ateam):
-    # The role skips the allowlist and the cap, never the holdback: an unreleased scout must not
-    # let itself out by declaring what it is.
+    # An unreleased scout must not let itself out by declaring what it is.
     await database_sync_to_async(_create_skill)(ateam, _OPERATIONAL_SCOUT)
 
     def _payload(*_a, **_k):
@@ -1584,15 +1580,12 @@ async def test_withheld_operational_scout_is_still_held_back(ateam):
 @pytest.mark.parametrize(
     "status,pause_reason",
     [
-        # Warned by the sweep: still running, but a week from a pause it can never work off.
         (SignalScoutConfig.Status.PENDING_PAUSE, SignalScoutConfig.PauseReason.NO_OUTPUT),
-        # Already paused by the sweep — the state this role exists to prevent.
         (SignalScoutConfig.Status.PAUSED_BY_SYSTEM, SignalScoutConfig.PauseReason.IGNORED),
     ],
 )
 def test_reconcile_resumes_an_operational_scout_the_sweep_silenced(status, pause_reason):
-    # The seed posture is forward-only, so a row that predates the role only recovers if the
-    # reconcile pass runs on every tick.
+    # The seed posture is forward-only, so a row that predates the role recovers only here.
     org = Organization.objects.create(name="op-sweep-org", is_ai_data_processing_approved=True)
     team = Team.objects.create(organization=org, name="op-sweep-team")
     with team_scope(team.id, canonical=True):
@@ -1610,9 +1603,8 @@ def test_reconcile_resumes_an_operational_scout_the_sweep_silenced(status, pause
 
 @pytest.mark.django_db
 def test_reconcile_resumes_an_operational_scout_seeded_disabled():
-    # A row the allowlist seeded disabled is stored as `paused_by_user` (that is what an
-    # enabled=False create means to the model), so the reconcile has to tell an untouched seed
-    # apart from a person switching the scout off.
+    # An `enabled=False` create is stored as `paused_by_user`, so the reconcile has to tell an
+    # untouched seed apart from a person switching the scout off.
     org = Organization.objects.create(name="op-seeded-off-org", is_ai_data_processing_approved=True)
     team = Team.objects.create(organization=org, name="op-seeded-off-team")
     with team_scope(team.id, canonical=True):
@@ -1631,8 +1623,7 @@ def test_reconcile_resumes_an_operational_scout_seeded_disabled():
 
 @pytest.mark.django_db
 def test_reconcile_leaves_a_human_pause_alone():
-    # A person switching an operational scout off is a decision the harness must not overrule;
-    # the recorded transition is what separates it from the seed's own `paused_by_user` row.
+    # The recorded transition is what separates this from the seed's own `paused_by_user` row.
     org = Organization.objects.create(name="op-human-off-org", is_ai_data_processing_approved=True)
     team = Team.objects.create(organization=org, name="op-human-off-team")
     with team_scope(team.id, canonical=True):
@@ -1651,8 +1642,8 @@ def test_reconcile_leaves_a_human_pause_alone():
 
 @pytest.mark.django_db
 def test_reconcile_leaves_a_failure_pause_alone():
-    # The failure breaker owns this pause and probes it back itself. Resuming it here would spend
-    # runs on a scout that cannot finish one.
+    # The failure breaker owns this pause, and resuming it would spend runs on a scout that
+    # cannot finish one.
     org = Organization.objects.create(name="op-failing-org", is_ai_data_processing_approved=True)
     team = Team.objects.create(organization=org, name="op-failing-team")
     with team_scope(team.id, canonical=True):
@@ -1673,8 +1664,7 @@ def test_reconcile_leaves_a_failure_pause_alone():
 
 @pytest.mark.django_db
 def test_a_teams_own_scout_sharing_an_operational_name_gets_no_exemption():
-    # The role is read from disk and only claimed for a scout the harness seeded. A hand-authored
-    # skill under the same name must not inherit a posture that skips the harness's controls.
+    # A hand-authored skill must not inherit a posture that skips the harness's controls.
     org = Organization.objects.create(name="op-lookalike-org", is_ai_data_processing_approved=True)
     team = Team.objects.create(organization=org, name="op-lookalike-team")
     with team_scope(team.id, canonical=True):

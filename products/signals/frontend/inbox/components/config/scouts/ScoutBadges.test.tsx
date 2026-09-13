@@ -11,9 +11,8 @@ describe('ScoutExemptionBadge', () => {
     afterEach(cleanup)
 
     it('labels an operational scout in every roster group', () => {
-        // The role says what the scout is, not how its last fortnight went. A badge that only
-        // showed while "watching" would vanish the week the scout files a report, which is
-        // exactly when someone might read it as an ordinary scout and switch it off.
+        // A badge that only showed while "watching" would vanish the week the scout files a
+        // report, which is exactly when someone might switch it off as an ordinary scout.
         render(<ScoutExemptionBadge config={{ ...config, scout_role: 'operational' }} group="working" />)
         expect(screen.getByText('Operational')).toBeInTheDocument()
     })

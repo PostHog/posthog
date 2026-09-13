@@ -51,8 +51,6 @@ CRON_SCHEDULE_MAX_LENGTH = 100
 # (a `*/15` fires 96×/day) while staying trivially cheap for sparse schedules.
 _CRON_SAMPLE_OCCURRENCES = 100
 
-# Job type the operational reconcile attributes its writes to, so the activity log says the
-# harness resumed the scout rather than pinning it on whoever last touched the row.
 _OPERATIONAL_RECONCILE_JOB_TYPE = "signals_scout_operational_reconcile"
 
 
@@ -271,16 +269,14 @@ def register_missing_configs(
         # well-typed (mypy can't carry the narrowing through `gated`).
         gated = enabled_skills is not None and name in canonical_names and not operational
         in_allowlist = (not gated) or (enabled_skills is not None and name in enabled_skills)
-        # The cap bounds what a team spends watching its own product. An operational scout is the
-        # harness watching itself, so it seeds enabled past the cap; it still counts toward it, so
-        # the slot it occupies is visible rather than free.
+        # The cap bounds what a team spends watching its own product, so an operational scout
+        # seeds enabled past it. It still counts toward the cap, so its slot stays visible.
         seed_enabled = in_allowlist and (operational or not at_cap)
 
         defaults: dict = {} if seed_enabled else {"enabled": False}
         if operational:
-            # Stamped at creation because the sweep reads the column, not the role: without it an
-            # operational scout lands in the `no_output` branch on every sweep, since writing
-            # memory hourly and filing a report rarely is exactly what it is supposed to look like.
+            # The sweep reads the column, not the role, and writing memory hourly while filing a
+            # report rarely is exactly the `no_output` shape it warns on.
             defaults["auto_pause_exempt"] = True
         # A canonical scout can claim a product surface's tag in its SKILL.md frontmatter
         # (`scout-tags`) — that's what lands it in that product's own scout list. Seeded at
@@ -311,8 +307,6 @@ def register_missing_configs(
                 cap=MAX_ENABLED_SCOUTS_PER_TEAM,
             )
 
-    # Operational scouts are the one posture that is not forward-only: a row seeded before the
-    # role existed, or disabled under an allowlist, is brought back onto the role's terms here.
     reconcile_operational_configs(team_id, operational_names & skill_names)
 
     # Keep the skills UI's Scouts tab in sync: stamp `category="scout"` on any scout skill rows
