@@ -3,10 +3,12 @@ import { useEffect } from 'react'
 
 import { LemonButton, LemonCard, LemonInput, LemonSelect, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { TicketTopicOverrideApi, TicketTopicOverrideKindEnumApi } from '../../generated/api.schemas'
 import { ticketPatternSettingsLogic } from './ticketPatternSettingsLogic'
@@ -37,6 +39,10 @@ function OverrideList({
     const rows = overrides.filter((o: TicketTopicOverrideApi) => o.kind === kind)
     const draft = overrideDrafts[kind] ?? ''
     const adding = !!addingKinds[kind]
+    // The list endpoint admits a ticket viewer, but writing an override needs editor, so a viewer
+    // would otherwise get live controls and a 403 they cannot act on.
+    const writeDisabledReason =
+        getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 
     const submit = (): void => {
         const topic = draft.trim()
@@ -53,7 +59,7 @@ function OverrideList({
             </div>
             <div className="flex flex-wrap gap-2">
                 {rows.map((o) => (
-                    <LemonTag key={o.id} closable onClose={() => removeOverride(o.id)}>
+                    <LemonTag key={o.id} closable={!writeDisabledReason} onClose={() => removeOverride(o.id)}>
                         {o.topic}
                     </LemonTag>
                 ))}
@@ -67,6 +73,7 @@ function OverrideList({
                     value={draft}
                     onChange={(value) => setOverrideDraft(kind, value)}
                     onPressEnter={submit}
+                    disabledReason={writeDisabledReason}
                     data-attr={`ticket-pattern-override-${kind}-input`}
                 />
                 <LemonButton
@@ -74,7 +81,7 @@ function OverrideList({
                     type="secondary"
                     onClick={submit}
                     loading={adding}
-                    disabledReason={draft.trim() ? undefined : 'Enter a topic first'}
+                    disabledReason={writeDisabledReason ?? (draft.trim() ? undefined : 'Enter a topic first')}
                     data-attr={`ticket-pattern-override-${kind}-add`}
                 >
                     Add

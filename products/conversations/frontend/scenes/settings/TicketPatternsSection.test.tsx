@@ -8,13 +8,32 @@ import { Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import type { TeamType } from '~/types'
+import type { AppContext, TeamType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ticketPatternSettingsLogic } from './ticketPatternSettingsLogic'
 import { TicketPatternsSection } from './TicketPatternsSection'
 
 describe('TicketPatternsSection', () => {
     let logic: ReturnType<typeof ticketPatternSettingsLogic.build>
+
+    const mountWithTicketAccess = (ticketAccess: AccessControlLevel): void => {
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            conversations_settings: { pattern_detection_enabled: true },
+        } as TeamType)
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: { [AccessControlResourceType.Ticket]: ticketAccess },
+        } as AppContext
+        logic = ticketPatternSettingsLogic()
+        logic.mount()
+        render(
+            <Provider>
+                <TicketPatternsSection />
+            </Provider>
+        )
+    }
 
     beforeEach(() => {
         useMocks({
@@ -32,12 +51,6 @@ describe('TicketPatternsSection', () => {
                 ],
             },
         })
-        initKeaTests(true, {
-            ...MOCK_DEFAULT_TEAM,
-            conversations_settings: { pattern_detection_enabled: true },
-        } as TeamType)
-        logic = ticketPatternSettingsLogic()
-        logic.mount()
     })
 
     afterEach(() => {
@@ -46,16 +59,20 @@ describe('TicketPatternsSection', () => {
     })
 
     it('keeps the typed topic when the server rejects the override', async () => {
-        render(
-            <Provider>
-                <TicketPatternsSection />
-            </Provider>
-        )
+        mountWithTicketAccess(AccessControlLevel.Editor)
 
         const input = screen.getByTestId('ticket-pattern-override-mute-input')
         await userEvent.type(input, 'weekly digest')
         await userEvent.click(screen.getByTestId('ticket-pattern-override-mute-add'))
 
         await waitFor(() => expect(input).toHaveValue('weekly digest'))
+    })
+
+    it('turns the override controls off for someone who can only read tickets', () => {
+        mountWithTicketAccess(AccessControlLevel.Viewer)
+
+        expect(screen.getByTestId('ticket-pattern-override-mute-input')).toBeDisabled()
+        // LemonButton keeps the element focusable so the reason tooltip still opens.
+        expect(screen.getByTestId('ticket-pattern-override-mute-add')).toHaveAttribute('aria-disabled', 'true')
     })
 })
