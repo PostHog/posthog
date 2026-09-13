@@ -488,7 +488,9 @@ def _post_claimed(
             channel=external_ref["channel"],
             thread_ts=external_ref["ts"],
             text=reply,
-            reply_broadcast=bool(delivery.destination.config.get("reply_broadcast")),
+            # Broadcast is on unless the destination turned it off; rows saved before
+            # the option existed carry no key and keep posting to the channel.
+            reply_broadcast=bool(delivery.destination.config.get("reply_broadcast", True)),
         )
         _maybe_edit_root(client, thread, inputs, _slack_actions(delivery.destination, inputs))
 

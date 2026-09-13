@@ -73,7 +73,7 @@ class TestErrorTrackingAlerts(APIBaseTest):
         destination = created["destinations"][0]
         assert destination["channel_type"] == "slack"
         assert destination["integration_id"] == integration.id
-        assert destination["config"] == {"channel": "C0123", "reply_broadcast": False}
+        assert destination["config"] == {"channel": "C0123", "reply_broadcast": True}
 
         alert_id = created["id"]
         update = self.client.patch(
@@ -166,7 +166,7 @@ class TestErrorTrackingAlerts(APIBaseTest):
         assert update.status_code == 200, update.json()
         destinations = update.json()["destinations"]
         assert len(destinations) == 1
-        assert destinations[0]["config"] == {"channel": "C0456", "reply_broadcast": False}
+        assert destinations[0]["config"] == {"channel": "C0456", "reply_broadcast": True}
         assert destinations[0]["id"] != old_destination_id
         assert ErrorTrackingAlertDestination.objects.for_team(self.team.id).count() == 1
 

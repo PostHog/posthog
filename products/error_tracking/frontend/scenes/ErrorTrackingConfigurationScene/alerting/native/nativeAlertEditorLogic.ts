@@ -31,7 +31,7 @@ export type DraftDestination = {
     replyBroadcast: boolean
 }
 
-const EMPTY_DESTINATION: DraftDestination = { integrationId: null, channel: null, replyBroadcast: false }
+const EMPTY_DESTINATION: DraftDestination = { integrationId: null, channel: null, replyBroadcast: true }
 
 export type AlertDraft = {
     id: string | null
@@ -130,7 +130,7 @@ export function draftFromAlert(alert: ErrorTrackingAlertApi): AlertDraft {
             channel: destination.config.channel
                 ? joinChannel(destination.config.channel, destination.config.channel_name)
                 : null,
-            replyBroadcast: destination.config.reply_broadcast ?? false,
+            replyBroadcast: destination.config.reply_broadcast ?? true,
         })),
     }
 }
