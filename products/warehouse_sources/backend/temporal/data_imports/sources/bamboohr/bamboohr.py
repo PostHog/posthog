@@ -44,6 +44,9 @@ BAMBOOHR_API_HOST = "https://api.bamboohr.com/api/gateway.php"
 BAMBOOHR_BASIC_AUTH_PASSWORD = "x"
 # Credential validation is a single cheap probe; keep it snappy so source creation doesn't feel hung.
 VALIDATE_TIMEOUT_SECONDS = 10
+# Bounds each sync request, so a gateway that accepts the connection then stalls cannot hold a
+# worker open indefinitely.
+SYNC_TIMEOUT_SECONDS = 120
 # Time-off endpoints require an explicit window; widen it enough to capture all history and pending future requests.
 TIME_OFF_WINDOW_START = "2000-01-01"
 TIME_OFF_FUTURE_DAYS = 730
@@ -68,7 +71,7 @@ def _validate_subdomain(subdomain: str) -> None:
         raise ValueError(f"Invalid BambooHR subdomain: {subdomain!r}")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BambooHRResumeConfig:
     next_url: str
 
@@ -162,6 +165,7 @@ def _rest_client(base_url: str, api_key: str) -> RESTClient:
         paginator=SinglePagePaginator(),
         # Pins every request to the gateway host the API key was issued for.
         allowed_hosts=[],
+        request_timeout=SYNC_TIMEOUT_SECONDS,
     )
 
 

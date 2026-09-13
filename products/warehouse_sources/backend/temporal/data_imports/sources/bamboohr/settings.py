@@ -30,7 +30,7 @@ class ChunkedDateWindow:
     chunk_days: int
 
 
-@dataclass
+@dataclass(frozen=False)
 class BambooHREndpointConfig:
     name: str
     # Path relative to ``/api/gateway.php/{subdomain}/``, including the API version segment.
@@ -146,9 +146,6 @@ BAMBOOHR_ENDPOINTS: dict[str, BambooHREndpointConfig] = {
 }
 
 ENDPOINTS = tuple(BAMBOOHR_ENDPOINTS.keys())
-
-# An employee-table row is updated in place, so it merges on its primary key rather than appending.
-MERGE_ONLY_ENDPOINTS = tuple(name for name, config in BAMBOOHR_ENDPOINTS.items() if config.employee_table)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in BAMBOOHR_ENDPOINTS.items()

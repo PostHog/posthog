@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.b
 from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
-    MERGE_ONLY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -101,7 +100,14 @@ Make sure your API key has access to the data you want to sync (employee, time o
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=MERGE_ONLY_ENDPOINTS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            # Every BambooHR stream that syncs incrementally is an employee-table history table
+            # whose rows update in place, so appending would stack a copy of each row every sync.
+            merge_only=[name for name, fields in INCREMENTAL_FIELDS.items() if fields],
+        )
 
     def validate_credentials(
         self,
