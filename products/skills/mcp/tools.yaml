@@ -39,6 +39,9 @@ tools:
     llm-skills-search-retrieve:
         operation: llm_skills_search_retrieve
         enabled: false
+    llm-skills-tags-retrieve:
+        operation: llm_skills_tags_retrieve
+        enabled: false
     skill-archive:
         operation: llm_skills_name_archive_create
         enabled: true
@@ -70,7 +73,8 @@ tools:
             description explaining when to use it, and the skill body (SKILL.md instruction content as markdown).
             Optionally include license, compatibility, allowed_tools, metadata, bundled files, and owners. Owners (a
             list of project-member user UUIDs) default to the creating user; set them to route reviews or questions
-            about this skill to specific people.
+            about this skill to specific people. Tags (a list of short names) group the skill on the team's Skills page;
+            the team owns this vocabulary, so reuse a name the team already uses where one fits.
         include_params:
             - name
             - description
@@ -81,6 +85,7 @@ tools:
             - metadata
             - files
             - owners
+            - tags
     skill-duplicate:
         operation: llm_skills_name_duplicate_create
         enabled: true
@@ -274,6 +279,11 @@ tools:
             clear them. Ownership is independent of the version, so a body edit alone never
             changes it.
 
+            To change how the skill is grouped on the Skills page, pass 'tags' (a list of short
+            names) — this replaces the tag set. Omit it to leave tags unchanged; pass an empty list
+            to clear them. Tags are independent of the version too, so passing only 'tags' (or only
+            'owners') updates the skill without publishing a version.
+
             Pass 'version_description' with a short note on what changed and why — it is shown in
             the skill's version history.
         include_params:
@@ -287,5 +297,6 @@ tools:
             - files
             - file_edits
             - owners
+            - tags
             - base_version
             - version_description

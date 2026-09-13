@@ -49308,6 +49308,8 @@ export namespace Schemas {
       metadata?: LLMSkillMetadata;
       /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
       readonly category: string;
+      /** Tags the team applied to this skill, alphabetical. Unlike category, these are the team's own grouping — set them via the tags field on create/update. Keyed on the logical skill, so publishing a version keeps them. */
+      readonly tags: readonly string[];
       /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
       readonly owners: readonly UserBasic[];
       /** Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/. */
@@ -49390,6 +49392,12 @@ export namespace Schemas {
       metadata?: LLMSkillCreateMetadata;
       /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
       readonly category: string;
+      /**
+         * Tag names to group the skill under. Names are lowercased and trimmed, and a tag the team hasn't used before is created by using it.
+         * @maxItems 20
+         * @items.maxLength 64
+         */
+      tags?: string[];
       /**
          * User UUIDs to set as the skill's owners. Each must be a member of this project. Defaults to the creating user when omitted; pass an empty list to create with no owners.
          * @maxItems 25
@@ -49527,6 +49535,8 @@ export namespace Schemas {
       metadata?: LLMSkillListMetadata;
       /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
       readonly category: string;
+      /** Tags the team applied to this skill, alphabetical. Unlike category, these are the team's own grouping — set them via the tags field on create/update. Keyed on the logical skill, so publishing a version keeps them. */
+      readonly tags: readonly string[];
       /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
       readonly owners: readonly UserBasic[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -49715,6 +49725,11 @@ export namespace Schemas {
       count: number;
       /** Matching ordinary skills in relevance order. */
       results: LLMSkillSearchResult[];
+    }
+
+    export interface LLMSkillTagOptions {
+      /** Every tag the team has applied to a skill, alphabetical. */
+      tags: string[];
     }
 
     export interface LLMTaggerConfig {
@@ -66750,6 +66765,12 @@ export namespace Schemas {
          * @maxItems 25
          */
       owners?: string[];
+      /**
+         * Replace the skill's tags with these names. Omit to leave tags unchanged; pass an empty list to clear them. Names are lowercased and trimmed. Tags are keyed on the logical skill, so setting them is independent of the version being published.
+         * @maxItems 20
+         * @items.maxLength 64
+         */
+      tags?: string[];
       /**
          * Latest version you are editing from. Used for optimistic concurrency checks. Required when publishing content changes; optional for an owner-only update (when omitted, owners are replaced without a concurrency check).
          * @minimum 1
@@ -101163,6 +101184,10 @@ export namespace Schemas {
      * Optional substring filter applied to skill names and descriptions.
      */
     search?: string;
+    /**
+     * Comma-separated tag names. Returns skills carrying at least one of them, so adding a tag widens the result. Tags are keyed on the logical skill, so this is stable across versions.
+     */
+    tags?: string;
     };
 
     export type LlmSkillsBundleRetrieveParams = {

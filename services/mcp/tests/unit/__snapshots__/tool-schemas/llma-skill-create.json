@@ -73,6 +73,15 @@
             },
             "maxItems": 25,
             "type": "array"
+        },
+        "tags": {
+            "description": "Tag names to group the skill under. Names are lowercased and trimmed, and a tag the team hasn't used before is created by using it.",
+            "items": {
+                "maxLength": 64,
+                "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
         }
     },
     "required": ["name", "description", "body"],

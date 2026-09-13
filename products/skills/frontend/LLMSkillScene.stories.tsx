@@ -74,6 +74,7 @@ const SKILL: LLMSkillApi = {
     allowed_tools: ['read', 'shell'],
     metadata: {},
     category: '',
+    tags: ['pdf', 'extraction'],
     files: [
         { path: 'scripts/extract.sh', content_type: 'text/x-shellscript', line_count: 24, char_count: 512 },
         { path: 'references/pdf-spec.md', content_type: 'text/markdown', line_count: 120, char_count: 4096 },
@@ -112,6 +113,7 @@ const SKILL_LIST_ENTRY: LLMSkillListApi = {
     allowed_tools: SKILL.allowed_tools,
     metadata: {},
     category: SKILL.category,
+    tags: SKILL.tags,
     outline: SKILL.outline,
     version: SKILL.version,
     version_description: SKILL.version_description,
@@ -132,6 +134,7 @@ const UNOWNED_SKILL_LIST_ENTRY: LLMSkillListApi = {
     name: 'invoice-parser',
     description: 'Parse invoices into structured line items. Use when reconciling billing exports.',
     owners: [],
+    tags: [],
     version_count: 1,
     version: 1,
     latest_version: 1,
@@ -154,6 +157,7 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/llm_skills/': toPaginatedResponse([SKILL_LIST_ENTRY, UNOWNED_SKILL_LIST_ENTRY]),
                 '/api/projects/:team_id/llm_skills/resolve/name/:name/': RESOLVE_RESPONSE,
+                '/api/projects/:team_id/llm_skills/tags/': { tags: ['extraction', 'growth', 'pdf'] },
             },
         }),
     ],
