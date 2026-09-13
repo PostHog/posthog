@@ -1,6 +1,6 @@
 use std::{io::Stdout, thread::JoinHandle, time::Duration};
 
-use anyhow::{bail, Error};
+use anyhow::{bail, Context, Error};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -94,11 +94,11 @@ impl QueryTui {
         inner_area
     }
 
-    fn save_editor_state(&self, lines: Vec<String>) -> Result<(), Error> {
+    fn save_editor_state(&mut self, lines: Vec<String>) -> Result<(), Error> {
         if !self.state_dirty {
             return Ok(());
         }
-        let home_dir = posthog_home_dir();
+        let home_dir = posthog_home_dir()?;
         let editor_state_path = home_dir.join("editor_state.json");
         let state = PersistedEditorState {
             lines,
@@ -106,12 +106,20 @@ impl QueryTui {
         };
 
         let state_str = serde_json::to_string(&state)?;
-        std::fs::write(editor_state_path, state_str)?;
+        // Credentials from the environment skip login, so the editor can be the first thing
+        // that needs the PostHog home directory to exist
+        std::fs::create_dir_all(&home_dir)
+            .context(format!("While trying to create directory {home_dir:?}"))?;
+        std::fs::write(&editor_state_path, state_str).context(format!(
+            "While trying to write editor state to file {editor_state_path:?}"
+        ))?;
+        // Only once the write lands, so a failed write is retried on the next frame
+        self.state_dirty = false;
         Ok(())
     }
 
     fn load_editor_state(&mut self) -> Result<Vec<String>, Error> {
-        let home_dir = posthog_home_dir();
+        let home_dir = posthog_home_dir()?;
         let editor_state_path = home_dir.join("editor_state.json");
         if !editor_state_path.exists() {
             return Ok(vec![]);

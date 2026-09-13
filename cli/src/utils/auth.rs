@@ -26,14 +26,14 @@ impl Token {
 pub trait CredentialProvider {
     fn get_credentials(&self) -> Result<Token, Error>;
     fn store_credentials(&self, token: Token) -> Result<(), Error>;
-    fn report_location(&self) -> String;
+    fn report_location(&self) -> Result<String, Error>;
 }
 
 pub struct HomeDirProvider;
 
 impl CredentialProvider for HomeDirProvider {
     fn get_credentials(&self) -> Result<Token, Error> {
-        let home = posthog_home_dir();
+        let home = posthog_home_dir()?;
         let file = home.join("credentials.json");
         let token = std::fs::read_to_string(file.clone()).context(format!(
             "While trying to read credentials from file {file:?}"
@@ -43,7 +43,7 @@ impl CredentialProvider for HomeDirProvider {
     }
 
     fn store_credentials(&self, token: Token) -> Result<(), Error> {
-        let home = posthog_home_dir();
+        let home = posthog_home_dir()?;
         ensure_homedir_exists()?;
         let file = home.join("credentials.json");
         let token = serde_json::to_string(&token).context("While trying to serialize token")?;
@@ -53,11 +53,11 @@ impl CredentialProvider for HomeDirProvider {
         Ok(())
     }
 
-    fn report_location(&self) -> String {
-        posthog_home_dir()
+    fn report_location(&self) -> Result<String, Error> {
+        Ok(posthog_home_dir()?
             .join("credentials.json")
             .to_string_lossy()
-            .to_string()
+            .to_string())
     }
 }
 
@@ -118,7 +118,7 @@ impl CredentialProvider for EnvVarProvider {
         Ok(())
     }
 
-    fn report_location(&self) -> String {
+    fn report_location(&self) -> Result<String, Error> {
         unimplemented!("We should never try to save a credential to the env");
     }
 }
@@ -178,7 +178,7 @@ pub fn get_token(env_file: Option<PathBuf>) -> Result<Token, Error> {
         Ok(token) => {
             debug!(
                 "Using token from: {}, for environment {}",
-                provider.report_location(),
+                provider.report_location()?,
                 token.env_id
             );
             return Ok(token);
