@@ -267,10 +267,10 @@ export interface userLogicActions {
         teamId: number
     }
     updateHasSeenProductIntroFor: (
-        productKey: ProductKey | string,
+        productKey: string | ProductKey,
         value?: boolean
     ) => {
-        productKey: ProductKey | string
+        productKey: string
         value: boolean
     }
     updateMemberJoinEmailForAllOrganizations: (

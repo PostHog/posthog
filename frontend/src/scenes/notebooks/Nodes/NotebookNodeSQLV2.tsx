@@ -1,8 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCornerDownRight } from '@posthog/icons'
-
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -14,6 +12,7 @@ import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
+import { NotebookCellOutputNameFooter } from './components/NotebookCellOutputNameFooter'
 import { notebookDataframeHintLogic } from './components/notebookDataframeHintLogic'
 import { NotebookDataframeHintPopover } from './components/NotebookDataframeHintPopover'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
@@ -359,30 +358,11 @@ const Component = ({
                     <div className="text-xs text-muted font-mono p-2">Run the query to see execution results.</div>
                 )}
             </div>
-            <div
-                // Translucent overlay, not a surface token: the shell is surface-primary in light
-                // mode but surface-tertiary in dark, so a fixed surface vanishes against one of them.
-                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t border-primary bg-fill-highlight-50 p-2"
-                onClick={(event) => event.stopPropagation()}
-                onMouseDown={(event) => event.stopPropagation()}
+            <NotebookCellOutputNameFooter
+                returnVariable={returnVariable}
+                onChange={(returnVariable) => updateAttributes({ returnVariable })}
+                inputRef={setReturnVariableInput}
             >
-                <span className="font-mono mt-0.5">
-                    <IconCornerDownRight />
-                </span>
-                <input
-                    type="text"
-                    // A dataframe name other SQL nodes reference by table name (`from sql_df`).
-                    // Optional: left empty, the cell is display-only and exports nothing.
-                    // Wide enough for the placeholder to sit on one line without clipping. The name
-                    // carries weight through size and a faintly warm near-black rather than a hue —
-                    // a saturated color here competes with the accent the app spends on links.
-                    className="w-56 rounded border border-primary px-1.5 py-0.5 text-sm font-medium font-mono bg-surface-primary text-[oklch(0.27_0.022_345deg)] dark:text-[oklch(0.93_0.014_345deg)] focus:outline-none focus:ring-1 focus:ring-primary"
-                    value={returnVariable}
-                    onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
-                    placeholder="Output dataframe name"
-                    spellCheck={false}
-                    ref={setReturnVariableInput}
-                />
                 <NotebookDataframeHintPopover
                     nodeId={nodeId}
                     notebookShortId={notebookShortId}
@@ -404,7 +384,7 @@ const Component = ({
                         ))}
                     </span>
                 ) : null}
-            </div>
+            </NotebookCellOutputNameFooter>
         </div>
     )
 }
