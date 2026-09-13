@@ -59845,6 +59845,30 @@ export namespace Schemas {
       quarantined_count?: number;
     }
 
+    export interface SpaceFileListDTO {
+      /** Stable ID of the file. */
+      id: string;
+      /** ID of the space that owns the file. */
+      channel_id: string;
+      /** Markdown file name. */
+      name: string;
+      /** Current file version. */
+      version: number;
+      /** When the file was created. */
+      created_at: string;
+      /** When the file was last updated. */
+      updated_at: string;
+    }
+
+    export interface PaginatedSpaceFileListDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SpaceFileListDTO[];
+    }
+
     export interface StamphogPullRequest {
       readonly id: string;
       /** Full name of the repository this pull request belongs to. */
@@ -85748,6 +85772,45 @@ export namespace Schemas {
       webhook?: SourceSetupWebhook;
     }
 
+    export interface SpaceFileCreate {
+      /** ID of the space that owns the file. */
+      channel_id: string;
+      /**
+         * Flat Markdown file name ending in .md, up to 128 characters.
+         * @maxLength 128
+         */
+      name: string;
+      /**
+         * Complete Markdown file content, up to 100000 UTF-8 bytes.
+         * @maxLength 100000
+         */
+      content?: string;
+    }
+
+    export interface SpaceFileDTO {
+      /** Stable ID of the file. */
+      id: string;
+      /** ID of the space that owns the file. */
+      channel_id: string;
+      /** Markdown file name. */
+      name: string;
+      /** Complete Markdown file content. */
+      content: string;
+      /** Current file version. */
+      version: number;
+      /** When the file was created. */
+      created_at: string;
+      /** When the file was last updated. */
+      updated_at: string;
+    }
+
+    export interface SpaceFileVersionConflict {
+      /** What changed and how to resolve the conflict. */
+      detail: string;
+      /** Current version of the file. Read the file and retry. */
+      current_version: number;
+    }
+
     /**
      * * `span` - span
      * * `span_attribute` - span_attribute
@@ -103376,6 +103439,30 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type SpaceFilesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SpaceFilesPartialUpdateBody = {
+      /**
+         * Complete replacement Markdown file content, up to 100000 UTF-8 bytes.
+         * @maxLength 100000
+         */
+      content: string;
+      /**
+         * Version read before this update. A stale version returns 409.
+         * @minimum 1
+         */
+      base_version: number;
     };
 
     export type StamphogDigestRunsListParams = {

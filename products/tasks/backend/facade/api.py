@@ -111,6 +111,7 @@ from products.tasks.backend.models import (
     SandboxEnvironment,
     SandboxSession,
     SandboxSnapshot,
+    SpaceFile,
     Task,
     TaskActivity,
     TaskArtifact,
@@ -198,6 +199,7 @@ __all__ = [
     "build_sandbox_custom_image",
     "create_sandbox_custom_image",
     "create_sandbox_environment",
+    "create_space_file",
     "create_channel_task",
     "create_task",
     "create_task_without_run",
@@ -241,6 +243,7 @@ __all__ = [
     "resolve_task_run_preview_redirect",
     "task_run_preview_ready",
     "get_task_run_living_artifact",
+    "get_space_file",
     "capture_context_wiki_changed",
     "capture_relay_command_telemetry",
     "PermissionResponseUnavailable",
@@ -250,12 +253,14 @@ __all__ = [
     "get_task_summaries",
     "is_internal_debug_team",
     "is_task_controllable_by_user",
+    "is_valid_space_file_name",
     "is_valid_sandbox_env_var_key",
     "latest_task_run_pr_merged_subquery",
     "latest_task_run_pr_url_subquery",
     "leave_task_presence",
     "list_sandbox_custom_images",
     "list_sandbox_environments",
+    "list_space_files",
     "sandbox_custom_images_enabled",
     "agent_peer_messaging_enabled",
     "list_task_run_living_artifacts",
@@ -309,6 +314,7 @@ __all__ = [
     "list_task_comments",
     "retrieve_task_comment",
     "update_sandbox_environment",
+    "update_space_file",
     "update_task",
     "update_task_run",
     "update_task_run_state",
@@ -8589,6 +8595,152 @@ def get_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> co
         return None
     starred = user_id is not None and _is_channel_starred(channel.id, user_id)
     return _channel_to_dto(channel, starred=starred)
+
+
+# --- Space files ---
+
+SPACE_FILE_MAX_BYTES = 100_000
+SPACE_FILE_MAX_NAME_LENGTH = 128
+_SPACE_FILE_NAME_RE = re.compile(r"[^\x00-\x1f\x7f/\\]+\.md")
+
+
+class SpaceFileNameError(ValueError):
+    pass
+
+
+class SpaceFileNameConflictError(ValueError):
+    pass
+
+
+class SpaceFileTooLargeError(ValueError):
+    pass
+
+
+class SpaceFileVersionConflictError(Exception):
+    def __init__(self, current_version: int):
+        self.current_version = current_version
+
+
+def is_valid_space_file_name(name: str) -> bool:
+    return len(name) <= SPACE_FILE_MAX_NAME_LENGTH and _SPACE_FILE_NAME_RE.fullmatch(name) is not None
+
+
+def _validate_space_file(name: str, content: str) -> None:
+    if not is_valid_space_file_name(name):
+        raise SpaceFileNameError()
+    if len(content.encode("utf-8")) > SPACE_FILE_MAX_BYTES:
+        raise SpaceFileTooLargeError()
+
+
+def _space_file_to_list_dto(space_file: SpaceFile) -> contracts.SpaceFileListDTO:
+    return contracts.SpaceFileListDTO(
+        id=space_file.id,
+        channel_id=space_file.channel_id,
+        name=space_file.name,
+        version=space_file.version,
+        created_at=space_file.created_at,
+        updated_at=space_file.updated_at,
+    )
+
+
+def _space_file_to_dto(space_file: SpaceFile) -> contracts.SpaceFileDTO:
+    return contracts.SpaceFileDTO(
+        id=space_file.id,
+        channel_id=space_file.channel_id,
+        name=space_file.name,
+        content=space_file.content,
+        version=space_file.version,
+        created_at=space_file.created_at,
+        updated_at=space_file.updated_at,
+    )
+
+
+def list_space_files(
+    team_id: int, user_id: int | None, *, channel_id: str | UUID | None = None
+) -> list[contracts.SpaceFileListDTO]:
+    files = SpaceFile.objects.filter(
+        Channel.visible_to_q(user_id, relation="channel"),
+        team_id=team_id,
+    ).only("id", "channel_id", "name", "version", "created_at", "updated_at")
+    if channel_id is not None:
+        files = files.filter(channel_id=channel_id)
+    return [_space_file_to_list_dto(space_file) for space_file in files.order_by("channel_id", "name", "id")]
+
+
+def get_space_file(
+    file_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    channel_id: str | UUID | None = None,
+) -> contracts.SpaceFileDTO | None:
+    files = SpaceFile.objects.filter(
+        Channel.visible_to_q(user_id, relation="channel"),
+        id=file_id,
+        team_id=team_id,
+    )
+    if channel_id is not None:
+        files = files.filter(channel_id=channel_id)
+    space_file = files.first()
+    return _space_file_to_dto(space_file) if space_file is not None else None
+
+
+def create_space_file(
+    team_id: int,
+    user_id: int | None,
+    *,
+    channel_id: str | UUID,
+    name: str,
+    content: str = "",
+) -> contracts.SpaceFileDTO | None:
+    _validate_space_file(name, content)
+    with transaction.atomic():
+        channel = _locked_visible_channel(channel_id, team_id, user_id)
+        if channel is None:
+            return None
+        try:
+            space_file = SpaceFile.objects.create(
+                team_id=team_id,
+                channel_id=channel.id,
+                name=name,
+                content=content,
+            )
+        except IntegrityError as error:
+            raise SpaceFileNameConflictError() from error
+    return _space_file_to_dto(space_file)
+
+
+def update_space_file(
+    file_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    content: str,
+    base_version: int,
+    channel_id: str | UUID | None = None,
+) -> contracts.SpaceFileDTO | None:
+    _validate_space_file("file.md", content)
+    with transaction.atomic():
+        file_query = SpaceFile.objects.filter(id=file_id, team_id=team_id)
+        if channel_id is not None:
+            file_query = file_query.filter(channel_id=channel_id)
+        channel_id = file_query.values_list("channel_id", flat=True).first()
+        if channel_id is None:
+            return None
+        channel = _locked_visible_channel(channel_id, team_id, user_id)
+        if channel is None:
+            return None
+        space_file = (
+            SpaceFile.objects.select_for_update().filter(id=file_id, team_id=team_id, channel_id=channel.id).first()
+        )
+        if space_file is None:
+            return None
+        if space_file.version != base_version:
+            raise SpaceFileVersionConflictError(current_version=space_file.version)
+        space_file.content = content
+        space_file.version += 1
+        space_file.save(update_fields=["content", "version", "updated_at"])
+    return _space_file_to_dto(space_file)
 
 
 # --- Channel instructions (CONTEXT.md) ---

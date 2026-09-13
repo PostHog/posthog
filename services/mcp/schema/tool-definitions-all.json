@@ -11223,6 +11223,51 @@
             "readOnlyHint": false
         }
     },
+    "space-files-get": {
+        "description": "Get a Markdown file from a Tasks space, including its content and current version. Read the file before updating it so you can send the version as base_version.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get a space file",
+        "title": "Get a space file",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "posthog-desktop-space-files"
+    },
+    "space-files-list": {
+        "description": "List Markdown files in Tasks spaces you can access. File content is omitted from the list.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List space files",
+        "title": "List space files",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "posthog-desktop-space-files"
+    },
+    "space-files-update": {
+        "description": "Replace a Markdown file's complete content. Get the file first and send its version as base_version. A stale version returns a conflict without changing the file.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Update a space file",
+        "title": "Update a space file",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "posthog-desktop-space-files"
+    },
     "sql-variables-create": {
         "description": "Create a reusable SQL variable for HogQL queries. Provide a human-readable name and type. The code_name is generated from the name and is referenced in SQL as {variables.code_name}. For List variables, provide values as the allowed options.",
         "category": "Data warehouse",

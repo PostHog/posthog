@@ -1819,6 +1819,27 @@ class ChannelFeedMessage(TeamScopedRootMixin):
         return f"Feed message {self.id} on channel {self.channel_id}"
 
 
+class SpaceFile(TeamScopedRootMixin):
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name="space_files")
+    name = models.CharField(max_length=128)
+    content = models.TextField(default="", blank=True)
+    version = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_space_file"
+        constraints = [
+            models.UniqueConstraint(
+                models.functions.Lower("name"),
+                "channel",
+                name="task_space_file_channel_name_ci_unique",
+            )
+        ]
+
+
 class ChannelInstructions(TeamScopedRootMixin):
     """A versioned markdown instructions blob (CONTEXT.md) attached to a channel.
 
