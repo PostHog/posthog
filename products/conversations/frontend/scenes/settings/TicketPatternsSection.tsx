@@ -133,7 +133,7 @@ export function TicketPatternsSection(): JSX.Element {
                         title="Threshold"
                         titleSize="sm"
                         className="my-8"
-                        description="A pattern opens when this many tickets from this many different customers share a topic inside the window. Lower numbers catch smaller bursts and raise the chance of a false alarm."
+                        description="A pattern opens when at least this many tickets share a topic inside the window. The customer count is a starting point. Detection raises it for a topic that comes up most days or that you have dismissed before, lowers it for one you have confirmed, and never goes below three. Lower numbers catch smaller bursts and raise the chance of a false alarm."
                     >
                         <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
                             <div className="flex flex-wrap gap-4">
@@ -210,8 +210,8 @@ export function TicketPatternsSection(): JSX.Element {
                             />
                             <OverrideList
                                 kind="watch"
-                                title="Always alert on"
-                                description="Topics worth a look at the first credible sign, even below the usual threshold."
+                                title="Alert sooner on"
+                                description="Topics that open as soon as three different customers raise them. The ticket minimum above still applies."
                                 placeholder="Data loss"
                             />
                         </div>
