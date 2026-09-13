@@ -21,10 +21,7 @@ without a second round-trip.
 
 import datetime as dt
 from collections.abc import Sequence
-from hashlib import sha256
 from typing import Any
-
-from django.core.cache import cache
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -49,19 +46,9 @@ _QUERY_SETTINGS = HogQLGlobalSettings(
 # A lookback beyond this would quietly return fewer names than the raw table has.
 SERIES_RETENTION = dt.timedelta(days=90)
 
-# Short enough that a new metric shows up while someone is still wiring it up,
-# long enough to absorb the burst of mounts a team generates in a working session.
-METRIC_NAMES_CACHE_TTL = 60
-
 # Past this the picker is not scoped to anything a person can hold in their head,
 # and the bound keeps one request from building an unbounded IN list.
 MAX_PICKER_SERVICES = 50
-
-# Sparklines summarize this window, downsampled to at most this many points. A
-# card only needs the recent shape, so the window is far shorter than the name
-# lookback and the point count is bounded to keep one row small.
-SPARKLINE_WINDOW = dt.timedelta(hours=6)
-SPARKLINE_MAX_POINTS = 24
 
 
 def _isoformat(value: Any) -> str | None:
@@ -81,7 +68,6 @@ class MetricNamesQueryRunner:
         limit: int = 100,
         lookback: dt.timedelta = dt.timedelta(days=7),
         services: Sequence[str] = (),
-        include_sparklines: bool = True,
     ) -> None:
         if limit <= 0 or limit > 1000:
             raise ValueError("limit must be in [1, 1000]")
@@ -99,10 +85,6 @@ class MetricNamesQueryRunner:
         # selection: a sender that omits the `service.name` resource attribute
         # lands in the group the overview labels "unknown".
         self.services = tuple(sorted(set(services)))
-        # Sparklines read the `metrics` data points, so the scan is the
-        # expensive part of a name lookup. Callers that only need the type
-        # (anomaly defaults) skip it.
-        self.include_sparklines = include_sparklines
 
     def _build_query(self) -> ast.SelectQuery:
         # The alias is `last_seen_at`, not `last_seen`: HogQL registers select
@@ -187,150 +169,18 @@ class MetricNamesQueryRunner:
             settings=_QUERY_SETTINGS,
         )
 
-        names = [row[0] for row in response.results]
-        sparklines = self._sparklines(names) if self.include_sparklines else {}
-
         return [
             {
                 "name": row[0],
                 "metric_type": row[1],
                 "unit": row[2],
                 "last_seen": _isoformat(row[3]),
-                "sparkline": sparklines.get(row[0], []),
             }
             for row in response.results
         ]
 
-    def _sparklines(self, names: Sequence[str]) -> dict[str, list[float]]:
-        """A small recent shape per metric, for the catalog cards.
-
-        Reads the raw `metrics` data points. Each metric is bucketed onto a
-        fixed grid and averaged per bucket across its series; a card only shows
-        direction and spikes, so per-series fidelity is not worth the rows it
-        would cost. Only the names this page returned are read, so a scoped
-        picker never scans the whole table.
-        """
-        if not names:
-            return {}
-
-        # The grid anchors to the window start: bucket edges land on the window
-        # endpoints, so the window always holds exactly MAX_POINTS buckets (a
-        # bare toStartOfInterval aligns to wall-clock boundaries and a window
-        # starting mid-bucket intersects one extra). The anchor is computed here
-        # rather than from the query's `now()` so the predicate below and the
-        # grid agree on the same instant.
-        bucket_seconds = max(int(SPARKLINE_WINDOW.total_seconds()) // SPARKLINE_MAX_POINTS, 1)
-        window_start = dt.datetime.now(dt.UTC) - SPARKLINE_WINDOW
-        query = parse_select(
-            """
-                SELECT
-                    metric_name AS name,
-                    toDateTime(intDiv(toUnixTimestamp(timestamp) - toUnixTimestamp({window_start}), {bucket_seconds}) * {bucket_seconds} + toUnixTimestamp({window_start})) AS bucket_start,
-                    avg(value) AS bucket_value
-                FROM posthog.metrics
-                WHERE timestamp > {window_start}
-                  AND time_bucket >= {bucket_from}
-                  AND metric_name IN {names}
-                  AND series_fingerprint IN {series_scope}
-                GROUP BY name, bucket_start
-                ORDER BY name, bucket_start
-            """,
-            placeholders={
-                "bucket_seconds": ast.Constant(value=bucket_seconds),
-                "window_start": ast.Constant(value=window_start),
-                # `metrics` sorts by `time_bucket` (the UTC hour) before
-                # `timestamp`, so the hour bound is what lets ClickHouse skip
-                # everything older than the window.
-                "bucket_from": ast.Constant(value=window_start.replace(minute=0, second=0, microsecond=0)),
-                "names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names]),
-                # A sample carries no service column; its series_fingerprint is
-                # the link back to the series row that does. Without this scope,
-                # two services emitting one metric name share a card and a scoped
-                # catalog draws a shape blended across services.
-                "series_scope": self._series_scope_subquery(names),
-            },
-        )
-        assert isinstance(query, ast.SelectQuery)
-
-        response = execute_hogql_query(
-            query_type="MetricNamesSparklineQuery",
-            query=query,
-            team=self.team,
-            workload=Workload.LOGS,
-            settings=_QUERY_SETTINGS,
-        )
-
-        sparklines: dict[str, list[float]] = {}
-        for name, _bucket_start, bucket_value in response.results:
-            sparklines.setdefault(name, []).append(float(bucket_value))
-        return sparklines
-
-    def _series_scope_subquery(self, names: Sequence[str]) -> ast.SelectQuery:
-        """The series fingerprints, for these names, owned by the scoped services.
-
-        Built as its own parsed query so the service predicate is attached with an
-        explicit And the way `_build_query` does, not spliced into the SQL text.
-        """
-        lookback = ast.Call(name="toIntervalSecond", args=[ast.Constant(value=int(self.lookback.total_seconds()))])
-        subquery = parse_select(
-            """
-                SELECT series_fingerprint
-                FROM posthog.metric_series
-                WHERE last_seen > now() - {lookback}
-                  AND metric_name IN {names}
-                GROUP BY series_fingerprint
-            """,
-            placeholders={
-                "lookback": lookback,
-                "names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names]),
-            },
-        )
-        assert isinstance(subquery, ast.SelectQuery)
-        assert subquery.where is not None
-        if self.services:
-            subquery.where = ast.And(
-                exprs=[
-                    subquery.where,
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["service_name"]),
-                        right=ast.Tuple(exprs=[ast.Constant(value=service) for service in self.services]),
-                    ),
-                ]
-            )
-        return subquery
-
-
-def cached_metric_names(
+def metric_names(
     team: Team, *, search: str = "", limit: int = 100, services: Sequence[str] = ()
 ) -> list[dict[str, Any]]:
-    """Metric names for the picker, with the unsearched list cached per team.
-
-    Only the empty-search prime is cached: every viewer mount issues it and the
-    answer is the same for everyone on the team. Searches are per-keystroke and
-    per-user, so caching them would fill the cache with single-hit entries.
-
-    The service scope is part of the key, not a filter over one cached list: the
-    unscoped list is capped at `limit` names, so narrowing it in Python would hide
-    metrics that a scoped query returns.
-
-    Only non-empty results are cached, matching `team_has_metrics`: a team that
-    just wired up OTel must not be pinned to an empty picker while the setup
-    prompt's poll has already let them through.
-    """
-    runner = MetricNamesQueryRunner(team=team, search=search, limit=limit, services=services)
-    if runner.search:
-        return runner.run()
-
-    # `repr` of the sorted tuple, hashed: service names come from user data, so
-    # they can carry spaces and unicode that a memcached key cannot.
-    scope = sha256(repr(runner.services).encode()).hexdigest()[:16] if runner.services else "all"
-    cache_key = f"metrics:{team.id}:metric_names:v2:{limit}:{scope}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    names = runner.run()
-    if names:
-        cache.set(cache_key, names, METRIC_NAMES_CACHE_TTL)
-    return names
+    """Metric names for the picker."""
+    return MetricNamesQueryRunner(team=team, search=search, limit=limit, services=services).run()

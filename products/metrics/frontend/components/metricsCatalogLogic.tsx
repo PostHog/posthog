@@ -106,7 +106,7 @@ export const metricsCatalogLogic = kea<metricsCatalogLogicType>([
                     // The catalog is scoped to whatever services the picker is
                     // currently pinned to (a service entered from the overview, or
                     // the viewer's own scope), so the cards match what the user
-                    // clicked into. The endpoint returns the sparkline and unit.
+                    // clicked into.
                     const response = await metricsValuesRetrieve(String(values.currentTeamId), {
                         limit: 500,
                         ...(values.pickerServices.length ? { service: values.pickerServices.join(',') } : {}),

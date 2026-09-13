@@ -3,7 +3,6 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { IconSearch } from '@posthog/icons'
 import { LemonInput, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
-import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
@@ -48,13 +47,6 @@ const CatalogCard = ({ item }: { item: MetricCatalogItem }): JSX.Element => {
                 <LemonTag type="muted" size="small">
                     {typeTagLabel(item.metric_type)}
                 </LemonTag>
-            </div>
-            <div className="h-10 w-full">
-                {item.sparkline && item.sparkline.length > 1 ? (
-                    <Sparkline data={item.sparkline} type="line" />
-                ) : (
-                    <div className="h-full flex items-center text-xs text-muted">No recent data to draw</div>
-                )}
             </div>
             <p className="text-xs text-secondary mb-0">{describeMetric(item)}</p>
             {item.last_seen && (

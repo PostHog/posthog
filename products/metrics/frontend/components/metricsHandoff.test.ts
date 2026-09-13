@@ -54,7 +54,7 @@ describe('metrics cross-tab handoffs', () => {
     })
 
     it('a loaded catalog survives the explore tab unmounting', async () => {
-        const items = [{ name: 'jobs.processed', metric_type: 'sum', unit: '', last_seen: null, sparkline: [1] }]
+        const items = [{ name: 'jobs.processed', metric_type: 'sum', unit: '', last_seen: null }]
         jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: items } as any)
 
         const sceneHold = metricsCatalogLogic()

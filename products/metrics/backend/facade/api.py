@@ -39,7 +39,7 @@ from products.metrics.backend.metric_attributes_query_runner import (
     MetricAttributeValuesQueryRunner,
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
-from products.metrics.backend.metric_names_query_runner import cached_metric_names
+from products.metrics.backend.metric_names_query_runner import metric_names
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 
@@ -231,10 +231,9 @@ def list_metric_names(
     Passing `services` narrows the list to names those services reported.
     Raises `ValueError` for an out-of-range limit or too many services.
 
-    The unsearched list is cached per team and service scope for a minute;
-    searches are not.
+    The picker reads current names directly from the metric series table.
     """
-    return cached_metric_names(team=team, search=search, limit=limit, services=services)
+    return metric_names(team=team, search=search, limit=limit, services=services)
 
 
 def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) -> MetricsOverview:

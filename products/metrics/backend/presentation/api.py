@@ -474,13 +474,6 @@ class _MetricNameSerializer(serializers.Serializer):
     last_seen = serializers.DateTimeField(
         required=False, allow_null=True, help_text="When the newest datapoint for this metric arrived, ISO 8601."
     )
-    sparkline = serializers.ListField(
-        child=serializers.FloatField(),
-        required=False,
-        help_text="A small downsampled series of the metric's recent shape, for a sparkline.",
-    )
-
-
 class _MetricNamesResponseSerializer(serializers.Serializer):
     results = _MetricNameSerializer(many=True, help_text="Distinct metric names ordered by recent activity.")
 

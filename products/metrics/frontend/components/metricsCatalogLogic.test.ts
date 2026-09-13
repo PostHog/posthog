@@ -21,16 +21,14 @@ const CATALOG_ITEMS = [
         metric_type: 'histogram',
         unit: 'ms',
         last_seen: '2026-09-03T10:00:00+00:00',
-        sparkline: [1, 2, 3],
     },
     {
         name: 'queue.depth',
         metric_type: 'gauge',
         unit: '',
         last_seen: '2026-09-03T10:00:00+00:00',
-        sparkline: [3, 2, 1],
     },
-    { name: 'jobs.processed', metric_type: 'sum', unit: '', last_seen: '2026-09-03T09:00:00+00:00', sparkline: [0, 1] },
+    { name: 'jobs.processed', metric_type: 'sum', unit: '', last_seen: '2026-09-03T09:00:00+00:00' },
 ]
 
 describe('metricsCatalogLogic', () => {

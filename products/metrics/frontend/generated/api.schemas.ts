@@ -787,8 +787,6 @@ export interface _MetricNameApi {
      * @nullable
      */
     last_seen?: string | null
-    /** A small downsampled series of the metric's recent shape, for a sparkline. */
-    sparkline?: number[]
 }
 
 export interface _MetricNamesResponseApi {
