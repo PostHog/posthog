@@ -113,7 +113,12 @@ async def run_investigation(
             (
                 "Return the alert's own insight time series (labels + values) at its configured "
                 "interval. Prefer this over run_hogql_query when you need the exact metric the "
-                "detector was scoring."
+                "detector was scoring. `seasonal_baselines` names the newest bucket and gives the "
+                "buckets at the same time of day on prior days and the same weekday in prior "
+                "weeks, computed over the whole series. Read the seasonal comparison off those "
+                "values instead of counting buckets in `values`, which holds only its newest "
+                "points when `truncated` is true. It is null on intervals of a week or longer, "
+                "where every bucket needed for the comparison is already in `values`."
             ),
             FetchMetricSeriesArgs,
         ),
@@ -122,7 +127,8 @@ async def run_investigation(
             (
                 "Run the alert's detector over a historical window and return the scored points "
                 "plus any timestamps the detector would have flagged. Use to check whether the "
-                "current fire is an isolated spike or part of a recurring pattern."
+                "current fire is an isolated spike or part of a recurring pattern. Carries the "
+                "same `seasonal_baselines` and `truncated` fields as fetch_metric_series."
             ),
             SimulateDetectorArgs,
         ),

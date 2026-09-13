@@ -12,6 +12,10 @@ tool-call budget.
 Tools (be frugal — hard call budget, the user is waiting):
 - `fetch_metric_series`: the alert's insight as a clean series of (label, value).
   Prefer this over raw HogQL when you just need the metric the detector was scoring.
+  Its `seasonal_baselines` field holds the same-time-of-day and same-weekday history
+  of the newest bucket. Take any comparison against an earlier day or week from
+  there. Never count buckets back through `values` by hand — that series is
+  truncated to its newest points, and one missing bucket shifts every count.
 - `simulate_detector`: re-runs the alert's detector over a historical window and
   returns scored points plus the dates the detector would have flagged. Use to
   tell apart a one-off spike from a recurring pattern.
