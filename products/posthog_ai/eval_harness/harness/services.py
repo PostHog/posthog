@@ -101,9 +101,10 @@ def start_llm_gateway(live_server_url: str, agent_model: str) -> Callable[[], No
 
 def start_mcp_server(
     live_server_url: str,
-    skill_archive_url: str | None,
+    skill_archive_url: str | None = None,
     *,
-    exec_skills_enabled: bool,
+    exec_skills_enabled: bool = False,
+    feature_flags: dict[str, bool] | None = None,
 ) -> Callable[[], None]:
     """Start the MCP server as a subprocess for the eval session.
 
@@ -146,7 +147,7 @@ def start_mcp_server(
         # needs its own lever, not this one. mcp-exec-skills follows the run's
         # skill delivery mode.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
-            {"revamped-py-notebooks": True, MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled}
+            {"revamped-py-notebooks": True, **(feature_flags or {}), MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled}
         ),
     }
 
