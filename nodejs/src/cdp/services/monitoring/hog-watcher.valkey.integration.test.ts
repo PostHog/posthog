@@ -14,6 +14,7 @@ const host = process.env.CDP_VALKEY_HOST ?? '127.0.0.1'
 const port = Number(process.env.CDP_VALKEY_PORT ?? 6390)
 
 const WATCHER_CONFIG: HogWatcherConfig = {
+    costError: 100,
     hogCostTimingLowerMs: 50,
     hogCostTimingUpperMs: 550,
     hogCostTiming: 100,
