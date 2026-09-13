@@ -44,6 +44,34 @@ describe('columnConfiguratorLogic', () => {
         })
     })
 
+    it('edits the column at the index the editor was opened on', async () => {
+        await expectLogic(logic, () => logic.actions.openColumnEditor(2)).toMatchValues({
+            editingColumnIndex: 2,
+            editingColumn: 'ant',
+        })
+
+        await expectLogic(logic, () => logic.actions.saveEditedColumn('anteater')).toMatchValues({
+            columns: ['a', 'b', 'anteater', 'aardvark'],
+            editingColumnIndex: null,
+            editingColumn: null,
+        })
+    })
+
+    it.each([
+        ['empty', ''],
+        ['whitespace only', '   '],
+        ['a newline', '\n'],
+    ])('keeps the editor open when the edited expression is %s', async (_, expression) => {
+        await expectLogic(logic, () => {
+            logic.actions.openColumnEditor(2)
+            logic.actions.saveEditedColumn(expression)
+        }).toMatchValues({
+            columns: startingColumns,
+            editingColumnIndex: 2,
+            editingColumn: 'ant',
+        })
+    })
+
     it('cannot duplicate columns', async () => {
         await expectLogic(logic, () => {
             logic.actions.selectColumn('added')

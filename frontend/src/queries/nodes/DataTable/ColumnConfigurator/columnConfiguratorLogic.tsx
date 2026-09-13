@@ -45,6 +45,8 @@ export interface columnConfiguratorLogicValues {
         groupTypeIndex?: GroupTypeIndex | undefined
         type: 'event_definition' | 'groups' | 'team_columns'
     }
+    editingColumn: string | null
+    editingColumnIndex: number | null
     modalVisible: boolean
     saveAsDefault: boolean
     savedColumnConfiguration: {
@@ -63,6 +65,9 @@ export interface columnConfiguratorLogicActions {
         defaultColumns: string[]
         groupTypeIndex: number
     } // groupsModel
+    closeColumnEditor: () => {
+        value: true
+    }
     hideModal: () => {
         value: true
     }
@@ -94,8 +99,14 @@ export interface columnConfiguratorLogicActions {
         newIndex: number
         oldIndex: number
     }
+    openColumnEditor: (index: number) => {
+        index: number
+    }
     save: () => {
         value: true
+    }
+    saveEditedColumn: (expression: string) => {
+        expression: string
     }
     selectColumn: (column: string) => {
         column: string
@@ -123,6 +134,7 @@ export interface columnConfiguratorLogicMeta {
             groupTypeIndex?: GroupTypeIndex | undefined
             type: 'event_definition' | 'groups' | 'team_columns'
         }
+        editingColumn: (columns: string[], editingColumnIndex: number | null) => string | null
     }
 }
 
@@ -149,13 +161,10 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         moveColumn: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
         save: true,
         toggleSaveAsDefault: true,
+        openColumnEditor: (index: number) => ({ index }),
+        saveEditedColumn: (expression: string) => ({ expression }),
+        closeColumnEditor: true,
     }),
-    selectors(() => ({
-        context: [
-            () => [(_, props) => props.context],
-            (context: NonNullable<ColumnConfiguratorLogicProps['context']>) => context,
-        ],
-    })),
     loaders(({ props }) => ({
         savedColumnConfiguration: [
             null as { id: string; columns: string[] } | null,
@@ -184,6 +193,16 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
                 showModal: () => false,
             },
         ],
+        editingColumnIndex: [
+            null as number | null,
+            {
+                openColumnEditor: (_, { index }) => index,
+                closeColumnEditor: () => null,
+                setColumns: () => null,
+                hideModal: () => null,
+                save: () => null,
+            },
+        ],
         modalVisible: [
             false,
             {
@@ -207,12 +226,31 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
             },
         ],
     })),
+    selectors(() => ({
+        context: [
+            () => [(_, props) => props.context],
+            (context: NonNullable<ColumnConfiguratorLogicProps['context']>) => context,
+        ],
+        editingColumn: [
+            (s) => [s.columns, s.editingColumnIndex],
+            (columns: string[], editingColumnIndex: number | null) =>
+                editingColumnIndex === null ? null : (columns[editingColumnIndex] ?? null),
+        ],
+    })),
     propsChanged(({ actions, props }, oldProps) => {
         if (JSON.stringify(props.columns) !== JSON.stringify(oldProps.columns)) {
             actions.setColumns(props.columns)
         }
     }),
     listeners(({ actions, values, props }) => ({
+        saveEditedColumn: ({ expression }) => {
+            const index = values.editingColumnIndex
+            // An empty expression makes the query fail, so keep the editor open instead of replacing the column.
+            if (index === null || !expression.trim()) {
+                return
+            }
+            actions.setColumns(values.columns.map((column, i) => (i === index ? expression : column)))
+        },
         loadSavedColumnConfigurationSuccess: ({ savedColumnConfiguration }) => {
             if (savedColumnConfiguration) {
                 props.setColumns(savedColumnConfiguration.columns)
