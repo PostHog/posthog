@@ -14,6 +14,7 @@ import { universalFiltersLogic } from 'lib/components/UniversalFilters/universal
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 import { DateRange } from '~/queries/schema/schema-general'
 import {
@@ -123,6 +124,7 @@ function TracingFilterSearch(): JSX.Element {
 
     const searchInputRef = useRef<HTMLInputElement | null>(null)
     const floatingRef = useRef<HTMLDivElement | null>(null)
+    const { ref: pickerRef, width: pickerWidth } = useResizeObserver<HTMLDivElement>()
 
     const onClose = (): void => {
         searchInputRef.current?.blur()
@@ -163,7 +165,7 @@ function TracingFilterSearch(): JSX.Element {
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <LemonDropdown
                 overlay={
-                    <div className="w-[400px] md:w-[600px]">
+                    <div ref={pickerRef} className="@container w-[400px] md:w-[600px]">
                         <InfiniteSelectResults
                             focusInput={() => searchInputRef.current?.focus()}
                             taxonomicFilterLogicProps={taxonomicFilterLogicProps}
@@ -181,6 +183,7 @@ function TracingFilterSearch(): JSX.Element {
                     searchInputRef={searchInputRef}
                     onClose={() => onClose()}
                     onChange={() => setVisible(true)}
+                    showCategoryDropdownWhenPinned={pickerWidth === undefined ? undefined : pickerWidth <= 512}
                     size="small"
                     fullWidth
                 />

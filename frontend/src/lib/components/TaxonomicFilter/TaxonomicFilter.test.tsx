@@ -144,7 +144,7 @@ describe('TaxonomicFilter', () => {
                 TaxonomicFilterGroupType.DataWarehousePersonProperties,
             ],
         })
-        await screen.findByTestId('taxonomic-category-dropdown-trigger')
+        await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
         expect(container.querySelectorAll(':not(.hidden) > .taxonomic-infinite-list')).toHaveLength(1)
         let dispatches = 0
         const unsubscribe = getContext().store.subscribe(() => dispatches++)
@@ -176,7 +176,7 @@ describe('TaxonomicFilter', () => {
         await screen.findAllByText('prop1')
         expect(container.querySelectorAll(':not(.hidden) > .taxonomic-infinite-list')).toHaveLength(1)
 
-        await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger'))
+        await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
         await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-item-person_properties'))
         await screen.findByTestId('prop-filter-person_properties-0')
         expect(container.querySelectorAll(':not(.hidden) > .taxonomic-infinite-list')).toHaveLength(1)
@@ -1410,7 +1410,7 @@ describe('TaxonomicFilter', () => {
 
             // Data warehouse is a config flow (table/column picker) — it should reopen on
             // its own tab so the user can reconfigure, not drop them on the All surface.
-            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger')
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
             await waitFor(() => expect(trigger.textContent || '').toMatch(/All|Data warehouse|Events/))
             expect(trigger).toHaveTextContent('Data warehouse')
             expect(trigger).not.toHaveTextContent('All')
@@ -1429,7 +1429,7 @@ describe('TaxonomicFilter', () => {
 
             // The active category shows in the dropdown trigger. Reopening on an existing event
             // selection should read "All", not "Events".
-            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger')
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
             // Wait for the dropdown trigger to paint its active-category label before asserting.
             await waitFor(() => expect(trigger.textContent || '').toMatch(/All|Events|Suggestions/))
             expect(trigger).toHaveTextContent('All')
@@ -1471,7 +1471,7 @@ describe('TaxonomicFilter', () => {
                 ],
             })
 
-            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger'))
+            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
 
             expect(await screen.findByTestId('taxonomic-category-dropdown-item-suggested_filters')).toHaveTextContent(
                 'All'
@@ -1486,7 +1486,7 @@ describe('TaxonomicFilter', () => {
 
             await screen.findAllByText('All')
             expect(screen.queryByText('Categories')).not.toBeInTheDocument()
-            expect(screen.queryByTestId('taxonomic-category-dropdown-trigger')).not.toBeInTheDocument()
+            expect(screen.queryByTestId('taxonomic-category-dropdown-trigger-pill')).not.toBeInTheDocument()
         })
 
         it('pins categories in a rail and restores the pill when unpinned', async () => {
@@ -1494,16 +1494,16 @@ describe('TaxonomicFilter', () => {
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
             })
 
-            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger'))
+            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
             await userEvent.click(await screen.findByTestId('taxonomic-category-rail-toggle'))
 
             expect(await screen.findByText('Categories')).toBeInTheDocument()
-            expect(screen.getByTestId('taxonomic-category-dropdown-trigger')).toHaveClass('hidden')
+            expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveClass('hidden')
 
             await userEvent.click(screen.getByTestId('taxonomic-category-rail-unpin'))
 
             await waitFor(() => {
-                expect(screen.getByTestId('taxonomic-category-dropdown-trigger')).not.toHaveClass('hidden')
+                expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).not.toHaveClass('hidden')
             })
         })
 
@@ -1512,7 +1512,7 @@ describe('TaxonomicFilter', () => {
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
             })
 
-            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger'))
+            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
             await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-actions'))
 
             await waitFor(() => {
@@ -1525,14 +1525,14 @@ describe('TaxonomicFilter', () => {
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
             })
 
-            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger')
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
             expect(trigger).toHaveAttribute('aria-label', expect.stringContaining('All'))
 
             const input = screen.getByTestId('taxonomic-filter-searchfield') as HTMLInputElement
             input.focus()
             await userEvent.keyboard('{Tab}')
 
-            expect(screen.getByTestId('taxonomic-category-dropdown-trigger')).toHaveAttribute(
+            expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveAttribute(
                 'aria-label',
                 expect.stringContaining('All')
             )

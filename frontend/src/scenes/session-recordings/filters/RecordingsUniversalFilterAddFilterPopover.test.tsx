@@ -78,7 +78,7 @@ describe('RecordingsUniversalFilterAddFilterPopover', () => {
         const input = screen.getByTestId('replay-filters-add-filter-input')
         await userEvent.click(input)
 
-        const pillTrigger = await screen.findByTestId('taxonomic-category-dropdown-trigger')
+        const pillTrigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
         // The combined results category is the default for multiple groups.
         expect(pillTrigger).toHaveTextContent('All')
         expect(pillTrigger).toHaveClass('LemonButton--secondary')
@@ -92,7 +92,7 @@ describe('RecordingsUniversalFilterAddFilterPopover', () => {
 
         // Open the pill menu and select a visible option. Re-query the trigger — typing
         // re-renders the input suffix, detaching the node captured above.
-        await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger'))
+        await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
         const personPropertiesItem = await screen.findByTestId('taxonomic-category-dropdown-item-person_properties')
         await userEvent.click(personPropertiesItem)
 

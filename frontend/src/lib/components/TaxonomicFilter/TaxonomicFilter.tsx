@@ -174,12 +174,24 @@ export const TaxonomicFilterSearchInput = forwardRef<
         onClose: TaxonomicFilterProps['onClose']
         eventName?: string
         focusInput?: () => void
+        showCategoryDropdownWhenPinned?: boolean
     } & Pick<
         LemonInputPropsText,
         'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange' | 'autoFocus' | 'placeholder'
     >
 >(function UniversalSearchInput(
-    { searchInputRef, onClose, onChange, autoFocus = true, placeholder, eventName, focusInput, prefix, ...props },
+    {
+        searchInputRef,
+        onClose,
+        onChange,
+        autoFocus = true,
+        placeholder,
+        eventName,
+        focusInput,
+        prefix,
+        showCategoryDropdownWhenPinned,
+        ...props
+    },
     ref
 ): JSX.Element {
     const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
@@ -202,7 +214,14 @@ export const TaxonomicFilterSearchInput = forwardRef<
         onChange?.(query)
     }
 
-    const categoryDropdown = <CategoryDropdown eventName={eventName} onAfterChange={focusInput} joinedToInput />
+    const categoryDropdown = (
+        <CategoryDropdown
+            eventName={eventName}
+            onAfterChange={focusInput}
+            joinedToInput
+            showWhenPinned={showCategoryDropdownWhenPinned}
+        />
+    )
 
     return (
         <LemonInput

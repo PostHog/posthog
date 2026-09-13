@@ -489,7 +489,7 @@ describe('PropertyFilters recent selections', () => {
 
             await openNewFilter()
 
-            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger')
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
             await userEvent.click(trigger)
 
             expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
@@ -507,7 +507,7 @@ describe('PropertyFilters recent selections', () => {
 
             await openNewFilter()
 
-            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger')
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
             await userEvent.click(trigger)
 
             const item = await screen.findByTestId('taxonomic-category-dropdown-item-person_properties')
