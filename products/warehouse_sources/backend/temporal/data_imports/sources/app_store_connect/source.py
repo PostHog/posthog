@@ -1,5 +1,7 @@
 from typing import Optional, cast
 
+import structlog
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -43,6 +45,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     AppStoreConnectSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+logger = structlog.get_logger(__name__)
+
+_UNEXPECTED_PROBE_STATUS = "App Store Connect is not answering correctly right now. Wait a few minutes, then try again."
 
 _MISSING_VENDOR_NUMBER = (
     "Add your vendor number in the source settings to sync sales and subscription reports. "
@@ -251,9 +257,12 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
             # reports what it can't reach, so don't block source creation on it.
             return True, None
         if status == 403:
-            return False, "Your App Store Connect API key does not have permission to read this data."
+            return False, APP_STORE_CONNECT_READ_FORBIDDEN_ERROR
         if status != 200:
-            return False, f"App Store Connect returned status {status}"
+            # Apple answers a signed probe with 429 or a 5xx when it is busy. The status itself means
+            # nothing to the user, so keep it in the log and tell them what to do instead.
+            logger.warning("app_store_connect_credential_probe_unexpected_status", status=status)
+            return False, _UNEXPECTED_PROBE_STATUS
 
         # Create and edit only: the per-schema call runs once per table in the picker, and each
         # would list every app again.
