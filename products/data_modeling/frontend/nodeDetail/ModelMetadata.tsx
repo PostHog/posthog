@@ -12,8 +12,8 @@ export function ModelMetadata({
     loading,
 }: {
     createdBy?: UserBasicType | null
-    createdAt: string
-    updatedAt: string
+    createdAt?: string | null
+    updatedAt?: string | null
     loading?: boolean
 }): JSX.Element {
     return (
@@ -33,13 +33,25 @@ export function ModelMetadata({
             <div className="col-start-2 row-start-2">
                 <dt className="text-secondary mb-1">Created at</dt>
                 <dd className="mb-0">
-                    {loading ? <LemonSkeleton className="h-5 w-20" /> : <TZLabel time={createdAt} />}
+                    {loading ? (
+                        <LemonSkeleton className="h-5 w-20" />
+                    ) : createdAt ? (
+                        <TZLabel time={createdAt} />
+                    ) : (
+                        'Unknown'
+                    )}
                 </dd>
             </div>
             <div className="col-start-1 row-start-2">
                 <dt className="text-secondary mb-1">Updated at</dt>
                 <dd className="mb-0">
-                    {loading ? <LemonSkeleton className="h-5 w-20" /> : <TZLabel time={updatedAt} />}
+                    {loading ? (
+                        <LemonSkeleton className="h-5 w-20" />
+                    ) : updatedAt ? (
+                        <TZLabel time={updatedAt} />
+                    ) : (
+                        'Unknown'
+                    )}
                 </dd>
             </div>
         </dl>

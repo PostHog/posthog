@@ -106,10 +106,14 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
             <NodeDetailHeader id={id} />
             <div className="flex flex-wrap items-start gap-x-8 gap-y-3">
                 <NodeDetailOverview id={id} />
+                {/* A node row's timestamps describe the node, not the model: editing the
+                    description here patches the node and bumps its updated_at while the saved
+                    query stays untouched. So they stand in only for a node that has no saved
+                    query, and a failed load says nothing rather than the node's dates. */}
                 <ModelMetadata
                     createdBy={savedQuery?.created_by}
-                    createdAt={savedQuery?.created_at ?? node.created_at}
-                    updatedAt={savedQuery?.updated_at ?? node.updated_at}
+                    createdAt={node.saved_query_id ? savedQuery?.created_at : node.created_at}
+                    updatedAt={node.saved_query_id ? savedQuery?.updated_at : node.updated_at}
                     loading={!!node.saved_query_id && savedQueryLoading && !savedQuery}
                 />
             </div>
