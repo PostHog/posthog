@@ -807,8 +807,8 @@ class TestResolutionMetrics(BaseTest):
         assert parents == {"leaf"}
         assert self._counter("ok") - before_ok == 1.0
         assert self._duration_count() - before_count == 1.0
-        # Lineage resolution runs on every saved-query write; materialization runs a few thousand
-        # times a day. One shared series hides the rarer one, so the label has to separate them.
+        # A lineage resolution must not move the materialization counter: without the label the
+        # two share one series, and the rarer source is the one that gets hidden.
         assert self._counter("ok", RESOLUTION_SOURCE_MATERIALIZATION) - before_materialization_ok == 0.0
 
     def test_cycle_increments_cycle_status(self):
