@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _maybe_create_video_cache,
+    _parse_and_validate,
     _run_mission,
     _run_mission_attempts,
     _run_pass,
@@ -506,3 +507,24 @@ async def test_video_cache_creation_is_best_effort() -> None:
     # A cache that can't be created (e.g. too-short video) degrades to None, not an error.
     result = await _maybe_create_video_cache(cast(Any, _BoomClient()), "models/gemini-3-flash-preview", _VIDEO, "PRE")
     assert result is None
+
+
+class TestParseAndValidate:
+    def test_a_missing_confidence_keeps_an_otherwise_complete_answer(self) -> None:
+        parsed, error = _parse_and_validate(
+            MissionStep(name="core", instruction="c", response_model=MonitorLlmResponse),
+            '{"reasoning": "They exported the report.", "verdict": "yes"}',
+        )
+        assert error is None
+        assert cast(MonitorLlmResponse, parsed).confidence is None
+
+    def test_the_schema_error_names_the_field_without_quoting_the_model_answer(self) -> None:
+        _, error = _parse_and_validate(
+            MissionStep(name="core", instruction="c", response_model=MonitorLlmResponse),
+            '{"reasoning": "They exported the report.", "verdict": "maybe"}',
+        )
+        assert error is not None
+        assert "verdict" in error
+        # The rejected answer describes a customer's recording, so none of it may ride along in the error text.
+        assert "exported the report" not in error
+        assert "input_value" not in error

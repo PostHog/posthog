@@ -706,6 +706,16 @@ def _step_config(step: MissionStep, cache_name: str | None, *, allow_tools: bool
     return types.GenerateContentConfig(**kwargs)
 
 
+def _describe_validation_error(error: ValidationError) -> str:
+    """Field, message, and error type per failure — never pydantic's own `str()`, which appends the offending
+    `input_value`. Here that value is the model's write-up of a customer recording, and this text travels on
+    into the logs and the re-prompt."""
+    return "; ".join(
+        f"{'.'.join(str(part) for part in item['loc']) or '<root>'}: {item['msg']} [{item['type']}]"
+        for item in error.errors()
+    )
+
+
 def _parse_and_validate(step: MissionStep, text: str) -> tuple[BaseModel | None, str | None]:
     """Parse `text` against the step schema and run its semantic check; return (parsed, None) or (None, error)."""
     if not text:
@@ -713,7 +723,7 @@ def _parse_and_validate(step: MissionStep, text: str) -> tuple[BaseModel | None,
     try:
         parsed = step.response_model.model_validate_json(text)
     except ValidationError as e:
-        return None, f"Schema validation failed: {e}"
+        return None, f"Schema validation failed: {_describe_validation_error(e)}"
     if step.validate is not None:
         semantic_error = step.validate(parsed)
         if semantic_error is not None:

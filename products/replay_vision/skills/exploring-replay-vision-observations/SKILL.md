@@ -14,7 +14,7 @@ and doing something useful with it. For creating or sizing scanners, use [[creat
 - **Scanner → observations.** One observation = one scan of one session. There is at most one observation
   per `(scanner, session)`.
 - **The finding lives in `scanner_result.model_output`.** Its shape depends on the scanner's `scanner_type`,
-  but it always carries a `confidence`:
+  but it always carries a `confidence`, which is null when the model left it out:
   - `monitor` → a `verdict` (`yes` / `no`, plus `inconclusive` only when the scanner sets
     `allow_inconclusive`) and the `reasoning` behind it.
   - `classifier` → one or more `tags` from the scanner's label set, plus `tags_freeform` when the scanner
@@ -91,7 +91,8 @@ mix before concluding.
 - **Scorers:** look at the tails (highest/lowest scores), not just the average.
 - **Summarizers:** read for recurring themes across summaries.
 
-Weight by `confidence`, and don't over-index on a single observation. To understand a specific hit, take its
+Weight by `confidence`, and don't over-index on a single observation. A null `confidence` means the model gave
+none, so read it as unknown rather than low. To understand a specific hit, take its
 `session_id` and either cross-reference other scanners (`vision-observations-list`) or drill into the actual
 recording with the [[investigating-replay]] skill and the session-recording MCP tools.
 

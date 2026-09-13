@@ -121,14 +121,19 @@ class MissionStep:
 
 
 _CONFIDENCE_DESCRIPTION = (
-    "Calibrated confidence, 0.0 to 1.0 with one decimal. Apply the calibration rules from the system prompt."
+    "Calibrated confidence, 0.0 to 1.0 with one decimal. Apply the calibration rules from the system prompt. "
+    "Always include this field."
 )
 
 
 def confidence_field() -> Any:
     """`confidence` field for LLM-response schemas. Declared explicitly (and last) so the model writes its
-    reasoning/answer before committing a confidence — reason-before-answer, not confidence-first."""
-    return Field(ge=0, le=1, description=_CONFIDENCE_DESCRIPTION)
+    reasoning/answer before committing a confidence — reason-before-answer, not confidence-first.
+
+    Optional so a step that answers everything else is not thrown away over one missing scalar. A model that
+    omits it records an unknown confidence rather than an invented one; nothing downstream gates on the value.
+    """
+    return Field(default=None, ge=0, le=1, description=_CONFIDENCE_DESCRIPTION)
 
 
 @frozen
@@ -142,7 +147,7 @@ class EmbeddingDocument:
 class BaseScannerOutput(BaseModel, frozen=True):
     """Final output shape emitted as `$recording_observed` event properties (flattened with `scanner_output_*` keys)."""
 
-    confidence: float = confidence_field()
+    confidence: float | None = confidence_field()
 
     def to_event_properties(self) -> dict[str, Any]:
         """Flatten with `scanner_output_*` keys for the event; `scanner_type` is excluded (already a top-level property via the snapshot)."""

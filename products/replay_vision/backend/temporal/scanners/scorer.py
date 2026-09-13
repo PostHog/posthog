@@ -56,7 +56,7 @@ class ScorerScanner(BaseScanner, frozen=True):
             "ScorerLlmResponse",
             reasoning=(str, Field(description="One paragraph grounding the score in concrete moments.")),
             score=(float, Field(ge=self.scale.min, le=self.scale.max, description=score_description)),
-            confidence=(float, confidence_field()),
+            confidence=(float | None, confidence_field()),
         )
 
     def prompt_context(self) -> dict[str, Any]:

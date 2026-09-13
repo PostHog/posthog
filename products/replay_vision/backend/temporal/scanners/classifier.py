@@ -87,7 +87,7 @@ class ClassifierScanner(BaseScanner, frozen=True):
                     ),
                 ),
             )
-        fields["confidence"] = (float, confidence_field())
+        fields["confidence"] = (float | None, confidence_field())
         return create_model("ClassifierLlmResponse", **fields)
 
     @cached_property
