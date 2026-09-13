@@ -67,7 +67,7 @@ class TestRecomputeTask(BaseTest):
         self._run_team(make_evaluators(cumulative_pageviews=pageviews))
         self.assertEqual(calls["count"], 0)
 
-    def test_cheap_user_track_recomputes_intraday(self) -> None:
+    def test_visit_driven_user_track_is_debounced_to_once_per_team_local_day(self) -> None:
         WebAnalyticsAchievementProgress(
             team=self.team,
             user=self.user,
@@ -84,8 +84,46 @@ class TestRecomputeTask(BaseTest):
             return 10
 
         self._run_user(make_evaluators(loyal_days=loyal))
+        self.assertEqual(calls["count"], 0)
+        self.assertEqual(self._progress("loyalty").current_stage, 0)
+
+    def test_interaction_counter_track_recomputes_intraday(self) -> None:
+        WebAnalyticsAchievementProgress(
+            team=self.team,
+            user=self.user,
+            track_key="explorer",
+            current_stage=0,
+            progress_value=0,
+            state={},
+            last_computed_at=timezone.now(),
+        ).save()
+        calls = {"count": 0}
+
+        def data_events(_ctx: EvalContext) -> int:
+            calls["count"] += 1
+            return 1
+
+        self._run_user(make_evaluators(data_events=data_events))
         self.assertEqual(calls["count"], 1)
-        self.assertEqual(self._progress("loyalty").current_stage, 1)
+        self.assertEqual(self._progress("explorer").current_stage, 1)
+
+    def test_persist_progress_skips_the_write_when_nothing_changed(self) -> None:
+        progress = WebAnalyticsAchievementProgress(
+            team=self.team,
+            user=self.user,
+            track_key="loyalty",
+            current_stage=1,
+            progress_value=5,
+            state={"unlocked_stages": {"1": "2026-06-15T00:00:00+00:00"}},
+        )
+        progress.save()
+        before = self._progress("loyalty").updated_at
+
+        tasks.persist_progress(
+            progress, 5, 1, {"unlocked_stages": {"1": "2026-06-15T00:00:00+00:00"}}, bump_last_computed_at=False
+        )
+
+        self.assertEqual(self._progress("loyalty").updated_at, before)
 
     def test_unlock_fires_best_effort_notification(self) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=True):

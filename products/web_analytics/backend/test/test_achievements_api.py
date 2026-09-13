@@ -24,9 +24,8 @@ class TestAchievementsAPI(APIBaseTest):
     def _url(self, action: str) -> str:
         return f"/api/projects/{self.team.id}/web_analytics_achievements/{action}/"
 
-    @patch(f"{_VIEWSET}.recompute_web_analytics_achievements_sync")
     @patch(f"{_VIEWSET}.enqueue_recompute_web_analytics_achievements_debounced")
-    def test_record_visit_creates_one_row_per_day(self, mock_enqueue, mock_recompute) -> None:
+    def test_record_visit_creates_one_row_per_day(self, mock_enqueue) -> None:
         first = self.client.post(self._url("record_visit"))
         self.assertEqual(first.status_code, status.HTTP_200_OK)
         self.assertTrue(first.json()["recorded"])
@@ -36,16 +35,15 @@ class TestAchievementsAPI(APIBaseTest):
         self.assertEqual(count, 1)
         self.assertTrue(mock_enqueue.called)
 
-    @patch(f"{_VIEWSET}.recompute_web_analytics_achievements_sync")
     @patch(f"{_VIEWSET}.enqueue_recompute_web_analytics_achievements_debounced")
-    def test_record_visit_enqueues_team_recompute(self, mock_enqueue, mock_recompute) -> None:
+    def test_record_visit_recomputes_both_scopes_off_the_request_path(self, mock_enqueue) -> None:
         response = self.client.post(self._url("record_visit"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(mock_recompute.call_args.kwargs.get("cheap_only"))
-        mock_enqueue.assert_called_once()
-        self.assertIsNone(mock_enqueue.call_args.args[1])
+        # Both scopes are recomputed off the request path, so the endpoint takes no progress-row locks.
+        self.assertEqual([call.args[1] for call in mock_enqueue.call_args_list], [self.user.id, None])
+        self.assertEqual(WebAnalyticsAchievementProgress.objects.for_team(self.team.id).count(), 0)
 
-    def test_record_interaction_recomputes_progress(self) -> None:
+    def test_record_interaction_recomputes_only_the_track_it_feeds(self) -> None:
         with patch(f"{_TASKS}.streak_arm_for_user", return_value=None):
             response = self.client.post(self._url("record_interaction"), {"interaction_kind": "data"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -55,6 +53,16 @@ class TestAchievementsAPI(APIBaseTest):
         self.assertEqual(progress.current_stage, 1)
         self.assertEqual(progress.progress_value, 1)
         self.assertEqual(progress.state["pending_celebrations"], [1])
+        # The other user tracks only move when a new day starts, so they stay off the request path.
+        rows = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).filter(user=self.user)
+        self.assertEqual({row.track_key for row in rows}, {"explorer"})
+
+    def test_record_recording_interaction_recomputes_the_detective_track(self) -> None:
+        with patch(f"{_TASKS}.streak_arm_for_user", return_value=None):
+            response = self.client.post(self._url("record_interaction"), {"interaction_kind": "recording"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).filter(user=self.user)
+        self.assertEqual({row.track_key for row in rows}, {"detective"})
 
     @patch(f"{_VIEWSET}.enqueue_recompute_web_analytics_achievements_debounced")
     def test_overview_returns_six_tracks(self, mock_enqueue) -> None:
@@ -196,7 +204,7 @@ class TestAchievementsAPI(APIBaseTest):
         self.assertEqual(set(loyalty["unlocked_at"].keys()), {"1", "2"})
         self.assertTrue(loyalty["unlocked_at"]["2"].startswith("2026-06-15"))
 
-    @patch(f"{_VIEWSET}.recompute_web_analytics_achievements_sync")
+    @patch(f"{_VIEWSET}.recompute_interaction_track_sync")
     def test_record_interaction_increments_counter(self, mock_recompute) -> None:
         first = self.client.post(self._url("record_interaction"), {"interaction_kind": "data"})
         self.assertEqual(first.status_code, status.HTTP_200_OK)

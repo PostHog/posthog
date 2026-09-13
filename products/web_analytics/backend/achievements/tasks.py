@@ -27,10 +27,12 @@ from products.web_analytics.backend.achievements.definitions import (
     TRACKS,
     AchievementScope,
     TrackDefinition,
+    TrackKey,
 )
 from products.web_analytics.backend.achievements.evaluators import EVALUATORS, EvalContext
 from products.web_analytics.backend.models import (
     WebAnalyticsAchievementProgress,
+    WebAnalyticsInteraction,
     WebAnalyticsUserConfig,
     WebAnalyticsVisit,
 )
@@ -42,10 +44,16 @@ STREAK_CADENCE_FLAG = "web-analytics-streak-cadence"
 ACHIEVEMENTS_FLAG = "web-analytics-achievements"
 SWEEP_ACTIVE_WINDOW_DAYS = 7
 
-# Only these (ClickHouse-backed) evaluators are gated to once per team-local day. The cheap DB-backed
-# tracks (streak, loyalty, first-party interaction counters) recompute on every trigger so they stay
-# same-day fresh.
-EXPENSIVE_EVALUATOR_KEYS = {"cumulative_pageviews", "conversions"}
+# Tracks recompute at most once per team-local day. For the visit-driven tracks this is exact,
+# because a day can only be added to a streak or a loyal-day count once. For the ClickHouse-backed
+# tracks it is a cost gate. The two first-party interaction counters are the exception. They move
+# when a user slices the dashboard or opens a recording, so they stay ungated.
+INTRADAY_EVALUATOR_KEYS = {"data_events", "recordings_opened"}
+
+INTERACTION_TRACKS: dict[str, TrackKey] = {
+    WebAnalyticsInteraction.DATA: TrackKey.EXPLORER,
+    WebAnalyticsInteraction.RECORDING: TrackKey.DETECTIVE,
+}
 
 
 def team_local_today(team: Team) -> date:
@@ -101,29 +109,43 @@ def enqueue_recompute_web_analytics_achievements_debounced(team_id: int, user_id
     return False
 
 
-def recompute_web_analytics_achievements_sync(
-    team_id: int, user_id: int | None = None, cheap_only: bool = False
-) -> None:
+def _eval_context(team_id: int, user_id: int | None) -> EvalContext | None:
+    """Build the evaluation context for one scope, or None for a control-arm user, who gets no
+    achievements at all."""
+    team = Team.objects.get(id=team_id)
+    if user_id is None:
+        return EvalContext(team=team, user=None, today=team_local_today(team), arm=None)
+    user = User.objects.get(id=user_id)
+    arm = streak_arm_for_user(user)
+    if arm == STREAK_ARM_CONTROL:
+        return None
+    return EvalContext(team=team, user=user, today=team_local_today(team), arm=arm)
+
+
+def recompute_web_analytics_achievements_sync(team_id: int, user_id: int | None = None) -> None:
     """Recompute achievement progress for one scope. With `user_id`, only user-scoped tracks run;
     without it, only team-scoped tracks run (driven by the periodic sweep)."""
-    team = Team.objects.get(id=team_id)
-    today = team_local_today(team)
-    user: User | None = None
-    arm: str | None = None
-    if user_id is not None:
-        user = User.objects.get(id=user_id)
-        arm = streak_arm_for_user(user)
-        if arm == STREAK_ARM_CONTROL:
-            return
-    ctx = EvalContext(team=team, user=user, today=today, arm=arm)
+    ctx = _eval_context(team_id, user_id)
+    if ctx is None:
+        return
     for track in TRACKS.values():
-        if track.scope == AchievementScope.USER and user is None:
+        if track.scope == AchievementScope.USER and ctx.user is None:
             continue
-        if track.scope == AchievementScope.TEAM and user is not None:
-            continue
-        if cheap_only and track.evaluator_key in EXPENSIVE_EVALUATOR_KEYS:
+        if track.scope == AchievementScope.TEAM and ctx.user is not None:
             continue
         _recompute_track(ctx, track)
+
+
+def recompute_interaction_track_sync(team_id: int, user_id: int, interaction_kind: str) -> None:
+    """Recompute only the track an interaction feeds. This runs inline because the client re-reads
+    the counter straight after, and because the counter is the one input that moves mid-day."""
+    track_key = INTERACTION_TRACKS.get(interaction_kind)
+    if track_key is None:
+        return
+    ctx = _eval_context(team_id, user_id)
+    if ctx is None:
+        return
+    _recompute_track(ctx, TRACKS[track_key])
 
 
 @shared_task(ignore_result=True)
@@ -158,12 +180,23 @@ def persist_progress(
     state: dict,
     bump_last_computed_at: bool = True,
 ) -> None:
-    progress.progress_value = value
-    progress.current_stage = stage
+    """Write only the columns that moved, so a recompute that changes nothing costs no row rewrite."""
+    update_fields: list[str] = []
+    if progress.progress_value != value:
+        progress.progress_value = value
+        update_fields.append("progress_value")
+    if progress.current_stage != stage:
+        progress.current_stage = stage
+        update_fields.append("current_stage")
+    if (progress.state or {}) != state:
+        progress.state = state
+        update_fields.append("state")
     if bump_last_computed_at:
         progress.last_computed_at = timezone.now()
-    progress.state = state
-    progress.save()
+        update_fields.append("last_computed_at")
+    if not update_fields:
+        return
+    progress.save(update_fields=[*update_fields, "updated_at"])
 
 
 def _last_visit_date_iso(ctx: EvalContext) -> str | None:
@@ -183,7 +216,7 @@ def _recompute_track(ctx: EvalContext, track: TrackDefinition) -> None:
     progress = get_or_create_progress(ctx, track)
     if progress.current_stage >= len(track.stages):
         return
-    if track.evaluator_key in EXPENSIVE_EVALUATOR_KEYS and not is_due(ctx, progress):
+    if track.evaluator_key not in INTRADAY_EVALUATOR_KEYS and not is_due(ctx, progress):
         return
     evaluator = EVALUATORS[track.evaluator_key]
     try:

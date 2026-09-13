@@ -25,7 +25,7 @@ from products.web_analytics.backend.achievements.tasks import (
     enqueue_recompute_web_analytics_achievements_debounced,
     get_or_create_progress,
     is_due,
-    recompute_web_analytics_achievements_sync,
+    recompute_interaction_track_sync,
     streak_arm_for_user,
     team_local_today,
 )
@@ -227,10 +227,7 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
             user_id=user.id,
             visit_date=today,
         )
-        try:
-            recompute_web_analytics_achievements_sync(canonical_team_id, user_id=user.id, cheap_only=True)
-        except Exception as e:
-            capture_exception(e)
+        enqueue_recompute_web_analytics_achievements_debounced(canonical_team_id, user.id, today)
         enqueue_recompute_web_analytics_achievements_debounced(canonical_team_id, None, today)
         return Response({"recorded": True})
 
@@ -310,7 +307,7 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
         # Atomic increment — no read-modify-write, so concurrent interactions can't lose a count.
         WebAnalyticsInteraction.objects.filter(pk=interaction.pk).update(count=F("count") + 1)
         try:
-            recompute_web_analytics_achievements_sync(canonical_team_id, user_id=user.id, cheap_only=True)
+            recompute_interaction_track_sync(canonical_team_id, user.id, kind)
         except Exception as e:
             capture_exception(e)
         return Response({"recorded": True})
