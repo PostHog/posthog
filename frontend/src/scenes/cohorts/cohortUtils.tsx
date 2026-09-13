@@ -471,6 +471,29 @@ export function validateGroup(
     }
 }
 
+/**
+ * The first criteria validation message on a cohort form. The generic save error names nothing, so
+ * the toast repeats this message when it has no error element to scroll the person to.
+ */
+export function firstCohortCriteriaError(errors: DeepPartialMap<CohortType, ValidationErrorType>): string | undefined {
+    const groups = (errors.filters?.properties?.values ?? []) as DeepPartialMap<
+        CohortCriteriaGroupFilter,
+        ValidationErrorType
+    >[]
+    for (const group of groups) {
+        for (const criteria of (group?.values ?? []) as Record<string, unknown>[]) {
+            const message = Object.values(criteria ?? {}).find((error) => typeof error === 'string')
+            if (message) {
+                return message
+            }
+        }
+        if (typeof group?.id === 'string') {
+            return group.id
+        }
+    }
+    return undefined
+}
+
 export function criteriaToBehavioralFilterType(criteria: AnyCohortCriteriaType): BehavioralFilterType {
     if (criteria.negation) {
         if (criteria.value === BehavioralEventType.PerformSequenceEvents) {

@@ -23,6 +23,7 @@ import {
     BehavioralEventType,
     BehavioralLifecycleType,
     CohortCriteriaGroupFilter,
+    CohortType,
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
@@ -55,6 +56,33 @@ const mockUsedInResponse: CohortUsedInResponseApi = {
     insights: { results: [], total: 0, has_more: false },
     cohorts: { results: [], total: 0, has_more: false },
 }
+
+const cohortWithSingleCriterion = (negation: boolean): CohortType => ({
+    ...mockCohort,
+    filters: {
+        properties: {
+            id: '39777',
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    id: '70427',
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: BehavioralFilterKey.Behavioral,
+                            value: BehavioralEventType.PerformEvent,
+                            event_type: TaxonomicFilterGroupType.Events,
+                            time_value: 30,
+                            time_interval: TimeUnitType.Day,
+                            key: '$rageclick',
+                            negation,
+                        },
+                    ],
+                },
+            ],
+        },
+    },
+})
 
 describe('cohortEditLogic', () => {
     let logic: ReturnType<typeof cohortEditLogic.build>
@@ -812,14 +840,37 @@ describe('cohortEditLogic', () => {
             const testErrors = { name: 'Invalid name' }
 
             await expectLogic(logic, async () => {
+                // A cohort whose criteria all validate, so only the generic message is left to show.
+                logic.actions.setCohort(cohortWithSingleCriterion(false))
                 logic.actions.submitCohortFailure(testError, testErrors)
             }).toDispatchActions(['submitCohortFailure'])
 
             expect(mockScrollToFormError).toHaveBeenCalledWith({
-                extraErrorSelectors: ['.CohortCriteriaRow__Criteria--error'],
+                extraErrorSelectors: [
+                    '.CohortCriteriaRow__Criteria--error',
+                    '.CohortCriteriaRow__Criteria__Field--error',
+                    '.CohortCriteriaGroups__matching-group--error',
+                ],
                 fallbackErrorMessage:
                     'There was an error submitting this cohort. Make sure the cohort filters are correct.',
+                fallbackToastId: 'cohort-save-error',
             })
+        })
+
+        it('names the failing criterion in the toast message', async () => {
+            await initCohortLogic({ id: 1 })
+            const mockScrollToFormError = scrollToFormError as jest.Mock
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort(cohortWithSingleCriterion(true))
+                logic.actions.submitCohort()
+            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
+
+            expect(mockScrollToFormError).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    fallbackErrorMessage: expect.stringContaining('is a negative cohort criteria'),
+                })
+            )
         })
     })
 
