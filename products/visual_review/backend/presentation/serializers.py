@@ -214,7 +214,7 @@ class UpdateRepoInputSerializer(DataclassSerializer):
             "debt_digest_enabled": {
                 "help_text": (
                     "Post the visual review debt digest to the Slack channels of the teams that own the "
-                    "snapshots. Off by default. The digest runs each weekday morning."
+                    "snapshots. Off by default. The digest goes out every Monday morning."
                 )
             },
         }
