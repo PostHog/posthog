@@ -29,6 +29,12 @@ const extractEmailsFromAddressList = (value: unknown): string[] => {
         .filter((addr) => addr.length > 0)
 }
 
+// Inputs arrive as rendered template values typed `any`, so a "to" field that read a property the
+// person does not have yields an empty or whitespace-only string rather than undefined. Those mean
+// the same thing as no value at all: nobody to message, and nobody to look preferences up for.
+const asRecipientIdentifier = (value: unknown): string | undefined =>
+    typeof value === 'string' && value.trim().length > 0 ? value : undefined
+
 export class RecipientPreferencesService {
     constructor(
         private recipientsManager: RecipientsManagerService,
@@ -73,17 +79,20 @@ export class RecipientPreferencesService {
         action: MessageAction
     ): string | undefined {
         if (action.type === 'function_sms') {
-            return invocation.state.globals.inputs?.to_number
+            return asRecipientIdentifier(invocation.state.globals.inputs?.to_number)
         }
         if (action.type === 'function_email') {
-            return invocation.state.globals.inputs?.email?.to?.email
+            return asRecipientIdentifier(invocation.state.globals.inputs?.email?.to?.email)
         }
         // Push has no email/phone "to" field. Delivery reads the device token from the invocation's
         // person (globals.person.properties), so key the opt-out on that same person's distinct_id —
         // not the configurable inputs.distinctId or the triggering event — so the recipient we check
         // is always the recipient we deliver to. Fall back to the event distinct_id when the person
         // has no resolved one.
-        return invocation.state.globals.person?.distinct_id ?? invocation.state.globals.event?.distinct_id
+        return (
+            asRecipientIdentifier(invocation.state.globals.person?.distinct_id) ??
+            asRecipientIdentifier(invocation.state.globals.event?.distinct_id)
+        )
     }
 
     private async isRecipientSuppressed(
