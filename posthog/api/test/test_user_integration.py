@@ -1330,6 +1330,25 @@ class TestGithubUserFromCode(APIBaseTest):
         self.assertEqual(result.access_token_expires_in, 28800)
         self.assertEqual(result.refresh_token_expires_in, 15897600)
 
+    @parameterized.expand([("token_exchange",), ("user_lookup",)])
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.models.integration.github.requests.post")
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
+    def test_returns_none_when_github_answers_with_non_json(self, failing_step, mock_post, mock_get):
+        def raise_value_error():
+            raise ValueError("Expecting value: line 1 column 1 (char 0)")
+
+        mock_post.return_value = MagicMock(
+            status_code=502 if failing_step == "token_exchange" else 200,
+            text="<html>Server Error</html>",
+            json=raise_value_error if failing_step == "token_exchange" else (lambda: {"access_token": "gho_token"}),
+        )
+        mock_get.return_value = MagicMock(status_code=200, text="<html>Server Error</html>", json=raise_value_error)
+
+        from posthog.models.integration import GitHubIntegration
+
+        self.assertIsNone(GitHubIntegration.github_user_from_code("test_code"))
+
 
 def _create_slack_user_integration(
     user: User,
