@@ -876,6 +876,25 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     "Include sync_type in the same request to change the sync type."
                 )
 
+        # An incremental sync merges rows on a primary key. A schema saved without one syncs once
+        # and then fails on every later run, so the switch is refused rather than accepted and
+        # broken at the second sync. `id` counts, because discovery falls back to it.
+        if resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+            requested_keys = data.get("primary_key_columns") if "primary_key_columns" in data else None
+            metadata = instance.schema_metadata or {}
+            metadata_columns = metadata.get("columns") if isinstance(metadata, dict) else None
+            known_columns = metadata_columns if isinstance(metadata_columns, list) else []
+            has_id_column = any(
+                isinstance(column, dict) and str(column.get("name", "")).lower() == "id" for column in known_columns
+            )
+            # Only when the schema's columns are known. Without them there is nothing to say the
+            # table has no key, and the sync-time guard still covers it.
+            if known_columns and not requested_keys and not instance.primary_key_columns and not has_id_column:
+                raise ValidationError(
+                    f"'{instance.name}' has no primary key to sync incrementally on. "
+                    "Set primary_key_columns for it, or choose full_refresh."
+                )
+
         trigger_refresh = False
         # Update the validated_data with incremental fields
         if resulting_sync_type in incremental_style_types:
