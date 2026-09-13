@@ -67,20 +67,29 @@ class SignalSourceConfigs(_Section):
 
 
 class EmitEligibility(_Section):
-    """Whether a scout's findings can actually reach the inbox for this team.
+    """Whether a scout's findings and reports can actually reach the inbox.
 
-    Both the signal channel (`emit_signal`) and the report channel (`emit_report`) pass the
-    same team/org-level preflight gates: the organization must have approved AI data processing
-    and the `signals_scout` signal source must be enabled. When either is off, every emit is
-    silently dropped — so a scout can read this at cold start and quick-close instead of doing
-    throwaway investigation whose output never surfaces. `remediation` is the one-line next step
-    when `can_emit` is False. Per-scout state (the config's dry-run `emit` toggle) is not covered
-    here — this is the team-wide floor, not a single scout's config.
+    `can_emit` is the one value to read, and `blocking_reason` names the gate behind a False: the
+    same reason code `emit_report` returns as `skipped_reason` and `edit_report` refuses with, with
+    `remediation` as the one-line next step. Three gates sit behind it: the organization must have
+    approved AI data processing, the `signals_scout` signal source must be enabled, and the calling
+    scout's own config must not be in dry-run (`emit=False`). When any is off every write is
+    dropped, so a scout can read this at cold start and quick-close instead of doing throwaway
+    investigation whose output never surfaces.
+
+    As stored on a profile row these are the two team-wide gates only, because the row is shared by
+    every scout on the team: `scout_emit_enabled` is null and `can_emit` is the team-wide floor. The
+    profile endpoint re-derives both for the scout that is reading, which is what makes the value it
+    returns the effective one.
     """
 
     ai_processing_approved: bool
     source_enabled: bool
+    # The calling scout's own dry-run toggle. Null on a stored row (no scout in hand) and whenever
+    # the run's dispatch-time config is gone, which fails closed as `scout_config_missing`.
+    scout_emit_enabled: bool | None
     can_emit: bool
+    blocking_reason: str | None
     remediation: str | None
 
 

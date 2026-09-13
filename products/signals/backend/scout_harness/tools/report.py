@@ -1913,10 +1913,17 @@ def _do_edit_report(
 def _assert_edit_gates(team: Team, run: SignalScoutRun, report_id: str, appended_evidence: int = 0) -> None:
     """The emit preflight gates, applied to an edit. Shared by the entrypoints (which must gate
     before spending the safety-judge LLM call) and `_do_edit_report` (so a future caller that skips
-    the entrypoints still fails closed)."""
+    the entrypoints still fails closed).
+
+    The refusal carries the same remediation `emit_report` returns alongside its `skipped_reason`.
+    An edit blocked by a gate is the identical situation, because the scout has done the work and
+    the write will not land, so a bare reason code here would leave it with no next step on one
+    channel and a fixable one on the other."""
     preflight = _preflight_emit_gates(team, run)
     if preflight is not None:
-        raise InvalidScoutReportError(f"edit_report blocked by preflight gate: {preflight}")
+        remediation = remediation_for_skip(preflight)
+        detail = f"edit_report blocked by preflight gate: {preflight}"
+        raise InvalidScoutReportError(f"{detail}. {remediation}" if remediation else detail)
     task_is_in_progress = (
         SignalScoutRun.objects.for_team(team.id)
         .filter(
