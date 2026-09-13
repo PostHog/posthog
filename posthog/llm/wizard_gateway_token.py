@@ -6,11 +6,13 @@ gateway. The mint pins what the caller must not control (product=wizard, obo=the
 customer organization, the acting user) plus a per-run cap and an expiry, and the
 debit lands on the wizard team, never the customer's wallet. Kept separate from
 products/tasks' sandbox mint (ai_gateway_token.py): the wizard needs
-`expires_at` back for CLI-side refresh, and an interactive mint answers one
-attempt fast instead of retrying into the CLI's timeout.
+`expires_at` back for CLI-side refresh, and an interactive mint keeps a few
+seconds of retry budget rather than retrying into the CLI's timeout.
 """
 
 import json
+import time
+import random
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
@@ -26,10 +28,20 @@ from prometheus_client import Counter
 from posthog.dataclasses import frozen
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.security.outbound_proxy import internal_requests
 
 logger = structlog.get_logger(__name__)
 
 _MINT_TIMEOUT_SECONDS = 10
+
+# The gateway sits in-cluster, where the handshake is sub-millisecond, so a
+# connect phase that stalls is already a failure. Bounding it well under the
+# read budget keeps the retry cheap: one more connect, not a second whole
+# request deadline, on a path a person is waiting on.
+_MINT_CONNECT_TIMEOUT_SECONDS = 2
+_MINT_ATTEMPTS = 2
+_MINT_BACKOFF_SECONDS = 0.5
+_MINT_BACKOFF_JITTER_SECONDS = 0.25
 
 # The gateway refuses a TTL outside these bounds with a 400, so clamp locally: a
 # misconfigured setting should not turn every mint into a 503.
@@ -335,7 +347,7 @@ def wizard_product_node(program: str | None) -> str | None:
 
 WIZARD_GATEWAY_MINTS = Counter(
     "posthog_wizard_gateway_token_mints_total",
-    "Wizard gateway token mints, by outcome (ok/refused/unreachable/malformed)",
+    "Wizard gateway token mints, by outcome (ok/refused/retried/unreachable/malformed)",
     labelnames=["outcome"],
 )
 
@@ -383,6 +395,61 @@ def wizard_gateway_base_url() -> str:
     return settings.WIZARD_GATEWAY_URL.rstrip("/").removesuffix("/v1")
 
 
+def _post_mint(base_url: str, body: dict[str, Any]) -> requests.Response:
+    """POST the mint off the shared egress proxy, retrying a connect-level blip once.
+
+    `internal_requests` sets `trust_env=False`, so the call ignores
+    `HTTP_PROXY`/`HTTPS_PROXY` and reaches the gateway directly, the posture every
+    other gateway client in the app already takes. Through the proxy, a
+    proxy-level refusal such as a throttled CONNECT tunnel read as an
+    unreachable gateway.
+
+    Raises WizardGatewayMintError on a transport failure that outlives the retry.
+    """
+    # A connect-level failure is the one worth a second attempt: no session was
+    # established, so the retry cannot duplicate a token, and the cause is
+    # usually a blip. URL and schema errors also raise before any byte is sent
+    # but will not improve on a retry, and a ReadTimeout may already have landed.
+    for attempt in range(_MINT_ATTEMPTS):
+        try:
+            return internal_requests.post(
+                f"{base_url}/v1/tokens",
+                json=body,
+                headers={"Authorization": f"Bearer {settings.WIZARD_GATEWAY_MINT_KEY}"},
+                timeout=(_MINT_CONNECT_TIMEOUT_SECONDS, _MINT_TIMEOUT_SECONDS),
+            )
+        except requests.RequestException as e:
+            last_error = e
+            if not isinstance(e, requests.exceptions.ConnectionError) or attempt == _MINT_ATTEMPTS - 1:
+                break
+            WIZARD_GATEWAY_MINTS.labels(outcome="retried").inc()
+            logger.warning("wizard_gateway_token: mint transport failure, retrying", error=str(e))
+            time.sleep(_MINT_BACKOFF_SECONDS + random.uniform(0, _MINT_BACKOFF_JITTER_SECONDS))
+
+    WIZARD_GATEWAY_MINTS.labels(outcome="unreachable").inc()
+    logger.warning("wizard_gateway_token: mint transport failure", error=str(last_error))
+    # Only a failure after the request was transmitted can leave a token behind.
+    # URL and schema errors raise before any byte is sent, and a connect-level
+    # failure never established the session; ConnectTimeout subclasses
+    # ConnectionError, while a ReadTimeout's request may have landed.
+    #
+    # Not a clean split: requests re-raises a body-phase read timeout as
+    # ConnectionError, so that case refunds despite the request landing. The
+    # token it may leave behind is never delivered, and a cap is a ceiling
+    # rather than a reservation, so an unheld token spends nothing.
+    never_sent = isinstance(
+        last_error,
+        (
+            requests.exceptions.ConnectionError,
+            requests.exceptions.URLRequired,
+            requests.exceptions.MissingSchema,
+            requests.exceptions.InvalidSchema,
+            requests.exceptions.InvalidURL,
+        ),
+    )
+    raise WizardGatewayMintError("gateway unreachable", token_may_exist=not never_sent) from last_error
+
+
 def mint_wizard_gateway_token(
     *,
     obo: str,
@@ -410,36 +477,7 @@ def mint_wizard_gateway_token(
         "allowed_models": allowed_models(),
         "allowed_efforts": allowed_efforts(),
     }
-    try:
-        response = requests.post(
-            f"{base_url}/v1/tokens",
-            json=body,
-            headers={"Authorization": f"Bearer {settings.WIZARD_GATEWAY_MINT_KEY}"},
-            timeout=_MINT_TIMEOUT_SECONDS,
-        )
-    except requests.RequestException as e:
-        WIZARD_GATEWAY_MINTS.labels(outcome="unreachable").inc()
-        logger.warning("wizard_gateway_token: mint transport failure", error=str(e))
-        # Only a failure after the request was transmitted can leave a token behind.
-        # URL and schema errors raise before any byte is sent, and a connect-level
-        # failure never established the session; ConnectTimeout subclasses
-        # ConnectionError, while a ReadTimeout's request may have landed.
-        #
-        # Not a clean split: requests re-raises a body-phase read timeout as
-        # ConnectionError, so that case refunds despite the request landing. The
-        # token it may leave behind is never delivered, and a cap is a ceiling
-        # rather than a reservation, so an unheld token spends nothing.
-        never_sent = isinstance(
-            e,
-            (
-                requests.exceptions.ConnectionError,
-                requests.exceptions.URLRequired,
-                requests.exceptions.MissingSchema,
-                requests.exceptions.InvalidSchema,
-                requests.exceptions.InvalidURL,
-            ),
-        )
-        raise WizardGatewayMintError("gateway unreachable", token_may_exist=not never_sent) from e
+    response = _post_mint(base_url, body)
 
     if response.status_code != 201:
         WIZARD_GATEWAY_MINTS.labels(outcome="refused").inc()
