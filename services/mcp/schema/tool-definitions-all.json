@@ -13016,7 +13016,7 @@
         "title": "Update visual review repo settings",
         "required_scopes": ["visual_review:write"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
