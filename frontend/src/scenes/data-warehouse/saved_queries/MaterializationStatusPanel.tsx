@@ -191,10 +191,9 @@ export function MaterializationStatusPanel({
     const cadenceOwnedElsewhere = modeDisabledReason(savedQuery.sync_frequency_bounds)
     const isPaused = !cadenceOwnedElsewhere && (!savedQuery.sync_frequency || savedQuery.sync_frequency === 'never')
 
-    // Prefer the serving engine's entry when several engines are suspended.
-    const suspension = savedQuery.suspended
-        ? (savedQuery.suspended[SERVING_ENGINE] ?? Object.values(savedQuery.suspended)[0])
-        : undefined
+    // Only ClickHouse serves queries, so a marker on a shadow engine means the comparison
+    // run stopped, not that this model stopped refreshing.
+    const suspension = savedQuery.suspended?.[SERVING_ENGINE]
     const showSuspendedBanner =
         !!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES] &&
         !!suspension &&
