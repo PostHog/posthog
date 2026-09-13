@@ -3,8 +3,10 @@ from typing import Protocol
 
 from django.utils.dateparse import parse_datetime
 
+import structlog
 from asgiref.sync import sync_to_async
 from confluent_kafka import KafkaError, KafkaException
+from temporalio import activity
 
 from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.helpers.tiktoken_encoding import (
@@ -13,6 +15,8 @@ from posthog.helpers.tiktoken_encoding import (
     get_tiktoken_encoding_for_model,
 )
 from posthog.models import Team
+from posthog.temporal.common.metrics import get_metric_meter
+from posthog.token_bucket import BucketDecision, Budget, consume, refund
 
 from products.error_tracking.backend.temporal.lifecycle.event_properties import (
     EventPropertiesIssueSnapshot,
@@ -23,9 +27,29 @@ from products.error_tracking.backend.temporal.lifecycle.rendering import (
     decode_token_prefix,
     render_stacktrace,
 )
-from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.facade.api import emit_signal, is_signal_source_enabled
+
+logger = structlog.get_logger(__name__)
 
 KAFKA_DELIVERY_TIMEOUT_SECONDS = 30
+
+# Per-team burst guard on error-tracking signal emission. One project's incident can create
+# thousands of new issues in an hour, and each new issue would otherwise start its own Temporal
+# workflow, stacktrace render, and two tiktoken passes. This bucket lets a team emit an initial
+# burst, then a steady rate, so one project's fan-out cannot run unbounded. The downstream daily
+# report limit still backstops what gets through.
+SIGNAL_EMISSION_BUDGET = Budget(burst=100, per_hour=200)
+
+
+def _record_signal_emission_throttled(team_id: int, source_type: str) -> None:
+    logger.warning("error_tracking_signal_emission_throttled", team_id=team_id, source_type=source_type)
+    # No-op outside a Temporal activity; keeps the drop alertable when it runs inside one.
+    if not activity.in_activity():
+        return
+    get_metric_meter().create_counter(
+        "error_tracking_signal_emission_throttled_total",
+        "Error tracking signals dropped before emission by the per-team burst guard",
+    ).add(1)
 
 
 class IssueLifecycleSnapshot(EventPropertiesIssueSnapshot, Protocol):
@@ -147,31 +171,59 @@ async def emit_issue_lifecycle_signal(
     source_type: str,
     preamble: str,
 ) -> None:
-    try:
-        team = await Team.objects.aget(id=inputs.team_id)
-    except Team.DoesNotExist:
+    # A source the team never enabled is dropped by `emit_signal` anyway. Check it first, so a team
+    # that never turned on error-tracking signals does not charge the burst bucket, trip the throttle
+    # counter, or pay the render and tiktoken work before that silent drop.
+    source_enabled = await sync_to_async(is_signal_source_enabled, thread_sensitive=False)(
+        inputs.team_id, "error_tracking", source_type
+    )
+    if not source_enabled:
         return
 
-    event_properties = await sync_to_async(fetch_event_properties, thread_sensitive=False)(team, inputs)
-    issue_name = inputs.issue.name or "Unknown"
-    issue_description = inputs.issue.description or ""
-    header = f"{preamble}:\n{issue_name}: {issue_description}\n"
-    encoding = get_tiktoken_encoding_for_model(TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL)
-    stacktrace_tokens = max(SIGNAL_MAX_TOKENS - len(encoding.encode(header)), 0)
-    stacktrace = render_stacktrace(event_properties, stacktrace_tokens)
-    description = f"{header}\n```\n{stacktrace}\n```"
-    signal_encoding = get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL)
-    signal_tokens = signal_encoding.encode(description)
-    if len(signal_tokens) > SIGNAL_MAX_TOKENS:
-        description = decode_token_prefix(signal_encoding, signal_tokens, SIGNAL_MAX_TOKENS)
+    # Charge the per-team bucket before any render or tiktoken work. A denial drops the emission;
+    # `BucketUnavailable` (Redis down) falls through, so a bucket outage cannot stop emission.
+    bucket_key = f"error_tracking_signal_emit_rate:{inputs.team_id}"
+    decision = await sync_to_async(consume, thread_sensitive=False)(bucket_key, SIGNAL_EMISSION_BUDGET)
+    if isinstance(decision, BucketDecision) and not decision.allowed:
+        _record_signal_emission_throttled(inputs.team_id, source_type)
+        return
 
-    await emit_signal(
-        team=team,
-        source_product="error_tracking",
-        source_type=source_type,
-        source_id=inputs.issue_id,
-        description=description,
-        weight=1.0,
-        extra={"fingerprint": inputs.fingerprint},
-        idempotency_key=inputs.notification_id,
-    )
+    # This activity retries on failure (up to 10 attempts). Refund the charge on any exit that did
+    # not emit, so one signal costs one token instead of one per attempt, and a failed attempt does
+    # not throttle a later retry into silently dropping the signal. No refund when the bucket was
+    # unavailable, since no token was taken.
+    charged = isinstance(decision, BucketDecision)
+    emitted = False
+    try:
+        try:
+            team = await Team.objects.aget(id=inputs.team_id)
+        except Team.DoesNotExist:
+            return
+
+        event_properties = await sync_to_async(fetch_event_properties, thread_sensitive=False)(team, inputs)
+        issue_name = inputs.issue.name or "Unknown"
+        issue_description = inputs.issue.description or ""
+        header = f"{preamble}:\n{issue_name}: {issue_description}\n"
+        encoding = get_tiktoken_encoding_for_model(TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL)
+        stacktrace_tokens = max(SIGNAL_MAX_TOKENS - len(encoding.encode(header)), 0)
+        stacktrace = render_stacktrace(event_properties, stacktrace_tokens)
+        description = f"{header}\n```\n{stacktrace}\n```"
+        signal_encoding = get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL)
+        signal_tokens = signal_encoding.encode(description)
+        if len(signal_tokens) > SIGNAL_MAX_TOKENS:
+            description = decode_token_prefix(signal_encoding, signal_tokens, SIGNAL_MAX_TOKENS)
+
+        await emit_signal(
+            team=team,
+            source_product="error_tracking",
+            source_type=source_type,
+            source_id=inputs.issue_id,
+            description=description,
+            weight=1.0,
+            extra={"fingerprint": inputs.fingerprint},
+            idempotency_key=inputs.notification_id,
+        )
+        emitted = True
+    finally:
+        if charged and not emitted:
+            await sync_to_async(refund, thread_sensitive=False)(bucket_key, SIGNAL_EMISSION_BUDGET)
