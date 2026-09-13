@@ -321,6 +321,16 @@ def extract_tool_calls_from_content(content: Any) -> list[ToolCall]:
     return tool_calls
 
 
+def _string_type(msg: dict[str, Any]) -> str | None:
+    """The value under `type` when it is a string, else None.
+
+    Customer payloads record any JSON value there, and the membership tests below hash what they
+    are given. An unhashable value such as a dict raises `TypeError` against a frozenset.
+    """
+    msg_type = msg.get("type")
+    return msg_type if isinstance(msg_type, str) else None
+
+
 def safe_extract_text(content: Any) -> str:
     """
     Safely extract text from various content formats.
@@ -345,7 +355,7 @@ def safe_extract_text(content: Any) -> str:
             text_parts: list[str] = []
             for i, item in enumerate(content):
                 if isinstance(item, dict):
-                    item_type = item.get("type")
+                    item_type = _string_type(item)
                     # Try both "text" and "content" keys (tool_result uses "content")
                     text_value = item.get("text") or item.get("content")
 
@@ -380,16 +390,6 @@ def safe_extract_text(content: Any) -> str:
             return data_repr
         except Exception:
             return f"[Error: {str(e)}]"
-
-
-def _string_type(msg: dict[str, Any]) -> str | None:
-    """The value under `type` when it is a string, else None.
-
-    Customer payloads record any JSON value there, and the membership tests below hash what they
-    are given. An unhashable value such as a dict raises `TypeError` against a frozenset.
-    """
-    msg_type = msg.get("type")
-    return msg_type if isinstance(msg_type, str) else None
 
 
 def _is_special_block(block: Any) -> bool:

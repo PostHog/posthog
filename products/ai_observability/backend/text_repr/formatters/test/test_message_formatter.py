@@ -539,6 +539,22 @@ class TestEdgeCases:
 
     @parameterized.expand(
         [
+            ("dict", {"kind": "oops"}),
+            ("list", ["oops"]),
+            ("int", 5),
+        ]
+    )
+    def test_large_malformed_block_keeps_the_blocks_after_it(self, _name, block_type):
+        content = [
+            {"type": block_type, "text": "A" * 1200},
+            {"type": "text", "text": "keep me"},
+        ]
+        result = extract_text_content(content)
+        assert "A" * 1200 in result
+        assert "keep me" in result
+
+    @parameterized.expand(
+        [
             ("dict", {"a": 1}),
             ("list", ["a"]),
             ("int", 5),
