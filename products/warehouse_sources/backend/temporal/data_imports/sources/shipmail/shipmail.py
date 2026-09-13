@@ -1,5 +1,8 @@
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Optional
+
+from requests import Response
 
 from posthog.dataclasses import frozen
 
@@ -22,6 +25,23 @@ REQUEST_TIMEOUT_SECONDS = 30.0
 @frozen
 class ShipmailResumeConfig:
     cursor: str | None = None
+
+
+class ShipmailMessagesPaginator(JSONResponseCursorPaginator):
+    def __init__(self, on_complete: Callable[[str], None]) -> None:
+        super().__init__(cursor_path="pagination.next_cursor", cursor_param="cursor")
+        self._on_complete = on_complete
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self.has_next_page:
+            return
+
+        body = response.json()
+        pagination = body.get("pagination") if isinstance(body, dict) else None
+        snapshot_at = pagination.get("snapshot_at") if isinstance(pagination, dict) else None
+        if isinstance(snapshot_at, str) and snapshot_at:
+            self._on_complete(snapshot_at)
 
 
 def _incremental_value(value: Any) -> str:
@@ -53,6 +73,10 @@ def shipmail_source(
 ) -> SourceResponse:
     endpoint_config = SHIPMAIL_ENDPOINTS[endpoint]
     params: dict[str, Any] = {"limit": 100}
+    source_response: SourceResponse
+
+    def set_completion_watermark(snapshot_at: str) -> None:
+        source_response.incremental_field_last_value_on_complete = snapshot_at
 
     if (
         endpoint == "messages"
@@ -68,10 +92,9 @@ def shipmail_source(
             "headers": {"Accept": "application/json"},
             "auth": {"type": "bearer", "token": api_key},
             "request_timeout": REQUEST_TIMEOUT_SECONDS,
-            "paginator": JSONResponseCursorPaginator(
-                cursor_path="pagination.next_cursor",
-                cursor_param="cursor",
-            ),
+            "paginator": ShipmailMessagesPaginator(set_completion_watermark)
+            if endpoint == "messages"
+            else JSONResponseCursorPaginator(cursor_path="pagination.next_cursor", cursor_param="cursor"),
             "session": make_tracked_session(redact_values=(api_key,), capture=False),
         },
         "resource_defaults": {},
@@ -101,7 +124,7 @@ def shipmail_source(
         initial_paginator_state=_initial_paginator_state(resumable_source_manager),
     )
 
-    return SourceResponse(
+    source_response = SourceResponse(
         name=endpoint,
         items=lambda: resource,
         primary_keys=endpoint_config.primary_keys,
@@ -112,6 +135,7 @@ def shipmail_source(
         partition_keys=[endpoint_config.partition_key],
         sort_mode="asc" if endpoint == "messages" else "desc",
     )
+    return source_response
 
 
 def get_capabilities(api_key: str) -> tuple[int | None, set[str]]:

@@ -62,6 +62,10 @@ def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
+def _completion_watermark(source_response) -> Any:
+    return source_response.incremental_field_last_value_on_complete
+
+
 def test_incremental_value_preserves_iso_timestamp() -> None:
     value = datetime(2026, 7, 29, 12, 30, tzinfo=UTC)
     assert _incremental_value(value) == "2026-07-29T12:30:00+00:00"
@@ -77,28 +81,43 @@ def test_messages_paginates_checkpoints_and_sends_incremental_watermark(make_ses
             _response(
                 {
                     "data": [{"id": "msg_1"}],
-                    "pagination": {"next_cursor": "cursor_2", "has_more": True, "limit": 100},
+                    "pagination": {
+                        "next_cursor": "cursor_2",
+                        "has_more": True,
+                        "limit": 100,
+                        "snapshot_at": "2026-07-29T12:00:00Z",
+                    },
                 }
             ),
             _response(
                 {
                     "data": [{"id": "msg_2"}],
-                    "pagination": {"next_cursor": None, "has_more": False, "limit": 100},
+                    "pagination": {
+                        "next_cursor": None,
+                        "has_more": False,
+                        "limit": 100,
+                        "snapshot_at": "2026-07-29T12:00:00Z",
+                    },
                 }
             ),
         ],
     )
     manager = _manager()
 
-    rows = _rows(
-        _source(
-            "messages",
-            manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-07-01T00:00:00Z",
-            incremental_field="updated_at",
-        )
+    source_response = _source(
+        "messages",
+        manager,
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="2026-07-01T00:00:00Z",
+        incremental_field="updated_at",
     )
+    pages = iter(source_response.items())
+    first_page = next(pages)
+
+    assert first_page == [{"id": "msg_1"}]
+    assert _completion_watermark(source_response) is None
+
+    rows = first_page + [row for page in pages for row in page]
 
     assert rows == [{"id": "msg_1"}, {"id": "msg_2"}]
     assert params[0] == {"limit": 100, "updated_after": "2026-07-01T00:00:00Z"}
@@ -108,6 +127,7 @@ def test_messages_paginates_checkpoints_and_sends_incremental_watermark(make_ses
         "cursor": "cursor_2",
     }
     manager.save_state.assert_called_once_with(ShipmailResumeConfig(cursor="cursor_2"))
+    assert _completion_watermark(source_response) == "2026-07-29T12:00:00Z"
     make_session.assert_called_once_with(redact_values=("test-key",), capture=False)
 
 
@@ -130,6 +150,37 @@ def test_resumes_from_saved_cursor(make_session: mock.MagicMock) -> None:
 
     assert rows == [{"id": "mbx_2"}]
     assert params[0] == {"limit": 100, "cursor": "cursor_2"}
+
+
+@mock.patch(TRACKED_SESSION_PATCH)
+def test_empty_messages_sync_captures_snapshot_watermark(make_session: mock.MagicMock) -> None:
+    session = make_session.return_value
+    _wire(
+        session,
+        [
+            _response(
+                {
+                    "data": [],
+                    "pagination": {
+                        "next_cursor": None,
+                        "has_more": False,
+                        "limit": 100,
+                        "snapshot_at": "2026-07-30T12:00:00Z",
+                    },
+                }
+            )
+        ],
+    )
+    source_response = _source(
+        "messages",
+        _manager(),
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="2026-07-29T12:00:00Z",
+        incremental_field="updated_at",
+    )
+
+    assert _rows(source_response) == []
+    assert source_response.incremental_field_last_value_on_complete == "2026-07-30T12:00:00Z"
 
 
 @mock.patch(TRACKED_SESSION_PATCH)
