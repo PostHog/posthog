@@ -1,6 +1,5 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import { resolveService } from "@posthog/di/container";
-import { toast } from "@posthog/ui/primitives/toast";
 import { useReviewNavigationStore } from "../code-review/reviewNavigationStore";
 import { DEFAULT_TAB_IDS } from "../panels/panelConstants";
 import { usePanelLayoutStore } from "../panels/panelLayoutStore";
@@ -9,6 +8,7 @@ import {
   AGENT_PROMPT_SENDER,
   type AgentPromptSender,
 } from "./agentPromptSender";
+import { showSessionPromptError } from "./sessionPromptError";
 
 /**
  * Sends a prompt to the agent session for a task, collapses the review
@@ -24,11 +24,7 @@ export function sendPromptToAgent(
   )
     .then(() => true)
     .catch((error: unknown) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to send your message to the agent. Please try again.",
-      );
+      showSessionPromptError(taskId, error);
       return false;
     });
 

@@ -114,6 +114,7 @@ import {
   planPermissionResponse,
   resolveAllowAlwaysUpgradeMode,
 } from "./permissionResponse";
+import { SessionConnectingError } from "./sessionErrors";
 import {
   collapseSupersededToolCallUpdates,
   convertStoredEntriesToEvents,
@@ -4228,9 +4229,7 @@ export class SessionService {
         );
       }
       if (session.status === "connecting") {
-        throw new Error(
-          "Session is still connecting. Please wait and try again.",
-        );
+        throw new SessionConnectingError();
       }
       throw new Error(`Session is not ready (status: ${session.status})`);
     }

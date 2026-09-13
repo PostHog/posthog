@@ -36,6 +36,7 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { getAppViewSnapshot } from "@posthog/ui/router/useAppView";
 import { logger } from "@posthog/ui/shell/logger";
 import { useCallback, useRef } from "react";
+import { showSessionPromptError } from "../sessionPromptError";
 
 const log = logger.scope("session-callbacks");
 
@@ -157,9 +158,7 @@ export function useSessionCallbacks({
         }
         return true;
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Failed to send message";
-        toast.error(message);
+        showSessionPromptError(taskId, error);
         log.error("Failed to send prompt", error);
         return false;
       }

@@ -4,6 +4,7 @@ import type {
   SessionConfigSelectGroup,
 } from "@agentclientprotocol/sdk";
 import { ApiRequestError } from "@posthog/api-client/fetcher";
+import { SessionConnectingError } from "@posthog/core/sessions/sessionErrors";
 import type { AcpMessage } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import type { AgentSession } from "@posthog/ui/features/sessions/sessionStore";
@@ -7086,9 +7087,9 @@ describe("SessionService", () => {
         createMockSession({ status: "connecting" }),
       );
 
-      await expect(service.sendPrompt("task-123", "Hello")).rejects.toThrow(
-        "Session is still connecting",
-      );
+      await expect(
+        service.sendPrompt("task-123", "Hello"),
+      ).rejects.toBeInstanceOf(SessionConnectingError);
     });
 
     it("queues message when prompt is already pending", async () => {
