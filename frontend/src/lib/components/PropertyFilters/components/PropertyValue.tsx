@@ -143,6 +143,12 @@ export function PropertyValue({
         set: Set<string>
         orderedKeys: string[]
     }>({ set: new Set(), orderedKeys: [] })
+    // the first response is capped, so a value with a comma can appear only once the user searches
+    // for it. Remember the property we saw one for, so comma entry does not switch off again when
+    // the next search returns values without one. Holding the property key rather than a boolean
+    // keeps the memory correct without a reset, which a cached response would otherwise race on
+    // mount.
+    const [keyWithValueContainingComma, setKeyWithValueContainingComma] = useState<string | null>(null)
     const currentSearchInput = useRef<string>('')
 
     const hasStaticValues = !!staticValues
@@ -230,6 +236,17 @@ export function PropertyValue({
         }
     }, [propertyOptions?.status, propertyOptions?.values, propertyOptions?.searchInput])
 
+    // watch every response, including a search response, for a value that holds a comma
+    useEffect(() => {
+        if (
+            !hasStaticValues &&
+            propertyOptions?.status === 'loaded' &&
+            propertyOptions?.values?.some((v) => toString(v.name).includes(','))
+        ) {
+            setKeyWithValueContainingComma(propertyKey)
+        }
+    }, [propertyOptions?.status, propertyOptions?.values, hasStaticValues, propertyKey])
+
     // reset initial suggested values when propertyKey changes
     useEffect(() => {
         setInitialSuggestedValues({ set: new Set(), orderedKeys: [] })
@@ -272,6 +289,16 @@ export function PropertyValue({
 
         return [...suggestedOptions, ...otherOptions]
     }, [propertyOptions?.values, initialSuggestedValues, staticValues])
+
+    const availableValues = useMemo(
+        () => new Set(displayOptions.map((option) => toString(option.name))),
+        [displayOptions]
+    )
+    // Read the remembered result rather than the live options, because a search response replaces
+    // the options and would turn comma-separated entry back on part-way through typing.
+    const someValueContainsComma =
+        (staticValues ?? []).some((option) => toString(option.name).includes(',')) ||
+        keyWithValueContainingComma === propertyKey
 
     const onSearchTextChange = (newInput: string): void => {
         const trimmedInput = newInput.trim()
@@ -423,8 +450,12 @@ export function PropertyValue({
         return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
     }
 
-    // Disable comma splitting for user agent properties that contain commas in their values
+    // Comma-separated entry cuts the input in two at each comma, which makes a value that contains a
+    // comma impossible to type. The suggested values show when that applies. The user agent keys
+    // stay for the two cases the suggestions miss: before the first response arrives, and a user
+    // agent value such as `curl/8.1.2` that holds no comma.
     const isUserAgentProperty = ['$raw_user_agent', '$initial_raw_user_agent', '$user_agent'].includes(propertyKey)
+    const disableCommaSplitting = isUserAgentProperty || someValueContainsComma
 
     const suggestionsLabel = staticValues
         ? staticValues.length > 0
@@ -482,16 +513,21 @@ export function PropertyValue({
                         : undefined
                 }
                 onChange={(nextVal) => {
-                    // Trim whitespace so a stray leading/trailing space (common when pasting an ID)
-                    // doesn't silently break the filter — the snack display hides the space.
-                    // Skip regex operators, where leading/trailing whitespace can be a meaningful
-                    // part of the pattern (e.g. `^ foo`, `bar $`).
-                    const trimmedVal = isOperatorRegex(operator)
+                    // A leading or trailing space is invisible in the value snack, so a pasted ID that
+                    // keeps one breaks the filter with no sign of why. Trim it away, with three
+                    // exceptions. A regex operator can use the space as part of the pattern (for
+                    // example `^ foo`). A value that the suggestions hold with that same space is a
+                    // real property value. An already committed value keeps what it was saved with,
+                    // because this callback receives every selected value on each edit.
+                    const committedVal = isOperatorRegex(operator)
                         ? nextVal
-                        : nextVal.map((v) => (typeof v === 'string' ? v.trim() : v))
-                    const newValues = trimmedVal.filter((v) => !formattedValues.includes(String(v)))
+                        : nextVal.map((v) =>
+                              typeof v === 'string' && !availableValues.has(v) && !formattedValues.includes(v)
+                                  ? v.trim()
+                                  : v
+                          )
+                    const newValues = committedVal.filter((v) => !formattedValues.includes(String(v)))
                     if (newValues.length > 0) {
-                        const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
                         const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))
 
                         posthog.capture('property_value_selected', {
@@ -502,12 +538,12 @@ export function PropertyValue({
                             had_search_input: currentSearchInput.current !== '',
                         })
                     }
-                    isMultiSelect ? setValue(trimmedVal) : setValue(trimmedVal[0])
+                    isMultiSelect ? setValue(committedVal) : setValue(committedVal[0])
                 }}
                 onInputChange={onSearchTextChange}
                 placeholder={placeholder}
                 size={size}
-                disableCommaSplitting={isUserAgentProperty}
+                disableCommaSplitting={disableCommaSplitting}
                 status={validationError ? 'danger' : 'default'}
                 title={titleNode}
                 popoverClassName="max-w-200"
