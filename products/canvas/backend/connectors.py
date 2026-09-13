@@ -23,7 +23,6 @@ from dataclasses import field, replace
 from typing import TYPE_CHECKING, Any
 
 from django.core.validators import RegexValidator
-from django.db import models
 
 import structlog
 import posthoganalytics
@@ -35,6 +34,7 @@ from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 
+from products.canvas.backend.facade.enums import ConnectorCallStatus, ConnectorKind
 from products.mcp_store.backend.facade import api as mcp_store_facade
 from products.mcp_store.backend.facade.contracts import ConnectorTool as McpConnectorTool
 
@@ -53,22 +53,6 @@ MCP_PROVIDER_PREFIX = "mcp:"
 MAX_RESULT_BYTES = 256 * 1024
 _GITHUB_SOURCE = "canvas_connectors"
 _PERSONAL_INTEGRATIONS_PATH = "/settings/user-personal-integrations"
-
-
-class ConnectorCallStatus(models.TextChoices):
-    OK = "ok"
-    NOT_CONNECTED = "not_connected"
-    NEEDS_REAUTH = "needs_reauth"
-    NEEDS_APPROVAL = "needs_approval"
-    BLOCKED = "blocked"
-    TOOL_MISSING = "tool_missing"
-    WRITE_BLOCKED = "write_blocked"
-    UPSTREAM_ERROR = "upstream_error"
-
-
-class ConnectorKind(models.TextChoices):
-    NATIVE = "native"
-    MCP = "mcp"
 
 
 def canvas_connectors_enabled(team: "Team") -> bool:

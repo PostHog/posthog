@@ -21,7 +21,7 @@ from posthog.models import Team
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.canvas.backend.notebook_integration import (
+from products.canvas.backend.facade.notebooks import (
     CanvasGenerationState,
     NotebookCanvasVersion,
     _source_project,
@@ -924,11 +924,11 @@ class TestWidgetData(APIBaseTest):
 
         with (
             patch(
-                "products.canvas.backend.notebook_integration.get_canvas_generation_state",
+                "products.canvas.backend.facade.notebooks.get_canvas_generation_state",
                 return_value=state,
             ),
             patch(
-                "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+                "products.canvas.backend.facade.notebooks.list_notebook_canvas_versions",
                 return_value=history,
             ),
         ):
@@ -947,7 +947,7 @@ class TestWidgetData(APIBaseTest):
             f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/versions/"
         )
         with patch(
-            "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+            "products.canvas.backend.facade.notebooks.list_notebook_canvas_versions",
             return_value=history,
         ):
             history_response = self.client.get(history_url, {"limit": 1})
@@ -979,8 +979,8 @@ class TestWidgetData(APIBaseTest):
         )
 
         with (
-            patch("products.canvas.backend.notebook_integration.get_canvas_generation_state", return_value=state),
-            patch("products.canvas.backend.notebook_integration.list_notebook_canvas_versions", return_value=[]),
+            patch("products.canvas.backend.facade.notebooks.get_canvas_generation_state", return_value=state),
+            patch("products.canvas.backend.facade.notebooks.list_notebook_canvas_versions", return_value=[]),
         ):
             result = get_widget_status(notebook=self.notebook, node_id=self.NODE_ID)
 
@@ -993,7 +993,7 @@ class TestWidgetData(APIBaseTest):
         url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/source/"
 
         with patch(
-            "products.canvas.backend.notebook_integration.get_notebook_canvas_source",
+            "products.canvas.backend.facade.notebooks.get_notebook_canvas_source",
             return_value="export default function Widget() { return <div /> }",
         ) as read_source:
             response = self.client.get(url, {"version_id": str(version.id)})
@@ -1282,7 +1282,7 @@ class TestWidgetData(APIBaseTest):
 
         with (
             patch(
-                "products.canvas.backend.notebook_integration.get_canvas_generation_state",
+                "products.canvas.backend.facade.notebooks.get_canvas_generation_state",
                 return_value=state,
             ),
             patch("products.notebooks.backend.widgets.start_widget_generation_workflow") as start_workflow,
@@ -1530,12 +1530,12 @@ class TestWidgetData(APIBaseTest):
                     review_version="1",
                 ),
             ),
-            patch("products.canvas.backend.notebook_integration.get_notebook_canvas_source", return_value="source"),
+            patch("products.canvas.backend.facade.notebooks.get_notebook_canvas_source", return_value="source"),
             patch(
-                "products.canvas.backend.notebook_integration.prepare_notebook_canvas_source",
+                "products.canvas.backend.facade.notebooks.prepare_notebook_canvas_source",
                 side_effect=mark_terminal,
             ),
-            patch("products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source") as publish,
+            patch("products.canvas.backend.facade.notebooks.publish_prepared_notebook_canvas_source") as publish,
         ):
             run_widget_generation_job(job.id, self.team.id)
 
@@ -1594,13 +1594,13 @@ class TestWidgetData(APIBaseTest):
                 "products.notebooks.backend.widget_generation.review_widget_source",
                 side_effect=perform_review,
             ) as review,
-            patch("products.canvas.backend.notebook_integration.get_notebook_canvas_source", return_value="source"),
+            patch("products.canvas.backend.facade.notebooks.get_notebook_canvas_source", return_value="source"),
             patch(
-                "products.canvas.backend.notebook_integration.prepare_notebook_canvas_source",
+                "products.canvas.backend.facade.notebooks.prepare_notebook_canvas_source",
                 side_effect=prepare_source,
             ) as prepare,
             patch(
-                "products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source",
+                "products.canvas.backend.facade.notebooks.publish_prepared_notebook_canvas_source",
                 return_value=publication_id,
             ) as publish,
         ):
@@ -1659,9 +1659,9 @@ class TestWidgetData(APIBaseTest):
                 "products.notebooks.backend.widget_generation.review_widget_source",
                 side_effect=WidgetSecurityReviewError("Review failed"),
             ),
-            patch("products.canvas.backend.notebook_integration.get_notebook_canvas_source", return_value="source"),
-            patch("products.canvas.backend.notebook_integration.prepare_notebook_canvas_source") as prepare,
-            patch("products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source") as publish,
+            patch("products.canvas.backend.facade.notebooks.get_notebook_canvas_source", return_value="source"),
+            patch("products.canvas.backend.facade.notebooks.prepare_notebook_canvas_source") as prepare,
+            patch("products.canvas.backend.facade.notebooks.publish_prepared_notebook_canvas_source") as publish,
         ):
             run_widget_generation_job(job.id, self.team.id)
 

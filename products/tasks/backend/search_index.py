@@ -3,6 +3,7 @@ import hashlib
 import logging
 from collections.abc import Iterable
 from typing import Any
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q, Value
@@ -13,7 +14,7 @@ from django.dispatch import receiver
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.facade import search as canvas_search
 from products.tasks.backend.models import Channel, Task, TaskArtifact, TaskRun, TaskSearchDocument
 
 logger = logging.getLogger(__name__)
@@ -208,10 +209,10 @@ def index_channel(channel_id: Any, *, canonical_team_id: int | None = None) -> N
     )
 
 
-def index_canvas(canvas_id: Any, *, canonical_team_id: int | None = None) -> None:
-    canvas = Canvas.objects.unscoped().filter(id=canvas_id).first()
+def index_canvas(canvas_id: Any, *, team_id: int, canonical_team_id: int | None = None) -> None:
+    canvas = canvas_search.searchable_canvas(team_id=team_id, canvas_id=canvas_id)
     source_key = str(canvas_id)
-    if canvas is None or canvas.deleted or canvas.source_policy != Canvas.SOURCE_POLICY_STANDARD:
+    if canvas is None:
         TaskSearchDocument.objects.unscoped().filter(
             kind=TaskSearchDocument.Kind.CANVAS, source_key=source_key
         ).delete()
@@ -246,8 +247,8 @@ def rebuild_team_search_index(team_id: int) -> None:
         Channel.objects.for_team(canonical_team_id, canonical=True).values_list("id", flat=True).iterator()
     ):
         index_channel(channel_id, canonical_team_id=canonical_team_id)
-    for canvas_id in Canvas.objects.for_team(canonical_team_id, canonical=True).values_list("id", flat=True).iterator():
-        index_canvas(canvas_id, canonical_team_id=canonical_team_id)
+    for canvas_id in canvas_search.list_canvas_ids(canonical_team_id):
+        index_canvas(canvas_id, team_id=canonical_team_id, canonical_team_id=canonical_team_id)
 
 
 def _touches(update_fields, fields: set[str]) -> bool:
@@ -307,22 +308,21 @@ def channel_saved(sender, instance: Channel, update_fields=None, **kwargs) -> No
     _after_commit(lambda: index_channel(instance.id))
 
 
-@receiver(post_save, sender=Canvas)
-def canvas_saved(sender, instance: Canvas, update_fields=None, **kwargs) -> None:
+def canvas_saved(team_id: int, canvas_id: UUID, update_fields: Iterable[str] | None) -> None:
+    """Called by the canvas product from its own save path."""
     if not _touches(
         update_fields,
         {"name", "deleted", "channel", "kind", "template_id", "source_policy"},
     ):
         return
-    _after_commit(lambda: index_canvas(instance.id))
+    _after_commit(lambda: index_canvas(canvas_id, team_id=team_id))
 
 
-@receiver(post_delete, sender=Canvas)
-def canvas_deleted(sender, instance: Canvas, **kwargs) -> None:
+def canvas_deleted(canvas_id: UUID) -> None:
     _after_commit(
         lambda: (
             TaskSearchDocument.objects.unscoped()
-            .filter(kind=TaskSearchDocument.Kind.CANVAS, source_key=str(instance.id))
+            .filter(kind=TaskSearchDocument.Kind.CANVAS, source_key=str(canvas_id))
             .delete()
         )
     )

@@ -1,8 +1,8 @@
 from datetime import timedelta
+from uuid import UUID
 
 from unittest.mock import patch
 
-from django.apps import apps
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone as django_timezone
 
@@ -13,6 +13,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.canvas.backend.facade import testing as canvas_testing
 from products.tasks.backend.logic.services.loop_runs import (
     DISABLED_REASON_REPEATED_FAILURES,
     DISABLED_REASON_USAGE_LIMITED,
@@ -765,13 +766,12 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
             team=self.team, name="growth-team", channel_type=Channel.ChannelType.PUBLIC, created_by=self.user
         )
         self.channel.save()
-        canvas_model = apps.get_model("canvas", "Canvas")
-        canvas_model.objects.unscoped().create(
-            id=self.CANVAS_ID,
-            team=self.team,
-            channel=self.channel,
+        canvas_testing.create_canvas(
+            canvas_id=UUID(self.CANVAS_ID),
+            team_id=self.team.id,
+            channel_id=self.channel.id,
             name="Growth Team",
-            created_by=self.user,
+            created_by_id=self.user.id,
         )
 
     def context_target(self, **outputs) -> dict:

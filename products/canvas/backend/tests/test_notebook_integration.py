@@ -6,12 +6,12 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.canvas.backend.models import Canvas
-from products.canvas.backend.notebook_integration import (
+from products.canvas.backend.facade.notebooks import (
     NotebookCanvasNotFoundError,
     create_notebook_canvas,
     validate_notebook_canvas_source,
 )
+from products.canvas.backend.models import Canvas
 from products.tasks.backend.models import Channel
 
 
