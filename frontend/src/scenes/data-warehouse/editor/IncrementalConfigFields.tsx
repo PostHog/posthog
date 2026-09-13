@@ -120,12 +120,10 @@ function IncrementalKeyInput({
     value,
     onChange,
     dataAttr,
-    compact = false,
 }: {
     check: DataWarehouseSavedQueryIncrementalCheck
     value: string | null
     onChange: (value: string | null) => void
-    compact?: boolean
     dataAttr: string
 }): JSX.Element {
     return (
@@ -138,8 +136,8 @@ function IncrementalKeyInput({
             }))}
             placeholder="Select a column"
             data-attr={dataAttr}
-            size={compact ? 'small' : undefined}
-            renderButtonContent={compact ? (option) => option?.value ?? 'Select a column' : undefined}
+            size="small"
+            renderButtonContent={(option) => option?.value ?? 'Select a column'}
             fullWidth
         />
     )
@@ -150,12 +148,10 @@ function UniqueKeyInput({
     value,
     onChange,
     dataAttr,
-    compact = false,
 }: {
     check: DataWarehouseSavedQueryIncrementalCheck
     value: string[]
     onChange: (value: string[]) => void
-    compact?: boolean
     dataAttr: string
 }): JSX.Element {
     // Wider than key_candidates: identifying a row only needs equality, so strings qualify here
@@ -164,43 +160,24 @@ function UniqueKeyInput({
     return (
         <LemonInputSelect
             mode="multiple"
-            size={compact ? 'small' : undefined}
+            size="small"
             fullWidth
-            transparentBackground={compact}
+            transparentBackground
             value={value}
             onChange={onChange}
             options={candidates.map((column) => ({
                 key: column,
                 label: column,
-                labelComponent: compact ? undefined : (
-                    <ColumnWithType column={column} columnType={check.key_candidate_types?.[column]} />
-                ),
-                tooltip: compact ? check.key_candidate_types?.[column] : undefined,
+                tooltip: check.key_candidate_types?.[column],
             }))}
-            placeholder={compact ? 'Add column' : 'Select one or more columns'}
+            placeholder="Add column"
             data-attr={dataAttr}
         />
     )
 }
 
-function LookbackInput({
-    value,
-    onChange,
-    compact = false,
-}: {
-    value: number
-    onChange: (value: number) => void
-    compact?: boolean
-}): JSX.Element {
-    return (
-        <LemonSelect
-            value={value}
-            onChange={onChange}
-            options={LOOKBACK_OPTIONS}
-            size={compact ? 'small' : undefined}
-            fullWidth
-        />
-    )
+function LookbackInput({ value, onChange }: { value: number; onChange: (value: number) => void }): JSX.Element {
+    return <LemonSelect value={value} onChange={onChange} options={LOOKBACK_OPTIONS} size="small" fullWidth />
 }
 
 interface IncrementalConfigOptionsProps {
@@ -244,7 +221,6 @@ export function IncrementalConfigOptions({
                     >
                         <div className="min-w-0 w-full flex-1">
                             <IncrementalKeyInput
-                                compact
                                 check={check}
                                 value={draft.incrementalKey}
                                 onChange={(incrementalKey) => onChange({ incrementalKey })}
@@ -260,7 +236,6 @@ export function IncrementalConfigOptions({
                     >
                         <div className="min-w-0 w-full flex-1">
                             <UniqueKeyInput
-                                compact
                                 check={check}
                                 value={draft.uniqueKey}
                                 onChange={(uniqueKey) => onChange({ uniqueKey })}
@@ -276,7 +251,6 @@ export function IncrementalConfigOptions({
                     >
                         <div className="min-w-0 w-full flex-1">
                             <LookbackInput
-                                compact
                                 value={draft.lookbackSeconds}
                                 onChange={(lookbackSeconds) => onChange({ lookbackSeconds })}
                             />
