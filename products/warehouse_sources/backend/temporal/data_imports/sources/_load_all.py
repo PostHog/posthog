@@ -393,6 +393,7 @@ from .ebay.source import EbaySource
 from .ecb_data_portal.source import EcbDataPortalSource
 from .elasticemail.source import ElasticemailSource
 from .elasticsearch.source import ElasticsearchSource
+from .electricity_maps.source import ElectricityMapsSource
 from .elevenlabs.source import ElevenLabsSource
 from .eloqua.source import EloquaSource
 from .emailoctopus.source import EmailOctopusSource

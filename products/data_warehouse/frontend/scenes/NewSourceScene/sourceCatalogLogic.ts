@@ -538,6 +538,7 @@ export interface sourceCatalogLogicMeta {
                       | 'EConomic'
                       | 'Elasticemail'
                       | 'Elasticsearch'
+                      | 'ElectricityMaps'
                       | 'ElevenLabs'
                       | 'Eloqua'
                       | 'EmailOctopus'
