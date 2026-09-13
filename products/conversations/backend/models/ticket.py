@@ -153,6 +153,8 @@ class Ticket(UUIDTModel):
             ),
             # Dashboard ordering optimization
             models.Index(fields=["team", "-updated_at"], name="posthog_con_team_updated_idx"),
+            # Pattern detection windows on arrival time; every other index leads on updated_at.
+            models.Index(fields=["team", "-created_at"], name="posthog_con_team_created_idx"),
             # Dashboard filtered + ordered queries
             models.Index(fields=["team", "status", "-updated_at"], name="posthog_con_status_upd_idx"),
             # SLA sort + filter. The dashboard sorts by "sla_due_at <dir> NULLS LAST, ticket_number

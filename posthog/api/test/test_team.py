@@ -1817,6 +1817,16 @@ def team_api_test_factory():
                 assert response.status_code == status.HTTP_200_OK
                 assert not any(c.args[1] == "support setting changed" for c in mock_report.call_args_list)
 
+        def test_conversations_settings_rejects_an_out_of_range_pattern_window(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"pattern_window_minutes": 1441}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+            self.team.refresh_from_db()
+            assert "pattern_window_minutes" not in (self.team.conversations_settings or {})
+
         def test_conversations_widget_position_setting(self):
             response = self.client.patch(
                 "/api/environments/@current/",
@@ -3846,6 +3856,24 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
     def test_rejects_non_string_widget_domain(self, _name: str, entry: Any) -> None:
         # widget_domains rides in on a raw JSONField, so entries reach validation untyped.
         serializer = TeamSerializer(data={"conversations_settings": {"widget_domains": [entry]}}, partial=True)
+        assert not serializer.is_valid()
+
+    # `ProjectBackwardCompatSerializer` keeps its own copy of this validator, and /api/projects is
+    # the route clients reach, so both serializers are exercised here rather than only the Team one.
+    @parameterized.expand([["team", TeamSerializer], ["project", ProjectBackwardCompatSerializer]])
+    def test_conversations_pattern_window_is_capped_at_a_day(self, _name: str, serializer_class: type) -> None:
+        serializer = serializer_class(data={"conversations_settings": {"pattern_window_minutes": 1441}}, partial=True)
+        assert not serializer.is_valid()
+
+        # The ceiling itself must still be accepted. `is_valid()` cannot show that here, because a
+        # valid payload falls through to the object-level validate() that needs request context.
+        assert serializer_class().validate_conversations_settings({"pattern_window_minutes": 1440}) == {
+            "pattern_window_minutes": 1440
+        }
+
+    @parameterized.expand([["team", TeamSerializer], ["project", ProjectBackwardCompatSerializer]])
+    def test_conversations_pattern_requester_count_has_a_floor(self, _name: str, serializer_class: type) -> None:
+        serializer = serializer_class(data={"conversations_settings": {"pattern_min_requesters": 1}}, partial=True)
         assert not serializer.is_valid()
 
     def test_invalid_autocapture_exceptions_opt_in_not_a_boolean(self) -> None:
