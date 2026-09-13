@@ -7125,6 +7125,33 @@ describe("SessionService", () => {
       }
     });
 
+    it("follows the replacement when a resume repaints the session", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
+        const service = getSessionService();
+        const session = createMockSession({
+          status: "connecting",
+          startedAt: Date.now(),
+        });
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+
+        await expect(
+          service.sendPrompt("task-123", "Hello"),
+        ).rejects.toBeInstanceOf(SessionConnectingError);
+
+        // The authoritative read replaces the fast-paint session, which gives
+        // the replacement a later startedAt.
+        await vi.advanceTimersByTimeAsync(50);
+        session.startedAt = Date.now();
+
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(mockToast.error).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("cancels a pending connecting notice when the service resets", async () => {
       vi.useFakeTimers();
       try {

@@ -4326,9 +4326,12 @@ export class SessionService {
     const timer = setTimeout(() => {
       this.connectingToastTimers.delete(taskId);
       const session = this.d.store.getSessionByTaskId(taskId);
-      if (session?.status === "connecting" && session.startedAt === startedAt) {
-        this.showConnectingToast(taskId, startedAt);
-      }
+      if (session?.status !== "connecting") return;
+      // A resume repaints the session and gives the replacement a fresh
+      // `startedAt`, so the session connecting now is rarely the one this timer
+      // was armed against. Follow that session and wait out the rest of its own
+      // delay, rather than dropping the notice the wait was measured for.
+      this.scheduleConnectingToast(taskId, session.startedAt);
     }, delay);
     this.connectingToastTimers.set(taskId, { startedAt, timer });
   }
