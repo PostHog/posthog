@@ -197,6 +197,22 @@ export default function ViewRecordingButton({
     )
 }
 
+// $recording_status reports how far the recorder got at capture time, not whether a recording exists.
+// Only these statuses rule a recording out. Every other one leaves the outcome open, so it warns instead.
+const REPLAY_OFF_REASONS: Record<string, string> = {
+    disabled: 'Session replay was turned off when this event was captured.',
+    missing_config: 'The SDK could not load your replay settings, so it did not record this event.',
+    rrweb_error: 'The recorder failed to start, so this event was not recorded.',
+}
+
+const UNCERTAIN_STATUS_WARNINGS: Record<string, string> = {
+    buffering: 'The recorder was buffering at this time. There may not be a recording to watch.',
+    lazy_loading: 'The recorder was still loading at this time. There may not be a recording to watch.',
+    awaiting_config: 'The recorder was waiting for your replay settings. There may not be a recording to watch.',
+    pending_config: 'The recorder was waiting for your replay settings. There may not be a recording to watch.',
+    paused: 'Recording was paused at this time. There may not be a recording to watch.',
+}
+
 export const recordingDisabledReason = (
     sessionId: unknown,
     recordingStatus: string | undefined,
@@ -216,10 +232,13 @@ export const recordingDisabledReason = (
                 set it on all events.
             </>
         )
-    } else if (recordingStatus && !['active', 'sampled', 'buffering'].includes(recordingStatus)) {
+    } else if (hasRecording === true) {
+        // We already know a recording exists, so no reported status can rule it out.
+        return null
+    } else if (recordingStatus && Object.hasOwn(REPLAY_OFF_REASONS, recordingStatus)) {
         return (
             <>
-                Replay was not active when capturing this event.{' '}
+                {REPLAY_OFF_REASONS[recordingStatus]}{' '}
                 <Link to="https://posthog.com/docs/session-replay/troubleshooting#recordings-are-not-being-captured">
                     Learn why
                 </Link>{' '}
@@ -232,22 +251,23 @@ export const recordingDisabledReason = (
     return null
 }
 
-const recordingWarningReason = (
+export const recordingWarningReason = (
     recordingDuration: number | undefined,
     minimumDuration: number | undefined,
     recordingStatus: string | undefined,
     hasRecording: boolean | undefined
 ): string | undefined => {
-    // These warnings only caveat that a recording might not exist. Once we know one does, they're just confusing.
-    if (hasRecording === true) {
+    // These warnings only caveat that a recording might not exist. Once the server has answered either
+    // way, the disabled reason states the outcome, so a hedge beside it only contradicts it.
+    if (hasRecording !== undefined) {
         return undefined
     }
     if (recordingDuration && minimumDuration && recordingDuration < minimumDuration) {
         const minimumDurationInSeconds = minimumDuration / 1000
         return `There is a chance this recording was not captured because the event happened earlier than the ${minimumDurationInSeconds}s minimum session duration.`
     }
-    if (recordingStatus === 'buffering') {
-        return 'The recorder was buffering at this time. There may not be a recording to watch.'
+    if (recordingStatus && Object.hasOwn(UNCERTAIN_STATUS_WARNINGS, recordingStatus)) {
+        return UNCERTAIN_STATUS_WARNINGS[recordingStatus]
     }
     return undefined
 }

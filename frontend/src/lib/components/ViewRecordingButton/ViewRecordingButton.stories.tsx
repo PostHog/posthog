@@ -26,6 +26,32 @@ export function Default(): JSX.Element {
     )
 }
 
+export function RecordingStatuses(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-y-2 grow-0">
+            {[
+                'active',
+                'buffering',
+                'lazy_loading',
+                'awaiting_config',
+                'paused',
+                'disabled',
+                'missing_config',
+                'rrweb_error',
+            ].map((recordingStatus) => (
+                <ViewRecordingButton
+                    key={recordingStatus}
+                    fullWidth
+                    type="secondary"
+                    sessionId="123456789"
+                    recordingStatus={recordingStatus}
+                    label={recordingStatus}
+                />
+            ))}
+        </div>
+    )
+}
+
 export function LinkVariant(): JSX.Element {
     return (
         <div className="flex flex-col gap-y-2 grow-0">
