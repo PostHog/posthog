@@ -28,7 +28,7 @@ import { FeedbackButton } from 'products/customer_analytics/frontend/components/
 import { PersonDisplayNameNudgeBanner } from 'products/customer_analytics/frontend/components/PersonDisplayNameNudgeBanner'
 import { customerProfileConfigLogic } from 'products/customer_analytics/frontend/customerProfileConfigLogic'
 
-import { personsSceneLogic } from './personsSceneLogic'
+import { personsSceneLogic } from '../logics/personsSceneLogic'
 
 export const scene: SceneExport = {
     component: PersonsScene,

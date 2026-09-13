@@ -4,9 +4,10 @@ import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/T
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { toParams } from 'lib/utils/url'
 import { getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 
 import { Group, GroupType } from '~/types'
+
+import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 
 export type AggregationLabel = (groupTypeIndex: number) => { singular: string; plural: string }
 

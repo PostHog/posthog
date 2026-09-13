@@ -35,7 +35,7 @@ export function GroupActorDisplay({ actor }: GroupActorDisplayProps): JSX.Elemen
     )
 }
 
-// Analogue to frontend/src/scenes/persons/PersonDisplay.tsx#asDisplay
+// Analogue to products/persons/frontend/components/PersonDisplay.tsx#asDisplay
 export function groupDisplayId(groupKey: string, properties: Record<string, any>): string {
     if (properties?.name) {
         return String(properties.name)

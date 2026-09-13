@@ -3,13 +3,13 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import type { CountedPaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { PersonType } from '~/types'
+import type { PersonListParams } from '~/types'
 
-import type { CountedPaginatedResponse } from '../../lib/api'
-import type { PersonListParams } from '../../types'
 import { personsLogic } from './personsLogic'
 
 export interface SplitPersonLogicProps {
@@ -117,6 +117,8 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
                             : values.selectedPersonToAssignSplit
                               ? { main_distinct_id: values.selectedPersonToAssignSplit }
                               : {}
+                    // personsSplitCreate needs a project id that this logic does not hold.
+                    // nosemgrep: prefer-codegen-api
                     const splitAction = await api.create('api/person/' + values.person.id + '/split/', payload)
                     if (splitAction.success) {
                         lemonToast.success(

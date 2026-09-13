@@ -85,7 +85,6 @@ import {
 } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedFiltersTaxonomicGroup } from 'scenes/session-recordings/filters/SavedFiltersTaxonomicGroup'
 import { teamLogic } from 'scenes/teamLogic'
@@ -120,6 +119,7 @@ import {
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
+import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
 
 import type { Noun } from '../../../models/groupsModel'
