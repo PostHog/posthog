@@ -6,6 +6,8 @@ from django.db import close_old_connections
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.exceptions_capture import capture_exception
+from posthog.integration_secrets.errors import IntegrationSecretsFailure
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
@@ -92,6 +94,20 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             # message in get_non_retryable_errors.
             if isinstance(e, UndecryptedIntegrationSecretError):
                 logger.warning(f"Skipping schema discovery due to non-retryable source error: {e}")
+                return
+            # Every credential the integration service holds is PostHog's own, and every failure
+            # state it raises is transient (see IntegrationSecretsFailure) — a key in recovery gets
+            # re-provisioned, an unreachable service comes back. Discovery already runs on its own
+            # ~6h cadence, so skip quietly and let the next cycle retry rather than spending this
+            # activity's retry budget and, for `reportable=False` failures like an unreachable
+            # service, spamming error tracking with what its own availability alerting already
+            # covers. Checked by type, mirroring import_data_sync.py's handling of the same errors.
+            if isinstance(e, IntegrationSecretsFailure):
+                if e.reportable:
+                    capture_exception(e)
+                    logger.exception(f"Skipping schema discovery due to integration service error: {e}")
+                else:
+                    logger.warning(f"Skipping schema discovery due to integration service error: {e}")
                 return
             error_msg = str(e)
             non_retryable_errors = new_source.get_non_retryable_errors()
