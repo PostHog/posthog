@@ -1084,7 +1084,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="7", minute="30", day_of_week="1-5"),
+        crontab(hour="7", minute="30", day_of_week="1"),
         send_visual_review_debt_digests.s(),
         name="send visual review debt digests",
         expires_seconds=60 * 60,

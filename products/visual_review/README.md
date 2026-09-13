@@ -41,11 +41,17 @@ The windows and the reasons behind them are constants in `backend/logic/retentio
   An artifact row is what makes the CLI skip an upload, so a row without its object is the one state to avoid; a leaked object only costs storage.
 - Each invocation is capped by rows and by a time budget, so a backlog drains over days.
 
-### Daily debt digest
+### Weekly debt digest
 
-Every weekday morning a Celery task, `send visual review debt digests`, posts each team a Slack reminder about the visual review debt it still carries.
-The digest is stateless: every morning both conditions below are evaluated from current data, and nothing is stored about what was sent.
-An item repeats every weekday while it stands, and stops the day the condition no longer holds.
+Every Monday morning a Celery task, `send visual review debt digests`, posts each team a Slack reminder about the visual review debt it still carries.
+The digest is stateless: every Monday both conditions below are evaluated from current data, and nothing is stored about what was sent.
+An item repeats every week while it stands, and stops the week the condition no longer holds.
+
+Each message is Block Kit.
+The lead names the team, the week, and the two counts, with buttons to the repository's flakiness overview and its snapshots.
+Under it, one thread reply per condition that has items: a line saying what to do about that condition, then one section per item with the single action that resolves it on a button beside it.
+The last reply says when the next digest comes and how to opt out.
+A team that owns nothing gets no message at all.
 
 Two conditions, and nothing else:
 
@@ -72,15 +78,17 @@ Only Storybook runs are attributed today.
 
 Three outcomes have no owning team, and the digest keeps them apart:
 
-- **Nobody owns the file.** The story maps to a file, and no owners entry covers it. Add one for the path, which stays on the line.
+- **Nobody owns the file.** The story maps to a file, and no owners entry covers it. Add one for the path, which the message carries.
 - **The story is not in the index.** It moved, was renamed, was deleted, or it only exists on a branch.
 - **Ownership could not be worked out.** The artifact was missing or expired, the download failed, the team has no GitHub integration, or the run type is not supported yet.
 
-All three go to whoever owns `products/visual_review/`, in a triage part of that team's digest kept separate from the items those maintainers own.
+All three go to whoever owns `products/visual_review/`, in a message of their own rather than inside the digest those maintainers get for what they own.
 Holding an item until a team takes it is not owning it, and the wording says so.
-A missing artifact never turns the digest into "nobody owns this": the items still go out, and the lead says ownership is worked out again tomorrow.
+The message goes out only when at least one item asks somebody to act.
+The first two outcomes are listed, each with a button to the file or the snapshot.
+The third is only counted in the footer, because it asks the reader for nothing; the reasons go to the log instead.
 When nobody owns `products/visual_review/` either, the items are logged and dropped rather than posted somewhere arbitrary.
-The artifact is kept for one day, which is enough for a daily read of a moving baseline.
+The artifact is kept for one day, which covers a baseline that moves with the default branch.
 A baseline that has not moved for longer reads as ownership could not be worked out, and the digest says so instead of guessing.
 
 Routing goes to the team's `notifications` channel in the repository's root `owners.yaml` registry, under the `visual_review` producer.
@@ -89,11 +97,11 @@ A shared Slack channel is refused, so a name match never carries an internal rem
 
 The digest is off for a repository until `debt_digest_enabled` is set on it.
 Set it through the repo API (`PATCH /api/projects/:team_id/visual_review/repos/:id/`), the `visual-review-repos-partial-update` MCP tool, or Django admin.
-The beat task runs Monday to Friday, and it fans out only to the repositories that are on.
+The beat task runs on Monday, and it fans out only to the repositories that are on.
 A repository that owes nothing posts nothing.
 
 `./manage.py visual_review_debt_digest --repo owner/name [--mode preview]` runs one repository by hand, whatever `debt_digest_enabled` says, because a run somebody starts is already a decision to send it.
-`--mode preview`, the default, renders every team's message and logs it without posting.
+`--mode preview`, the default, prints and logs the plain text behind every message without posting.
 `--mode live` posts.
 
 ## The flow

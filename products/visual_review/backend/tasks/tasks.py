@@ -231,8 +231,8 @@ def sweep_visual_review_retention() -> None:
 def send_visual_review_debt_digests() -> None:
     """Fan out to every repo, one task each.
 
-    One repo's failure must not stop the rest, and nothing is stored about what was sent, so the
-    next morning's run recomputes and resends whatever is still owed.
+    One repo's failure must not stop the rest, and nothing is stored about what was sent, so next
+    Monday's run recomputes and resends whatever is still owed.
     """
     from ..logic import debt_digest  # noqa: PLC0415 — avoids the logic/tasks circular import
 
