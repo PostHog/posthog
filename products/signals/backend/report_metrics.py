@@ -217,6 +217,16 @@ def validate_live_metric_query(value: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError("a live metric action series needs a positive integer action id")
     if source.get("breakdownFilter") or source.get("breakdown"):
         raise ValueError("a live metric query must not use a breakdown because it represents one measurement")
+    sampling_factor = source.get("samplingFactor")
+    # `SAMPLE 0` returns no rows, and the Trends runner skips its sampling correction for a falsy
+    # factor, so a zero reads back as a genuine measurement of 0 and a `lte` check passes on it.
+    # A factor outside the range fails in ClickHouse instead, which costs the check a retry.
+    if sampling_factor is not None and (
+        not isinstance(sampling_factor, int | float)
+        or isinstance(sampling_factor, bool)
+        or not 0 < sampling_factor <= 1
+    ):
+        raise ValueError("query.source.samplingFactor must be greater than 0 and at most 1")
     compare_filter = source.get("compareFilter")
     if isinstance(compare_filter, dict) and compare_filter.get("compare"):
         raise ValueError("a live metric query must not use compare mode because it represents one measurement")
