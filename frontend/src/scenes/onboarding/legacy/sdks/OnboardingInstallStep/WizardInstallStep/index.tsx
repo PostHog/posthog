@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
 import { OnboardingStepKey, type SDK } from '~/types'
 
@@ -140,6 +141,9 @@ function WizardInstallShell({
 }): JSX.Element {
     const { manualModalOpen, sdkInstructionsOpen } = useValues(wizardInstallStepLogic)
     const { setManualModalOpen, setSdkInstructionsOpen } = useActions(wizardInstallStepLogic)
+    // Self-hosted has no wizard, so WizardCommandBlock renders nothing and the only route left is
+    // the manual setup link. Naming a command there would point at something not on the page.
+    const { isCloudOrDev } = useWizardCommand()
     const {
         sdkGridProps,
         sdkInstructionMap,
@@ -163,7 +167,11 @@ function WizardInstallShell({
             subtitle={props.installSubtitle}
             stepKey={OnboardingStepKey.INSTALL}
             continueDisabledReason={continueDisabledReason}
-            continueDisabledHint={`Run the install command above. This step unlocks when your first ${listeningForName} arrives.`}
+            continueDisabledHint={
+                isCloudOrDev
+                    ? `Finish the setup above. This step unlocks when your first ${listeningForName} arrives.`
+                    : `Set up the SDK manually. This step unlocks when your first ${listeningForName} arrives.`
+            }
             showSkip={showSkip}
             actions={
                 <div className="pr-2 min-w-0">
