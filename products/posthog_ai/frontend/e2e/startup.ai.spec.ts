@@ -1,6 +1,7 @@
 import { expect } from '@playwright/test'
 
 import { send, test } from './aiTest'
+import { disconnectLiveTransport, observeLiveTransport } from './liveTransport'
 
 for (const provider of ['claude', 'codex'] as const) {
     test.describe(provider, () => {
@@ -53,15 +54,62 @@ for (const provider of ['claude', 'codex'] as const) {
         })
 
         test('warm resume recovers on the intended successor with the original history', async ({ ai, page }) => {
+            await observeLiveTransport(page)
             await ai.configure([
                 ai.text('Remember the synthetic event example_opened.', 'I will remember example_opened.', 1),
-                ai.text('Which event did we choose?', 'We chose example_opened.', 2),
+                {
+                    ...ai.text('Which event did we choose?', 'We chose example_opened.', 2),
+                    history_contains: ['I will remember example_opened.'],
+                },
             ])
+            const model = ai.fault('model')
+            await model.arm('0')
             await ai.open(page)
             await send(page, 'Remember the synthetic event example_opened.')
-            await expect(page.getByText('I will remember example_opened.', { exact: true })).toBeVisible()
-            await expect(page.getByTestId('sandbox-composer-send')).toBeDisabled()
+            await model.waitUntilReached()
             const original = await ai.snapshot()
+            let releaseHistory!: () => void
+            const historyGate = new Promise<void>((resolve) => {
+                releaseHistory = resolve
+            })
+            let historyRequested!: (url: string) => void
+            const history = new Promise<string>((resolve) => {
+                historyRequested = resolve
+            })
+            await page.route(
+                '**/runs/*/logs/',
+                async (route) => {
+                    historyRequested(route.request().url())
+                    await historyGate
+                    const response = await route.fetch()
+                    await route.fulfill({ response })
+                },
+                { times: 1 }
+            )
+            try {
+                await page.reload()
+                const historyUrl = await history
+                await expect
+                    .poll(() => page.evaluate(() => window.aiE2eTransport.connections.length))
+                    .toBeGreaterThan(0)
+                await model.release()
+                await expect
+                    .poll(() =>
+                        page.evaluate(() =>
+                            window.aiE2eTransport.connections.flatMap((connection) => connection.frames).join('\n')
+                        )
+                    )
+                    .toContain('I will remember example_opened.')
+                await expect
+                    .poll(async () => (await page.request.get(historyUrl)).text())
+                    .toContain('I will remember example_opened.')
+            } finally {
+                releaseHistory()
+            }
+            await expect(page.getByText('Remember the synthetic event example_opened.', { exact: true })).toHaveCount(1)
+            await expect(page.getByText('I will remember example_opened.', { exact: true })).toHaveCount(1)
+            await disconnectLiveTransport(page)
+            await expect(page.getByText('I will remember example_opened.', { exact: true })).toHaveCount(1)
             await ai.control('complete_run')
             await page.reload()
             await expect(page.getByTestId('sandbox-composer-input')).toBeEditable()
@@ -75,6 +123,12 @@ for (const provider of ['claude', 'codex'] as const) {
             await expect(page.getByText('Which event did we choose?', { exact: true })).toBeVisible()
             await registration.release()
             await expect(page.getByText('We chose example_opened.', { exact: true })).toBeVisible()
+            const successor = await page.evaluate(
+                (runId) =>
+                    window.aiE2eTransport.connections.find((connection) => connection.url.includes(`/runs/${runId}/`)),
+                ai.seed.run_id
+            )
+            expect(successor?.cursor).toBeNull()
             await page.reload()
             for (const text of [
                 'Remember the synthetic event example_opened.',

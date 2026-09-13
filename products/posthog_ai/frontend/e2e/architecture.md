@@ -1,7 +1,7 @@
 # AI browser recovery tests
 
 This suite exercises chat submission, workflow startup, and approval delivery with Claude and Codex.
-It uses the real application and sandbox agent with synthetic model responses. Chart coverage belongs in a later increment.
+It uses the real application and sandbox agent with synthetic model responses, including saved-insight table rendering.
 `run-surface.spec.ts` remains a separate, fast suite that mocks the tasks API and stream.
 The `flows-*.spec.ts` cases use held command responses and controlled SSE frames to check composer and approval interactions.
 They run in regular Playwright; `--surface` runs them against the launcher's isolated server without starting agents.
@@ -12,6 +12,19 @@ The browser suppresses speculative warming: the controller owns the exact warm t
 Task creation, initial submission, and follow-up delivery remain real.
 Resume completes the original workflow through its normal signal, then warms a successor behind the registration barrier.
 The attempt owns and cleans up every workflow and run in that conversation.
+
+`journeys.ai.spec.ts` covers accepted-consent deep links and real cancellation during startup and an active tool turn.
+The active-turn case releases an insight-creation response after cancellation and verifies that no insight was created.
+`delivery.ai.spec.ts` queues two directions while the real agent has accepted an approval but its HTTP confirmation is held.
+Queue and Steer must deliver those directions once, in order, while preserving a separate draft and one persisted insight update.
+`insight.ai.spec.ts` creates an insight through MCP, renders constant SQL rows, reloads, and opens the saved insight.
+These cases run with both runtimes. `sidebar.ai.spec.ts` uses Claude to cover the shared SQL editor integration: apply a
+suggestion to its submitting editor, navigate before another tool completes, and keep the destination editor unchanged on replay.
+
+The warm-resume case also holds a real history read while a provider response reaches the live stream. It releases history
+only after the same response is persisted, forcing overlap without fabricating frames. `liveTransport.ts` passes through
+real fetch bytes, records SSE IDs, and disconnects a reader. Reconnection must carry the last observed ID, and the successor
+must start without the previous run's cursor. The follow-up model request must contain the earlier assistant response.
 
 ## Boundaries
 
@@ -98,6 +111,7 @@ There is one locked cursor per attempt. Before advancing, the controller checks:
 - Project and run identity from legacy gateway headers or `X-PostHog-Properties`.
 - Provider, exact model, and streaming mode.
 - The expected human message and ordered conversation history.
+- Explicit `history_contains` fragments, including assistant responses required by resumed conversations.
 - The real tool result's call ID and expected content before sending a post-tool response.
 - The requested tool is present in the agent's offered tools.
 
@@ -125,11 +139,18 @@ Each control exposes `arm`, `waitUntilReached`, `release`, and `reset`. Its time
 release, and observations such as Temporal NOT_FOUND or the insight save. Reset releases a barrier but retains the audit of
 an arm that never fired. Teardown fails if any required fault was missed.
 
-| Control        | Boundary                                                                 | What remains live                                     |
-| -------------- | ------------------------------------------------------------------------ | ----------------------------------------------------- |
-| `registration` | In the dispatcher child, immediately before real `Client.start_workflow` | Outbox claiming, leases, Temporal, and signals        |
-| `worker`       | Before starting the attempt's tasks worker                               | Temporal registration and signal acceptance           |
-| `approval`     | Before forwarding the targeted `permission_response`                     | Agent session, approval card, and tool implementation |
+| Control                 | Boundary                                                                         | What remains live                                        |
+| ----------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `registration`          | In the dispatcher child, immediately before real `Client.start_workflow`         | Outbox claiming, leases, Temporal, and signals           |
+| `worker`                | Before starting the attempt's tasks worker                                       | Temporal registration and signal acceptance              |
+| `approval`              | Before forwarding the targeted `permission_response`                             | Agent session, approval card, and tool implementation    |
+| `approval_confirmation` | After the real agent accepts permission, before its HTTP response reaches Django | Actual tool execution and provider requests              |
+| `model`                 | After opening the provider SSE response, before its content/tool argument frames | SDK cancellation, Temporal commands, and application SSE |
+
+Arm `model` with a zero-based response-step index, for example `await ai.fault('model').arm('2')`.
+The replay cursor advances before pausing; a steering request can consume the next declared step while the old response is held.
+Cancelled responses may encounter a closed socket after release. Extra model requests and unconsumed steps still fail teardown.
+Every new case needs its own ten-repeat CI validation; the historical runner results below do not cover these additions.
 
 `approval` latches the first matching permission request ID and rejects retries of that request until released. A different
 request does not inherit the fault. This tests recovery from a known rejection before execution. It does not reproduce or

@@ -10,7 +10,7 @@ declare global {
 }
 
 export type Provider = 'claude' | 'codex'
-type Fault = 'registration' | 'worker' | 'approval'
+type Fault = 'registration' | 'worker' | 'approval' | 'approval_confirmation' | 'model'
 
 export interface ResponseStep {
     provider: Provider
@@ -18,6 +18,7 @@ export interface ResponseStep {
     fixture: 'text' | 'insight-update' | 'tool-search'
     user_message: string
     tool_result?: { call_id: string; contains: string }
+    history_contains?: string[]
     substitutions: Record<string, string>
 }
 
@@ -42,7 +43,8 @@ interface Snapshot {
     run_count: number
     tool_executions: number
     runs: { status: string; state: Record<string, unknown> }[]
-    timeline: { fault: Fault; event: string; status?: number; request_id?: string }[]
+    consumed: { step: number }[]
+    timeline: { fault: Fault; event: string; status?: number; request_id?: string; run_id?: string }[]
 }
 
 export class AiAttempt {
@@ -60,20 +62,20 @@ export class AiAttempt {
     }
 
     fault(name: Fault): {
-        arm: () => Promise<unknown>
+        arm: (target?: string) => Promise<unknown>
         waitUntilReached: () => Promise<unknown>
         release: () => Promise<unknown>
         reset: () => Promise<unknown>
     } {
         return {
-            arm: () => this.control(`fault/${name}/arm`),
+            arm: (target) => this.control(`fault/${name}/arm`, target === undefined ? {} : { target }),
             waitUntilReached: () => this.control(`fault/${name}/waitUntilReached`),
             release: () => this.control(`fault/${name}/release`),
             reset: () => this.control(`fault/${name}/reset`),
         }
     }
 
-    async open(page: Page, options: { warm?: boolean } = {}): Promise<void> {
+    async open(page: Page, options: { warm?: boolean; path?: string } = {}): Promise<void> {
         this.seed = await this.control<Seed>('start', options)
         const login = await page.request.post('/api/login/', {
             data: { email: this.seed.email, password: this.seed.password },
@@ -89,8 +91,10 @@ export class AiAttempt {
         )
         // The controller seeds the exact warm target; speculative UI warming would create unrelated runs.
         await page.route(/\/tasks\/(?:[^/]+\/)?warm\/$/, (route) => route.fulfill({ json: {} }))
-        await page.goto(`/project/${this.seed.team_id}/tasks/new`)
-        await expect(page.getByTestId('task-composer-input')).toBeVisible()
+        await page.goto(options.path ?? `/project/${this.seed.team_id}/tasks/new`)
+        if (!options.path) {
+            await expect(page.getByTestId('task-composer-input')).toBeVisible()
+        }
     }
 
     async warmResume(): Promise<void> {
@@ -126,6 +130,37 @@ export class AiAttempt {
             fixture: 'text',
             user_message: userMessage,
             substitutions: { model: this.seed.model, message_id: `msg_${this.seed.id}_${step}`, text },
+        }
+    }
+
+    discover(message: string): ResponseStep {
+        return {
+            ...this.text(message, '', 0),
+            fixture: this.seed.provider === 'claude' ? 'insight-update' : 'tool-search',
+            substitutions: {
+                model: this.seed.model,
+                message_id: `msg_${this.seed.id}_0`,
+                tool_call_id: `discovery_${this.seed.id}`,
+                tool_name: this.seed.provider === 'claude' ? 'ToolSearch' : 'mcp__posthog__exec',
+                text: 'posthog exec',
+                arguments: JSON.stringify({ query: 'select:mcp__posthog__exec', max_results: 1 }),
+            },
+        }
+    }
+
+    exec(message: string, command: string, step: number, previous: ResponseStep['tool_result']): ResponseStep {
+        return {
+            ...this.text(message, '', step),
+            fixture: 'insight-update',
+            tool_result: previous,
+            substitutions: {
+                model: this.seed.model,
+                message_id: `msg_${this.seed.id}_${step}`,
+                tool_call_id: `call_${this.seed.id}_${step}`,
+                tool_name: this.seed.provider === 'claude' ? 'mcp__posthog__exec' : 'exec',
+                ...(this.seed.provider === 'codex' ? { tool_namespace: 'mcp__posthog' } : {}),
+                arguments: JSON.stringify({ command }),
+            },
         }
     }
 }
