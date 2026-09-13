@@ -2932,6 +2932,10 @@
         "AssistantFunnelsActionsNode": {
             "additionalProperties": false,
             "properties": {
+                "custom_name": {
+                    "description": "Optional custom name for the action if it is needed to be renamed.",
+                    "type": "string"
+                },
                 "id": {
                     "description": "Action ID from the plan.",
                     "type": "number"

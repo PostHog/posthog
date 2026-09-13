@@ -887,6 +887,7 @@ const AssistantFunnelsEventsNode = z.object({
 })
 
 const AssistantFunnelsActionsNode = z.object({
+    custom_name: z.string().describe('Optional custom name for the action if it is needed to be renamed.').optional(),
     id: z.coerce.number().describe('Action ID from the plan.'),
     kind: z.literal('ActionsNode').default('ActionsNode'),
     math: AssistantFunnelsMath.describe(
