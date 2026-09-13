@@ -2652,10 +2652,15 @@ class TestSavedQueryStateComesFromTheServingRun(APIBaseTest):
         self.assertEqual(body["status"], "Completed")
         self.assertIsNone(body["latest_error"])
 
-    def test_a_duckgres_shadow_does_not_stand_in_for_the_serving_run(self):
+    def test_a_managed_warehouse_shadow_does_not_stand_in_for_the_serving_run(self):
         view = self._view("shadowed")
         self._run(view, DataModelingJob.Status.FAILED, minutes_ago=30, error="the real failure")
-        self._run(view, DataModelingJob.Status.COMPLETED, minutes_ago=1, engine=DataModelingJobEngine.DUCKGRES)
+        self._run(
+            view,
+            DataModelingJob.Status.COMPLETED,
+            minutes_ago=1,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+        )
 
         body = self._detail(view)
 

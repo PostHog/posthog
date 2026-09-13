@@ -125,7 +125,10 @@ from products.tasks.backend.models import (
     TaskThreadMessageMention,
     TaskWorkflowDispatch,
 )
-from products.tasks.backend.pr_urls import merge_pr_output
+from products.tasks.backend.pr_urls import (
+    merge_pr_output,
+    read_pr_urls as read_pr_urls,
+)
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
 from products.tasks.backend.repository_config_analytics import (
     capture_repository_config_changed,
@@ -293,6 +296,8 @@ __all__ = [
     "task_exempt_from_code_access",
     "task_exists",
     "task_ids_with_pr_url_subquery",
+    "get_pull_requests_for_tasks",
+    "read_pr_urls",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
     "task_run_matches_current_ownership",
@@ -978,6 +983,36 @@ def get_tasks_by_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) ->
     return [_task_to_dto(task) for task in Task.objects.filter(id__in=ids, team_id__in=teams)]
 
 
+def get_pull_requests_for_tasks(
+    team_id: int, task_ids: Iterable[str | UUID], *conditions: Q
+) -> dict[str, list[contracts.TaskPullRequest]]:
+    result: dict[str, list[contracts.TaskPullRequest]] = {}
+    seen: set[tuple[str, str]] = set()
+    for task_id, output in (
+        TaskRun.objects.filter(
+            *conditions,
+            team_id=team_id,
+            task_id__in=task_ids,
+        )
+        .order_by("-created_at", "-id")
+        .values_list("task_id", "output")
+    ):
+        if not isinstance(output, dict):
+            continue
+        for url in read_pr_urls(output):
+            key = (str(task_id), url)
+            if key in seen:
+                continue
+            seen.add(key)
+            state = "unknown"
+            if url == output.get("pr_url"):
+                state = "merged" if output.get("pr_merged") else output.get("pr_state", "unknown")
+            result.setdefault(str(task_id), []).append(
+                contracts.TaskPullRequest(url=url, state=state if isinstance(state, str) else "unknown")
+            )
+    return result
+
+
 def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID], *conditions: Q) -> dict[str, str]:
     """Latest non-empty ``output.pr_url`` per task, for the supplied task ids."""
     ids = [str(t) for t in task_ids]
@@ -995,20 +1030,10 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID], *conditions: Q) ->
 
 
 def task_ids_with_pr_url_subquery(team_id: int, *conditions: Q) -> QuerySet[TaskRun, Any]:
-    """A ``values('task_id')`` queryset of ``team_id``'s tasks that produced a non-empty ``output.pr_url``,
-    narrowed by any extra ``Q`` ``conditions`` on the run.
-
-    For embedding in a caller's ``task_id__in=...`` lookup so the report→PR correlation can be
-    *decorrelated*: instead of a per-report ``Exists`` over runs, the caller drives off this small,
-    index-backed set (served by the partial ``task_run_output_pr_url_idx``) and joins outward to its
-    own report-association tables. Returns a query expression — no ORM instances cross the boundary.
-
-    Scoped to ``team_id`` so the set stays bounded to the request's tenant rather than scanning every
-    team's PR-bearing runs — associated runs are always same-team, so this drops no valid matches.
-    """
+    """Find same-team tasks with a primary PR or a PR array, including array-only outputs."""
     return (
-        TaskRun.objects.filter(*conditions, team_id=team_id, output__pr_url__isnull=False)
-        .exclude(output__pr_url="")
+        TaskRun.objects.filter(*conditions, team_id=team_id)
+        .filter((Q(output__pr_url__isnull=False) & ~Q(output__pr_url="")) | Q(output__pr_urls__0__isnull=False))
         .values("task_id")
     )
 

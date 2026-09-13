@@ -463,8 +463,7 @@ class DataWarehouseSavedQuerySerializerMixin:
             return jobs[0] if jobs else None
         except AttributeError:
             return (
-                DataModelingJob.objects.filter(saved_query_id=view.id)
-                .exclude(engine=DataModelingJobEngine.DUCKGRES)
+                DataModelingJob.objects.filter(saved_query_id=view.id, engine=DataModelingJobEngine.CLICKHOUSE)
                 .order_by("-last_run_at")
                 .first()
             )
@@ -1550,7 +1549,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 "column_annotations",
                 Prefetch(
                     "datamodelingjob_set",
-                    queryset=DataModelingJob.objects.exclude(engine=DataModelingJobEngine.DUCKGRES).order_by(
+                    queryset=DataModelingJob.objects.filter(engine=DataModelingJobEngine.CLICKHOUSE).order_by(
                         "-last_run_at"
                     )[:1],
                     to_attr="jobs",

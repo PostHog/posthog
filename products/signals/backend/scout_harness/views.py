@@ -145,6 +145,8 @@ from products.signals.backend.scout_harness.tools.profile import get_project_pro
 from products.signals.backend.scout_harness.tools.report import (
     ReportChartInput,
     ReportEvidence,
+    ReportMetricComparisonInput,
+    ReportMetricInput,
     ReviewerInput,
     edit_report_sync,
     emit_report_sync,
@@ -367,6 +369,35 @@ def _to_report_charts(entries: list[dict] | None) -> list[ReportChartInput] | No
             caption=entry.get("caption") or None,
             # Narrowed by the serializer's choices; the cast only crosses the untyped DRF dict.
             size=cast("ChartSize | None", entry.get("size") or None),
+        )
+        for entry in entries
+    ]
+
+
+def _to_report_metrics(entries: list[dict] | None) -> list[ReportMetricInput] | None:
+    if entries is None:
+        return None
+    return [
+        ReportMetricInput(
+            metric_id=entry["metric_id"],
+            title=entry["title"],
+            kind=entry["kind"],
+            query=entry["query"],
+            role=entry["role"],
+            value=entry.get("value"),
+            value_at=entry["value_at"].isoformat() if entry.get("value_at") is not None else None,
+            series=entry.get("series"),
+            value_format=entry["value_format"],
+            unit=entry.get("unit"),
+            caption=entry.get("caption"),
+            comparison=(
+                ReportMetricComparisonInput(
+                    value=entry["comparison"]["value"],
+                    label=entry["comparison"]["label"],
+                )
+                if entry.get("comparison") is not None
+                else None
+            ),
         )
         for entry in entries
     ]
@@ -1116,6 +1147,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 priority_explanation=data.get("priority_explanation"),
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
                 charts=_to_report_charts(data.get("charts")),
+                metrics=_to_report_metrics(data.get("metrics")),
                 suggested_prompts=data.get("suggested_prompts"),
                 idempotency_key=data.get("idempotency_key"),
             )
@@ -1146,12 +1178,13 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Edit an existing report for a run",
         description=(
-            "Rewrite a report's title/summary, append a note or fresh evidence, and/or set its suggested "
-            "reviewers. Can target "
+            "Rewrite a report's title/summary, append a note or fresh evidence, set its suggested "
+            "reviewers, and/or point it at another repository. Can target "
             "ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to "
-            "this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it "
-            "replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can "
-            "open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them."
+            "this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one "
+            "or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a "
+            "report that was missing a qualifying reviewer or a repository can open a draft PR. "
+            "Title/summary edits are best-effort: the pipeline may later re-research them."
         ),
         operation_id="signals_scout_edit_report",
     )
@@ -1176,7 +1209,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 append_note=data.get("append_note"),
                 append_evidence=_to_report_evidence(data.get("append_evidence")),
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
+                repository=data.get("repository"),
                 charts=_to_report_charts(data.get("charts")),
+                metrics=_to_report_metrics(data.get("metrics")),
                 suggested_prompts=data.get("suggested_prompts"),
             )
         except InvalidScoutReportError as exc:
@@ -1189,7 +1224,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "note_appended": result.note_appended,
                     "evidence_appended": result.evidence_appended,
                     "reviewers_set": result.reviewers_set,
+                    "repository_set": result.repository_set,
                     "charts_set": result.charts_set,
+                    "metrics_set": result.metrics_set,
                     "suggested_prompts_set": result.suggested_prompts_set,
                 }
             ).data,

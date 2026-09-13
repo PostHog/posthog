@@ -2760,7 +2760,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         filtersOverrideForLoad: [
             (s) => [s.externalFilters, s.currentDashboardSettings],
             (externalFilters: DashboardFilter, settings: DashboardSettings) =>
-                combineDashboardFilters(externalFilters, settings.filters),
+                combineDashboardFilters(settings.filters, externalFilters),
         ],
         effectiveEditBarFilters: [
             (s) => [s.externalFilters, s.currentDashboardSettings],
@@ -4169,7 +4169,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
                 // only cancels on newer invocations, not on unmount).
                 const { currentTeamId, externalFilters, urlFilters, dashboardLoadData, lastDashboardRefresh } = values
-                const effectiveRefreshFilters = combineDashboardFilters(externalFilters, settingsToRefresh.filters)
+                const effectiveRefreshFilters = combineDashboardFilters(settingsToRefresh.filters, externalFilters)
                 const urlVariables = settingsToRefresh.variables
 
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {

@@ -659,13 +659,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             results = []
 
-            # A view is failing when its newest run failed. The duckgres shadow shares the saved query
-            # and finalizes after the serving run, so it is excluded from the verdict.
-            serving_run = (
-                DataModelingJob.objects.filter(saved_query_id=OuterRef("id"))
-                .exclude(engine=DataModelingJobEngine.DUCKGRES)
-                .order_by("-last_run_at")
-            )
+            # A view is failing when its newest ClickHouse serving run failed.
+            serving_run = DataModelingJob.objects.filter(
+                saved_query_id=OuterRef("id"), engine=DataModelingJobEngine.CLICKHOUSE
+            ).order_by("-last_run_at")
             failed_materializations = (
                 DataWarehouseSavedQuery.objects.exclude(deleted=True)
                 .filter(team_id=self.team_id, is_materialized=True)

@@ -253,11 +253,14 @@ export {
   workflowAgentStateSchema,
 } from "./orchestration";
 export {
+  CLIPBOARD_ATTACHMENT_DIR_NAME,
+  CLIPBOARD_ATTACHMENT_PREFIX,
   compactHomePath,
   expandTildePath,
   getFileExtension,
   getFileName,
   isAbsolutePath,
+  isClipboardAttachmentPath,
   pathToFileUri,
   toRelativePath,
 } from "./path";

@@ -42,6 +42,7 @@ from products.data_quality.backend.facade.enums import SuiteRunTrigger
 MAX_CONCURRENT_CHILDREN = 10
 
 NODE_AUDIT_PATCH = "data-quality-node-audit-2026-08"
+MANAGED_WAREHOUSE_NAMING_PATCH = "managed-warehouse-data-modeling-names-2026-09"
 
 
 class EmptyDAGOrCycleError(Exception):
@@ -50,7 +51,7 @@ class EmptyDAGOrCycleError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ExecuteDAGInputs:
     """Inputs for the ExecuteDAGWorkflow.
 
@@ -64,8 +65,10 @@ class ExecuteDAGInputs:
     team_id: int
     dag_id: str
     node_ids: list[str] | None = None
-    duckgres_only: bool = False
+    managed_warehouse_only: bool = False
     dangerously_execute_raw_sql: bool = False
+    # Old workflow payloads contain this field, so removing it would prevent replay after deployment.
+    duckgres_only: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -281,15 +284,21 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         ephemeral_node_set = set(dag_structure.ephemeral_nodes)
         failed_node_set: set[str] = set()
         quality_failed_node_set: set[str] = set()
+        uses_managed_warehouse_names = temporalio.workflow.patched(MANAGED_WAREHOUSE_NAMING_PATCH)
+        managed_warehouse_only = inputs.managed_warehouse_only if uses_managed_warehouse_names else inputs.duckgres_only
         serving_engine = (
-            DataModelingJobEngine.DUCKGRES if inputs.duckgres_only else DataModelingJobEngine.CLICKHOUSE
+            DataModelingJobEngine.MANAGED_WAREHOUSE
+            if managed_warehouse_only and uses_managed_warehouse_names
+            else DataModelingJobEngine.LEGACY_DUCKGRES
+            if managed_warehouse_only
+            else DataModelingJobEngine.CLICKHOUSE
         ).value
         suspended_node_set: set[str] = set(dag_structure.suspended_nodes.get(serving_engine, []))
         downstreams = _get_downstream_lookup(edge_lookup)
         skipped_jobs: list[SkippedDataModelingNode] = []
         # execute child workflows with bounded concurrency using a sliding window;
         # the semaphore limits how many child workflows run simultaneously across
-        # all levels to be a friendlier neighbor to duckgres and clickhouse infrastructure
+        # all levels to be a friendlier neighbor to managed warehouse and ClickHouse infrastructure
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHILDREN)
         for i, level in enumerate(levels):
             temporalio.workflow.logger.info(
@@ -371,12 +380,22 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 async with semaphore:
                     handle = await temporalio.workflow.start_child_workflow(
                         MaterializeViewWorkflow.run,
-                        MaterializeViewWorkflowInputs(
-                            team_id=inputs.team_id,
-                            dag_id=inputs.dag_id,
-                            node_id=node_id,
-                            duckgres_only=inputs.duckgres_only,
-                            dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
+                        (
+                            MaterializeViewWorkflowInputs(
+                                team_id=inputs.team_id,
+                                dag_id=inputs.dag_id,
+                                node_id=node_id,
+                                managed_warehouse_only=managed_warehouse_only,
+                                dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
+                            )
+                            if uses_managed_warehouse_names
+                            else MaterializeViewWorkflowInputs(
+                                team_id=inputs.team_id,
+                                dag_id=inputs.dag_id,
+                                node_id=node_id,
+                                duckgres_only=inputs.duckgres_only,
+                                dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
+                            )
                         ),
                         id=f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}",
                         parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
