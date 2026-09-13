@@ -86,6 +86,7 @@ from products.signals.backend.temporal.agentic.scout_scheduler import (
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agents import AgentTerminalError
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable
 
 if TYPE_CHECKING:
@@ -2144,6 +2145,41 @@ async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
     # process-task workflow's own task_run_failed event fires.
     assert props["error_type"] == "RuntimeError"
     assert props["error_message"] == "sandbox refused to start"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_failed_run_carries_agent_error_category(ateam, aerrors_skill):
+    # A terminal agent failure reaches the harness as one error string covering every cause,
+    # so without these properties a provider outage and an agent defect are one signature.
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new_callable=AsyncMock,
+            side_effect=AgentTerminalError(
+                "custom_prompt - drain_final_log: TaskRun reached terminal status=failed",
+                status="failed",
+                category="upstream_provider_failure",
+            ),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    props = capture.call_args.kwargs["properties"]
+    assert props["error_type"] == "AgentTerminalError"
+    assert props["agent_error_category"] == "upstream_provider_failure"
+    assert props["agent_error_retryable"] is True
+    assert props["agent_error_spend_limited"] is False
+    assert props["task_run_terminal_status"] == "failed"
 
 
 @contextmanager

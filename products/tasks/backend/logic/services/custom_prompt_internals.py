@@ -54,6 +54,28 @@ STALE_TURN_SALVAGE_SECONDS = 300
 # "Activity task failed" wrapper.
 AGENT_ERROR_METHOD = "_posthog/error"
 
+# Categories the sandbox agent's classifyAgentError() emits for a failure the provider caused
+# rather than the agent (see products/desktop/packages/agent/src/adapters/error-classification.ts).
+# A run that died on one of these can succeed on a retry with the same prompt, which is the split
+# a caller cannot make from the error string alone. The agent owns the vocabulary, so an unknown
+# category stays unknown here rather than being mapped to a default.
+RETRYABLE_AGENT_ERROR_CATEGORIES = frozenset(
+    {
+        "upstream_stream_terminated",
+        "upstream_connection_error",
+        "upstream_timeout",
+        "upstream_provider_failure",
+    }
+)
+
+# Categories that mean the run hit a budget wall. A retry burns the same budget and fails again.
+SPEND_LIMIT_AGENT_ERROR_CATEGORIES = frozenset({"task_spend_limit", "subscription_usage_limit"})
+
+# Stands in for the category on a failure the agent never classified — an older agent build, or a
+# terminal status with no `_posthog/error` line at all (sandbox crash, cancel, workflow timeout).
+# A real value keeps the analytics breakdown total instead of dropping these runs into a null bucket.
+UNCLASSIFIED_AGENT_ERROR_CATEGORY = "unclassified"
+
 # Observability side-channels the relay interleaves into the turn log asynchronously
 # (agentsh network-audit dumps and sandbox credential refreshes ride on `_posthog/console`,
 # sandbox stdout/stderr on `_posthog/sandbox_output`, setup steps on `_posthog/progress`).
@@ -88,6 +110,39 @@ class AgentError:
 
     def describe(self) -> str:
         return f"{self.category}: {self.message}" if self.category else self.message
+
+
+class AgentTerminalError(RuntimeError):
+    """The TaskRun reached a terminal status and the turn log held no usable agent message.
+
+    Carries the agent's own classification of the failure, because the message alone cannot
+    tell apart causes that need opposite responses: a provider outage (retry the same prompt),
+    a spend limit (a retry burns the budget again), and an agent defect (a person must look).
+    Callers read `category` / `retryable` to branch, and `diagnostics()` for analytics
+    properties that split the failure rate by cause. A `RuntimeError` subclass, because every
+    caller already treats a terminal drain failure as one.
+    """
+
+    def __init__(self, message: str, *, status: str, category: str | None = None):
+        super().__init__(message)
+        self.status = status
+        self.category = category
+
+    @property
+    def retryable(self) -> bool:
+        return self.category in RETRYABLE_AGENT_ERROR_CATEGORIES
+
+    @property
+    def spend_limited(self) -> bool:
+        return self.category in SPEND_LIMIT_AGENT_ERROR_CATEGORIES
+
+    def diagnostics(self) -> dict[str, Any]:
+        return {
+            "agent_error_category": self.category or UNCLASSIFIED_AGENT_ERROR_CATEGORY,
+            "agent_error_retryable": self.retryable,
+            "agent_error_spend_limited": self.spend_limited,
+            "task_run_terminal_status": self.status,
+        }
 
 
 @dataclass(frozen=True)
@@ -649,7 +704,8 @@ async def _drain_final_log(
 ) -> TurnPollResult:
     """
     Drain one last S3 read after the TaskRun hit a terminal status. S3 may not have flushed the final agent_message
-    before Temporal marked the run done, so we retry the read. Raises RuntimeError if no message is recoverable.
+    before Temporal marked the run done, so we retry the read. Raises `AgentTerminalError` if no message is
+    recoverable, carrying the agent's error category when it reported one.
 
     Re-parses from the start-of-turn cursor (`original_skip_lines`) rather than only the slice past the *last* poll
     cursor: when the agent emits text mid-run but never reaches `end_turn` (e.g. killed by inactivity timeout
@@ -676,14 +732,17 @@ async def _drain_final_log(
             cause_text = agent_error.describe()
             # Persist the real cause so the TaskRun stops showing "Activity task failed".
             await _persist_task_run_error_message(str(task_run.id), cause_text)
-            raise RuntimeError(
+            raise AgentTerminalError(
                 f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status} "
-                f"(cause: {cause_text})"
+                f"(cause: {cause_text})",
+                status=refreshed_status,
+                category=agent_error.category,
             )
     reason = "end_turn with empty response" if final_state.empty_end_turn else "no agent message"
     cause = f" (cause: {error_message})" if error_message else ""
-    raise RuntimeError(
-        f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
+    raise AgentTerminalError(
+        f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}",
+        status=refreshed_status,
     )
 
 
@@ -728,7 +787,7 @@ def _update_task_run_error_message(run_id: str, message: str) -> None:
 
 async def _persist_task_run_error_message(run_id: str, message: str) -> None:
     """Best-effort write of the agent's real error onto the TaskRun. The raised
-    RuntimeError already carries the message for Temporal, so a failed write here
+    AgentTerminalError already carries the message for Temporal, so a failed write here
     must not mask the underlying failure."""
     try:
         await sync_to_async(_update_task_run_error_message)(run_id, message)

@@ -60,7 +60,12 @@ from products.signals.backend.temporal.agentic import (
     resolve_acting_user_id_for_team,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession, TurnPollTimeout
+from products.tasks.backend.facade.agents import (
+    AgentTerminalError,
+    CustomPromptSandboxContext,
+    MultiTurnSession,
+    TurnPollTimeout,
+)
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -488,7 +493,7 @@ async def arun_signals_scout(
             service_tier=service_tier,
             error_type=type(exc).__name__,
             error_message=str(exc)[:300],
-            extra_properties=_poll_timeout_properties(exc),
+            extra_properties=_failure_diagnostics(exc),
         )
         if streak is not None and streak.tripped:
             _capture_config_auto_paused(
@@ -1210,14 +1215,19 @@ def _record_failure_streak(config_id: Any) -> _FailureStreak | None:
         return None
 
 
-def _poll_timeout_properties(exc: BaseException) -> dict[str, Any] | None:
-    """Turn-log diagnostics for a run that died at the per-turn poll wall, or None for any other
-    failure. Every wall failure raises the same error string, which is why the fleet's timeout
-    rate reads as one cause; these properties split it into the populations that need different
-    fixes — an agent that never emitted a single turn-relevant line (never started), one that
-    worked and then went silent, and one still streaming when the budget ran out (the budget,
-    not the agent, is the constraint)."""
-    if not isinstance(exc, TurnPollTimeout):
+def _failure_diagnostics(exc: BaseException) -> dict[str, Any] | None:
+    """Cause-specific properties for a failure that carries them, or None for any other failure.
+
+    Two failure families each collapse into one error string, so the rate they drive reads as a
+    single cause:
+
+    - the per-turn poll wall, whose diagnostics split it into an agent that never emitted a
+      turn-relevant line (never started), one that worked and then went silent, and one still
+      streaming when the budget ran out (the budget, not the agent, is the constraint);
+    - a terminal run with no agent message, whose diagnostics carry the agent's own error
+      category — a provider outage, a spend limit, and an agent defect need opposite responses.
+    """
+    if not isinstance(exc, TurnPollTimeout | AgentTerminalError):
         return None
     return exc.diagnostics()
 
@@ -1465,9 +1475,10 @@ def _capture_run_finished(
     are attached so the failure rate is breakable down by cause without digging into worker
     logs — the bulk of scout failures fail in this layer before the `process-task` workflow's
     own `task_run_failed` event ever fires, so this is the only event that carries their reason.
-    `extra_properties` carries cause-specific detail the error string can't (today: the turn-log
-    diagnostics behind a per-turn poll timeout, which is a single string covering several
-    distinct failures).
+    `extra_properties` carries cause-specific detail the error string can't — the turn-log
+    diagnostics behind a per-turn poll timeout, and the agent's error category behind a terminal
+    run with no agent message. Each of those is a single string covering several distinct
+    failures.
     """
     properties: dict[str, Any] = {
         "skill_name": skill.name,
