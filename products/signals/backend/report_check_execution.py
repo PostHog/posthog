@@ -57,6 +57,8 @@ MAX_CHECK_EXPIRIES_PER_TICK = 500
 # An errored run retries on the next window instead of retiring the check, so a transient query
 # failure does not end a soak. It does not consume `runs_remaining`.
 CHECK_ERROR_RETRY_AFTER = timedelta(hours=6)
+# Same bound the scout runner puts on a stored failure reason.
+MAX_CHECK_ERROR_REASON_LENGTH = 300
 
 # A check pauses while its report is soft-deleted or suppressed, and resumes when the report does.
 CHECKABLE_REPORT_STATUSES = tuple(
@@ -150,6 +152,21 @@ def evaluate_check_value(*, comparison: CheckComparison, observed_value: float, 
     )
 
 
+def _errored_explanation(error: Exception) -> str:
+    """The line a report reader sees when a run could not be measured.
+
+    Our own validation and resolution failures name something the reader can act on, so they are
+    kept. Anything else is reduced to the fixed line: a query error can carry generated SQL and a
+    server stack trace, which `ExposedCHQueryError` exists to keep out of user-facing text, and the
+    artefact log is permanent and rendered as written. `logger.exception` above holds the whole
+    error either way.
+    """
+    reason = str(error).strip() if isinstance(error, ValueError | TimeoutError) else ""
+    if not reason:
+        return "The check could not be measured."
+    return f"The check could not be measured: {reason[:MAX_CHECK_ERROR_REASON_LENGTH]}"
+
+
 def measure_check(check: SignalReportCheck, *, deadline: float) -> CheckVerdict:
     """Run one check and return its verdict. Never raises: a failure to measure is an `errored` verdict."""
 
@@ -161,7 +178,7 @@ def measure_check(check: SignalReportCheck, *, deadline: float) -> CheckVerdict:
         measurement = measure_metric(query, check.report.team, deadline=deadline, include_series=False)
     except Exception as error:
         logger.exception("signals.report_check.measurement_failed", check_id=str(check.id), team_id=check.team_id)
-        return CheckVerdict(outcome="errored", explanation=f"The check could not be measured: {error}")
+        return CheckVerdict(outcome="errored", explanation=_errored_explanation(error))
     return evaluate_check_value(comparison=config.comparison, observed_value=measurement.value, subject=check.title)
 
 

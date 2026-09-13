@@ -281,6 +281,25 @@ class TestReportCheckExecution(APIBaseTest):
         assert len(results) == 1
         assert '"outcome":"errored"' in results[0].content
 
+    def test_an_errored_run_publishes_our_reason_but_not_a_raw_query_error(self) -> None:
+        check = self._check()
+        with patch(_MEASURE, side_effect=ValueError("metric query returned no series")):
+            run_due_report_checks()
+
+        assert "metric query returned no series" in self._results()[0].content
+
+        check.refresh_from_db()
+        check.next_run_at = timezone.now() - timedelta(minutes=1)
+        check.save(update_fields=["next_run_at"])
+        server_error = RuntimeError("DB::Exception: syntax error\nStack trace:\n0. secret internals")
+        with patch(_MEASURE, side_effect=server_error):
+            run_due_report_checks()
+
+        latest = self._results()[-1].content
+        assert '"outcome":"errored"' in latest
+        assert "Stack trace" not in latest
+        assert "secret internals" not in latest
+
     def test_a_suppressed_report_pauses_its_checks(self) -> None:
         self._check()
         self.report.status = SignalReport.Status.SUPPRESSED
