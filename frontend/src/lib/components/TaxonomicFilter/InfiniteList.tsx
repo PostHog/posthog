@@ -712,7 +712,7 @@ function InfiniteListEmptyState(): JSX.Element {
     } = useValues(taxonomicFilterLogic)
     const { setIncludeStaleEvents, setActiveTab } = useActions(taxonomicFilterLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
-    const { isAvailable: canBrowseExamples } = useValues(taxonomicExampleBrowserLogic)
+    const { isAvailable: canBrowseExamples, exampleNoun } = useValues(taxonomicExampleBrowserLogic)
     const { openExampleBrowser } = useActions(taxonomicExampleBrowserLogic)
 
     const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters, listGroupType } =
@@ -857,7 +857,7 @@ function InfiniteListEmptyState(): JSX.Element {
                     data-attr="taxonomic-example-browser-open"
                     onClick={openExampleBrowser}
                 >
-                    See properties on recent events
+                    See properties of recent {exampleNoun.plural}
                 </LemonButton>
             )}
         </div>

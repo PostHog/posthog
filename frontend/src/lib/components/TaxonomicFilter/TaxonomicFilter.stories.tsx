@@ -839,3 +839,70 @@ export const ExampleBrowserOpen: Story = {
         },
     },
 }
+
+export const ExampleBrowserOpenForPeople: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        const logicProps = { ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string }
+        const { setActiveTab } = useActions(taxonomicFilterLogic(logicProps))
+        const { openExampleBrowser } = useActions(taxonomicExampleBrowserLogic(logicProps))
+
+        useOnMountEffect(() => {
+            setActiveTab(TaxonomicFilterGroupType.PersonProperties)
+            openExampleBrowser()
+        })
+
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'example-browser-people',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
+        enableKeywordShortcuts: true,
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/EventsQuery/': {
+                    results: [
+                        [
+                            {
+                                uuid: 'person-1',
+                                distinct_id: 'ada@example.com',
+                                created_at: '2024-11-01T00:00:00Z',
+                                properties: {
+                                    email: 'ada@example.com',
+                                    plan: 'pro',
+                                    $geoip_country_name: 'Portugal',
+                                    $initial_browser: 'Chrome',
+                                },
+                            },
+                            '2025-01-01T00:00:00Z',
+                        ],
+                        [
+                            {
+                                uuid: 'person-2',
+                                distinct_id: 'grace@example.com',
+                                created_at: '2024-10-01T00:00:00Z',
+                                properties: { email: 'grace@example.com', plan: 'free' },
+                            },
+                            '2024-12-31T00:00:00Z',
+                        ],
+                    ],
+                },
+            },
+        }),
+    ],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EXAMPLE_BROWSER]: true },
+        testOptions: { waitForSelector: '[data-attr="taxonomic-example-browser-key"]' },
+        docs: {
+            description: {
+                story: 'On the Person properties tab the example browser lists the properties of people seen recently, so the same flow works without an event in context.',
+            },
+        },
+    },
+}

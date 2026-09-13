@@ -12,6 +12,7 @@ import { TaxonomicFilterGroupType } from './types'
 export function ExampleBrowser(): JSX.Element {
     const {
         exampleSource,
+        exampleNoun,
         examples,
         examplesLoading,
         currentExample,
@@ -32,14 +33,18 @@ export function ExampleBrowser(): JSX.Element {
         selectExampleValue,
     } = useActions(taxonomicExampleBrowserLogic)
 
-    const eventNoun =
-        exampleSource?.eventNames.length === 1 ? (
+    const pluralNoun =
+        exampleSource?.kind === 'event' && exampleSource.eventNames.length === 1 ? (
             <>
                 <PropertyKeyInfo value={exampleSource.eventNames[0]} type={TaxonomicFilterGroupType.Events} /> events
             </>
         ) : (
-            'events'
+            exampleNoun.plural
         )
+    const propertyGroupType =
+        exampleSource?.kind === 'person'
+            ? TaxonomicFilterGroupType.PersonProperties
+            : TaxonomicFilterGroupType.EventProperties
 
     return (
         <div className="taxonomic-infinite-list flex flex-col h-full" data-attr="taxonomic-example-browser">
@@ -51,7 +56,7 @@ export function ExampleBrowser(): JSX.Element {
                     data-attr="taxonomic-example-browser-back"
                     tooltip="Back to the list"
                 />
-                <span className="font-semibold truncate">Properties on recent {eventNoun}</span>
+                <span className="font-semibold truncate">Properties of recent {pluralNoun}</span>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2 py-1">
                 <LemonCheckbox
@@ -67,7 +72,9 @@ export function ExampleBrowser(): JSX.Element {
                             size="xsmall"
                             icon={<IconChevronLeft />}
                             onClick={showPreviousExample}
-                            disabledReason={hasPreviousExample ? undefined : 'This is the most recent event'}
+                            disabledReason={
+                                hasPreviousExample ? undefined : `This is the most recent ${exampleNoun.singular}`
+                            }
                             data-attr="taxonomic-example-browser-previous"
                         />
                         <span translate="no">
@@ -77,7 +84,7 @@ export function ExampleBrowser(): JSX.Element {
                             size="xsmall"
                             icon={<IconChevronRight />}
                             onClick={showNextExample}
-                            disabledReason={hasNextExample ? undefined : 'No older events loaded'}
+                            disabledReason={hasNextExample ? undefined : `No older ${exampleNoun.plural} loaded`}
                             data-attr="taxonomic-example-browser-next"
                         />
                     </div>
@@ -90,16 +97,19 @@ export function ExampleBrowser(): JSX.Element {
                     </div>
                 ) : !currentExample ? (
                     <div className="flex flex-col gap-1 items-center text-center text-secondary py-8">
-                        <span>No {eventNoun} in the last 30 days.</span>
-                        <span>Search for a property name instead, or explore more to widen the date range.</span>
+                        <span>
+                            No {pluralNoun}
+                            {exampleSource?.kind === 'group' ? ' yet' : ' in the last 30 days'}.
+                        </span>
+                        <span>Search for a property name instead, or explore more to see everything.</span>
                     </div>
                 ) : visibleProperties.length === 0 ? (
                     <div className="flex flex-col gap-1 items-center text-center text-secondary py-8">
-                        <span>No matching properties on this event.</span>
+                        <span>No matching properties on this {exampleNoun.singular}.</span>
                         <span>
                             {hidePostHogProperties
-                                ? 'Untick "Hide PostHog properties" or try another event.'
-                                : 'Try another event.'}
+                                ? `Untick "Hide PostHog properties" or try another ${exampleNoun.singular}.`
+                                : `Try another ${exampleNoun.singular}.`}
                         </span>
                     </div>
                 ) : (
@@ -113,7 +123,7 @@ export function ExampleBrowser(): JSX.Element {
                                     tooltip="Filter on this property"
                                     data-attr="taxonomic-example-browser-key"
                                 >
-                                    <PropertyKeyInfo value={key} type={TaxonomicFilterGroupType.EventProperties} />
+                                    <PropertyKeyInfo value={key} type={propertyGroupType} />
                                 </LemonButton>
                                 {supportsValueSelection && isSelectableValue(value) ? (
                                     <LemonButton
@@ -139,10 +149,11 @@ export function ExampleBrowser(): JSX.Element {
                 <span>
                     {currentExample ? (
                         <>
-                            Seen <TZLabel time={currentExample.timestamp} />
+                            {exampleSource?.kind === 'group' ? 'Created' : 'Seen'}{' '}
+                            <TZLabel time={currentExample.timestamp} />
                         </>
                     ) : (
-                        `Shows up to ${EXAMPLE_COUNT} recent events`
+                        `Shows up to ${EXAMPLE_COUNT} recent ${exampleNoun.plural}`
                     )}
                 </span>
                 {exploreUrl && (

@@ -13,6 +13,7 @@ import {
     EntityFilter,
     EventDefinition,
     EventPropertyFilter,
+    GroupPropertyFilter,
     PersonProperty,
     PersonPropertyFilter,
     PropertyDefinition,
@@ -37,8 +38,9 @@ export interface QuickFilterItem {
     filterValue: string
     operator: PropertyOperator
     propertyKey: string
-    propertyFilterType: PropertyFilterType.Event | PropertyFilterType.Person
+    propertyFilterType: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Group
     eventName?: string
+    groupTypeIndex?: number
     extraProperties?: (EventPropertyFilter | PersonPropertyFilter)[]
     /** Set on the collapsed `URL contains "<query>"` row so commit telemetry can
      *  measure contains-shortcut adoption, matching the rebuild menu's
@@ -50,15 +52,20 @@ export function isQuickFilterItem(item: unknown): item is QuickFilterItem {
     return item != null && typeof item === 'object' && '_type' in item && item._type === 'quick_filter'
 }
 
-export function quickFilterToPropertyFilter(item: QuickFilterItem): EventPropertyFilter | PersonPropertyFilter {
+export type QuickFilterPropertyFilter = EventPropertyFilter | PersonPropertyFilter | GroupPropertyFilter
+
+export function quickFilterToPropertyFilter(item: QuickFilterItem): QuickFilterPropertyFilter {
     const base = { key: item.propertyKey, value: item.filterValue, operator: item.operator }
     if (item.propertyFilterType === PropertyFilterType.Event) {
         return { ...base, type: PropertyFilterType.Event }
     }
+    if (item.propertyFilterType === PropertyFilterType.Group) {
+        return { ...base, type: PropertyFilterType.Group, group_type_index: item.groupTypeIndex }
+    }
     return { ...base, type: PropertyFilterType.Person }
 }
 
-export function quickFilterToPropertyFilters(item: QuickFilterItem): (EventPropertyFilter | PersonPropertyFilter)[] {
+export function quickFilterToPropertyFilters(item: QuickFilterItem): QuickFilterPropertyFilter[] {
     return [quickFilterToPropertyFilter(item), ...(item.extraProperties ?? [])]
 }
 
