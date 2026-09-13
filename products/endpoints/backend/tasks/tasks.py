@@ -178,6 +178,12 @@ def _deactivate_version_materialization(version: EndpointVersion) -> None:
     if not saved_query:
         return
 
+    # The candidate set is a snapshot taken before the loop, so a customer can disable
+    # materialization before this version's turn. Re-read the link first: pausing a version
+    # the customer just disabled would mark it for a wake they never asked for.
+    if not EndpointVersion.objects.filter(pk=version.pk, saved_query_id=saved_query.pk).exists():
+        return
+
     logger.info(
         "hibernating_stale_materialization",
         endpoint_id=str(version.endpoint.id),

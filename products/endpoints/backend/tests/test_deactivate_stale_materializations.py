@@ -178,6 +178,27 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         assert version.saved_query is not None
         assert version.materialization_hibernated_at is None
 
+    def test_stale_sweep_snapshot_does_not_pause_a_version_the_user_disabled(self):
+        now = timezone.now()
+        endpoint, version = self._create_materialized_endpoint(
+            "disabled_mid_sweep",
+            last_run_at=now - timedelta(hours=1),
+            last_executed_at=now - timedelta(days=45),
+            materialization_created_at=now - timedelta(days=45),
+        )
+        stale_snapshot = EndpointVersion.objects.select_related("saved_query", "endpoint").get(pk=version.pk)
+
+        # The customer disables materialization after the sweep picked its candidates.
+        version.disable_materialization()
+
+        with mock.patch("products.endpoints.backend.tasks.tasks.notify_materialization_hibernated") as notify:
+            _deactivate_version_materialization(stale_snapshot)
+
+        version.refresh_from_db()
+        assert version.saved_query is None
+        assert version.materialization_hibernated_at is None
+        notify.assert_not_called()
+
     def test_skips_endpoints_not_materialized_recently(self):
         now = timezone.now()
         # Materialization ran 2 days ago (not within 24h)
