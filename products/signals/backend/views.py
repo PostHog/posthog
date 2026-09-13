@@ -4266,9 +4266,9 @@ class SignalReportCheckViewSet(
         if isinstance(config, MetricThresholdConfig) and config.metric_id is not None:
             try:
                 resolve_check_query(config, report)
-            except ValueError:
+            except ValueError as error:
                 return Response(
-                    {"error": f"This report has no metric `{config.metric_id}` to measure."},
+                    {"error": f"This check cannot run: {error}."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 

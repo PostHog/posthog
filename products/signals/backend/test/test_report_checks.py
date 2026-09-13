@@ -326,6 +326,33 @@ class TestReportCheckExecution(APIBaseTest):
         )
         assert resolve_check_query(config, self.report) == _PAGEVIEWS
 
+    def test_a_check_riding_a_metric_whose_query_stopped_conforming_errors(self) -> None:
+        # The runner reads one series out of the result, so a breakdown would turn an arbitrary
+        # slice into a recorded verdict.
+        self.report.metrics = [
+            {
+                "metric_id": "checkout-errors",
+                "title": "Checkout errors",
+                "kind": "occurrences",
+                "query": {
+                    **_PAGEVIEWS,
+                    "source": {**_PAGEVIEWS["source"], "breakdownFilter": {"breakdown": "$browser"}},
+                },
+            }
+        ]
+        self.report.save(update_fields=["metrics"])
+        check = self._check(config={"metric_id": "checkout-errors", "comparison": {"operator": "lte", "value": 1}})
+
+        with patch(
+            _MEASURE, return_value=MetricMeasurement(value=0.0, measured_at=timezone.now(), series=None)
+        ) as measure:
+            run_due_report_checks()
+
+        assert not measure.called
+        check.refresh_from_db()
+        assert check.last_outcome == SignalReportCheck.Outcome.ERRORED
+        assert '"outcome":"errored"' in self._results()[0].content
+
     def test_a_check_riding_a_metric_the_report_dropped_errors_rather_than_crashing(self) -> None:
         check = self._check(config={"metric_id": "gone", "comparison": {"operator": "lte", "value": 1}})
         run_due_report_checks()

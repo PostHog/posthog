@@ -42,6 +42,7 @@ from products.signals.backend.report_checks import (
     parse_check_config,
 )
 from products.signals.backend.report_metric_refresh import measure_metric
+from products.signals.backend.report_metrics import validate_live_metric_query
 
 logger = structlog.get_logger(__name__)
 
@@ -81,14 +82,25 @@ class CheckVerdict:
 
 
 def resolve_check_query(config: MetricThresholdConfig, report: SignalReport) -> dict:
-    """The query this check measures: its own, or the one behind the report metric it rides."""
+    """The query this check measures: its own, or the one behind the report metric it rides.
+
+    A referenced row is re-validated here, the way the metric refresh re-validates before it
+    measures. `report.metrics` is plain JSON that can change after the check was written, and the
+    runner reads one series out of the result, so a row carrying a breakdown or several output
+    series would turn an arbitrary slice into a recorded verdict.
+    """
 
     if config.query is not None:
         return config.query
     for row in report.metrics or []:
         if isinstance(row, dict) and row.get("metric_id") == config.metric_id and isinstance(row.get("query"), dict):
-            return row["query"]
-    raise ValueError(f"the report no longer has a metric `{config.metric_id}` to measure")
+            try:
+                return validate_live_metric_query(row["query"])
+            except ValueError as error:
+                raise ValueError(
+                    f"metric `{config.metric_id}` no longer measures one bounded number: {error}"
+                ) from None
+    raise ValueError(f"the report has no metric `{config.metric_id}` to measure")
 
 
 def _threshold_for(comparison: CheckComparison) -> InsightThreshold:
