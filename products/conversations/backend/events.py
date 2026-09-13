@@ -28,7 +28,7 @@ from posthog.settings import SITE_URL
 
 from products.access_control.backend.models.role import Role
 from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
-from products.conversations.backend.models import Ticket, TicketAssignment
+from products.conversations.backend.models import Ticket, TicketAssignment, TicketPattern
 from products.conversations.backend.models.constants import Channel, OrganizationIdSource
 
 logger = structlog.get_logger(__name__)
@@ -622,4 +622,54 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
         timestamp=None,
         properties=properties,
         process_person_profile=process_person,
+    )
+
+
+def _pattern_properties(pattern: TicketPattern) -> dict:
+    # No ticket text and no customer identity: this event reaches Workflows and every destination a
+    # team wires to it, and the topic is the only text-derived value a person needs to route on.
+    return {
+        "pattern_id": str(pattern.id),
+        "topic": pattern.topic,
+        "source": pattern.source,
+        "severity": pattern.severity,
+        "status": pattern.status,
+        "ticket_count": pattern.ticket_count,
+        "requester_count": pattern.requester_count,
+        "peak_ticket_count": pattern.peak_ticket_count,
+        "first_ticket_at": pattern.first_ticket_at.isoformat() if pattern.first_ticket_at else None,
+        "opened_at": pattern.opened_at.isoformat(),
+    }
+
+
+def capture_pattern_detected(pattern: TicketPattern) -> None:
+    """A pattern spans many tickets and belongs to no person, so it is captured against a
+    synthetic distinct id and never creates or updates a person profile."""
+    properties = _pattern_properties(pattern)
+    if pattern.first_ticket_at:
+        properties["seconds_to_detect"] = int((pattern.opened_at - pattern.first_ticket_at).total_seconds())
+    capture_internal(
+        token=pattern.team.api_token,
+        event_name="$conversation_pattern_detected",
+        event_source=EVENT_SOURCE,
+        distinct_id=f"pattern:{pattern.team_id}",
+        timestamp=None,
+        properties=properties,
+        process_person_profile=False,
+    )
+
+
+def capture_pattern_resolved(pattern: TicketPattern, resolution: Literal["confirmed", "dismissed", "auto"]) -> None:
+    properties = _pattern_properties(pattern)
+    properties["resolution"] = resolution
+    if pattern.resolved_at:
+        properties["seconds_open"] = int((pattern.resolved_at - pattern.opened_at).total_seconds())
+    capture_internal(
+        token=pattern.team.api_token,
+        event_name="$conversation_pattern_resolved",
+        event_source=EVENT_SOURCE,
+        distinct_id=f"pattern:{pattern.team_id}",
+        timestamp=None,
+        properties=properties,
+        process_person_profile=False,
     )
