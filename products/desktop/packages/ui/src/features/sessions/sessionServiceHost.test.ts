@@ -7103,21 +7103,21 @@ describe("SessionService", () => {
         });
         mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
 
-        await expect(service.sendPrompt("task-123", "Hello")).rejects.toBeInstanceOf(
-          SessionConnectingError,
-        );
-        await expect(service.sendPrompt("task-123", "Hello")).rejects.toBeInstanceOf(
-          SessionConnectingError,
-        );
+        await expect(
+          service.sendPrompt("task-123", "Hello"),
+        ).rejects.toBeInstanceOf(SessionConnectingError);
+        await expect(
+          service.sendPrompt("task-123", "Hello"),
+        ).rejects.toBeInstanceOf(SessionConnectingError);
 
         expect(mockToast.error).not.toHaveBeenCalled();
         await vi.advanceTimersByTimeAsync(20_000);
         expect(mockToast.error).toHaveBeenCalledOnce();
 
         session.startedAt = Date.now();
-        await expect(service.sendPrompt("task-123", "Hello")).rejects.toBeInstanceOf(
-          SessionConnectingError,
-        );
+        await expect(
+          service.sendPrompt("task-123", "Hello"),
+        ).rejects.toBeInstanceOf(SessionConnectingError);
         await vi.advanceTimersByTimeAsync(20_000);
         expect(mockToast.error).toHaveBeenCalledTimes(2);
       } finally {
@@ -7134,9 +7134,9 @@ describe("SessionService", () => {
           createMockSession({ status: "connecting", startedAt: Date.now() }),
         );
 
-        await expect(service.sendPrompt("task-123", "Hello")).rejects.toBeInstanceOf(
-          SessionConnectingError,
-        );
+        await expect(
+          service.sendPrompt("task-123", "Hello"),
+        ).rejects.toBeInstanceOf(SessionConnectingError);
         service.reset();
         await vi.advanceTimersByTimeAsync(20_000);
 

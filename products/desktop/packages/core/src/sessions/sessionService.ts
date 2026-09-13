@@ -4317,10 +4317,7 @@ export class SessionService {
     if (existing?.startedAt === startedAt) return;
     if (existing) clearTimeout(existing.timer);
 
-    const delay = Math.max(
-      0,
-      startedAt + 20_000 - Date.now(),
-    );
+    const delay = Math.max(0, startedAt + 20_000 - Date.now());
     if (delay === 0) {
       this.showConnectingToast(taskId, startedAt);
       return;
