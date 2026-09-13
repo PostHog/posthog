@@ -16,7 +16,6 @@ from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
-    DataModelingJobEngine,
     DataModelingJobStatus,
     DataWarehouseSavedQuery,
     Node,
@@ -41,18 +40,18 @@ from .utils import (
 
 LOGGER = get_logger(__name__)
 
-FEATURE_FLAG = "duckgres-data-modeling-shadow"
+FEATURE_FLAG = "managed-warehouse-data-modeling-shadow"
 
 
 @frozen
-class DuckgresShadowEligibilityInputs:
+class ManagedWarehouseShadowEligibilityInputs:
     team_id: int
     dag_id: str
     node_id: str
 
 
-@dataclasses.dataclass
-class DuckgresShadowInputs:
+@dataclasses.dataclass(frozen=False)
+class ManagedWarehouseShadowInputs:
     team_id: int
     dag_id: str
     node_id: str
@@ -69,8 +68,8 @@ class DuckgresShadowInputs:
         }
 
 
-@dataclasses.dataclass
-class DuckgresShadowResult:
+@dataclasses.dataclass(frozen=False)
+class ManagedWarehouseShadowResult:
     row_count: int
     duration_seconds: float
     schema_name: str
@@ -81,15 +80,15 @@ class DuckgresShadowResult:
 
 
 @frozen
-class _DuckgresShadowObjects:
+class _ManagedWarehouseShadowObjects:
     team: Team
     node: Node
     saved_query: DataWarehouseSavedQuery
 
 
-def _is_duckgres_shadow_flag_enabled(team: Team) -> bool:
+def _is_managed_warehouse_shadow_flag_enabled(team: Team) -> bool:
     if is_dev_mode():
-        return os.environ.get("DUCKGRES_SHADOW_ENABLED", "").lower() in ("1", "true")
+        return os.environ.get("MANAGED_WAREHOUSE_SHADOW_ENABLED", "").lower() in ("1", "true")
 
     if not has_provisioned_warehouse(str(team.organization_id)):
         return False
@@ -113,8 +112,8 @@ def _is_duckgres_shadow_flag_enabled(team: Team) -> bool:
         return False
 
 
-def _is_duckgres_shadow_enabled(team: Team, saved_query: DataWarehouseSavedQuery) -> bool:
-    if not _is_duckgres_shadow_flag_enabled(team):
+def _is_managed_warehouse_shadow_enabled(team: Team, saved_query: DataWarehouseSavedQuery) -> bool:
+    if not _is_managed_warehouse_shadow_flag_enabled(team):
         return False
 
     return is_data_modeling_shadow_ready(
@@ -139,18 +138,18 @@ def _compile_hogql_for_ducklake(hogql_query: str, team_id: int) -> DuckLakeCompi
     )
 
 
-def _load_shadow_objects(*, team_id: int, dag_id: str, node_id: str) -> _DuckgresShadowObjects:
+def _load_shadow_objects(*, team_id: int, dag_id: str, node_id: str) -> _ManagedWarehouseShadowObjects:
     team = Team.objects.get(id=team_id)
     node = Node.objects.prefetch_related("saved_query").get(id=node_id, team_id=team_id, dag_id=dag_id)
     if node.type == NodeType.TABLE or node.saved_query is None:
         raise ValueError(f"Node {node.name} is not materializable")
     saved_query = DataWarehouseSavedQuery.objects.exclude(deleted=True).get(id=node.saved_query.id, team_id=team_id)
 
-    return _DuckgresShadowObjects(team=team, node=node, saved_query=saved_query)
+    return _ManagedWarehouseShadowObjects(team=team, node=node, saved_query=saved_query)
 
 
 @database_sync_to_async_pool
-def _get_shadow_input_objects(inputs: DuckgresShadowInputs) -> _DuckgresShadowObjects:
+def _get_shadow_input_objects(inputs: ManagedWarehouseShadowInputs) -> _ManagedWarehouseShadowObjects:
     objects = _load_shadow_objects(team_id=inputs.team_id, dag_id=inputs.dag_id, node_id=inputs.node_id)
     saved_query = objects.saved_query
     if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
@@ -160,30 +159,48 @@ def _get_shadow_input_objects(inputs: DuckgresShadowInputs) -> _DuckgresShadowOb
 
 
 @database_sync_to_async_pool
-def _check_duckgres_shadow_eligibility(inputs: DuckgresShadowEligibilityInputs) -> bool:
+def _check_managed_warehouse_shadow_eligibility(inputs: ManagedWarehouseShadowEligibilityInputs) -> bool:
     objects = _load_shadow_objects(team_id=inputs.team_id, dag_id=inputs.dag_id, node_id=inputs.node_id)
-    return _is_duckgres_shadow_enabled(objects.team, objects.saved_query)
+    return _is_managed_warehouse_shadow_enabled(objects.team, objects.saved_query)
+
+
+async def _check_managed_warehouse_shadow_enabled_activity(team_id: int) -> bool:
+    """Check the legacy team-level shadow prerequisites."""
+    team = await database_sync_to_async_pool(Team.objects.get)(id=team_id)
+    return await database_sync_to_async_pool(_is_managed_warehouse_shadow_flag_enabled)(team)
+
+
+@activity.defn
+async def check_managed_warehouse_shadow_enabled_activity(team_id: int) -> bool:
+    return await _check_managed_warehouse_shadow_enabled_activity(team_id)
+
+
+@activity.defn
+async def check_managed_warehouse_shadow_eligibility_activity(
+    inputs: ManagedWarehouseShadowEligibilityInputs,
+) -> bool:
+    """Check whether the managed warehouse shadow path is eligible to run."""
+    return await _check_managed_warehouse_shadow_eligibility(inputs)
 
 
 @activity.defn
 async def check_duckgres_shadow_enabled_activity(team_id: int) -> bool:
-    """Check the legacy team-level shadow prerequisites."""
-    team = await database_sync_to_async_pool(Team.objects.get)(id=team_id)
-    return await database_sync_to_async_pool(_is_duckgres_shadow_flag_enabled)(team)
+    """Replay the activity type recorded by workflows started before the naming patch."""
+    return await _check_managed_warehouse_shadow_enabled_activity(team_id)
 
 
 @activity.defn
-async def check_duckgres_shadow_eligibility_activity(inputs: DuckgresShadowEligibilityInputs) -> bool:
-    """Check whether the duckgres shadow path is eligible to run."""
-    return await _check_duckgres_shadow_eligibility(inputs)
+async def check_duckgres_shadow_eligibility_activity(inputs: ManagedWarehouseShadowEligibilityInputs) -> bool:
+    """Replay the activity type recorded by workflows started before the naming patch."""
+    return await check_managed_warehouse_shadow_eligibility_activity(inputs)
 
 
 @database_sync_to_async_pool
-def _resolve_duckgres_job(job_id: str, result: "DuckgresShadowResult") -> None:
-    """Update the duckgres job to its terminal state based on the result."""
+def _resolve_managed_warehouse_job(job_id: str, result: "ManagedWarehouseShadowResult") -> str:
+    """Update the managed warehouse job to its terminal state based on the result."""
     job = DataModelingJob.objects.get(id=job_id)
     if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
-        return
+        return job.engine
     if result.error is None:
         job.status = DataModelingJobStatus.COMPLETED
         job.rows_materialized = result.row_count
@@ -194,11 +211,13 @@ def _resolve_duckgres_job(job_id: str, result: "DuckgresShadowResult") -> None:
         job.error = result.error
     job.last_run_at = dt.datetime.now(dt.UTC)
     job.save()
+    return job.engine
 
 
-@activity.defn
-async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> DuckgresShadowResult:
-    """Shadow activity: execute materialization query via duckgres and create a DuckLake table.
+async def _materialize_view_managed_warehouse(
+    inputs: ManagedWarehouseShadowInputs,
+) -> ManagedWarehouseShadowResult:
+    """Shadow activity: execute a managed warehouse materialization and create a DuckLake table.
 
     This is a fire-and-forget companion to the main ClickHouse-based materialize_view_activity.
     The query result is materialized as a native DuckLake table (Parquet on S3 + Postgres catalog).
@@ -217,7 +236,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     table_name = saved_query.normalized_name
 
     await logger.ainfo(
-        "Starting duckgres shadow materialization",
+        "Starting managed warehouse shadow materialization",
         node_name=node.name,
         schema_name=schema_name,
         table_name=table_name,
@@ -235,7 +254,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
             sql = compiled.sql
             values = compiled.values
             s3_secrets = compiled.s3_secrets
-        await logger.adebug("Duckgres shadow SQL generated", sql=sql)
+        await logger.adebug("Managed warehouse shadow SQL generated", sql=sql)
 
         from products.managed_warehouse.backend.facade.client import execute_ducklake_create_table
 
@@ -245,7 +264,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
         duration = time.monotonic() - start_time
 
         await logger.ainfo(
-            "Duckgres shadow materialization completed",
+            "Managed warehouse shadow materialization completed",
             node_name=node.name,
             row_count=result.row_count,
             duration_seconds=round(duration, 2),
@@ -253,7 +272,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
             table_name=result.table_name,
         )
 
-        shadow_result = DuckgresShadowResult(
+        shadow_result = ManagedWarehouseShadowResult(
             row_count=result.row_count,
             duration_seconds=duration,
             schema_name=result.schema_name,
@@ -261,43 +280,58 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
             file_size_bytes=result.file_size_bytes,
             file_size_delta_bytes=result.file_size_delta_bytes,
         )
-        await _resolve_duckgres_job(inputs.job_id, shadow_result)
+        job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
         await clear_node_suspension_for_engine(
             node_id=inputs.node_id,
             team_id=inputs.team_id,
             dag_id=inputs.dag_id,
-            engine=DataModelingJobEngine.DUCKGRES,
+            engine=job_engine,
         )
         return shadow_result
     except Exception as e:
         duration = time.monotonic() - start_time
         capture_exception(e, {"sql": sql, "inputs": inputs})
         await logger.awarning(
-            "Duckgres shadow materialization failed",
+            "Managed warehouse shadow materialization failed",
             node_name=node.name,
             error=str(e),
             duration_seconds=round(duration, 2),
         )
-        shadow_result = DuckgresShadowResult(
+        shadow_result = ManagedWarehouseShadowResult(
             row_count=0,
             duration_seconds=duration,
             schema_name=schema_name,
             table_name=table_name,
             error=str(e),
         )
-        await _resolve_duckgres_job(inputs.job_id, shadow_result)
+        job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
         suspended = await maybe_suspend_node_for_engine(
             node_id=inputs.node_id,
             team_id=inputs.team_id,
             dag_id=inputs.dag_id,
             saved_query_id=saved_query.id,
-            engine=DataModelingJobEngine.DUCKGRES,
+            engine=job_engine,
             reason=str(e),
             job_id=inputs.job_id,
         )
         if suspended:
-            get_node_suspended_metric(DataModelingJobEngine.DUCKGRES.value).add(1)
+            get_node_suspended_metric(job_engine).add(1)
             await logger.ainfo(
-                f"Suspended node {inputs.node_id} (duckgres) after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failures",
+                f"Suspended node {inputs.node_id} ({job_engine}) after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failures",
             )
         return shadow_result
+
+
+@activity.defn
+async def materialize_view_managed_warehouse_activity(
+    inputs: ManagedWarehouseShadowInputs,
+) -> ManagedWarehouseShadowResult:
+    return await _materialize_view_managed_warehouse(inputs)
+
+
+@activity.defn
+async def materialize_view_duckgres_activity(
+    inputs: ManagedWarehouseShadowInputs,
+) -> ManagedWarehouseShadowResult:
+    """Replay the activity type recorded by workflows started before the naming patch."""
+    return await _materialize_view_managed_warehouse(inputs)

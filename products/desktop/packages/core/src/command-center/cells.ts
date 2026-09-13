@@ -14,13 +14,47 @@ import {
   deriveStatus,
   deriveTaskCellStatus,
   getRepoName,
+  trackLatestStopReason,
 } from "./status";
+
+export type CommandCenterSession = Pick<
+  AgentSession,
+  | "taskRunId"
+  | "status"
+  | "cloudStatus"
+  | "isPromptPending"
+  | "pendingPermissions"
+  | "agentIdleForRunId"
+> & { lastStopReason?: string };
+
+const projectedSessions = new WeakMap<AgentSession, CommandCenterSession>();
+
+export function selectCommandCenterSession(
+  session: AgentSession | undefined,
+): CommandCenterSession | undefined {
+  if (!session) return undefined;
+  const cached = projectedSessions.get(session);
+  if (cached) return cached;
+  const projected: CommandCenterSession = {
+    taskRunId: session.taskRunId,
+    status: session.status,
+    cloudStatus: session.cloudStatus,
+    isPromptPending: session.isPromptPending,
+    pendingPermissions: session.pendingPermissions,
+    agentIdleForRunId: session.agentIdleForRunId,
+    lastStopReason: session.isPromptPending
+      ? undefined
+      : trackLatestStopReason(session.events),
+  };
+  projectedSessions.set(session, projected);
+  return projected;
+}
 
 export interface CommandCenterCellData {
   cellIndex: number;
   taskId: string | null;
   task: Task | undefined;
-  session: AgentSession | undefined;
+  session: CommandCenterSession | undefined;
   status: CellStatus;
   repoName: string | null;
   workspaceMode: WorkspaceMode | null;
@@ -35,7 +69,7 @@ export interface CommandCenterCellData {
 
 export interface BuildCellsInput {
   taskById: Map<string, Task>;
-  sessionByTaskId: Map<string, AgentSession>;
+  sessionByTaskId: Map<string, CommandCenterSession>;
   workspaces: Record<string, { mode: WorkspaceMode } | undefined> | undefined;
 }
 

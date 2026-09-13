@@ -756,6 +756,20 @@ class TestCreateEventDefinitionsSql(SimpleTestCase):
         assert "FULL OUTER JOIN" not in sql
 
 
+class TestEventDefinitionListStatementTimeout(APIBaseTest):
+    def test_cancelled_list_query_returns_a_retryable_503(self) -> None:
+        slow_count_sql = "SELECT count(*) FROM (SELECT pg_sleep(3)) s WHERE %(project_id)s IS NOT NULL"
+
+        with (
+            patch("posthog.api.event_definition.create_event_definitions_count_sql", return_value=slow_count_sql),
+            patch("posthog.api.event_definition.DEFINITION_LIST_STATEMENT_TIMEOUT_MS", 250),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.pk}/event_definitions/")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["code"] == "event_definitions_timeout"
+
+
 class TestEventDefinitionExcludeStale(APIBaseTest):
     """Stale filter tests need real wall-clock times so the Postgres NOW() comparison
     in `exclude_stale` matches the fixture last_seen_at values. The other test class is

@@ -1,6 +1,8 @@
 from posthog.temporal.data_modeling.activities import (
     check_duckgres_shadow_eligibility_activity,
     check_duckgres_shadow_enabled_activity,
+    check_managed_warehouse_shadow_eligibility_activity,
+    check_managed_warehouse_shadow_enabled_activity,
     clear_cdp_staging_activity,
     create_data_modeling_job_activity,
     enrich_view_semantics_activity,
@@ -8,6 +10,7 @@ from posthog.temporal.data_modeling.activities import (
     get_dag_structure_activity,
     materialize_view_activity,
     materialize_view_duckgres_activity,
+    materialize_view_managed_warehouse_activity,
     notify_dag_materialization_failures_activity,
     preempt_dag_run_activity,
     prepare_queryable_table_activity,
@@ -33,6 +36,8 @@ SEMANTIC_ENRICHMENT_ACTIVITIES = [enrich_view_semantics_activity]
 ACTIVITIES = [
     check_duckgres_shadow_eligibility_activity,
     check_duckgres_shadow_enabled_activity,
+    check_managed_warehouse_shadow_eligibility_activity,
+    check_managed_warehouse_shadow_enabled_activity,
     clear_cdp_staging_activity,
     create_data_modeling_job_activity,
     record_skipped_data_modeling_jobs_activity,
@@ -40,6 +45,7 @@ ACTIVITIES = [
     fail_materialization_activity,
     materialize_view_activity,
     materialize_view_duckgres_activity,
+    materialize_view_managed_warehouse_activity,
     prepare_queryable_table_activity,
     publish_queryable_table_activity,
     quality_block_materialization_activity,

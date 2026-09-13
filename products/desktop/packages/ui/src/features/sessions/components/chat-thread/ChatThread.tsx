@@ -1241,7 +1241,6 @@ interface SharedChatThreadProps {
   repoPath?: string | null;
   task?: Task;
   taskId?: string;
-  footerState?: Omit<BuildResult, "items">;
   hasPendingPermission?: boolean;
   currentWork?: string;
   /**
@@ -1255,6 +1254,7 @@ interface SharedChatThreadProps {
 
 export interface ChatThreadProps extends SharedChatThreadProps {
   events: AgentConversationEvent[];
+  historyVersion: number;
 }
 
 /** Serves scroll-to-message requests from panes outside this tree (the Activity
@@ -1299,10 +1299,15 @@ export interface AcpChatThreadProps extends SharedChatThreadProps {
   events: AcpMessage[];
 }
 
-export function ChatThread({ events, ...props }: ChatThreadProps) {
+export function ChatThread({
+  events,
+  historyVersion,
+  ...props
+}: ChatThreadProps) {
   const { items, ...footerState } = useAgentConversationItems(
     events,
     props.isPromptPending,
+    historyVersion,
   );
 
   return (
@@ -1311,7 +1316,6 @@ export function ChatThread({ events, ...props }: ChatThreadProps) {
         key={props.taskId}
         {...props}
         conversationItems={items}
-        footerEvents={[]}
         footerState={footerState}
       />
     </RawLogsToggleContext.Provider>
@@ -1320,9 +1324,13 @@ export function ChatThread({ events, ...props }: ChatThreadProps) {
 
 export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
   const showDebugLogs = useSettingsStore((state) => state.debugLogsCloudRuns);
-  const { items } = useConversationItems(events, props.isPromptPending, {
-    showDebugLogs,
-  });
+  const { items, ...footerState } = useConversationItems(
+    events,
+    props.isPromptPending,
+    {
+      showDebugLogs,
+    },
+  );
 
   return (
     <RawLogsToggleContext.Provider value={true}>
@@ -1330,7 +1338,7 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
         key={props.taskId}
         {...props}
         conversationItems={items}
-        footerEvents={events}
+        footerState={footerState}
       />
     </RawLogsToggleContext.Provider>
   );
@@ -1338,12 +1346,11 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
 
 interface ChatThreadRendererProps extends SharedChatThreadProps {
   conversationItems: ConversationItem[];
-  footerEvents: AcpMessage[];
+  footerState: Omit<BuildResult, "items">;
 }
 
 function ChatThreadRenderer({
   conversationItems,
-  footerEvents,
   groupToolCalls = true,
   isPromptPending,
   promptStartedAt,
@@ -1470,7 +1477,6 @@ function ChatThreadRenderer({
   const footer = (
     <>
       <ChatThreadFooter
-        events={footerEvents}
         isPromptPending={isPromptPending}
         promptStartedAt={promptStartedAt}
         task={task}
