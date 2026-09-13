@@ -490,6 +490,32 @@ describe('HogFunctionHandler', () => {
         }
     )
 
+    // A batch child carries the batch job id in parentRunId, and the batch Metrics view queries by
+    // that id. Attributing the skip to the workflow leaves the batch's Issues column empty, which is
+    // the view an operator opens right after firing a broadcast.
+    it('attributes a no-recipient skip to the batch job that produced the run', async () => {
+        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('no_recipient')
+        invocation.parentRunId = 'batch-job-id'
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(invocationResult.metrics).toEqual([
+            {
+                team_id: team.id,
+                app_source_id: 'batch-job-id',
+                instance_id: action.id,
+                metric_kind: 'email',
+                metric_name: 'no_recipient',
+                count: 1,
+            },
+        ])
+    })
+
     it('should skip the send and emit email_bounce_prevented when validation predicts a hard bounce', async () => {
         ;(mockEmailValidationService.getSkipReason as jest.Mock).mockResolvedValueOnce(
             'Skipping send: the domain "dead.invalid" has no reachable mail servers, so this message would hard bounce.'
