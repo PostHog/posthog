@@ -48,7 +48,10 @@ _ZIP_TIMEOUT_SECONDS = 60
 # rather than made the worker's problem.
 _MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
 _MAX_INDEX_BYTES = 32 * 1024 * 1024
-_CACHE_TTL_SECONDS = 2 * 24 * 60 * 60
+# GitHub keeps the Storybook build artifact for one day, and the debt digest that reads this index
+# posts once a week. A daily task warms the cache while the artifact still exists, so an entry has
+# to outlive a full week for the next weekly post to still find it.
+_CACHE_TTL_SECONDS = 60 * 60 * 24 * 8
 
 
 @frozen

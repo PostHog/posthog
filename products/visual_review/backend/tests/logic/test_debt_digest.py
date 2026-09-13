@@ -218,6 +218,19 @@ class TestMaintainersMessage:
 
         assert debt_digest.maintainers_messages(_repo(), digest) == []
 
+    def test_a_file_button_too_long_for_slack_is_left_out(self) -> None:
+        # Each of these percent-encodes to nine characters, so the file URL outgrows the button cap
+        # on its own, and Slack refuses a whole message over one oversized button.
+        path = f"frontend/src/scenes/{'界' * 400}.stories.tsx"
+        item = _item(debt_digest.Attribution(kind=debt_digest.AttributionKind.PLACED, source_path=path))
+        digest = _maintainers_digest(debt_digest.TriageGroup(kind=debt_digest.AttributionKind.PLACED, items=[item]))
+
+        messages = debt_digest.maintainers_messages(_repo(), digest)
+
+        assert _all_buttons(messages) == []
+        # The path is what somebody types into owners.yaml, so losing the link costs nothing else.
+        assert path in _section_texts(messages[0])[1]
+
     def test_an_unreadable_index_is_counted_in_the_footer_and_never_listed(self) -> None:
         digest = _maintainers_digest(
             debt_digest.TriageGroup(kind=debt_digest.AttributionKind.PLACED, items=[_item(_PLACED)]),
@@ -498,6 +511,33 @@ class TestCollectAndSend:
 
         assert [item.identifier for item in debt.expiring_quarantines] == expected_expiring
         assert debt.variant_pileups == []
+
+    @pytest.mark.parametrize(
+        "expires_in,expected",
+        [
+            (timedelta(days=FLAKINESS_EXPIRY_SOON_DAYS, hours=1), [_ABSENT_IDENTIFIER]),
+            (timedelta(days=FLAKINESS_EXPIRY_SOON_DAYS + 2), []),
+        ],
+    )
+    def test_the_expiry_window_overlaps_so_two_weekly_runs_cannot_skip_one(
+        self, repo, team, user, expires_in, expected
+    ):
+        # Two runs a week apart can fall slightly more than seven days apart, and a quarantine
+        # expiring in that gap would lapse without anybody being told.
+        now = timezone.now()
+        quarantine.quarantine_identifier(
+            repo_id=repo.id,
+            identifier=_ABSENT_IDENTIFIER,
+            run_type=RunType.STORYBOOK,
+            reason="non-deterministic",
+            user_id=user.id,
+            team_id=team.id,
+            expires_at=now + expires_in,
+        )
+
+        debt = debt_digest.collect_debt(repo, now)
+
+        assert [item.identifier for item in debt.expiring_quarantines] == expected
 
     def test_preview_renders_every_team_and_posts_nothing(self, repo, mocker):
         self._completed_run(repo, mocker)

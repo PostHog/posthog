@@ -46,6 +46,8 @@ The windows and the reasons behind them are constants in `backend/logic/retentio
 Every Monday morning a Celery task, `send visual review debt digests`, posts each team a Slack reminder about the visual review debt it still carries.
 The digest is stateless: every Monday both conditions below are evaluated from current data, and nothing is stored about what was sent.
 An item repeats every week while it stands, and stops the week the condition no longer holds.
+The same task runs twice a day, and only the Monday morning run posts.
+The other runs read the Storybook story index into the cache, because the build artifact it comes from is short lived and the Monday run would otherwise have nothing to attribute against.
 
 Each message is Block Kit.
 The lead names the team, the week, and the two counts, with buttons to the repository's flakiness overview and its snapshots.
@@ -56,7 +58,9 @@ A team that owns nothing gets no message at all.
 Two conditions, and nothing else:
 
 - **Quarantine expiring.**
-  An active quarantine that runs out inside `FLAKINESS_EXPIRY_SOON_DAYS`.
+  An active quarantine that runs out inside `FLAKINESS_EXPIRY_SOON_DAYS`, plus one day.
+  The extra day is overlap: two weekly runs can fall slightly more than seven days apart, and a quarantine expiring in that gap would otherwise never be reported.
+  The flakiness page keeps the plain seven days.
   It clears when somebody extends it past the window, lifts it, or lets it lapse.
 - **N accepted variants of the current baseline.**
   `VARIANT_PILEUP_MIN` or more active intentional tolerations recorded against the hash the baseline currently holds, with no quarantine already covering the identity.
@@ -72,7 +76,8 @@ Attribution runs through the Storybook build behind the current baseline, and th
 The build uploads its story index as a GitHub Actions artifact, so the digest reads the artifact of the workflow run recorded on that baseline run (`metadata["github_run_id"]`), and the index names the file each story lives in.
 A snapshot identifier is a story id plus the theme, the browser when it is not chromium, and the viewport width for a story that snapshots several.
 The full story id is looked up first and the width suffix is only stripped when that misses, because a story can be named after a width.
-The parsed index is cached per repository and workflow run for two days, and the key rotates on its own whenever the baseline moves.
+The parsed index is cached per repository and workflow run for eight days, and the key rotates on its own whenever the baseline moves.
+The cache has to outlive a week, because the run that reads the artifact and the run that posts are usually days apart.
 Nothing is guessed from the identifier: a story name is not a path.
 Only Storybook runs are attributed today.
 
@@ -88,8 +93,8 @@ The message goes out only when at least one item asks somebody to act.
 The first two outcomes are listed, each with a button to the file or the snapshot.
 The third is only counted in the footer, because it asks the reader for nothing; the reasons go to the log instead.
 When nobody owns `products/visual_review/` either, the items are logged and dropped rather than posted somewhere arbitrary.
-The artifact is kept for one day, which covers a baseline that moves with the default branch.
-A baseline that has not moved for longer reads as ownership could not be worked out, and the digest says so instead of guessing.
+The artifact is kept for one day, so the digest reads it on the day the baseline moves and serves the Monday post from the cache.
+A baseline whose artifact expired before any run read it reads as ownership could not be worked out, and the digest says so instead of guessing.
 
 Routing goes to the team's `notifications` channel in the repository's root `owners.yaml` registry, under the `visual_review` producer.
 A team opts out with `notifications: {visual_review: false}` under its entry.
@@ -97,10 +102,10 @@ A shared Slack channel is refused, so a name match never carries an internal rem
 
 The digest is off for a repository until `debt_digest_enabled` is set on it.
 Set it through the repo API (`PATCH /api/projects/:team_id/visual_review/repos/:id/`), the `visual-review-repos-partial-update` MCP tool, or Django admin.
-The beat task runs on Monday, and it fans out only to the repositories that are on.
+The beat task runs twice a day and fans out only to the repositories that are on.
 A repository that owes nothing posts nothing.
 
-`./manage.py visual_review_debt_digest --repo owner/name [--mode preview]` runs one repository by hand, whatever `debt_digest_enabled` says, because a run somebody starts is already a decision to send it.
+`./manage.py visual_review_debt_digest --repo owner/name [--mode preview]` runs one repository by hand on any day, whatever `debt_digest_enabled` says, because a run somebody starts is already a decision to send it.
 `--mode preview`, the default, prints and logs the plain text behind every message without posting.
 `--mode live` posts.
 

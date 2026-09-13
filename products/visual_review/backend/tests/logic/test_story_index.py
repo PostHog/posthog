@@ -110,6 +110,12 @@ class TestFetchStoryIndex:
         assert first is not None and second is not None
         assert dict(second.path_by_story_id) == {"a--b": "frontend/src/A.tsx"}
 
+    def test_a_cached_index_outlives_a_week_of_expired_artifacts(self) -> None:
+        # The artifact an index comes from is kept for one day, and the debt digest posts weekly. A
+        # daily task reads the index while the artifact still exists, so the entry has to survive
+        # until the next posting day or the digest attributes nothing.
+        assert story_index._CACHE_TTL_SECONDS >= 8 * 24 * 60 * 60
+
     @pytest.mark.parametrize(
         "responses",
         [

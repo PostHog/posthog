@@ -8,8 +8,9 @@ recomputes everything from scratch.
 
 The two conditions:
 
-  Quarantine expiring. An active quarantine that runs out inside `FLAKINESS_EXPIRY_SOON_DAYS`.
-  Somebody has to extend it, lift it, or decide to let it lapse.
+  Quarantine expiring. An active quarantine that runs out inside `FLAKINESS_EXPIRY_SOON_DAYS`, plus
+  a day of overlap so two weekly runs cannot skip one. Somebody has to extend it, lift it, or decide
+  to let it lapse.
 
   Variant pile-up. `VARIANT_PILEUP_MIN` or more accepted variants standing against the baseline's
   current hash, with no quarantine already covering the identity. The baseline has stopped
@@ -26,12 +27,17 @@ index to read. All three go to the visual review maintainers, in a message of th
 inside the digest those maintainers get for what they own, because holding an item until a team
 takes it is not owning it.
 
+GitHub keeps that build artifact for one day, so a baseline set on any other day of the week has no
+readable artifact left by Monday. The scheduled task therefore runs twice a day: every run reads the
+index into the cache while the artifact still exists, and only the Monday morning run posts.
+
 Every message is Block Kit: a lead naming the team and the counts, then one thread reply per
 condition, with the one action that resolves an item on a button beside it.
 """
 
 from __future__ import annotations
 
+from calendar import MONDAY
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
 from enum import StrEnum
@@ -72,7 +78,7 @@ from posthog.team_notifications.slack import (
 from products.engineering_analytics.backend.facade.api import resolve_path_owners
 from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
 
-from ..facade.contracts import VARIANT_PILEUP_MIN
+from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, VARIANT_PILEUP_MIN
 from ..facade.enums import RunType
 from ..models import QuarantinedIdentifier, Repo, Run
 from . import quarantine, run_queries, story_index, toleration
@@ -106,6 +112,14 @@ _ITEMS_PER_MESSAGE = MAX_BLOCKS - 5
 MODE_PREVIEW = "preview"
 MODE_LIVE = "live"
 MODES = (MODE_PREVIEW, MODE_LIVE)
+
+# One day wider than the window the flakiness page uses. Two weekly runs can fall slightly more than
+# seven days apart, and without the overlap a quarantine expiring in that gap is never reported.
+_DIGEST_EXPIRY_WINDOW_DAYS = FLAKINESS_EXPIRY_SOON_DAYS + 1
+
+# A run at or after this hour posts nothing, so the second run of a Monday only warms the story
+# index. Late enough that a child task held in a queue still counts as the morning run it came from.
+_POSTS_BEFORE_HOUR_UTC = 12
 
 _LEAD_BODY = (
     "Each item and its action is in the thread. Quarantines that lapse start failing the gate again on the next run."
@@ -427,7 +441,7 @@ def _attribution(sources: Mapping[str, story_index.StoryIndex | str], run_type: 
 def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
     """Evaluate both conditions against current data, attribute each item, and render its line."""
     newest_run_by_type = run_queries.newest_run_by_run_type(run_queries.latest_default_branch_runs(repo.id))
-    expiring = quarantine.list_expiring_quarantines(repo.id, now=now)
+    expiring = quarantine.list_expiring_quarantines(repo.id, now=now, within_days=_DIGEST_EXPIRY_WINDOW_DAYS)
     quarantined_keys = quarantine.active_quarantine_keys(repo.id, now=now)
     piled_up = {
         key: count
@@ -651,10 +665,16 @@ def _triage_line(item: DebtItem) -> str:
     return item.line
 
 
-def _file_button(repo: Repo, item: DebtItem) -> SlackButton:
-    """The story's file on the default branch, which is where an owners entry is written against."""
+def _file_button(repo: Repo, item: DebtItem) -> SlackButton | None:
+    """The story's file on the default branch, which is where an owners entry is written against.
+
+    None when the URL is longer than Slack accepts. A long or non-ASCII path can outgrow the cap on
+    its own, and Slack refuses the whole message over one oversized button. The path is in the
+    section text as well, so leaving the button out costs the reader the link and nothing else.
+    """
     path = quote(item.attribution.source_path)
-    return SlackButton(text="Open file", url=f"https://github.com/{repo.repo_full_name}/blob/HEAD/{path}")
+    url = f"https://github.com/{repo.repo_full_name}/blob/HEAD/{path}"
+    return SlackButton(text="Open file", url=url) if len(url) <= MAX_BUTTON_URL_CHARS else None
 
 
 def _placed_part(repo: Repo, item: DebtItem) -> MessagePart:
@@ -869,13 +889,39 @@ def _send_one(
     return _post_text(post)
 
 
+def posts_today(now: datetime) -> bool:
+    """Whether a run at this moment posts the digest, or only warms the story index.
+
+    The weekday and the hour are read here rather than passed down from the beat, because that
+    keeps the child task's arguments unchanged and there is only one rule to read.
+    """
+    return now.weekday() == MONDAY and now.hour < _POSTS_BEFORE_HOUR_UTC
+
+
+def warm_story_index(repo: Repo) -> None:
+    """Read the story index behind the repo's current Storybook baseline into the cache.
+
+    Nothing is evaluated and nothing is posted. This runs on the days the digest does not, so the
+    weekly post still finds an index for a baseline whose build artifact GitHub has since deleted.
+    """
+    newest_run_by_type = run_queries.newest_run_by_run_type(run_queries.latest_default_branch_runs(repo.id))
+    run_types: set[str] = {RunType.STORYBOOK}
+    source = _attribution_sources(repo, run_types, newest_run_by_type)[RunType.STORYBOOK]
+    logger.info(
+        "visual_review.debt_digest_story_index_warmed",
+        repo_id=str(repo.id),
+        team_id=repo.team_id,
+        read=isinstance(source, story_index.StoryIndex),
+    )
+
+
 def repos_in_scope() -> list[Repo]:
     """Every repo that opted in, oldest first.
 
     The switch is the only way to stop the digest without a deploy, so the fan-out reads it rather
-    than the per-repo task: a repo that is off costs no child task at all. For the repos that are
-    on, the per-repo task stops as soon as one owes nothing, so a repo that never carries debt
-    costs one cheap read a day. The fan-out only routes, so the rows stay unhydrated.
+    than the per-repo task: a repo that is off costs no child task at all, and it reads no Storybook
+    artifact on the runs that only warm the cache. The fan-out only routes, so the rows stay
+    unhydrated.
     """
     # nosemgrep: idor-lookup-without-team — cross-team beat sweep, no user input
     return list(Repo.objects.unscoped().filter(debt_digest_enabled=True).only("id", "team_id").order_by("created_at"))
