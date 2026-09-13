@@ -33,6 +33,7 @@ describe('inbox report urls', () => {
             ['no back param', undefined, null],
             ['an absolute url', 'https://evil.test/phish', null],
             ['a protocol-relative url', '//evil.test/phish', null],
+            ['a backslash external url', '/\\\\evil.test/phish', null],
             ['a non-string value', 42, null],
         ])('honors %s', (_label, back, expected) => {
             expect(inboxReportBackPath({ back })).toBe(expected)

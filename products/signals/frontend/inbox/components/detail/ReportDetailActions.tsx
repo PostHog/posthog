@@ -10,7 +10,6 @@ import api from 'lib/api'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
-import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { inboxReportReturnPath } from '../../utils/inboxReportUrls'
 import { canResolveReport } from '../../utils/reportActions'
@@ -104,29 +103,12 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     const onRestoreClick = async (): Promise<void> => {
-        // Prefer the mounted Dismissed list logic so it optimistically drops the row and fixes its
-        // count + view badge synchronously (it also fires the API call + toast). Navigate straight back.
-        const dismissedList = reportListLogic.findMounted({
-            sectionKey: 'dismissed',
-            listParams: INBOX_REPORT_SECTION_LIST_PARAMS.dismissed,
-        })
-        if (dismissedList) {
-            // The list logic fires the `restore` analytics; just drive navigation here.
-            dismissedList.actions.restoreReport(report.id, 'detail_pane')
-            router.actions.push(returnPath)
-            return
-        }
-        // Fallback for a deep-linked detail with no mounted Dismissed list (e.g. cold load), and for
-        // the flag-off Archive list, which mounts under the `resolved` key and so isn't found above.
         setIsRestoring(true)
         try {
             await api.signalReports.setState(report.id, { state: 'potential' })
             captureInboxReportAction({ report, actionType: 'restore', surface: 'detail_pane' })
             lemonToast.success('Report restored to inbox')
-            // Broadcast so any mounted list (including that Archive instance) reconciles against the
-            // server before we navigate back; nothing else in this path repairs its stale row + count.
-            reportStateChanged()
-            router.actions.push(returnPath)
+            leaveForOrigin()
         } catch (error: any) {
             lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
         } finally {

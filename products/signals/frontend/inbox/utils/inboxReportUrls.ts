@@ -1,5 +1,6 @@
 import { combineUrl } from 'kea-router'
 
+import { getRelativeNextPath } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { InboxTabKey } from '../types'
@@ -22,8 +23,7 @@ export function inboxReportDetailUrl(reportId: string, backUrl?: string, tab: In
  * turn the back button (and the verdict actions that follow it) into an open redirect.
  */
 export function inboxReportBackPath(searchParams: Record<string, any>): string | null {
-    const raw = searchParams.back
-    return typeof raw === 'string' && raw.startsWith('/') && !raw.startsWith('//') ? raw : null
+    return getRelativeNextPath(searchParams.back, window.location)
 }
 
 /**
