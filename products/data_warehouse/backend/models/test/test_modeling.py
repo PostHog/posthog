@@ -12,6 +12,8 @@ from posthog.hogql.parser import parse_select
 from products.data_modeling.backend.facade.modeling import (
     DEFAULT_RESOLUTION_DEADLINE_SECONDS,
     DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
+    RESOLUTION_SOURCE_LINEAGE,
+    RESOLUTION_SOURCE_MATERIALIZATION,
     BoundedResolver,
     DataWarehouseModelPath,
     NodeType,
@@ -780,8 +782,15 @@ class TestBoundedResolver(BaseTest):
 
 
 class TestResolutionMetrics(BaseTest):
-    def _counter(self, status: str) -> float:
-        return REGISTRY.get_sample_value("data_modeling_dag_resolution_total", {"status": status}) or 0.0
+    def _counter(self, status: str, source: str = RESOLUTION_SOURCE_LINEAGE) -> float:
+        return (
+            REGISTRY.get_sample_value("data_modeling_dag_resolution_total", {"status": status, "source": source}) or 0.0
+        )
+
+    def _duration_count(self, source: str = RESOLUTION_SOURCE_LINEAGE) -> float:
+        return (
+            REGISTRY.get_sample_value("data_modeling_dag_resolution_duration_seconds_count", {"source": source}) or 0.0
+        )
 
     def test_ok_path_increments_counter_and_records_depth(self):
         DataWarehouseSavedQuery.objects.create(
@@ -790,15 +799,17 @@ class TestResolutionMetrics(BaseTest):
             query={"query": "select event from events"},
         )
         before_ok = self._counter("ok")
-        before_count = REGISTRY.get_sample_value("data_modeling_dag_resolution_duration_seconds_count") or 0.0
+        before_count = self._duration_count()
+        before_materialization_ok = self._counter("ok", RESOLUTION_SOURCE_MATERIALIZATION)
 
         parents = get_parents_from_model_query(self.team, "caller", "select * from leaf")
 
         assert parents == {"leaf"}
         assert self._counter("ok") - before_ok == 1.0
-        assert (
-            REGISTRY.get_sample_value("data_modeling_dag_resolution_duration_seconds_count") or 0.0
-        ) - before_count == 1.0
+        assert self._duration_count() - before_count == 1.0
+        # Lineage resolution runs on every saved-query write; materialization runs a few thousand
+        # times a day. One shared series hides the rarer one, so the label has to separate them.
+        assert self._counter("ok", RESOLUTION_SOURCE_MATERIALIZATION) - before_materialization_ok == 0.0
 
     def test_cycle_increments_cycle_status(self):
         DataWarehouseSavedQuery.objects.create(
