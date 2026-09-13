@@ -656,6 +656,31 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     listeners(({ values, actions }) => ({
+        // The login page recorded no failure event, so the size of the recovery path was invisible in
+        // product data. Capture every general error with its code and what the precheck knows about the
+        // account, so a funnel can size failures and show whether the reset link and region hint recover
+        // users. This is the single point every terminal login error passes through.
+        setGeneralError: ({ code }) => {
+            const { precheckResponse, availableLoginMethods, codeVerificationRequired, preflight } = values
+            // The precheck describes this attempt only when it completed for the email now in the form.
+            // A pending result (no precheck ran, e.g. a server-redirect error on page load) or one left
+            // over from a different email must not be reported as this attempt's precheck state.
+            const precheckIsCurrent =
+                precheckResponse.status === 'completed' && precheckResponse.email === values.login.email
+            // Trust the account facts only when the precheck also succeeded — a failed precheck reports
+            // permissive defaults, which would mislabel the failure.
+            const precheckTrusted = precheckIsCurrent && !precheckResponse.precheckFailed
+            posthog.capture('login failed', {
+                error_code: code || 'unknown',
+                region: preflight?.region,
+                code_verification_pending: codeVerificationRequired,
+                // undefined (omitted) when no current precheck exists, so "precheck succeeded" stays
+                // distinct from "no precheck ran" instead of both reading as false.
+                precheck_failed: precheckIsCurrent ? (precheckResponse.precheckFailed ?? false) : undefined,
+                sso_enforcement: precheckTrusted ? (precheckResponse.sso_enforcement ?? null) : undefined,
+                login_methods_available: precheckTrusted ? availableLoginMethods : undefined,
+            })
+        },
         submitLoginSuccess: () => {
             // A logged-in session reads the address from the user, so drop the stored one
             clearPendingVerificationEmail()
