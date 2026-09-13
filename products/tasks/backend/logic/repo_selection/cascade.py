@@ -1,6 +1,7 @@
 import logging
+from dataclasses import dataclass
 
-from posthog.git import extract_explicit_repo
+from posthog.git import extract_explicit_repo, extract_linked_repo
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
@@ -8,6 +9,12 @@ from products.tasks.backend.logic.repo_selection.agent import _list_candidate_re
 from products.tasks.backend.models import Task
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class CascadeTierResult:
+    repository: str
+    tier: str  # "single_repo" | "explicit_token" | "linked_url"
 
 
 def cascade_select_repository(
@@ -18,7 +25,8 @@ def cascade_select_repository(
     team: Team | None = None,
     single_repo_wins: bool = False,
     allow_refresh: bool = True,
-) -> str | None:
+    include_linked: bool = False,
+) -> CascadeTierResult | None:
     """Pick a connected repository without the sandbox-backed selection agent.
 
     Resolves only the trivial cases: with ``single_repo_wins``, a lone connected repo is taken
@@ -31,6 +39,11 @@ def cascade_select_repository(
     has no team-level integration (their own credentials, not a cross-account leak), letting them
     reference repos only they have connected. ``allow_refresh=False`` reads only the cached repo
     list, so a caller on the request path never blocks on a live GitHub sync.
+
+    ``include_linked=True`` adds a linked-URL tier after the explicit-token tier: if the message
+    embeds exactly one ``github.com/owner/repo…`` URL that matches a connected repo, that repo is
+    returned. Two different linked repos is genuine ambiguity and resolves to nothing. This is
+    weaker evidence than a bare token, so it is opt-in and only signal-report callers enable it.
     """
     try:
         github = resolve_team_github_integration(team_id, team=team, requester_user_id=user_id)
@@ -42,8 +55,15 @@ def cascade_select_repository(
         if not candidates:
             return None
         if single_repo_wins and len(candidates) == 1:
-            return candidates[0]
-        return extract_explicit_repo(message, candidates)
+            return CascadeTierResult(repository=candidates[0], tier="single_repo")
+        explicit = extract_explicit_repo(message, candidates)
+        if explicit is not None:
+            return CascadeTierResult(repository=explicit, tier="explicit_token")
+        if include_linked:
+            linked = extract_linked_repo(message, candidates)
+            if linked is not None:
+                return CascadeTierResult(repository=linked, tier="linked_url")
+        return None
     except Exception:
         logger.warning("cascade_select_repository.failed team_id=%s", team_id, exc_info=True)
         return None
@@ -62,4 +82,5 @@ async def select_repository_for_message(
     avoid the repo-selection LLM agent here. A lone connected repo is deliberately *not* assumed —
     an unprompted mention shouldn't pin a sandbox to a repo the user never named.
     """
-    return await database_sync_to_async(cascade_select_repository, thread_sensitive=False)(team_id, user_id, message)
+    result = await database_sync_to_async(cascade_select_repository, thread_sensitive=False)(team_id, user_id, message)
+    return result.repository if result else None

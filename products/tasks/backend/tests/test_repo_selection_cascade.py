@@ -51,7 +51,12 @@ class TestCascadeSelectRepository:
         # sandbox message doesn't, so it never pins itself to a repo the user never named.
         resolve, list_repos = _patch_candidates(MagicMock(), ["posthog/posthog"])
         with resolve, list_repos:
-            assert cascade_select_repository(1, 2, "", single_repo_wins=single_repo_wins) == expected
+            result = cascade_select_repository(1, 2, "", single_repo_wins=single_repo_wins)
+            if expected is None:
+                assert result is None
+            else:
+                assert result.repository == expected
+                assert result.tier == "single_repo"
 
     def test_archived_lone_repo_is_not_taken(self):
         # An archived repo accepts no pull request, so single_repo_wins must drop it before the
@@ -78,9 +83,9 @@ class TestCascadeSelectRepository:
             repository_cache=[{"full_name": "PostHog/PostHog", "name": "PostHog", "id": 1}],
         )
 
-        assert cascade_select_repository(team.id, None, "", single_repo_wins=True, allow_refresh=False) == (
-            "posthog/posthog"
-        )
+        result = cascade_select_repository(team.id, None, "", single_repo_wins=True, allow_refresh=False)
+        assert result.repository == "posthog/posthog"
+        assert result.tier == "single_repo"
 
 
 class TestListTeamConnectedRepositories:
@@ -116,3 +121,51 @@ class TestListTeamConnectedRepositories:
         ]
         with patch(f"{_AGENT}.resolve_team_github_integration", return_value=github):
             assert list_team_connected_repositories(1) == ["owner/active", "owner/unknown"]
+
+
+class TestCascadeSelectRepositoryLinkedTier:
+    """Tests for the ``include_linked=True`` linked-URL tier added to cascade_select_repository."""
+
+    def test_linked_url_resolves_when_opted_in(self):
+        # A report whose description contains a github.com URL for a connected repo should resolve
+        # via the linked tier when include_linked=True. Without the flag it must stay None.
+        resolve, list_repos = _patch_candidates(MagicMock(), ["posthog/posthog", "posthog/posthog-js"])
+        with resolve, list_repos:
+            message = "See https://github.com/posthog/posthog/pull/123 for context"
+            result_linked = cascade_select_repository(1, 2, message, include_linked=True)
+            assert result_linked.repository == "posthog/posthog"
+            assert result_linked.tier == "linked_url"
+            assert cascade_select_repository(1, 2, message, include_linked=False) is None
+
+    def test_two_linked_repos_resolve_to_nothing(self):
+        # Two different linked repos is genuine ambiguity: resolve to nothing rather than picking
+        # the first one. A caller can fall back to asking instead of acting on the wrong repo.
+        resolve, list_repos = _patch_candidates(MagicMock(), ["posthog/posthog", "posthog/posthog-js"])
+        with resolve, list_repos:
+            message = (
+                "Broken in https://github.com/posthog/posthog/pull/1 "
+                "and https://github.com/posthog/posthog-js/pull/2"
+            )
+            assert cascade_select_repository(1, 2, message, include_linked=True) is None
+
+    def test_archived_linked_repo_is_skipped(self):
+        # An archived repo accepts no pull request, so it must be excluded even when the message
+        # links to it. The archived exclusion happens in _list_candidate_repos, so it is invisible
+        # to extract_linked_repo and cannot be returned.
+        github = MagicMock()
+        github.list_all_cached_repositories.return_value = [
+            {"full_name": "owner/retired", "archived": True},
+        ]
+        with patch(f"{_CASCADE}.resolve_team_github_integration", return_value=github):
+            message = "https://github.com/owner/retired/pull/5"
+            assert cascade_select_repository(1, 2, message, include_linked=True) is None
+
+    def test_explicit_token_takes_priority_over_linked_url(self):
+        # The explicit-token tier (bare owner/repo) is stronger evidence than a linked URL. When
+        # both are present the explicit token wins so include_linked=True doesn't change the result.
+        resolve, list_repos = _patch_candidates(MagicMock(), ["posthog/posthog", "posthog/posthog-js"])
+        with resolve, list_repos:
+            message = "Fix posthog/posthog-js — see https://github.com/posthog/posthog/pull/1"
+            result = cascade_select_repository(1, 2, message, include_linked=True)
+            assert result.repository == "posthog/posthog-js"
+            assert result.tier == "explicit_token"
