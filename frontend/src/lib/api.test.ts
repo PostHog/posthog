@@ -1,7 +1,7 @@
 import * as fetchEventSourceModule from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiError, ApiRequest, NetworkError } from 'lib/api'
+import api, { ApiConfig, ApiError, ApiRequest, NetworkError, getJSONOrNull } from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -96,11 +96,15 @@ describe('API helper', () => {
             apiStatusLogicSpy.mockRestore()
         })
 
-        it('reports connection failures and ignores intentional aborts', async () => {
-            const onApiResponse = jest.fn()
+        it.each([
+            // Wording varies by browser and by how the stream died, so none of it may gate the report
+            ['a transport failure', new TypeError('Failed to fetch')],
+            ['a stream that dies without a fetch-level error', new Error('network connection lost')],
+        ])('reports %s as an incomplete body, not a healthy response', async (_desc, streamError) => {
+            const onResponseBodyFailure = jest.fn()
             const apiStatusLogicSpy = jest
                 .spyOn(apiStatusLogic, 'findMounted')
-                .mockReturnValue({ actions: { onApiResponse } } as any)
+                .mockReturnValue({ actions: { onResponseBodyFailure } } as any)
             const fetchEventSourceSpy = jest
                 .spyOn(fetchEventSourceModule, 'fetchEventSource')
                 .mockReturnValueOnce(new Promise<void>(() => {}))
@@ -109,14 +113,13 @@ describe('API helper', () => {
             await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), onError)
 
             const streamOptions = fetchEventSourceSpy.mock.calls[0][1]
-            const connectionError = new TypeError('Failed to fetch')
-            streamOptions.onerror?.(connectionError)
-            expect(onApiResponse).toHaveBeenCalledWith(undefined, connectionError)
-            expect(onError).toHaveBeenCalledWith(connectionError)
+            streamOptions.onerror?.(streamError)
+            expect(onResponseBodyFailure).toHaveBeenCalledTimes(1)
+            expect(onError).toHaveBeenCalledWith(streamError)
 
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             streamOptions.onerror?.(abortError)
-            expect(onApiResponse).toHaveBeenCalledTimes(1)
+            expect(onResponseBodyFailure).toHaveBeenCalledTimes(1)
             expect(onError).toHaveBeenCalledTimes(1)
 
             fetchEventSourceSpy.mockRestore()
@@ -327,11 +330,10 @@ describe('API helper', () => {
     })
 
     describe('successful response body parsing', () => {
-        const fakeResponse = ({ status = 200, text }: { status?: number; text: () => Promise<string> }): any => ({
-            ok: true,
-            status,
-            text,
-        })
+        const fakeResponse = ({ status = 200, text }: { status?: number; text: () => Promise<string> }): any => {
+            const response = { ok: true, status, text, clone: (): any => response }
+            return response
+        }
         const bodyOf =
             (body: string): (() => Promise<string>) =>
             (): Promise<string> =>
@@ -364,6 +366,46 @@ describe('API helper', () => {
             const error = await api.get('api/environments/2/insights').catch((e) => e)
             expect(error).toBeInstanceOf(ApiError)
             expect(error.status).toBeUndefined()
+        })
+
+        it('withdraws the healthy-connection verdict when the body fails mid-read', async () => {
+            const onResponseBodyFailure = jest.fn()
+            const apiStatusLogicSpy = jest
+                .spyOn(apiStatusLogic, 'findMounted')
+                .mockReturnValue({ actions: { onApiResponse: jest.fn(), onResponseBodyFailure } } as any)
+
+            fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(new TypeError('network error')) }))
+            await api.get('api/environments/2/insights').catch(() => null)
+            expect(onResponseBodyFailure).toHaveBeenCalledTimes(1)
+
+            // A body that parses is a genuine success, so it must not report a failure
+            onResponseBodyFailure.mockClear()
+            fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf('{"results": []}') }))
+            await api.get('api/environments/2/insights')
+            expect(onResponseBodyFailure).not.toHaveBeenCalled()
+
+            apiStatusLogicSpy.mockRestore()
+        })
+
+        // The default dashboard load reads its body through getJSONOrNull, not through api.get,
+        // so without this the banner still clears on a dashboard whose body died mid-read
+        it('reports a raw response whose body fails mid-read, and stays quiet for one that parses', async () => {
+            const onResponseBodyFailure = jest.fn()
+            const apiStatusLogicSpy = jest
+                .spyOn(apiStatusLogic, 'findMounted')
+                .mockReturnValue({ actions: { onApiResponse: jest.fn(), onResponseBodyFailure } } as any)
+
+            fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(new TypeError('network error')) }))
+            await expect(getJSONOrNull(await api.getResponse('api/environments/2/insights'))).resolves.toBeNull()
+            expect(onResponseBodyFailure).toHaveBeenCalledTimes(1)
+
+            // A body that arrives and does not parse is a server fault, not a connection one
+            onResponseBodyFailure.mockClear()
+            fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf('<html></html>') }))
+            await expect(getJSONOrNull(await api.getResponse('api/environments/2/insights'))).resolves.toBeNull()
+            expect(onResponseBodyFailure).not.toHaveBeenCalled()
+
+            apiStatusLogicSpy.mockRestore()
         })
 
         it.each([
