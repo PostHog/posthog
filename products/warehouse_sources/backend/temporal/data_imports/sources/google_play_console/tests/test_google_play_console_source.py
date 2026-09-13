@@ -171,6 +171,37 @@ def test_list_endpoint_descriptions_document_their_primary_key_columns(name: str
     assert set(PRIMARY_KEYS[name]).issubset(columns)
 
 
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        "Tunnel connection failed: 429 Too Many Requests",
+        "HTTPSConnectionPool(host='oauth2.googleapis.com', port=443): Max retries exceeded with url: "
+        "/token (Caused by ProxyError('Cannot connect to proxy.', "
+        "OSError('Tunnel connection failed: 429 Too Many Requests')))",
+    ],
+)
+def test_token_mint_proxy_tunnel_429_is_retryable(observed_error: str) -> None:
+    # PostHog's own egress proxy throttling the OAuth token-mint CONNECT tunnel is transient and
+    # self-recovering on Temporal's activity retry, so it must stay out of error tracking as noise
+    # (the same reasoning already applied to ClickHouse's and Salesforce's tunnel gateway statuses).
+    retryable_errors = GooglePlayConsoleSource().get_retryable_errors()
+
+    assert any(pattern in observed_error for pattern in retryable_errors)
+
+
+def test_token_mint_proxy_auth_rejection_stays_reportable() -> None:
+    # A 407 shares the "Cannot connect to proxy." wording but is a deterministic proxy-auth
+    # rejection that repeats on every attempt, not a transient throttling burst — it must not be
+    # swallowed by the 429 tunnel pattern.
+    observed_error = (
+        "Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: "
+        "407 Proxy Authentication Required'))"
+    )
+    retryable_errors = GooglePlayConsoleSource().get_retryable_errors()
+
+    assert not any(pattern in observed_error for pattern in retryable_errors)
+
+
 def _inputs(**overrides: Any) -> mock.MagicMock:
     inputs = mock.MagicMock()
     inputs.schema_name = "crash_rate"
