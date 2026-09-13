@@ -138,11 +138,13 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                     </div>
                 )}
                 <div className={tabbed && activeSection !== 'lineage' ? 'hidden' : 'flex flex-col gap-4'}>
+                    {/* The response always carries the model itself, so its node count is never zero.
+                        An empty edge list is what says nothing connects to this model. */}
                     {tabbed &&
                         targetView &&
                         !upstreamLoading &&
                         !upstreamLoadFailed &&
-                        upstream?.nodes.length === 0 && (
+                        upstream?.edges.length === 0 && (
                             <p className="text-secondary py-8 text-center">No connected models yet.</p>
                         )}
                     {targetView && upstreamLoading && <Spinner />}
@@ -157,7 +159,7 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                     {(!tabbed || activeSection === 'lineage') &&
                         upstream &&
                         targetView &&
-                        upstream.nodes.length > 0 && (
+                        upstream.edges.length > 0 && (
                             <>
                                 <div>
                                     <div className="flex flex-wrap items-center justify-between gap-3">
