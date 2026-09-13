@@ -253,6 +253,22 @@ class TestEventFilterConfigAPI(APIBaseTest):
         mock_fetch.assert_called_once()
         self.assertEqual(response.json(), {"totals": {"success": 10}})
 
+    @parameterized.expand([("disabled",), ("dry_run",)])
+    def test_create_saves_failing_test_cases_when_not_live(self, mode: str):
+        tree = _cond("event_name", "exact", "$pageview")
+        test_cases = [{"event_name": "$pageview", "expected_result": "ingest"}]
+
+        response = self.client.post(
+            self._url(),
+            data={"mode": mode, "filter_tree": tree, "test_cases": test_cases},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        config = EventFilterConfig.objects.get(team=self.team)
+        self.assertEqual(config.mode, mode)
+        self.assertEqual(config.test_cases, test_cases)
+
     # -- Complex end-to-end --
 
     def test_complex_filter_tree_with_test_cases(self):
@@ -292,7 +308,7 @@ class TestEventFilterConfigAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("expected 'ingest' but got 'drop'", response.json()["detail"])
+        self.assertIn("to be ingested, but this filter drops it", response.json()["detail"])
 
         # Verify original config unchanged
         config = EventFilterConfig.objects.get(team=self.team)
@@ -375,15 +391,29 @@ class TestEventFilterConfigValidationNoDB(SimpleTestCase):
         assert not serializer.is_valid()
         assert "mode" in serializer.errors
 
-    def test_rejects_failing_test_cases(self) -> None:
+    def test_rejects_failing_test_cases_when_going_live(self) -> None:
         serializer = EventFilterConfigSerializer(
             data={
+                "mode": "live",
                 "filter_tree": _cond("event_name", "exact", "$pageview"),
                 "test_cases": [{"event_name": "$pageview", "expected_result": "ingest"}],
             }
         )
         assert not serializer.is_valid()
-        assert "expected 'ingest' but got 'drop'" in str(serializer.errors["test_cases"])
+        assert 'Test 1 expects event "$pageview" to be ingested, but this filter drops it.' in str(
+            serializer.errors["test_cases"]
+        )
+
+    @parameterized.expand([("disabled",), ("dry_run",)])
+    def test_accepts_failing_test_cases_when_not_live(self, mode: str) -> None:
+        serializer = EventFilterConfigSerializer(
+            data={
+                "mode": mode,
+                "filter_tree": _cond("event_name", "exact", "$pageview"),
+                "test_cases": [{"event_name": "$pageview", "expected_result": "ingest"}],
+            }
+        )
+        assert serializer.is_valid(), serializer.errors
 
     def test_validation_serializer_is_wired_to_viewset(self) -> None:
         # Wiring guard (no DB): the create/update actions validate through this serializer

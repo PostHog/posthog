@@ -69,7 +69,9 @@ class EventFilterConfig(UUIDTModel):
             validate_filter_tree(self.filter_tree)
         if self.test_cases:
             validate_test_cases(self.test_cases)
-        if self.filter_tree and self.test_cases:
+        # Only live filters must pass their tests. A disabled or dry run filter drops nothing,
+        # so the user can save work in progress and keep iterating on it.
+        if self.mode == EventFilterMode.LIVE and self.filter_tree and self.test_cases:
             failures = run_test_cases(self.filter_tree, self.test_cases)
             if failures:
                 raise ValidationError({"test_cases": failures})
@@ -226,6 +228,18 @@ def validate_test_cases(test_cases: object) -> None:
                 raise ValidationError({"test_cases": f"Test case {i}: {field} must be a string."})
 
 
+def _describe_test_event(event: dict) -> str:
+    """Human-readable name for the event a test case describes."""
+    parts: list[str] = []
+    if event.get("event_name"):
+        parts.append(f'event "{event["event_name"]}"')
+    if event.get("distinct_id"):
+        parts.append(f'distinct ID "{event["distinct_id"]}"')
+    if not parts:
+        return "an event with no name or distinct ID"
+    return " and ".join(parts)
+
+
 def run_test_cases(filter_tree: dict, test_cases: list[dict]) -> list[str]:
     """Run test cases against a filter tree. Returns a list of failure descriptions (empty if all pass)."""
     failures: list[str] = []
@@ -234,8 +248,13 @@ def run_test_cases(filter_tree: dict, test_cases: list[dict]) -> list[str]:
         should_drop = evaluate_filter_tree(filter_tree, event)
         actual = "drop" if should_drop else "ingest"
         expected = tc["expected_result"]
-        if actual != expected:
-            failures.append(f"Test case {i}: expected '{expected}' but got '{actual}' for {event}")
+        if actual == expected:
+            continue
+        subject = _describe_test_event(event)
+        if expected == "ingest":
+            failures.append(f"Test {i + 1} expects {subject} to be ingested, but this filter drops it.")
+        else:
+            failures.append(f"Test {i + 1} expects {subject} to be dropped, but this filter ingests it.")
     return failures
 
 

@@ -54,7 +54,9 @@ export function EventFilterTestCases(): JSX.Element {
                                         />
                                         {result && (
                                             <LemonTag type={result.pass ? 'success' : 'danger'}>
-                                                {result.pass ? 'Pass' : `Fail (would ${result.actual})`}
+                                                {result.pass
+                                                    ? 'Pass'
+                                                    : `Fail: expected ${tc.expected_result}, got ${result.actual}`}
                                             </LemonTag>
                                         )}
                                     </div>

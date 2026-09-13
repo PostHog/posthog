@@ -388,16 +388,15 @@ export const FailingTests: Story = {
             description: {
                 story: `
 Same SIMPLE_FILTER as DryRunWithTests with one extra test case whose expected outcome doesn't
-match the tree. Captures the failing-test UI plus the "tests failing — will be saved as dry run"
-hint surface.
+match the tree. Captures the failing-test UI plus the dry run save hint surface.
 
 Expected to show:
 - Mode is "Dry run"; status card still yellow
 - Filter tree identical to DryRunWithTests
-- Five test cases: four with green "Pass" tags, one with a red "Fail" tag (the trailing
-  \`$pageview / user-1\` case)
-- Inline danger text "Tests failing — will be saved as dry run" only appears once the user
-  attempts to switch to live (not visible here)
+- Five test cases: four with green "Pass" tags, one with a red "Fail: expected drop, got
+  ingest" tag (the trailing \`$pageview / user-1\` case)
+- Inline danger text about the dry run save only appears once the user attempts to switch
+  to live (not visible here)
                 `,
             },
         },
