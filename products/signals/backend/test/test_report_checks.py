@@ -337,6 +337,28 @@ class TestReportCheckExecution(APIBaseTest):
 
         assert collect_due_checks(now) == []
 
+    def test_one_team_with_a_backlog_does_not_starve_another_team(self) -> None:
+        now = timezone.now()
+        for minutes in (30, 20, 10):
+            self._check(next_run_at=now - timedelta(minutes=minutes))
+        other_team = self.organization.teams.create(name="Other")
+        other_report = SignalReport.objects.create(
+            team=other_team, status=SignalReport.Status.RESOLVED, title="Other fix"
+        )
+        other_check = SignalReportCheck.objects.for_team(other_team.id).create(
+            team=other_team,
+            report=other_report,
+            title="Their checkout errors stay low",
+            kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+            config=_threshold_config(),
+            next_run_at=now - timedelta(minutes=5),
+            expires_at=now + timedelta(days=30),
+        )
+
+        due = collect_due_checks(now, limit=2)
+
+        assert other_check.id in {check.id for check in due}
+
     def test_a_check_riding_a_report_metric_measures_that_metric(self) -> None:
         self.report.metrics = [
             {

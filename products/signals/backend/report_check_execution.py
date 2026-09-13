@@ -13,6 +13,8 @@ import time
 from datetime import datetime, timedelta
 
 from django.db import transaction
+from django.db.models import F, Window
+from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 import structlog
@@ -301,9 +303,17 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
             report__status__in=CHECKABLE_REPORT_STATUSES,
         )
         .select_related("report", "report__team")
-        # Read enough rows that the per-team cap below can still fill the tick from other teams
-        # when the most overdue rows all belong to one of them.
-        .order_by("next_run_at")[: limit * MAX_CHECK_RUNS_PER_TEAM_PER_TICK]
+        # Rank each team's rows against its own, then read those ranks in order, so every team's
+        # oldest check sorts ahead of any team's second. Ordering by `next_run_at` alone would let
+        # one team's backlog fill the whole prefix and starve every other team behind it.
+        .annotate(
+            _team_rank=Window(
+                expression=RowNumber(),
+                partition_by=[F("team_id")],
+                order_by=[F("next_run_at").asc(), F("id").asc()],
+            )
+        )
+        .order_by("_team_rank", "next_run_at", "id")[: limit * MAX_CHECK_RUNS_PER_TEAM_PER_TICK]
     )
     per_team: dict[int, int] = {}
     due: list[SignalReportCheck] = []
