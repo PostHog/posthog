@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -317,6 +318,28 @@ describe('hogFunctionConfigurationLogic', () => {
             logic.mount()
 
             await expectLogic(logic).toDispatchActions(['loadHogFunction', 'loadHogFunctionFailure'])
+        })
+
+        it('names the cause when saving a function that no longer exists', async () => {
+            // A save against a deleted function, or one in another project, 404s. Without this the
+            // user gets the generic save error and the rejection is filed in error tracking.
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
+            const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+            mockApi.get.mockResolvedValue(HOG_FUNCTION)
+            mockApi.update.mockRejectedValue(new ApiError('Not found', 404))
+            logic = hogFunctionConfigurationLogic({ id: HOG_FUNCTION.id })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.upsertHogFunction(logic.values.configuration)
+            }).toDispatchActions(['upsertHogFunctionFailure'])
+
+            expect(toastSpy).toHaveBeenCalledTimes(1)
+            expect(toastSpy).toHaveBeenCalledWith(
+                "Couldn't save. This function no longer exists, or it belongs to another project."
+            )
+            expect(captureSpy).not.toHaveBeenCalled()
         })
     })
 
