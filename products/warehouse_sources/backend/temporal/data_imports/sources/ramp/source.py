@@ -69,6 +69,16 @@ class RampSource(ResumableSource[RampSourceConfig, RampResumeConfig]):
             "403 Client Error: Forbidden for url: https://demo-api.ramp.com": "Ramp denied access. Please check that your developer app has the read scope for this dataset.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        return {
+            # PostHog's own egress proxy answering the token-mint CONNECT tunnel with a 429 —
+            # the token mint disables its own retries (retry=Retry(total=0) in
+            # rest_source.auth) so it can classify the response itself, so this is a proxy
+            # throttling burst that outlasted the sync, not a Ramp or customer problem. Same
+            # reasoning already applied to other OAuth2 client-credentials sources.
+            "Tunnel connection failed: 429",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
