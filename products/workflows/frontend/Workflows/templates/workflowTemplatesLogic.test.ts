@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+
 import { initKeaTests } from '~/test/init'
 
 import { workflowTemplatesLogic } from './workflowTemplatesLogic'
@@ -26,14 +28,21 @@ describe('workflowTemplatesLogic', () => {
     })
 
     describe('actionToUrl', () => {
-        it('sets URL based on template filter', () => {
+        it.each([
+            { route: '/workflows', expectedParams: { templateFilter: 'my filter', tagFilter: 'lifecycle' } },
+            { route: '/cohorts/42', expectedParams: {} },
+        ])('syncs the filters to the URL only on the workflows list ($route)', ({ route, expectedParams }) => {
             const logic = workflowTemplatesLogic()
             logic.mount()
 
-            router.actions.push('/workflows', {}, {})
+            router.actions.push(route, {}, {})
             logic.actions.setTemplateFilter('my filter')
+            logic.actions.setTagFilter('lifecycle')
 
-            expect(router.values.searchParams).toHaveProperty('templateFilter', 'my filter')
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(route)
+            expect(router.values.searchParams).toEqual(expectedParams)
+            expect(logic.values.templateFilter).toBe('my filter')
+            expect(logic.values.tagFilter).toBe('lifecycle')
         })
     })
 

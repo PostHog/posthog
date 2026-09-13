@@ -37,6 +37,8 @@ import {
     TimeUnitType,
 } from '~/types'
 
+import { serializeWorkflowTriggerPrefill } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
+
 /**
  * Single source of truth for whether a HaveProperty/NotHaveProperty criterion targets a
  * top-level persons-table column (PersonMetadata) or the JSON properties blob (Person).
@@ -680,6 +682,54 @@ export function criteriaToHumanSentence(
 
 export function createCohortDataNodeLogicKey(cohortId: number | 'new'): string {
     return `cohort_${cohortId}_persons`
+}
+
+export function cohortWorkflowDisabledReason(cohort: CohortType): string | null {
+    // Runs before the static exemption below: a deleted cohort still resolves by id in a batch
+    // audience, so the workflow would send to a membership snapshot that is on its way to empty.
+    if (cohort.deleted) {
+        return 'This cohort is deleted. Restore it first.'
+    }
+    if (cohort.is_static) {
+        return null
+    }
+    const hasCriteriaOfType = (
+        value: CohortCriteriaGroupFilter | AnyCohortCriteriaType,
+        type: BehavioralFilterKey
+    ): boolean =>
+        isCohortCriteriaGroup(value)
+            ? value.values.some((nested) =>
+                  hasCriteriaOfType(nested as CohortCriteriaGroupFilter | AnyCohortCriteriaType, type)
+              )
+            : value.type === type
+    if (cohort.filters?.properties) {
+        if (hasCriteriaOfType(cohort.filters.properties, BehavioralFilterKey.Behavioral)) {
+            return "Workflows can't message cohorts that filter on events. Duplicate it as a static cohort first."
+        }
+        // A referenced cohort can filter on events without this cohort's own criteria showing it,
+        // so refuse the reference itself rather than resolving the whole dependency tree client-side.
+        if (hasCriteriaOfType(cohort.filters.properties, BehavioralFilterKey.Cohort)) {
+            return "Workflows can't message cohorts that reference other cohorts. Duplicate it as a static cohort first."
+        }
+    }
+    return null
+}
+
+export function workflowTriggerPrefillForCohort(cohort: CohortType): string {
+    return serializeWorkflowTriggerPrefill({
+        type: 'batch',
+        filters: {
+            properties: [
+                {
+                    key: 'id',
+                    type: PropertyFilterType.Cohort,
+                    value: cohort.id as number,
+                    operator: PropertyOperator.In,
+                    cohort_name: cohort.name,
+                },
+            ],
+        },
+    })
 }
 
 export const COHORT_MATCHING_DAYS = {
