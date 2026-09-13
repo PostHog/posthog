@@ -7,6 +7,7 @@ import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { OrgSwitcher } from 'lib/components/Account/OrgSwitcher'
 import { ProjectSwitcher } from 'lib/components/Account/ProjectSwitcher'
 import { HogWelder } from 'lib/components/hedgehogs'
+import { dayjs } from 'lib/dayjs'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
 import { projectLogic } from 'scenes/projectLogic'
@@ -19,7 +20,8 @@ export const scene: SceneExport = {
 }
 
 export function ProjectPendingDeletion(): JSX.Element {
-    const { currentProject } = useValues(projectLogic)
+    const { currentProject, currentProjectLoading } = useValues(projectLogic)
+    const { cancelProjectDeletion } = useActions(projectLogic)
     const { otherOrganizations } = useValues(userLogic)
     const { isProjectSwitcherOpen, isOrgSwitcherOpen } = useValues(newAccountMenuLogic)
     const { openProjectSwitcher, closeProjectSwitcher, openOrgSwitcher, closeOrgSwitcher } =
@@ -36,11 +38,23 @@ export function ProjectPendingDeletion(): JSX.Element {
                         circuit level
                     </h3>
                     <p className="text-secondary">
-                        Our hedgehog engineer is carefully taking everything apart. This project will be completely
-                        deleted shortly. For projects with lots of data, cleanup can take a while — we'll email you when
-                        it's done.
+                        This project is scheduled for deletion
+                        <strong>
+                            {currentProject?.deletion_scheduled_at
+                                ? ` on ${dayjs(currentProject.deletion_scheduled_at).format('MMMM D, YYYY [at] h:mm A')}`
+                                : ' soon'}
+                        </strong>
+                        . If you've changed you mind, you can cancel project deletion before then.
                     </p>
                     <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => cancelProjectDeletion()}
+                            loading={currentProjectLoading}
+                            data-attr="cancel-project-deletion"
+                        >
+                            Cancel project deletion
+                        </LemonButton>
                         <Popover
                             visible={isProjectSwitcherOpen}
                             onClickOutside={closeProjectSwitcher}

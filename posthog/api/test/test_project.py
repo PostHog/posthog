@@ -1,6 +1,9 @@
+from datetime import timedelta
+
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -571,7 +574,27 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.project.refresh_from_db()
         self.assertTrue(self.project.is_pending_deletion)
+        self.assertAlmostEqual(
+            self.project.deletion_scheduled_at.timestamp(),
+            (timezone.now() + timedelta(hours=48)).timestamp(),
+            delta=5,
+        )
         mock_delete_task.assert_called_once()
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_project_deletion_can_be_canceled(self, mock_delete_task, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.delete(f"/api/projects/{self.project.id}")
+
+        response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.project.refresh_from_db()
+        self.assertFalse(self.project.is_pending_deletion)
+        self.assertIsNone(self.project.deletion_scheduled_at)
+        mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     def test_project_deletion_returns_pending_deletion_in_api(self, mock_delete_task):

@@ -2624,6 +2624,11 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     readonly is_pending_deletion: boolean | null
+    /**
+     * When the scheduled project deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at: string | null
     /** ID of the project this environment belongs to. */
     readonly project_id: number
     /**
@@ -3485,6 +3490,11 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     readonly is_pending_deletion?: boolean | null
+    /**
+     * When the scheduled project deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at?: string | null
     /** ID of the project this environment belongs to. */
     readonly project_id?: number
     /**
@@ -3534,6 +3544,43 @@ export interface PatchedProjectBackwardCompatApi {
     readonly event_retention_months?: number
     /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
     readonly events_retention_enforced?: boolean
+}
+
+/**
+ * The project as the app context serves it, which is where the frontend reads it on page load.
+ *
+ * projectLogic bootstraps `currentProject` from the app context and only calls the API when that
+ * is missing, so a field left out here is invisible to the app until something refetches.
+ */
+export interface ProjectApi {
+    readonly id: number
+    readonly organization_id: string
+    /**
+     * @minLength 1
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * @maxLength 1000
+     * @nullable
+     */
+    product_description?: string | null
+    readonly created_at: string
+    /**
+     * Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.
+     * @nullable
+     */
+    readonly is_pending_deletion: boolean | null
+    /**
+     * When the scheduled project deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at: string | null
+    /**
+     * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 /**

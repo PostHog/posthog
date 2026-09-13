@@ -9,6 +9,7 @@ import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { identifierToHuman } from 'lib/utils/strings'
 
+import { organizationsProjectsCancelDeletionCreate } from '~/generated/core/api'
 import { ProjectType } from '~/types'
 
 import type { OrganizationBasicType } from '../types'
@@ -48,6 +49,21 @@ export interface projectLogicActions {
         destination: string | undefined
         organizationId: string
     } // userLogic
+    cancelProjectDeletion: () => any
+    cancelProjectDeletionFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    cancelProjectDeletionSuccess: (
+        currentProject: ProjectType,
+        payload?: any
+    ) => {
+        currentProject: ProjectType
+        payload?: any
+    }
     createProject: ({ name }: { name: string }) => {
         name: string
     }
@@ -243,6 +259,15 @@ export const projectLogic = kea<projectLogicType>([
                     // don't switch into a project that wasn't created or leave the modal stuck open.
                     return await api.create('api/projects/', { name })
                 },
+                cancelProjectDeletion: async () => {
+                    if (!values.currentProject) {
+                        throw new Error('Current project has not been loaded yet, so it cannot be restored!')
+                    }
+                    return (await organizationsProjectsCancelDeletionCreate(
+                        values.currentProject.organization_id,
+                        values.currentProject.id
+                    )) as unknown as ProjectType
+                },
             },
         ],
 
@@ -306,9 +331,17 @@ export const projectLogic = kea<projectLogicType>([
             }
         },
         deleteProjectSuccess: () => {
-            lemonToast.success('Project deletion has been initiated')
+            lemonToast.success('Project deletion has been scheduled')
             // Full reload so the bootstrap context carries is_pending_deletion and lands on the lockout screen
             window.location.href = urls.projectPendingDeletion()
+        },
+        cancelProjectDeletionSuccess: () => {
+            lemonToast.success('Project deletion has been canceled')
+            actions.loadCurrentProject()
+        },
+        cancelProjectDeletionFailure: ({ errorObject }) => {
+            const apiError = errorObject as Record<string, any>
+            lemonToast.error(apiError?.detail || 'Failed to cancel project deletion. Please try again.')
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
