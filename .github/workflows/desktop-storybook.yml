@@ -1,0 +1,274 @@
+name: Desktop Storybook visual regression
+
+# This is deliberately separate from ci-storybook.yml. Desktop has its own
+# pnpm workspace, Storybook configuration, snapshot baseline and cache keys.
+# A Desktop change must never be filtered out by the main-app Storybook suite.
+on:
+    pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
+        paths:
+            - 'products/desktop/**'
+            - '.github/workflows/desktop-storybook.yml'
+    push:
+        branches: [master]
+        paths:
+            - 'products/desktop/**'
+            - '.github/workflows/desktop-storybook.yml'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
+
+jobs:
+    changes:
+        name: Detect Desktop Storybook baseline updates
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        outputs:
+            baseline_only_push: ${{ steps.baseline-push.outputs.result || 'false' }}
+        steps:
+            # Visual Review commits an approved baseline as a bot. It does not
+            # need another screenshot run, even though the PR diff still has
+            # Desktop source changes.
+            - name: Detect Visual Review baseline-only push
+              id: baseline-push
+              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  ACTOR: ${{ github.actor }}
+                  BEFORE: ${{ github.event.before }}
+                  AFTER: ${{ github.event.after }}
+              run: |
+                  set -euo pipefail
+                  result=false
+                  case "$ACTOR" in
+                      *'[bot]' | posthog-bot) is_bot=true ;;
+                      *) is_bot=false ;;
+                  esac
+                  zero=0000000000000000000000000000000000000000
+                  if [ "$is_bot" = true ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "$zero" ] && [ -n "$AFTER" ]; then
+                      files=$(gh api "repos/${REPOSITORY}/compare/${BEFORE}...${AFTER}" --jq '.files[].filename' || true)
+                      if [ -n "$files" ] && ! grep -qv '^products/desktop/apps/code/snapshots\.yml$' <<<"$files"; then
+                          result=true
+                      fi
+                  fi
+                  echo "result=$result" >> "$GITHUB_OUTPUT"
+
+    visual-regression:
+        name: Desktop visual regression
+        needs: changes
+        if: ${{ !cancelled() && needs.changes.outputs.baseline_only_push != 'true' }}
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 45
+        permissions:
+            contents: read
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+                  persist-credentials: false
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version-file: products/desktop/.node-version
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              working-directory: products/desktop
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            - name: Restore pnpm store
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  restore-keys: desktop-pnpm-${{ runner.os }}-
+
+            - name: Restore Playwright browsers
+              id: playwright-cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ~/.cache/ms-playwright
+                  key: playwright-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  restore-keys: playwright-${{ runner.os }}-
+
+            - name: Install dependencies
+              working-directory: products/desktop
+              run: pnpm install --frozen-lockfile
+              env:
+                  SKIP_ELECTRON_REBUILD: '1'
+
+            - name: Install Playwright Chromium
+              if: steps.playwright-cache.outputs.cache-hit != 'true'
+              working-directory: products/desktop
+              run: pnpm --filter code exec playwright install --with-deps chromium
+
+            - name: Install Playwright system dependencies
+              if: steps.playwright-cache.outputs.cache-hit == 'true'
+              working-directory: products/desktop
+              run: pnpm --filter code exec playwright install-deps chromium
+
+            - name: Build workspace packages
+              working-directory: products/desktop
+              run: pnpm run build:deps
+
+            - name: Build Storybook
+              working-directory: products/desktop
+              run: pnpm --filter code run build-storybook
+
+            - name: Serve Storybook
+              working-directory: products/desktop
+              run: |
+                  STORYBOOK_ROOT=apps/code/storybook-static node --input-type=module <<'EOF' &
+                  import { createReadStream, statSync } from "node:fs";
+                  import { createServer } from "node:http";
+                  import { extname, resolve, sep } from "node:path";
+
+                  const root = resolve(process.env.STORYBOOK_ROOT);
+                  const contentTypes = {
+                    ".css": "text/css",
+                    ".html": "text/html",
+                    ".js": "text/javascript",
+                    ".json": "application/json",
+                    ".png": "image/png",
+                    ".svg": "image/svg+xml",
+                    ".woff2": "font/woff2",
+                  };
+
+                  createServer((request, response) => {
+                    const pathname = decodeURIComponent(new URL(request.url ?? "/", "http://127.0.0.1").pathname);
+                    const filePath = resolve(root, pathname === "/" ? "index.html" : `.${pathname}`);
+                    if (!filePath.startsWith(`${root}${sep}`)) {
+                      response.writeHead(403).end();
+                      return;
+                    }
+                    try {
+                      if (!statSync(filePath).isFile()) throw new Error("Not a file");
+                      response.writeHead(200, { "Content-Type": contentTypes[extname(filePath)] ?? "application/octet-stream" });
+                      createReadStream(filePath).pipe(response);
+                    } catch {
+                      response.writeHead(404).end();
+                    }
+                  }).listen(6006, "127.0.0.1");
+                  EOF
+                  pnpm --filter code exec wait-on http://127.0.0.1:6006/iframe.html --timeout 30000
+
+            - name: Clean snapshot directory
+              working-directory: products/desktop
+              run: find apps/code/.storybook/__snapshots__ -name '*.png' -delete 2>/dev/null || true
+
+            - name: Capture story screenshots
+              id: test-runner
+              continue-on-error: true
+              working-directory: products/desktop
+              env:
+                  HOME: /root
+              run: pnpm --filter code run test:visual:ci:update
+
+            # The Desktop build uses Node 22, while the Visual Review CLI requires Node 24.
+            - name: Setup Node.js for Visual Review
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 24
+
+            # The CLI comes from the base branch on PRs. This prevents a PR from
+            # modifying the token-consuming client that evaluates its own screenshots.
+            - name: Checkout Visual Review CLI
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.base.ref || github.sha }}
+                  path: vr-cli
+                  persist-credentials: false
+                  sparse-checkout: |
+                      products/visual_review/cli
+                      products/visual_review/frontend/generated/api.schemas.ts
+                  sparse-checkout-cone-mode: false
+
+            - name: Build Visual Review CLI
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              timeout-minutes: 8
+              working-directory: vr-cli/products/visual_review/cli
+              run: |
+                  npm ci --no-audit --no-fund || { echo "::warning::Visual Review CLI install failed, retrying once"; sleep $((5 + RANDOM % 26)); npm ci --no-audit --no-fund; }
+                  npm run build
+
+            - name: Create Visual Review run
+              id: visual-review
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+                  VR_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+                  VR_PR: ${{ github.event.pull_request.number }}
+                  VR_PURPOSE: ${{ (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'trunk-merge/'))) && 'observe' || 'review' }}
+              run: |
+                  RUN_ID=$(node vr-cli/products/visual_review/cli/dist/cli/src/index.js run create \
+                    --type desktop-storybook \
+                    --baseline products/desktop/apps/code/snapshots.yml \
+                    --branch "$VR_BRANCH" \
+                    --commit "$VR_COMMIT" \
+                    --pr "$VR_PR" \
+                    --purpose "$VR_PURPOSE" \
+                    --token "$VR_TOKEN")
+                  echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
+            - name: Upload snapshots to Visual Review
+              if: always() && steps.visual-review.outputs.run_id != ''
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+              run: |
+                  node vr-cli/products/visual_review/cli/dist/cli/src/index.js run upload \
+                    --run-id "${{ steps.visual-review.outputs.run_id }}" \
+                    --dir products/desktop/apps/code/.storybook/__snapshots__/ \
+                    --baseline products/desktop/apps/code/snapshots.yml \
+                    --token "$VR_TOKEN"
+
+            - name: Complete Visual Review run
+              if: steps.visual-review.outputs.run_id != '' && steps.test-runner.outcome == 'success'
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_TOLERATE_DRIFT: ${{ github.event_name == 'push' }}
+              run: |
+                  args=(
+                    --run-id "${{ steps.visual-review.outputs.run_id }}"
+                    --baseline products/desktop/apps/code/snapshots.yml
+                    --purpose "${{ (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'trunk-merge/'))) && 'observe' || 'review' }}"
+                    --token "$VR_TOKEN"
+                  )
+                  if [ "$VR_TOLERATE_DRIFT" = 'true' ]; then
+                      args+=(--tolerate-drift)
+                  fi
+                  node vr-cli/products/visual_review/cli/dist/cli/src/index.js run complete "${args[@]}"
+
+            - name: Upload failure screenshots
+              if: failure() || steps.test-runner.outcome == 'failure'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: desktop-storybook-visual-failures
+                  path: |
+                      products/desktop/apps/code/.storybook/__snapshots__/__diff_output__/
+                      products/desktop/apps/code/.storybook/__snapshots__/__failures__/
+                  if-no-files-found: ignore
+                  retention-days: 7
+
+            - name: Fail on story capture failure
+              if: steps.test-runner.outcome == 'failure'
+              run: exit 1
