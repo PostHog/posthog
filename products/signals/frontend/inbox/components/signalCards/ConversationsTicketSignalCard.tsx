@@ -17,10 +17,7 @@ import { conversationsTicketUrl } from 'products/signals/frontend/inbox/utils/si
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
 
-/**
- * Ticket fields this card reads, each optional: evidence stored before the emitter carried a field
- * still renders, just without that detail.
- */
+/** Every field is optional so that evidence stored before the emitter carried it still renders. */
 type TicketExtra = Partial<ConversationsTicketSignalExtraApi>
 
 function ticketExtra(value: unknown): TicketExtra {

@@ -467,9 +467,8 @@ function GitHubIssueSignalCard({
 }
 
 /**
- * The support ticket a Conversations evidence item came from. The ticket number is the route's
- * canonical form, and the signal's `source_id` — the ticket's uuid, which the ticket page resolves
- * too — covers evidence stored before the emitter carried the number.
+ * The ticket page resolves both a ticket number and a ticket uuid, so `source_id` covers evidence
+ * stored before the emitter carried the number.
  */
 function conversationsTicketRef(
   signal: Signal,
@@ -501,8 +500,7 @@ function ConversationsTicketSignalCard({
   const projectId = useAuthStateValue((s) => s.currentProjectId);
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
   const ticketRef = conversationsTicketRef(signal, extra);
-  // A plain `target="_blank"` anchor: the host hands it to the OS browser, where the
-  // reviewer is already signed in, and the report stays open in the app behind it.
+  // `target="_blank"` hands the link to the OS browser, so the report stays open in the app.
   const ticketUrl = ticketRef
     ? supportTicketUrl(ticketRef, { projectId, cloudRegion })
     : null;

@@ -27,10 +27,9 @@ export function signalEntityUrl(sourceProduct: string, entityId?: string | null)
 }
 
 /**
- * The support ticket a Conversations evidence item came from. The ticket number is the route's
- * canonical form, and the signal's `source_id` — the ticket's uuid, which the ticket page resolves
- * too — covers evidence stored before the emitter carried the number. Null when the signal holds
- * neither, so the card can say the source is unavailable instead of linking somewhere wrong.
+ * The support ticket a Conversations evidence item came from. The ticket page resolves both a
+ * ticket number and a ticket uuid, so `source_id` covers evidence stored before the emitter
+ * carried the number. Null when the signal holds neither.
  */
 export function conversationsTicketUrl(signal: { source_id: string; extra: unknown }): string | null {
     const extra = isObject(signal.extra) ? signal.extra : {}

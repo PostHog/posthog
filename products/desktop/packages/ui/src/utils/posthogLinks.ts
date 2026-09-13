@@ -101,10 +101,7 @@ export function inboxReportUrl(
   );
 }
 
-/**
- * The browser-accessible URL for a support ticket. The ticket page resolves both a ticket number
- * and a ticket uuid, so callers pass whichever identity the object they hold carries.
- */
+/** The browser-accessible URL for a support ticket, by ticket number or by ticket uuid. */
 export function supportTicketUrl(
   ticketRef: string | number,
   overrides?: LinkOverrides,

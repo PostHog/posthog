@@ -130,8 +130,7 @@ const conversationsTicket = makeSignal({
     },
 })
 
-// Evidence stored before the emitter carried a ticket number still opens the ticket, from the
-// ticket uuid on the signal itself.
+// Evidence stored without a ticket number still opens the ticket, from the uuid on the signal.
 const conversationsTicketWithoutNumber = makeSignal({
     source_product: 'conversations',
     source_type: 'ticket',
