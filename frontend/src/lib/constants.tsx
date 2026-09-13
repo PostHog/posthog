@@ -460,6 +460,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_SUPPORT_IMPORT_TICKETS: 'product-support-import-tickets', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_SLACK_NOTIFY_ON_MEMBERS: 'product-support-slack-notify-on-members', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_TEAMS_ENABLED: 'product-support-teams-enabled', // owner: @veryayskiy #team-conversations
+    PRODUCT_SUPPORT_TICKET_PATTERNS: 'product-support-ticket-patterns', // owner: #team-conversations, surfaces bursts of similar tickets from distinct customers
     PRODUCT_TOURS: 'product-tours-2025', // owner: @adboio #team-surveys
     PRODUCT_TOURS_LOCALIZATION: 'product-tours-localization', // owner: @adboio #team-surveys
     PROJECT_SECRET_API_KEYS: 'project-secret-api-keys', // owner: #team-platform-features

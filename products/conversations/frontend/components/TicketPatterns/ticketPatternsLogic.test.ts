@@ -1,0 +1,145 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import type { TicketPatternApi } from '../../generated/api.schemas'
+import { ticketPatternsLogic } from './ticketPatternsLogic'
+
+function makePattern(id: string): TicketPatternApi {
+    return {
+        id,
+        topic: 'login',
+        source: 'terms',
+        title: `pattern ${id}`,
+        summary: '',
+        status: 'open',
+        severity: 'medium',
+        ticket_count: 6,
+        requester_count: 6,
+        peak_ticket_count: 6,
+        first_ticket_at: '2026-01-01T10:00:00Z',
+        opened_at: '2026-01-01T10:15:00Z',
+        last_seen_at: '2026-01-01T10:15:00Z',
+        resolved_at: null,
+        resolved_by: null,
+        owner: null,
+        evidence: {},
+        tickets: [],
+    }
+}
+
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: { info: jest.fn(), warning: jest.fn(), error: jest.fn() },
+}))
+
+describe('ticketPatternsLogic', () => {
+    let logic: ReturnType<typeof ticketPatternsLogic.build>
+
+    beforeEach(async () => {
+        jest.clearAllMocks()
+        silenceKeaLoadersErrors()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/conversations/patterns/': () => [
+                    200,
+                    { results: [makePattern('a'), makePattern('b')], count: 2, next: null, previous: null },
+                ],
+                '/api/projects/:team_id/conversations/patterns/:id/': () => [
+                    200,
+                    { ...makePattern('b'), status: 'confirmed' },
+                ],
+            },
+            post: {
+                '/api/projects/:team_id/conversations/patterns/a/dismiss/': () => [500, { detail: 'boom' }],
+                '/api/projects/:team_id/conversations/patterns/b/confirm/': () => [
+                    200,
+                    { ...makePattern('b'), status: 'confirmed' },
+                ],
+                '/api/projects/:team_id/conversations/patterns/b/dismiss/': () => [
+                    400,
+                    {
+                        type: 'validation_error',
+                        code: 'invalid',
+                        detail: 'Only an open pattern can be dismissed.',
+                        attr: 'status',
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_PATTERNS], {
+            [FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_PATTERNS]: true,
+        })
+        logic = ticketPatternsLogic()
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.loadOpenPatterns()).toDispatchActions(['loadOpenPatternsSuccess'])
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        resumeKeaLoadersErrors()
+    })
+
+    it('removes the row on dismiss and restores it when the request fails', async () => {
+        await expectLogic(logic, () => logic.actions.dismissPattern('a')).toMatchValues({
+            openPatterns: [makePattern('b')],
+            inFlightIds: ['a'],
+        })
+
+        await expectLogic(logic)
+            .toDispatchActions(['restorePattern', 'decisionFailed'])
+            .toMatchValues({ inFlightIds: [] })
+
+        expect(logic.values.openPatterns.map((p) => p.id).sort()).toEqual(['a', 'b'])
+    })
+
+    it.each([
+        { settled: 'confirmed', shown: 'info', hidden: 'warning' },
+        { settled: 'resolved', shown: 'warning', hidden: 'info' },
+    ] as const)('keeps the row gone when the pattern is already $settled', async ({ settled, shown, hidden }) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/conversations/patterns/:id/': () => [
+                    200,
+                    { ...makePattern('b'), status: settled },
+                ],
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.dismissPattern('b'))
+            .toDispatchActions(['decisionSucceeded'])
+            .toMatchValues({ inFlightIds: [] })
+
+        expect(logic.values.openPatterns.map((p) => p.id)).toEqual(['a'])
+        expect(lemonToast[shown]).toHaveBeenCalled()
+        expect(lemonToast[hidden]).not.toHaveBeenCalled()
+    })
+
+    it('says the decision is missing when the conflict lookup fails', async () => {
+        useMocks({
+            get: { '/api/projects/:team_id/conversations/patterns/:id/': () => [500, { detail: 'boom' }] },
+        })
+
+        await expectLogic(logic, () => logic.actions.dismissPattern('b'))
+            .toDispatchActions(['decisionFailed'])
+            .toMatchValues({ inFlightIds: [] })
+
+        expect(lemonToast.info).not.toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalled()
+    })
+
+    it('keeps the row gone once the server confirms', async () => {
+        await expectLogic(logic, () => logic.actions.confirmPattern('b'))
+            .toDispatchActions(['decisionSucceeded'])
+            .toMatchValues({ inFlightIds: [] })
+
+        expect(logic.values.openPatterns.map((p) => p.id)).toEqual(['a'])
+    })
+})

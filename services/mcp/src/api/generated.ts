@@ -19329,6 +19329,34 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `low` - Low
+     * * `medium` - Medium
+     * * `high` - High
+     * * `critical` - Critical
+     */
+    export type TicketPriorityEnum = typeof TicketPriorityEnum[keyof typeof TicketPriorityEnum];
+
+
+    export const TicketPriorityEnum = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
+    export interface ConfirmPattern {
+      /** Priority to record on the pattern. Defaults to medium.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `critical` - Critical */
+      severity?: TicketPriorityEnum;
+      /** Set the requesting user as the pattern's owner. */
+      take_ownership?: boolean;
+    }
+
+    /**
      * * `posthog_code` - posthog_code
      */
     export type ConnectFromEnum = typeof ConnectFromEnum[keyof typeof ConnectFromEnum];
@@ -30199,6 +30227,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly icon_path: string | null;
+    }
+
+    export interface DismissPattern {
+      /**
+         * Optional note on why this is not an incident. Stored on the pattern for later review.
+         * @maxLength 500
+         */
+      reason?: string;
     }
 
     /**
@@ -61200,22 +61236,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `low` - Low
-     * * `medium` - Medium
-     * * `high` - High
-     * * `critical` - Critical
-     */
-    export type TicketPriorityEnum = typeof TicketPriorityEnum[keyof typeof TicketPriorityEnum];
-
-
-    export const TicketPriorityEnum = {
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Critical: 'critical',
-    } as const;
-
-    /**
      * @nullable
      */
     export type TicketAssignmentUser = {[key: string]: string} | null;
@@ -61390,6 +61410,131 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TicketMessage[];
+    }
+
+    /**
+     * * `terms` - Term match
+     * * `embeddings` - Embeddings
+     */
+    export type TicketPatternSourceEnum = typeof TicketPatternSourceEnum[keyof typeof TicketPatternSourceEnum];
+
+
+    export const TicketPatternSourceEnum = {
+      Terms: 'terms',
+      Embeddings: 'embeddings',
+    } as const;
+
+    /**
+     * * `open` - Open
+     * * `confirmed` - Confirmed
+     * * `dismissed` - Dismissed
+     * * `resolved` - Resolved
+     */
+    export type TicketPatternStatusEnum = typeof TicketPatternStatusEnum[keyof typeof TicketPatternStatusEnum];
+
+
+    export const TicketPatternStatusEnum = {
+      Open: 'open',
+      Confirmed: 'confirmed',
+      Dismissed: 'dismissed',
+      Resolved: 'resolved',
+    } as const;
+
+    export interface PatternEvidenceTicket {
+      /** Ticket UUID. */
+      readonly id: string;
+      /** Team-scoped ticket number shown as #N in the inbox. */
+      readonly ticket_number: number;
+      /** Channel the ticket arrived on.
+       *
+       * * `widget` - Widget
+       * * `email` - Email
+       * * `slack` - Slack
+       * * `teams` - Microsoft Teams
+       * * `github` - GitHub */
+      readonly channel_source: ChannelEnum;
+      /**
+         * Subject line for email tickets, empty for other channels.
+         * @nullable
+         */
+      readonly email_subject: string | null;
+      /** Current ticket status.
+       *
+       * * `new` - New
+       * * `open` - Open
+       * * `pending` - Pending
+       * * `on_hold` - On hold
+       * * `resolved` - Resolved */
+      readonly status: TicketStatusEnum;
+      /** When the ticket was opened. */
+      readonly created_at: string;
+    }
+
+    export interface TicketPattern {
+      /** Pattern UUID. */
+      readonly id: string;
+      /** The normalized term or term pair the tickets share. */
+      readonly topic: string;
+      /** How the tickets were grouped: term match or embeddings.
+       *
+       * * `terms` - Term match
+       * * `embeddings` - Embeddings */
+      readonly source: TicketPatternSourceEnum;
+      /** Short human-readable name for the pattern. */
+      readonly title: string;
+      /** One or two sentences on what the tickets report, when available. */
+      readonly summary: string;
+      /** open until a person confirms or dismisses it; resolved when it goes quiet.
+       *
+       * * `open` - Open
+       * * `confirmed` - Confirmed
+       * * `dismissed` - Dismissed
+       * * `resolved` - Resolved */
+      readonly status: TicketPatternStatusEnum;
+      /** Priority a person assigned on confirm, medium by default.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `critical` - Critical */
+      readonly severity: TicketPriorityEnum;
+      /** Tickets matched in the most recent detection window. */
+      readonly ticket_count: number;
+      /** Distinct customers among those tickets. */
+      readonly requester_count: number;
+      /** Highest ticket_count seen while the pattern was open. */
+      readonly peak_ticket_count: number;
+      /**
+         * When the earliest matching ticket arrived.
+         * @nullable
+         */
+      readonly first_ticket_at: string | null;
+      /** When detection first opened the pattern. */
+      readonly opened_at: string;
+      /** When detection last saw the topic still firing. */
+      readonly last_seen_at: string;
+      /**
+         * When the pattern was confirmed, dismissed, or auto-resolved.
+         * @nullable
+         */
+      readonly resolved_at: string | null;
+      /** Who confirmed or dismissed the pattern. */
+      readonly resolved_by: UserBasic | null;
+      /** Who took ownership when confirming. */
+      readonly owner: UserBasic | null;
+      /** Free-form context: correlation results, dismiss reason, auto_resolved flag. */
+      readonly evidence: unknown;
+      /** Up to 10 of the tickets behind this pattern, newest first, limited to tickets the requesting user can open. */
+      readonly tickets: readonly PatternEvidenceTicket[];
+    }
+
+    export interface PaginatedTicketPatternList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TicketPattern[];
     }
 
     /**
@@ -95935,6 +96080,25 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ConversationsPatternsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Comma-separated statuses to include: open, confirmed, dismissed, resolved.
+     */
+    status?: string;
+    /**
+     * Only patterns this ticket is evidence for.
+     */
+    ticket_id?: string;
     };
 
     export type ConversationsTicketsListParams = {
