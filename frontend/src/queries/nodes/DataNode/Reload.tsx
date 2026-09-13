@@ -11,7 +11,7 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 
 export function Reload(): JSX.Element {
     const { responseLoading, query } = useValues(dataNodeLogic)
-    const { loadData, cancelQuery } = useActions(dataNodeLogic)
+    const { loadData, cancelQuery, refreshCounts } = useActions(dataNodeLogic)
 
     return (
         <LemonButton
@@ -21,6 +21,7 @@ export function Reload(): JSX.Element {
                     cancelQuery()
                 } else {
                     loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
+                    refreshCounts()
                 }
             }}
             // Setting the loading icon manually to capture clicks while spinning.
