@@ -4,6 +4,7 @@ from uuid import UUID
 from temporalio import activity
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -60,6 +61,7 @@ def meter_scanner_read_bytes_activity() -> MeterScannerReadsResult:
         },
         workload=Workload.OFFLINE,
         settings={"max_execution_time": 120, "skip_unavailable_shards": 1},
+        ch_user=ClickHouseUser.REPLAY_VISION,
     )
 
     by_scanner: dict[str, dict[str, tuple[int, int, int]]] = {}

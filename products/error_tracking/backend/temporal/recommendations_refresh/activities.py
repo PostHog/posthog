@@ -2,6 +2,7 @@ import structlog
 from temporalio import activity
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
 
 from products.error_tracking.backend.logic.recommendations.refresh import refresh_teams_recommendations_batched
@@ -50,6 +51,7 @@ def get_team_batches_activity(inputs: RecommendationsRefreshInputs) -> list[list
         TEAMS_WITH_RECENT_EXCEPTIONS_QUERY,
         {"lookback_days": inputs.lookback_days},
         workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.ERROR_TRACKING,
     )
     batches = pack_team_batches(
         [(int(team_id), int(count)) for team_id, count in rows],
