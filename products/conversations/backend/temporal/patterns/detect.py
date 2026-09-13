@@ -12,7 +12,8 @@ with workflow.unsafe.imports_passed_through():
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
 
-    from products.conversations.backend.models import Ticket
+    from products.conversations.backend.models import Ticket, TicketPattern
+    from products.conversations.backend.pattern_delivery import deliver_opened, deliver_resolved
     from products.conversations.backend.pattern_detection import (
         baselines_refreshed_at,
         refresh_baselines,
@@ -37,6 +38,25 @@ def _baselines_are_stale(team: Team, now: datetime) -> bool:
     return oldest_ticket is not None and oldest_ticket <= now - timedelta(days=BASELINE_MIN_HISTORY_DAYS)
 
 
+def _deliver(team: Team, opened: tuple, auto_resolved: tuple) -> None:
+    # Side effects run once the detection writes are committed and never inside them, so a failing
+    # Slack post or notification cannot roll back a pattern. Each helper is idempotent; a retried
+    # activity re-delivers safely.
+    patterns = {p.id: p for p in TicketPattern.objects.for_team(team.id).filter(id__in=[*opened, *auto_resolved])}
+    for pattern_id in opened:
+        pattern = patterns.get(pattern_id)
+        if pattern is None:
+            continue
+        try:
+            deliver_opened(pattern)
+        except Exception:
+            logger.exception("ticket_patterns: delivery failed", team_id=team.id, pattern_id=str(pattern_id))
+    for pattern_id in auto_resolved:
+        pattern = patterns.get(pattern_id)
+        if pattern is not None:
+            deliver_resolved(pattern, "auto")
+
+
 def _detect_for_team(input: TeamPatternInput) -> TeamPatternOutput:
     team = Team.objects.select_related("organization").filter(id=input.team_id).first()
     # Children run detached and may retry much later, so eligibility is re-checked here, not trusted
@@ -51,6 +71,7 @@ def _detect_for_team(input: TeamPatternInput) -> TeamPatternOutput:
         refreshed = True
 
     outcome = run_detection(team, now=now)
+    _deliver(team, outcome.opened, outcome.auto_resolved)
     logger.info(
         "ticket_patterns: detection run",
         team_id=team.id,

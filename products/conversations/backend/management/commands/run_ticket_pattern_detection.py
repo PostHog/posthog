@@ -20,6 +20,7 @@ from products.conversations.backend.pattern_detection import (
     AUTO_RESOLVE_QUIET_WINDOWS,
     PatternSettings,
     find_candidates,
+    load_overrides,
     load_ticket_texts,
     refresh_baselines,
     run_detection,
@@ -96,6 +97,7 @@ class Command(BaseCommand):
                 window_minutes=settings.window_minutes,
             )
         baselines = {b.topic: b for b in TicketTopicBaseline.objects.for_team(team.id)}
+        overrides = load_overrides(team)
         # Production evaluates the preceding window on every coordinator tick, so the replay walks
         # the same overlapping windows. Stepping a window at a time instead would split a burst
         # that straddles a boundary, and report nothing for the marginal cases that set the rate.
@@ -111,7 +113,7 @@ class Command(BaseCommand):
         active: dict[str, datetime] = {}
         while cursor < now:
             texts = load_ticket_texts(team, since=cursor - window, until=cursor)
-            for candidate in find_candidates(texts, settings, baselines):
+            for candidate in find_candidates(texts, settings, baselines, overrides):
                 if candidate.fingerprint not in active:
                     openings.append((cursor, candidate.ticket_count, candidate.requester_count, candidate.fingerprint))
                 active[candidate.fingerprint] = cursor

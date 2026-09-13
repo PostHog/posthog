@@ -29,6 +29,7 @@ from .ticket_pattern import (
     TicketPatternStatus,
     TicketTopicBaseline,
 )
+from .ticket_topic_override import TicketTopicOverride, TicketTopicOverrideKind
 from .ticket_view import TicketView
 from .ticket_view_favorite import TicketViewFavorite
 from .zendesk_import_job import ZendeskImportJob
@@ -70,6 +71,8 @@ __all__ = [
     "TicketPatternSource",
     "TicketPatternStatus",
     "TicketTopicBaseline",
+    "TicketTopicOverride",
+    "TicketTopicOverrideKind",
     "TicketView",
     "TicketViewFavorite",
     "ZendeskImportJob",

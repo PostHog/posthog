@@ -1,5 +1,6 @@
 import re
 import json
+import uuid
 import secrets
 from datetime import timedelta
 from functools import cached_property
@@ -1148,6 +1149,15 @@ def validate_ticket_pattern_settings(value: dict) -> None:
             if ceiling is not None and count > ceiling:
                 raise serializers.ValidationError({count_key: f"Must be at most {ceiling}."})
             value[count_key] = count
+    if "pattern_notify_role_id" in value:
+        role_id = value["pattern_notify_role_id"]
+        if role_id in (None, ""):
+            value["pattern_notify_role_id"] = None
+        else:
+            try:
+                value["pattern_notify_role_id"] = str(uuid.UUID(str(role_id)))
+            except ValueError:
+                raise serializers.ValidationError({"pattern_notify_role_id": "Must be a role id."})
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):

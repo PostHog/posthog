@@ -10,6 +10,68 @@
 import * as zod from 'zod'
 
 /**
+ * Per-topic instructions to the pattern detector. Same all-or-nothing ticket gate as patterns:
+ * an override steers what the whole inbox alerts on, so authoring one needs edit access to every
+ * ticket.
+ */
+export const conversationsPatternOverridesCreateBodyTopicMax = 200
+
+export const conversationsPatternOverridesCreateBodyNotesMax = 500
+
+export const ConversationsPatternOverridesCreateBody = /* @__PURE__ */ zod.object({
+    kind: zod
+        .enum(['mute', 'watch'])
+        .describe('\* `mute` - Mute\n\* `watch` - Watch')
+        .describe(
+            'mute: never open a pattern for this topic. watch: open one at the lowest bar.\n\n\* `mute` - Mute\n\* `watch` - Watch'
+        ),
+    topic: zod
+        .string()
+        .max(conversationsPatternOverridesCreateBodyTopicMax)
+        .describe(
+            "One or two words, matched after the same normalization detection applies to ticket text: lowercase, stemmed, stopwords removed. 'Login failures' and 'login failure' are the same topic."
+        ),
+    notes: zod
+        .string()
+        .max(conversationsPatternOverridesCreateBodyNotesMax)
+        .optional()
+        .describe('Why this override exists, for the next person who sees it.'),
+    enabled: zod.boolean().optional().describe('A disabled override is kept but has no effect.'),
+})
+
+/**
+ * Per-topic instructions to the pattern detector. Same all-or-nothing ticket gate as patterns:
+ * an override steers what the whole inbox alerts on, so authoring one needs edit access to every
+ * ticket.
+ */
+export const conversationsPatternOverridesPartialUpdateBodyTopicMax = 200
+
+export const conversationsPatternOverridesPartialUpdateBodyNotesMax = 500
+
+export const ConversationsPatternOverridesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    kind: zod
+        .enum(['mute', 'watch'])
+        .describe('\* `mute` - Mute\n\* `watch` - Watch')
+        .optional()
+        .describe(
+            'mute: never open a pattern for this topic. watch: open one at the lowest bar.\n\n\* `mute` - Mute\n\* `watch` - Watch'
+        ),
+    topic: zod
+        .string()
+        .max(conversationsPatternOverridesPartialUpdateBodyTopicMax)
+        .optional()
+        .describe(
+            "One or two words, matched after the same normalization detection applies to ticket text: lowercase, stemmed, stopwords removed. 'Login failures' and 'login failure' are the same topic."
+        ),
+    notes: zod
+        .string()
+        .max(conversationsPatternOverridesPartialUpdateBodyNotesMax)
+        .optional()
+        .describe('Why this override exists, for the next person who sees it.'),
+    enabled: zod.boolean().optional().describe('A disabled override is kept but has no effect.'),
+})
+
+/**
  * Clusters of tickets from distinct customers about one topic, found by the pattern detector.
  *
  * Read-only apart from the two state transitions, which are POST actions rather than PATCH so a
