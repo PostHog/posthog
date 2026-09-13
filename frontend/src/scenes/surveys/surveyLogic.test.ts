@@ -1269,6 +1269,134 @@ describe('set response-based survey branching', () => {
                 .toMatchValues({
                     hasCycle: false,
                 })
+
+            // A price ladder: the last question steps back down to the cheaper one when the
+            // respondent says no. Every response is routed on all three, so none of them can
+            // fall through to the question after it, and the step down closes no loop. The
+            // rating question covers the scale buckets, which are keyed differently to choices.
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: 'at $9 per month',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: SurveyQuestionBranchingType.End, 1: 2 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: 'how does that price feel',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Too expensive',
+                    upperBoundLabel: 'Good value',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: {
+                            negative: SurveyQuestionBranchingType.End,
+                            neutral: SurveyQuestionBranchingType.End,
+                            positive: SurveyQuestionBranchingType.End,
+                        },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: 'at $19 per month',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: SurveyQuestionBranchingType.End, 1: 1 },
+                    },
+                },
+            ]
+            await expectLogic(logic, () => {
+                // A fresh object, because hasCycle memoizes on the survey it is given and the
+                // blocks above hand it the same mutated one.
+                logic.actions.loadSurveySuccess({ ...SURVEY })
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
+                })
+
+            // Deleting a choice leaves the rule that routed it behind. The SDK resolves a
+            // response against the choices that remain, so the stale key routes nobody and the
+            // step back to the first question is a path no respondent can take.
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '0',
+                    description: '',
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '1',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: 2, 1: 2, 2: 0 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '2',
+                    description: '',
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess({ ...SURVEY })
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
+                })
+
+            // The first question routes both of its choices, but it is optional. A respondent
+            // who skips it reaches the second question, which steps back to the first, so the
+            // loop is real even though no listed choice leads into it.
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '0',
+                    description: '',
+                    optional: true,
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: 2, 1: 2 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '1',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.SpecificQuestion,
+                        index: 0,
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '2',
+                    description: '',
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess({ ...SURVEY })
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: true,
+                })
         })
     })
 })
