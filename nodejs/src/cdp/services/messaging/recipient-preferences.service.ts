@@ -10,8 +10,8 @@ type MessageFunctionActionType = 'function_email' | 'function_sms' | 'function_p
 type MessageAction = Extract<HogFlowAction, { type: MessageFunctionActionType }>
 
 // Why the send was skipped, so callers can render a user-facing log/metric that names the actual
-// reason instead of collapsing suppression and opt-out into a single "opted out" message.
-export type RecipientSkipReason = 'suppressed' | 'opted_out'
+// reason rather than collapsing every undeliverable recipient into one message.
+export type RecipientSkipReason = 'suppressed' | 'opted_out' | 'no_recipient'
 
 // Split a comma-separated address list and, for each entry, extract the bare email from an RFC-822
 // `"Name" <email@x>` form so it can be matched against normalized suppression identifiers.
@@ -43,6 +43,15 @@ export class RecipientPreferencesService {
             return null
         }
 
+        // A person the step resolves no address for can never be messaged, and no retry changes
+        // that, so this is a skip rather than a run failure. First because it is the only check
+        // that needs no I/O, and ahead of the transactional bypass below so the outcome does not
+        // depend on the message category.
+        const identifier = this.resolveRecipientIdentifier(invocation, action)
+        if (!identifier) {
+            return 'no_recipient'
+        }
+
         // Suppression is a deliverability signal, not a messaging preference: an address that can't
         // receive mail can't receive it regardless of category. So we check it even for
         // transactional messages, and before the transactional opt-out bypass below.
@@ -56,7 +65,25 @@ export class RecipientPreferencesService {
             return null
         }
 
-        return (await this.isRecipientOptedOutOfAction(invocation, action)) ? 'opted_out' : null
+        return (await this.isRecipientOptedOutOfAction(action, identifier, invocation.teamId)) ? 'opted_out' : null
+    }
+
+    private resolveRecipientIdentifier(
+        invocation: CyclotronJobInvocationHogFunction,
+        action: MessageAction
+    ): string | undefined {
+        if (action.type === 'function_sms') {
+            return invocation.state.globals.inputs?.to_number
+        }
+        if (action.type === 'function_email') {
+            return invocation.state.globals.inputs?.email?.to?.email
+        }
+        // Push has no email/phone "to" field. Delivery reads the device token from the invocation's
+        // person (globals.person.properties), so key the opt-out on that same person's distinct_id —
+        // not the configurable inputs.distinctId or the triggering event — so the recipient we check
+        // is always the recipient we deliver to. Fall back to the event distinct_id when the person
+        // has no resolved one.
+        return invocation.state.globals.person?.distinct_id ?? invocation.state.globals.event?.distinct_id
     }
 
     private async isRecipientSuppressed(
@@ -99,34 +126,14 @@ export class RecipientPreferencesService {
     }
 
     private async isRecipientOptedOutOfAction(
-        invocation: CyclotronJobInvocationHogFunction,
-        action: MessageAction
+        action: MessageAction,
+        identifier: string,
+        teamId: number
     ): Promise<boolean> {
-        let identifier
-
-        if (action.type === 'function_sms') {
-            identifier = invocation.state.globals.inputs?.to_number
-        } else if (action.type === 'function_email') {
-            identifier = invocation.state.globals.inputs?.email?.to?.email
-        } else if (action.type === 'function_push') {
-            // Push has no email/phone "to" field. Delivery reads the device token from the invocation's
-            // person (globals.person.properties), so key the opt-out on that same person's distinct_id —
-            // not the configurable inputs.distinctId or the triggering event — so the recipient we check
-            // is always the recipient we deliver to. Fall back to the event distinct_id when the person
-            // has no resolved one.
-            identifier = invocation.state.globals.person?.distinct_id ?? invocation.state.globals.event?.distinct_id
-        }
-
-        if (!identifier) {
-            throw new Error(
-                `No recipient identifier found for message action [Action:${action.id}]. Check that the message 'to' field is set correctly for this person.`
-            )
-        }
-
         try {
             const recipient = await this.recipientsManager.get({
-                teamId: invocation.teamId,
-                identifier: identifier,
+                teamId,
+                identifier,
             })
 
             if (!recipient) {

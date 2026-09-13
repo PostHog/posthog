@@ -227,13 +227,20 @@ describe('RecipientPreferencesService', () => {
                 loggerSpy.mockRestore()
             })
 
-            it('should throw error if no email identifier is found', async () => {
+            it('should skip rather than fail the run when no email identifier is found', async () => {
                 const action = createEmailAction('', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)
 
-                await expect(service.shouldSkipAction(invocation, action)).rejects.toThrow(
-                    `No recipient identifier found for message action [Action:${action.id}]. Check that the message 'to' field is set correctly for this person.`
-                )
+                await expect(service.shouldSkipAction(invocation, action)).resolves.toBe('no_recipient')
+                expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
+            })
+
+            it('should skip a transactional email with no identifier, which never reached the opt-out check', async () => {
+                const action = createEmailAction('', '123e4567-e89b-12d3-a456-426614174000')
+                action.config.message_category_type = 'transactional'
+                const invocation = createFunctionStepInvocation(action)
+
+                await expect(service.shouldSkipAction(invocation, action)).resolves.toBe('no_recipient')
             })
 
             it('should return true if recipient is opted out of all marketing messaging', async () => {
@@ -501,13 +508,11 @@ describe('RecipientPreferencesService', () => {
                 expect(result).toBeNull()
             })
 
-            it('should throw error if no SMS identifier is found', async () => {
+            it('should skip rather than fail the run when no SMS identifier is found', async () => {
                 const action = createSmsAction('', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)
 
-                await expect(service.shouldSkipAction(invocation, action)).rejects.toThrow(
-                    `No recipient identifier found for message action [Action:${action.id}]. Check that the message 'to' field is set correctly for this person.`
-                )
+                await expect(service.shouldSkipAction(invocation, action)).resolves.toBe('no_recipient')
             })
 
             it('should return true if SMS recipient is opted out of all marketing messaging', async () => {

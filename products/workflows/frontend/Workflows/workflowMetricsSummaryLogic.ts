@@ -115,6 +115,7 @@ export type EmailMetric =
     | 'email_link_clicked'
     | 'email_bounced'
     | 'email_bounce_prevented'
+    | 'no_recipient'
     | 'email_blocked'
     | 'email_untracked'
     | 'email_suspended'
@@ -139,6 +140,8 @@ export type EmailMetricRow = {
     linkClicked: number
     bounced: number
     bouncePrevented: number
+    // People the step resolved no address for, so the send was skipped before it reached the provider.
+    noRecipient: number
     // Spam complaints. Stored under the email_blocked metric name for continuity with
     // historical data (see the SES webhook handler's Complaint mapping).
     markedAsSpam: number
@@ -181,6 +184,7 @@ export const METRIC_COLORS: Record<string, string> = {
     'Link clicked': getColorVar('data-color-5'),
     Bounced: getColorVar('data-color-6'),
     'Bounce prevented': getColorVar('data-color-7'),
+    'No recipient': getColorVar('data-color-8'),
     'Marked as spam': getColorVar('data-color-9'),
     Untracked: getColorVar('data-color-10'),
     Suspended: getColorVar('data-color-11'),
@@ -286,6 +290,13 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         color: METRIC_COLORS['Bounce prevented'],
         metricNames: ['email_bounce_prevented'],
     },
+    no_recipient: {
+        name: 'No recipient',
+        description:
+            'Total number of sends skipped because the step resolved no address for the person, so there was nobody to message. Usually the property the "to" field reads is missing for part of the audience.',
+        color: METRIC_COLORS['No recipient'],
+        metricNames: ['no_recipient'],
+    },
     email_blocked: {
         name: 'Marked as spam',
         description:
@@ -358,6 +369,8 @@ export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<
     email_bounced: { search: 'bounce', levels: ['WARN', 'ERROR'] },
     // MX-validation skips log "Skipping send: …" at INFO (see HogFunctionHandler in the plugin server).
     email_bounce_prevented: { search: 'Skipping send', levels: ['INFO'] },
+    // Missing-recipient skips log "Skipping send: this person has no address …" at INFO.
+    no_recipient: { search: 'this person has no address', levels: ['INFO'] },
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
     // Suspension skips log "Skipping send: email sending is suspended …" at WARN (EmailService).
     email_suspended: { search: 'Skipping send', levels: ['WARN'] },
@@ -396,6 +409,7 @@ const EMAIL_METRICS: EmailMetric[] = [
     'email_link_clicked',
     'email_bounced',
     'email_bounce_prevented',
+    'no_recipient',
     'email_blocked',
     'email_untracked',
     'email_suspended',
@@ -1474,6 +1488,7 @@ export function buildEmailMetricRows(
             linkClicked: totals.email_link_clicked ?? 0,
             bounced,
             bouncePrevented: totals.email_bounce_prevented ?? 0,
+            noRecipient: totals.no_recipient ?? 0,
             markedAsSpam,
             untracked,
             trackedSends: Math.max(0, sent - untracked),

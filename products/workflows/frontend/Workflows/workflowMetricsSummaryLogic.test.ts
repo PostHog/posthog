@@ -106,6 +106,15 @@ describe('buildEmailMetricInvocationSearchParams', () => {
             'email_bounce_prevented',
             { inv_date_from: dateFrom, inv_date_to: dateTo, inv_search: 'Skipping send', inv_log_levels: 'INFO' },
         ],
+        [
+            'no_recipient',
+            {
+                inv_date_from: dateFrom,
+                inv_date_to: dateTo,
+                inv_search: 'this person has no address',
+                inv_log_levels: 'INFO',
+            },
+        ],
     ])('maps %s to the expected Invocations-tab params', (metricKey, expected) => {
         expect(buildEmailMetricInvocationSearchParams(metricKey, dateFrom, dateTo)).toEqual(expected)
     })
@@ -164,6 +173,7 @@ describe('buildEmailMetricRows', () => {
                 email_link_clicked: 12,
                 email_bounced: 6,
                 email_bounce_prevented: 2,
+                no_recipient: 3,
                 email_blocked: 4,
                 email_untracked: 7,
             },
@@ -178,6 +188,7 @@ describe('buildEmailMetricRows', () => {
                 linkClicked: 12,
                 bounced: 6,
                 bouncePrevented: 2,
+                noRecipient: 3,
                 markedAsSpam: 4,
                 untracked: 7,
                 trackedSends: 93,
