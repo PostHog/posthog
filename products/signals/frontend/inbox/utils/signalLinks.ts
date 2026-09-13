@@ -1,3 +1,4 @@
+import { isObject } from 'lib/utils/guards'
 import { identifierToHuman } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -10,6 +11,8 @@ import { safeHttpUrl } from './reportPresentation'
  */
 export function signalEntityUrl(sourceProduct: string, entityId?: string | null): string | null {
     switch (sourceProduct) {
+        case 'conversations':
+            return entityId ? urls.supportTicketDetail(entityId) : null
         case 'error_tracking':
             return entityId ? urls.errorTrackingIssue(entityId) : null
         case 'session_replay':
@@ -23,7 +26,23 @@ export function signalEntityUrl(sourceProduct: string, entityId?: string | null)
     }
 }
 
+/**
+ * The support ticket a Conversations evidence item came from. The ticket number is the route's
+ * canonical form, and the signal's `source_id` — the ticket's uuid, which the ticket page resolves
+ * too — covers evidence stored before the emitter carried the number. Null when the signal holds
+ * neither, so the card can say the source is unavailable instead of linking somewhere wrong.
+ */
+export function conversationsTicketUrl(signal: { source_id: string; extra: unknown }): string | null {
+    const extra = isObject(signal.extra) ? signal.extra : {}
+    const ticketNumber = extra.ticket_number
+    if (typeof ticketNumber === 'number' && Number.isInteger(ticketNumber) && ticketNumber > 0) {
+        return urls.supportTicketDetail(ticketNumber)
+    }
+    return signal.source_id ? urls.supportTicketDetail(signal.source_id) : null
+}
+
 const ENTITY_LINK_LABELS: Record<string, string> = {
+    conversations: 'Open ticket',
     error_tracking: 'View issue',
     session_replay: 'View replay',
     llm_analytics: 'View trace',

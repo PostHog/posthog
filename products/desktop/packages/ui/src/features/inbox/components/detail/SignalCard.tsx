@@ -27,6 +27,7 @@ import {
   colonOffsetToSeconds,
   errorTrackingIssueUrl,
   sessionRecordingUrl,
+  supportTicketUrl,
 } from "@posthog/ui/utils/posthogLinks";
 import { Badge, Box, Flex, Text } from "@radix-ui/themes";
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
@@ -94,6 +95,9 @@ export function signalCardSourceLine(signal: {
   if (source_product === "llm_analytics" && source_type === "evaluation") {
     return "AI observability · Evaluation";
   }
+  if (source_product === "conversations" && source_type === "ticket") {
+    return "Conversations · Ticket";
+  }
   if (source_product === "zendesk" && source_type === "ticket") {
     return "Zendesk · Ticket";
   }
@@ -144,6 +148,13 @@ interface ZendeskTicketExtra {
   priority?: string;
   status?: string;
   tags?: string[];
+}
+
+interface ConversationsTicketExtra {
+  ticket_number?: number;
+  status?: string;
+  priority?: string;
+  email_subject?: string;
 }
 
 interface LlmEvalExtra {
@@ -452,6 +463,83 @@ function GitHubIssueSignalCard({
       <CodePathsCollapsible paths={codePaths ?? []} />
       <DataQueriedCollapsible text={dataQueried ?? ""} />
     </Box>
+  );
+}
+
+/**
+ * The support ticket a Conversations evidence item came from. The ticket number is the route's
+ * canonical form, and the signal's `source_id` — the ticket's uuid, which the ticket page resolves
+ * too — covers evidence stored before the emitter carried the number.
+ */
+function conversationsTicketRef(
+  signal: Signal,
+  extra: ConversationsTicketExtra,
+): string | number | null {
+  if (
+    typeof extra.ticket_number === "number" &&
+    Number.isInteger(extra.ticket_number) &&
+    extra.ticket_number > 0
+  ) {
+    return extra.ticket_number;
+  }
+  return signal.source_id || null;
+}
+
+function ConversationsTicketSignalCard({
+  signal,
+  extra,
+  verified,
+  codePaths,
+  dataQueried,
+}: {
+  signal: Signal;
+  extra: ConversationsTicketExtra;
+  verified?: boolean;
+  codePaths?: string[];
+  dataQueried?: string;
+}) {
+  const projectId = useAuthStateValue((s) => s.currentProjectId);
+  const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
+  const ticketRef = conversationsTicketRef(signal, extra);
+  // A plain `target="_blank"` anchor: the host hands it to the OS browser, where the
+  // reviewer is already signed in, and the report stays open in the app behind it.
+  const ticketUrl = ticketRef
+    ? supportTicketUrl(ticketRef, { projectId, cloudRegion })
+    : null;
+
+  return (
+    <div className="min-w-0 overflow-hidden rounded-(--radius-2) border border-(--gray-6) bg-gray-1 p-3">
+      <SignalCardHeader signal={signal} verified={verified} />
+      {extra.email_subject && (
+        <div className="mb-1 font-medium text-[13px] text-gray-12">
+          {extra.email_subject}
+        </div>
+      )}
+      <CollapsibleBody body={signal.content} />
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-gray-10">
+        {extra.ticket_number != null && (
+          <span className="font-mono">#{extra.ticket_number}</span>
+        )}
+        {extra.status && <span>Status: {extra.status}</span>}
+        {extra.priority && <span>Priority: {extra.priority}</span>}
+        <span className="flex-1" />
+        {ticketUrl ? (
+          <a
+            href={ticketUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-[12px] text-gray-10 hover:text-gray-12"
+          >
+            Open ticket
+            <ArrowSquareOutIcon size={12} />
+          </a>
+        ) : (
+          <span>Source ticket unavailable</span>
+        )}
+      </div>
+      <CodePathsCollapsible paths={codePaths ?? []} />
+      <DataQueriedCollapsible text={dataQueried ?? ""} />
+    </div>
   );
 }
 
@@ -1204,6 +1292,19 @@ export function SignalCard({
       <GitHubIssueSignalCard
         signal={signal}
         extra={extra}
+        verified={verified}
+        codePaths={codePaths}
+        dataQueried={dataQueried}
+      />
+    );
+  } else if (
+    signal.source_product === "conversations" &&
+    signal.source_type === "ticket"
+  ) {
+    content = (
+      <ConversationsTicketSignalCard
+        signal={signal}
+        extra={extra as ConversationsTicketExtra}
         verified={verified}
         codePaths={codePaths}
         dataQueried={dataQueried}

@@ -102,6 +102,21 @@ export function inboxReportUrl(
 }
 
 /**
+ * The browser-accessible URL for a support ticket. The ticket page resolves both a ticket number
+ * and a ticket uuid, so callers pass whichever identity the object they hold carries.
+ */
+export function supportTicketUrl(
+  ticketRef: string | number,
+  overrides?: LinkOverrides,
+): string | null {
+  return withProjectId(
+    (pid) =>
+      `/project/${pid}/support/tickets/${encodeURIComponent(String(ticketRef))}`,
+    overrides,
+  );
+}
+
+/**
  * The shareable https link for a canvas (a dashboard inside a channel):
  * `<instance>/code/canvas/<channelId>/<dashboardId>`. Opening it in a browser
  * hits a web interstitial that deep-links into the desktop app (or offers the
