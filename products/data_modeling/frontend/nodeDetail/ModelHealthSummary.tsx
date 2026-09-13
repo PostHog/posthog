@@ -58,7 +58,8 @@ export function ModelHealthSummary({
                 )}
                 {suspended && (
                     <p className="mb-0 text-sm text-secondary">
-                        Fix the query, then use Sync now to check it before resuming the schedule.
+                        Fix the query, then use Sync now. It clears the suspension before the run starts, so this model
+                        goes back on its schedule even if the run fails.
                     </p>
                 )}
                 <dl className="flex flex-wrap gap-x-10 gap-y-3 mb-0 text-sm">
