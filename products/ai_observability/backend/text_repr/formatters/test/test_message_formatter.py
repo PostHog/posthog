@@ -537,6 +537,21 @@ class TestEdgeCases:
         result = "\n".join(format_input_messages(messages))
         assert "second" in result
 
+    @parameterized.expand(
+        [
+            ("dict", {"query": "x"}),
+            ("int", 5),
+        ]
+    )
+    def test_non_string_partial_json_does_not_stop_the_render(self, _name, partial_json):
+        messages = [
+            {"type": "tool_use", "name": "search", "partial_json": partial_json},
+            {"role": "assistant", "content": "second"},
+        ]
+        result = "\n".join(format_input_messages(messages))
+        assert "search" in result
+        assert "second" in result
+
 
 class TestResponsesApiItems:
     @parameterized.expand(

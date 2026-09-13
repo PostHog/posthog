@@ -658,7 +658,12 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
         lines.append(f"[{i + 1}] {role.upper()}")
         lines.append("")
 
-        responses_lines = _format_responses_item(msg, options)
+        try:
+            responses_lines = _format_responses_item(msg, options)
+        except Exception:
+            # One malformed item must degrade to its own repr, not the trace that holds it.
+            responses_lines, _ = truncate_content(safe_extract_text(msg), options)
+
         if responses_lines is not None:
             lines.extend(responses_lines)
         elif content:
