@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
+import { WAREHOUSE_VIEW_ROW_EVENT } from '../schema/hogflow'
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
 import { LiquidRenderBudget, LiquidRenderer } from './liquid'
 
@@ -57,6 +58,21 @@ describe('LiquidRenderer', () => {
             const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(LiquidRenderer['_liquid']).toBeDefined()
             expect(result).toMatchInlineSnapshot(`"Hello test_person!"`)
+        })
+    })
+
+    describe('warehouse row alias', () => {
+        it('renders a row column through `record`', () => {
+            globals.event.event = WAREHOUSE_VIEW_ROW_EVENT
+            globals.event.properties = { email: 'row@example.com' }
+            const result = LiquidRenderer.renderWithHogFunctionGlobals('{{ record.email }}', globals)
+            expect(result).toEqual('row@example.com')
+        })
+
+        it('leaves `record` undefined for an ordinary event', () => {
+            globals.event.properties = { email: 'row@example.com' }
+            const result = LiquidRenderer.renderWithHogFunctionGlobals('{{ record.email }}', globals)
+            expect(result).toEqual('')
         })
     })
 

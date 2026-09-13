@@ -1,5 +1,6 @@
 import { Liquid } from 'liquidjs'
 
+import { rowScopedTriggerTypeForEvent } from '../schema/hogflow'
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
 
 // Rendering is synchronous on shared multi-tenant workers, so an unbounded template would
@@ -116,9 +117,15 @@ export class LiquidRenderer {
             throw new Error(`liquid parse length limit exceeded (${LIQUID_PARSE_LIMIT_CHARS} characters)`)
         }
 
+        // A warehouse row arrives under `event.properties`, and `record` is the alias users write for
+        // it. Hog-templated inputs get that alias rewritten at save time, but a liquid-templated input
+        // is rendered here instead, so the alias has to exist in the context.
+        const isWarehouseRow = rowScopedTriggerTypeForEvent(globals.event?.event) !== null
+
         const context = {
             ...globals,
             now: new Date(),
+            ...(isWarehouseRow ? { record: globals.event?.properties ?? {} } : {}),
         }
 
         const start = performance.now()

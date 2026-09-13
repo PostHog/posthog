@@ -44,7 +44,8 @@ export function DataWarehouseColumnsHint({
                                         <code>{'{person}'}</code> and <code>{'{event}'}</code> are also available.{' '}
                                     </>
                                 ) : null}
-                                Click a column to copy its reference.
+                                In email steps, write <code>{'{{record.<column>}}'}</code> instead. Click a column to
+                                copy its reference.
                             </p>
                             <div className="flex flex-wrap gap-1">
                                 {schemaColumns.map((column) => (
