@@ -102,13 +102,17 @@ Shared events both surfaces emit (keep these comparable across arms):
   tab at close)
 - `taxonomic filter item selected` — `surface`, `groupType`,
   `sourceGroupType`, `wasFromRecents`, `wasFromPinnedList`, `wasQuickFilter`,
-  `hadSearchInput`, `position`, `query`, `wasStale`
+  `hadSearchInput`, `position`, `query`, `wasStale`, `wasFromExample`
+  (only legacy can set it `true`; the rebuild has no example browser yet,
+  so it always sends `false`)
 
 Legacy-only: `taxonomic_filter_search_query`
 (`searchQuery`, `groupType`, `inputMode`, `pastedFraction`),
 `taxonomic filter empty result` (`groupType`, `searchQuery`),
 `taxonomic filter include stale toggled`,
-`taxonomic filter category dropdown opened` (pill only).
+`taxonomic filter category dropdown opened` (pill only),
+`taxonomic filter example browser opened` (`surface`, `sourceKind`,
+`eventName`; behind `TAXONOMIC_FILTER_EXAMPLE_BROWSER`).
 
 Rebuild-only menu events: `taxonomic filter menu opened` / `drilled` /
 `closed` / `option clicked` / `item selected`.

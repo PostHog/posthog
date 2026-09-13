@@ -17,6 +17,7 @@ import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
 import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { taxonomicExampleBrowserLogic } from 'lib/components/TaxonomicFilter/taxonomicExampleBrowserLogic'
 import { SelectItemMeta, taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
@@ -711,6 +712,8 @@ function InfiniteListEmptyState(): JSX.Element {
     } = useValues(taxonomicFilterLogic)
     const { setIncludeStaleEvents, setActiveTab } = useActions(taxonomicFilterLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
+    const { isAvailable: canBrowseExamples } = useValues(taxonomicExampleBrowserLogic)
+    const { openExampleBrowser } = useActions(taxonomicExampleBrowserLogic)
 
     const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters, listGroupType } =
         useValues(infiniteListLogic)
@@ -847,6 +850,16 @@ function InfiniteListEmptyState(): JSX.Element {
                     })}
                 </>
             )}
+            {canBrowseExamples && (
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    data-attr="taxonomic-example-browser-open"
+                    onClick={openExampleBrowser}
+                >
+                    See properties on recent events
+                </LemonButton>
+            )}
         </div>
     )
 }
@@ -909,6 +922,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         showSuggestedFiltersEmptyState,
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, togglePinnedRow, expand, updateRemoteItem } = useActions(infiniteListLogic)
+    const { isOpen: isExampleBrowserOpen } = useValues(taxonomicExampleBrowserLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
     const listRef = useListRef(null)
 
@@ -995,6 +1009,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                 />
             )}
             {isActiveTab &&
+            !isExampleBrowserOpen &&
             selectedItemGroup &&
             selectedItemHasPopover(selectedItem, selectedItemGroup, taxonomicGroups) &&
             showPopover &&
