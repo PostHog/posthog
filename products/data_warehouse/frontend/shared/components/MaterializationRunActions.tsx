@@ -32,6 +32,7 @@ export function MaterializationRunActions({
         incrementalDraft,
         hasMaterializationChanges,
         savingMaterialization,
+        materializationRefreshPending,
     } = useValues(materializationJobsLogic({ viewId, kind }))
     const {
         setStartingMaterialization,
@@ -59,6 +60,7 @@ export function MaterializationRunActions({
         AccessControlLevel.Editor,
         savedQuery.user_access_level
     )
+    const refreshReason = materializationRefreshPending ? 'Refreshing materialization status' : undefined
     if (!savedQuery.is_materialized) {
         const draftError =
             incrementalDraft.enabled && (!incrementalDraft.incrementalKey || !incrementalDraft.uniqueKey.length)
@@ -68,9 +70,10 @@ export function MaterializationRunActions({
             <LemonButton
                 type="primary"
                 size="small"
-                loading={materializationActionLoading}
+                loading={materializationActionLoading || materializationRefreshPending}
                 disabledReason={
                     accessReason ||
+                    refreshReason ||
                     (updatingDataWarehouseSavedQuery ? 'Saving materialization settings' : undefined) ||
                     // Modes with a reason cannot be materialized at all: the endpoint refuses a
                     // managed viewset, and a view with no node has nothing to schedule through.
@@ -98,15 +101,17 @@ export function MaterializationRunActions({
             </LemonButton>
         )
     }
-    const busyReason = updatingDataWarehouseSavedQuery
-        ? 'Saving materialization settings'
-        : materializationActionLoading
-          ? 'Updating materialization'
-          : running
-            ? 'Materialization is currently running'
-            : startingMaterialization
-              ? 'Materialization is starting'
-              : undefined
+    const busyReason =
+        refreshReason ||
+        (updatingDataWarehouseSavedQuery
+            ? 'Saving materialization settings'
+            : materializationActionLoading
+              ? 'Updating materialization'
+              : running
+                ? 'Materialization is currently running'
+                : startingMaterialization
+                  ? 'Materialization is starting'
+                  : undefined)
     if (kind !== 'endpoint' && (hasMaterializationChanges || savingMaterialization)) {
         const draftError =
             incrementalDraft.enabled && (!incrementalDraft.incrementalKey || !incrementalDraft.uniqueKey.length)
@@ -193,6 +198,7 @@ export function MaterializationRunActions({
                                       onClick: () => cancelDataWarehouseSavedQuery(viewId),
                                       disabledReason:
                                           accessReason ||
+                                          refreshReason ||
                                           (updatingDataWarehouseSavedQuery
                                               ? 'Saving materialization settings'
                                               : materializationActionLoading

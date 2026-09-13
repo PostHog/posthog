@@ -4,10 +4,10 @@
 trail (create, config change, soft delete). Registered from ``apps.ready()``.
 """
 
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional
 
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import AuditableScope, Change, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity, log_activity_with_soft_delete
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
@@ -28,27 +28,13 @@ def handle_data_quality_check_activity(
     was_impersonated: bool = False,
     **kwargs: Any,
 ) -> None:
-    instance = after_update or before_update
-    if instance is None:
-        return
-
-    changes = changes_between(cast(AuditableScope, scope), previous=before_update, current=after_update)
-
-    # Soft delete and restore go through save(), so the mixin reports them as "updated";
-    # remap so the audit trail reads as the action the user actually took.
-    deleted_change = next((change for change in changes if change.field == "deleted"), None)
-    if deleted_change:
-        activity = "deleted" if deleted_change.after else "restored"
-
-    log_activity(
-        organization_id=None,
-        team_id=instance.team_id,
+    log_activity_with_soft_delete(
+        previous=before_update,
+        current=after_update,
         user=user,
         was_impersonated=was_impersonated,
-        item_id=str(instance.id),
         scope=scope,
         activity=activity,
-        detail=Detail(name=str(instance), changes=changes),
     )
 
 

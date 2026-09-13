@@ -44,7 +44,7 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
     // Mounting it loads the lineage for the view being edited.
     const infoLogic = infoTabLogic({ tabId, viewId: targetView?.id })
     useMountedLogic(infoLogic)
-    const { activeSection } = useValues(infoLogic)
+    const { activeSection, lineageVisited } = useValues(infoLogic)
     const { setActiveSection } = useActions(infoLogic)
     const { saveAsView, setUpstreamViewMode, editView, loadUpstream } = useActions(sqlEditorLogic)
     // The loaded lineage is shared across views, so only use it when it was loaded for this one.
@@ -156,147 +156,142 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                             Couldn't load this view's lineage.
                         </LemonBanner>
                     )}
-                    {(!tabbed || activeSection === 'lineage') &&
-                        upstream &&
-                        targetView &&
-                        upstream.edges.length > 0 && (
-                            <>
-                                <div>
-                                    <div className="flex flex-wrap items-center justify-between gap-3">
-                                        <div>
-                                            <h3 className="mb-1">Lineage</h3>
-                                            <p className="text-xs mb-0">
-                                                Tables and views connected to this query — what it reads from and what
-                                                builds on it.
-                                            </p>
-                                        </div>
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <LemonSegmentedButton
-                                                value={upstreamViewMode}
-                                                onChange={(mode) => setUpstreamViewMode(mode)}
-                                                options={[
-                                                    {
-                                                        value: 'graph',
-                                                        label: 'Graph',
-                                                    },
-                                                    {
-                                                        value: 'table',
-                                                        label: 'Table',
-                                                    },
-                                                ]}
-                                                size="small"
-                                            />
-                                        </div>
+                    {(!tabbed || lineageVisited) && upstream && targetView && upstream.edges.length > 0 && (
+                        <>
+                            <div>
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                        <h3 className="mb-1">Lineage</h3>
+                                        <p className="text-xs mb-0">
+                                            Tables and views connected to this query — what it reads from and what
+                                            builds on it.
+                                        </p>
                                     </div>
-                                </div>
-                                {upstreamViewMode === 'table' ? (
-                                    <LemonTable
-                                        size="small"
-                                        columns={[
-                                            {
-                                                key: 'name',
-                                                title: 'Name',
-                                                render: (_, { name }) => (
-                                                    <div className="flex items-center gap-1">
-                                                        {name === targetView?.name && (
-                                                            <Tooltip
-                                                                placement="right"
-                                                                title="This is the currently viewed query"
-                                                            >
-                                                                <IconTarget className="text-warning" />
-                                                            </Tooltip>
-                                                        )}
-                                                        {name}
-                                                    </div>
-                                                ),
-                                            },
-                                            {
-                                                key: 'type',
-                                                title: 'Type',
-                                                render: (_, { type }) => NODE_TYPE_TAG_SETTINGS[type].label,
-                                            },
-                                            {
-                                                key: 'upstream',
-                                                title: 'Direct Upstream',
-                                                render: (_, node) => {
-                                                    const upstreamNodes = upstream.edges
-                                                        .filter((edge) => edge.target_id === node.id)
-                                                        .map((edge) =>
-                                                            upstream.nodes.find((n) => n.id === edge.source_id)
-                                                        )
-                                                        .filter((n): n is DataModelingNode => n !== undefined)
-
-                                                    if (upstreamNodes.length === 0) {
-                                                        return <span className="text-secondary">None</span>
-                                                    }
-
-                                                    return (
-                                                        <div className="flex flex-wrap gap-1">
-                                                            {upstreamNodes.map((upstreamNode) => (
-                                                                <LemonTag key={upstreamNode.id} type="primary">
-                                                                    {upstreamNode.name}
-                                                                </LemonTag>
-                                                            ))}
-                                                        </div>
-                                                    )
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <LemonSegmentedButton
+                                            value={upstreamViewMode}
+                                            onChange={(mode) => setUpstreamViewMode(mode)}
+                                            options={[
+                                                {
+                                                    value: 'graph',
+                                                    label: 'Graph',
                                                 },
-                                            },
-                                            {
-                                                key: 'last_run_at',
-                                                title: 'Last Run At',
-                                                render: (_, { last_run_at, sync_interval }) => {
-                                                    if (!last_run_at) {
-                                                        return 'On demand'
-                                                    }
-                                                    return `${humanFriendlyDetailedTime(last_run_at)}${
-                                                        sync_interval
-                                                            ? ` every ${syncIntervalToShorthand(sync_interval)}`
-                                                            : ''
-                                                    }`
+                                                {
+                                                    value: 'table',
+                                                    label: 'Table',
                                                 },
-                                            },
-                                        ]}
-                                        dataSource={upstream.nodes}
-                                    />
-                                ) : (
-                                    <div
-                                        className={
-                                            tabbed
-                                                ? 'h-[min(45vh,500px)] border border-border rounded-md overflow-hidden'
-                                                : 'h-[500px] border border-border rounded-md overflow-hidden'
-                                        }
-                                    >
-                                        <LineageGraph
-                                            nodes={upstream.nodes}
-                                            edges={upstream.edges}
-                                            currentNodeId={currentNodeId}
-                                            variant="full"
-                                            fitViewOptions={tabbed ? { maxZoom: 1 } : undefined}
-                                            interactive
-                                            showControls
-                                            showMinimap
-                                            panels={
-                                                <LemonButton
-                                                    type="secondary"
-                                                    size="small"
-                                                    to={urls.models('lineage')}
-                                                    targetBlank
-                                                    tooltip="Open the full graph"
-                                                    aria-label="Open the full graph"
-                                                    icon={<IconExternal />}
-                                                />
-                                            }
-                                            nodeCallbacks={(node) => ({
-                                                onEdit:
-                                                    node.type !== 'table' && node.id !== currentNodeId
-                                                        ? () => void openInEditor(node)
-                                                        : undefined,
-                                            })}
+                                            ]}
+                                            size="small"
                                         />
                                     </div>
-                                )}
-                            </>
-                        )}
+                                </div>
+                            </div>
+                            {upstreamViewMode === 'table' ? (
+                                <LemonTable
+                                    size="small"
+                                    columns={[
+                                        {
+                                            key: 'name',
+                                            title: 'Name',
+                                            render: (_, { name }) => (
+                                                <div className="flex items-center gap-1">
+                                                    {name === targetView?.name && (
+                                                        <Tooltip
+                                                            placement="right"
+                                                            title="This is the currently viewed query"
+                                                        >
+                                                            <IconTarget className="text-warning" />
+                                                        </Tooltip>
+                                                    )}
+                                                    {name}
+                                                </div>
+                                            ),
+                                        },
+                                        {
+                                            key: 'type',
+                                            title: 'Type',
+                                            render: (_, { type }) => NODE_TYPE_TAG_SETTINGS[type].label,
+                                        },
+                                        {
+                                            key: 'upstream',
+                                            title: 'Direct Upstream',
+                                            render: (_, node) => {
+                                                const upstreamNodes = upstream.edges
+                                                    .filter((edge) => edge.target_id === node.id)
+                                                    .map((edge) => upstream.nodes.find((n) => n.id === edge.source_id))
+                                                    .filter((n): n is DataModelingNode => n !== undefined)
+
+                                                if (upstreamNodes.length === 0) {
+                                                    return <span className="text-secondary">None</span>
+                                                }
+
+                                                return (
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {upstreamNodes.map((upstreamNode) => (
+                                                            <LemonTag key={upstreamNode.id} type="primary">
+                                                                {upstreamNode.name}
+                                                            </LemonTag>
+                                                        ))}
+                                                    </div>
+                                                )
+                                            },
+                                        },
+                                        {
+                                            key: 'last_run_at',
+                                            title: 'Last Run At',
+                                            render: (_, { last_run_at, sync_interval }) => {
+                                                if (!last_run_at) {
+                                                    return 'On demand'
+                                                }
+                                                return `${humanFriendlyDetailedTime(last_run_at)}${
+                                                    sync_interval
+                                                        ? ` every ${syncIntervalToShorthand(sync_interval)}`
+                                                        : ''
+                                                }`
+                                            },
+                                        },
+                                    ]}
+                                    dataSource={upstream.nodes}
+                                />
+                            ) : (
+                                <div
+                                    className={
+                                        tabbed
+                                            ? 'h-[min(45vh,500px)] border border-border rounded-md overflow-hidden'
+                                            : 'h-[500px] border border-border rounded-md overflow-hidden'
+                                    }
+                                >
+                                    <LineageGraph
+                                        nodes={upstream.nodes}
+                                        edges={upstream.edges}
+                                        currentNodeId={currentNodeId}
+                                        variant="full"
+                                        fitViewOptions={tabbed ? { maxZoom: 1 } : undefined}
+                                        interactive
+                                        showControls
+                                        showMinimap
+                                        panels={
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                to={urls.models('lineage')}
+                                                targetBlank
+                                                tooltip="Open the full graph"
+                                                aria-label="Open the full graph"
+                                                icon={<IconExternal />}
+                                            />
+                                        }
+                                        nodeCallbacks={(node) => ({
+                                            onEdit:
+                                                node.type !== 'table' && node.id !== currentNodeId
+                                                    ? () => void openInEditor(node)
+                                                    : undefined,
+                                        })}
+                                    />
+                                </div>
+                            )}
+                        </>
+                    )}
                 </div>
             </div>
         </div>

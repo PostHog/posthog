@@ -158,7 +158,8 @@ export function MaterializationStatusPanel({
     const showDebugLogs = user?.is_staff || user?.is_impersonated
     const materializationAccessReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
-        AccessControlLevel.Editor
+        AccessControlLevel.Editor,
+        savedQuery?.user_access_level
     )
 
     if (!savedQuery) {

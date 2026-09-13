@@ -1,4 +1,4 @@
-import { LemonCard, LemonTag, LemonTagType, Link, Tooltip, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag, LemonTagType, Link, Tooltip, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -11,6 +11,8 @@ export interface ModelHealthSummaryProps {
     lastSuccessfulSyncAt: string | null
     historyLoaded: boolean
     historyError?: boolean
+    onRetry?: () => void
+    retryLoading?: boolean
     schedule: string | null
     lineageUrl: string
     downstreamCount: number
@@ -33,6 +35,8 @@ export function ModelHealthSummary({
     lastSuccessfulSyncAt,
     historyLoaded,
     historyError,
+    onRetry,
+    retryLoading,
     schedule,
     lineageUrl,
     downstreamCount,
@@ -80,6 +84,16 @@ export function ModelHealthSummary({
                         Fix the query, then use Sync now. It clears the suspension before the run starts, so this model
                         goes back on its schedule even if the run fails.
                     </p>
+                )}
+                {historyError && (
+                    <div className="flex flex-wrap items-center gap-2 text-secondary text-sm">
+                        <span>Couldn't refresh run status. Retrying automatically.</span>
+                        {onRetry && (
+                            <LemonButton size="xsmall" onClick={onRetry} loading={retryLoading}>
+                                Retry now
+                            </LemonButton>
+                        )}
+                    </div>
                 )}
                 <dl className="flex flex-wrap gap-x-10 gap-y-3 mb-0 text-sm">
                     <div>

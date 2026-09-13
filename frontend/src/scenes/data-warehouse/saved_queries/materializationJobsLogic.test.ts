@@ -1,12 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
 
 const ELIGIBLE_CHECK = {
@@ -70,6 +72,7 @@ describe('materializationJobsLogic', () => {
     afterEach(() => {
         logic?.unmount()
         featureFlagLogic.unmount()
+        jest.useRealTimers()
     })
 
     // Regression: the saved query reloads on every jobs poll. Without the once-per-mount guard the
@@ -252,5 +255,94 @@ describe('materializationJobsLogic', () => {
         })
         expect(logic.values.savingMaterialization).toBe(false)
         expect(logic.values.hasMaterializationChanges).toBe(status !== 200)
+    })
+    it.each(['Running', 'Completed'])(
+        'polls a %s job at the appropriate interval and recovers from failure',
+        async (status) => {
+            jest.useFakeTimers()
+            let jobsCalls = 0
+            let fail = false
+            const mocks = apiMocks({ isMaterialized: true })
+            mocks.get!['/api/environments/:team_id/data_modeling_jobs'] = () => {
+                jobsCalls += 1
+                return fail ? [500, { detail: 'Unavailable' }] : [200, { results: [{ id: 'job-1', status }], count: 1 }]
+            }
+            useMocks(mocks)
+            logic = materializationJobsLogic({ viewId: 'view-1' })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+            const interval = status === 'Running' ? 10000 : 60000
+            await jest.advanceTimersByTimeAsync(interval - 1)
+            expect(jobsCalls).toBe(1)
+            fail = true
+            await jest.advanceTimersByTimeAsync(1)
+            expect(logic.values.dataModelingJobsError).toBe(true)
+            expect(logic.values.dataModelingJobs?.results[0].status).toBe(status)
+            await jest.advanceTimersByTimeAsync(59999)
+            expect(jobsCalls).toBe(2)
+            fail = false
+            await jest.advanceTimersByTimeAsync(1)
+            expect(logic.values.dataModelingJobsError).toBe(false)
+            expect(jobsCalls).toBe(3)
+            logic.unmount()
+            jest.advanceTimersByTime(60000)
+            expect(jobsCalls).toBe(3)
+        }
+    )
+
+    it('keeps post-action controls blocked through a failed reload and ignores another view', async () => {
+        let fail = false
+        let materialized = true
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.get!['/api/environments/:team_id/warehouse_saved_queries/:id/'] = () =>
+            fail ? [500, { detail: 'Unavailable' }] : [200, { id: 'view-1', is_materialized: materialized }]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic)
+            .toDispatchActions(['loadSavedQuerySuccess', 'loadDataModelingJobsSuccess'])
+            .toFinishAllListeners()
+        dataWarehouseViewsLogic.actions.materializationChanged('other-view')
+        expect(logic.values.materializationRefreshPending).toBe(false)
+        fail = true
+        await expectLogic(logic, () =>
+            dataWarehouseViewsLogic.actions.materializationChanged('view-1')
+        ).toDispatchActions(['loadSavedQueryFailure', 'loadDataModelingJobsSuccess'])
+        expect(logic.values.materializationRefreshPending).toBe(true)
+        materialized = false
+        fail = false
+        await expectLogic(logic, () => logic.actions.refreshMaterialization()).toDispatchActions([
+            'loadSavedQuerySuccess',
+            'loadDataModelingJobsSuccess',
+        ])
+        expect(logic.values.materializationRefreshPending).toBe(false)
+        expect(logic.values.savedQuery?.is_materialized).toBe(false)
+    })
+    it('ignores a saved query response started before a materialization action', async () => {
+        useMocks(apiMocks({ isMaterialized: true }))
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess']).toFinishAllListeners()
+        const previous = logic.values.savedQuery!
+        let resolvePrevious!: (value: typeof previous) => void
+        const pending = new Promise<typeof previous>((resolve) => {
+            resolvePrevious = resolve
+        })
+        const fetch = jest
+            .spyOn(api.dataWarehouseSavedQueries, 'get')
+            .mockImplementationOnce(() => pending)
+            .mockResolvedValue({ ...previous, is_materialized: false })
+        try {
+            logic.actions.loadSavedQuery()
+            await expectLogic(logic, () =>
+                dataWarehouseViewsLogic.actions.materializationChanged('view-1')
+            ).toDispatchActions(['loadSavedQuerySuccess', 'loadDataModelingJobsSuccess'])
+            resolvePrevious(previous)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.savedQuery?.is_materialized).toBe(false)
+            expect(logic.values.materializationRefreshPending).toBe(false)
+        } finally {
+            fetch.mockRestore()
+        }
     })
 })

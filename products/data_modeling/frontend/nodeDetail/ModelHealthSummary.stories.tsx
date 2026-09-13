@@ -43,6 +43,7 @@ export const LongError: Story = { args: { status: 'Failed', error: LONG_ERROR } 
 export const Running: Story = { args: { status: 'Running' } }
 export const FirstRun: Story = { args: { status: null, lastSuccessfulSyncAt: null } }
 export const Loading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
     args: { status: null, lastSuccessfulSyncAt: null, historyLoaded: false, schedule: null },
 }
 export const Narrow: Story = {
@@ -54,4 +55,8 @@ export const Narrow: Story = {
             </div>
         ),
     ],
+}
+
+export const StaleHistory: Story = {
+    args: { historyError: true, onRetry: () => undefined },
 }

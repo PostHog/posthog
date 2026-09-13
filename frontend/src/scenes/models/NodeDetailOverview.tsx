@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -27,6 +27,7 @@ export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
         savedQuery: polledSavedQuery,
         dataModelingJobs,
         dataModelingJobsLoading,
+        dataModelingJobsError,
         lastSuccessfulSyncAt,
     } = useValues(
         materializationJobsLogic({
@@ -34,6 +35,7 @@ export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
             kind: node?.type === 'endpoint' ? 'endpoint' : 'view',
         })
     )
+    const { refreshMaterialization } = useActions(materializationJobsLogic({ viewId: node?.saved_query_id ?? '' }))
     const { featureFlags } = useValues(featureFlagLogic)
     const savedQuery = polledSavedQuery ?? sceneSavedQuery
 
@@ -80,7 +82,9 @@ export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
             error={suspension?.reason ?? latestJob?.error ?? savedQuery?.latest_error ?? node.last_run_error}
             lastSuccessfulSyncAt={lastSuccessfulSyncAt}
             historyLoaded={dataModelingJobs !== null}
-            historyError={!dataModelingJobsLoading && dataModelingJobs === null}
+            historyError={dataModelingJobsError}
+            onRetry={refreshMaterialization}
+            retryLoading={dataModelingJobsLoading}
             schedule={schedule}
             lineageUrl={urls.nodeDetail(id, 'lineage')}
             downstreamCount={node.downstream_count}
