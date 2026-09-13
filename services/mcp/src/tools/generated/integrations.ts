@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/integrations/api'
+import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -26,7 +27,17 @@ const integrationDelete = (): ToolBase<ReturnType<typeof IntegrationDeleteSchema
 
 const IntegrationGetSchema = () => {
     const IntegrationsRetrieveParams = orvalSchemas.IntegrationsRetrieveParams()
-    return IntegrationsRetrieveParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['integrationId', 'integration_id'] }),
+        IntegrationsRetrieveParams.omit({ project_id: true }).extend({
+            id: z.preprocess(
+                castStringToInt,
+                IntegrationsRetrieveParams.shape['id'].describe(
+                    "The integration's numeric id, as returned in the `id` field by integrations-list. Not the name, the kind, or an id from another project."
+                )
+            ),
+        })
+    )
 }
 
 const integrationGet = (): ToolBase<ReturnType<typeof IntegrationGetSchema>, Schemas.IntegrationConfig> => ({
