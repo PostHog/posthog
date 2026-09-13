@@ -77,6 +77,12 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         return {
             "Not Found for url: https://api.intercom.io/companies/scroll",
             "Bad Request for url: https://api.intercom.io/companies/scroll",
+            # PostHog's own egress proxy answering the CONNECT tunnel with a 429, surfaced by
+            # requests as a ProxyError. Not Intercom's fault or the customer's — the proxy itself
+            # is throttling, which clears on its own, the same reasoning applied to bing_ads,
+            # linkedin_ads and hubspot for the identical tunnel signature. Match the status only;
+            # the message also carries the request URL/path.
+            "Tunnel connection failed: 429",
         }
 
     @property

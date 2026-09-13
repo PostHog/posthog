@@ -88,6 +88,28 @@ class TestIntercomSource:
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in error_msg for key in retryable_errors)
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "HTTPSConnectionPool(host='api.intercom.io', port=443): Max retries exceeded with url: "
+            "/conversations/search (Caused by ProxyError('Cannot connect to proxy.', "
+            "OSError('Tunnel connection failed: 429 Too Many Requests')))",
+        ],
+    )
+    def test_egress_proxy_tunnel_429_is_retryable(self, error_msg):
+        # PostHog's own egress proxy throttling the CONNECT tunnel, surfaced by requests as a
+        # ProxyError — not an Intercom or customer credential problem, and self-recovering once
+        # the proxy stops throttling.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in error_msg for key in retryable_errors)
+
+    def test_proxy_auth_rejection_is_not_mistaken_for_tunnel_429(self):
+        # A deterministic proxy-auth rejection is not a transient tunnel gateway status — it must
+        # stay reportable rather than being swallowed by the 429 tunnel pattern.
+        error_msg = "Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 407 Proxy Authentication Required'))"
+        retryable_errors = self.source.get_retryable_errors()
+        assert not any(key in error_msg for key in retryable_errors)
+
     def test_get_schemas_covers_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
