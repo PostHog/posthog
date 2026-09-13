@@ -8,9 +8,9 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import source_helpers
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.settings import (
     RENDER_ENDPOINTS,
@@ -74,7 +74,7 @@ PROBE_FAILED_MESSAGE = "PostHog couldn't check your API key with Render. Wait a 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     # /owners is the cheapest authenticated probe: every valid key can list the workspaces
     # it belongs to, regardless of what resources exist.
-    ok, status = validate_via_probe(
+    ok, status = source_helpers.validate_via_probe(
         make_tracked_session,
         f"{RENDER_BASE_URL}/owners?limit=1",
         headers=_get_headers(api_key),
