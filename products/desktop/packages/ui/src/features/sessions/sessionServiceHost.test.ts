@@ -7092,6 +7092,60 @@ describe("SessionService", () => {
       ).rejects.toBeInstanceOf(SessionConnectingError);
     });
 
+    it("shows one connecting notice after 20 seconds for each session", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
+        const service = getSessionService();
+        const session = createMockSession({
+          status: "connecting",
+          startedAt: Date.now(),
+        });
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+
+        await expect(service.sendPrompt("task-123", "Hello")).rejects.toBeInstanceOf(
+          SessionConnectingError,
+        );
+        await expect(service.sendPrompt("task-123", "Hello")).rejects.toBeInstanceOf(
+          SessionConnectingError,
+        );
+
+        expect(mockToast.error).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(mockToast.error).toHaveBeenCalledOnce();
+
+        session.startedAt = Date.now();
+        await expect(service.sendPrompt("task-123", "Hello")).rejects.toBeInstanceOf(
+          SessionConnectingError,
+        );
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(mockToast.error).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("cancels a pending connecting notice when the service resets", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
+        const service = getSessionService();
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+          createMockSession({ status: "connecting", startedAt: Date.now() }),
+        );
+
+        await expect(service.sendPrompt("task-123", "Hello")).rejects.toBeInstanceOf(
+          SessionConnectingError,
+        );
+        service.reset();
+        await vi.advanceTimersByTimeAsync(20_000);
+
+        expect(mockToast.error).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("queues message when prompt is already pending", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(

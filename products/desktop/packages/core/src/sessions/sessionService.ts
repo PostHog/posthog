@@ -1764,6 +1764,11 @@ export function classifyTurnEventKind(
 
 export class SessionService {
   private connectingTasks = new Map<string, Promise<void>>();
+  private connectingToastTimers = new Map<
+    string,
+    { startedAt: number; timer: ReturnType<typeof setTimeout> }
+  >();
+  private shownConnectingToastSessions = new Map<string, number>();
   private reconcilingTasks = new Set<string>();
   private reconcileSkipLogged = new Set<string>();
   private taskCreationMarks = new Map<string, number>();
@@ -3312,6 +3317,11 @@ export class SessionService {
     }
     for (const timer of this.eventEvictionTimers.values()) clearTimeout(timer);
     this.eventEvictionTimers.clear();
+    for (const { timer } of this.connectingToastTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.connectingToastTimers.clear();
+    this.shownConnectingToastSessions.clear();
     this.evictedRunIds.clear();
     this.residentBackgroundRunIds.clear();
     this.connectingTasks.clear();
@@ -4229,6 +4239,7 @@ export class SessionService {
         );
       }
       if (session.status === "connecting") {
+        this.scheduleConnectingToast(session.taskId, session.startedAt);
         throw new SessionConnectingError();
       }
       throw new Error(`Session is not ready (status: ${session.status})`);
@@ -4296,6 +4307,40 @@ export class SessionService {
 
     return this.sendLocalPrompt(session, blocks, promptText, {
       optimisticApplied: true,
+    });
+  }
+
+  private scheduleConnectingToast(taskId: string, startedAt: number): void {
+    if (this.shownConnectingToastSessions.get(taskId) === startedAt) return;
+
+    const existing = this.connectingToastTimers.get(taskId);
+    if (existing?.startedAt === startedAt) return;
+    if (existing) clearTimeout(existing.timer);
+
+    const delay = Math.max(
+      0,
+      startedAt + 20_000 - Date.now(),
+    );
+    if (delay === 0) {
+      this.showConnectingToast(taskId, startedAt);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      this.connectingToastTimers.delete(taskId);
+      const session = this.d.store.getSessionByTaskId(taskId);
+      if (session?.status === "connecting" && session.startedAt === startedAt) {
+        this.showConnectingToast(taskId, startedAt);
+      }
+    }, delay);
+    this.connectingToastTimers.set(taskId, { startedAt, timer });
+  }
+
+  private showConnectingToast(taskId: string, startedAt: number): void {
+    if (this.shownConnectingToastSessions.get(taskId) === startedAt) return;
+    this.shownConnectingToastSessions.set(taskId, startedAt);
+    this.d.toast.error("Session is still connecting.", {
+      id: `session-connecting-${taskId}-${startedAt}`,
     });
   }
 

@@ -11,6 +11,7 @@ import {
   SESSION_SERVICE,
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
+import { SessionConnectingError } from "@posthog/core/sessions/sessionErrors";
 import { useService } from "@posthog/di/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import { sessionSupportsSideQuestion } from "@posthog/shared";
@@ -36,7 +37,6 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { getAppViewSnapshot } from "@posthog/ui/router/useAppView";
 import { logger } from "@posthog/ui/shell/logger";
 import { useCallback, useRef } from "react";
-import { showSessionPromptError } from "../sessionPromptError";
 
 const log = logger.scope("session-callbacks");
 
@@ -158,7 +158,11 @@ export function useSessionCallbacks({
         }
         return true;
       } catch (error) {
-        showSessionPromptError(taskId, error);
+        if (!(error instanceof SessionConnectingError)) {
+          const message =
+            error instanceof Error ? error.message : "Failed to send message";
+          toast.error(message);
+        }
         log.error("Failed to send prompt", error);
         return false;
       }
