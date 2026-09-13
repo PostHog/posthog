@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 
@@ -111,6 +111,9 @@ export function LemonCalendarSelect({
     const now = selectionPeriodTimezone ? dayjsNowInTimezone(selectionPeriodTimezone) : dayjs()
     const today = now.startOf('day')
 
+    // Keep the derived month stable across renders so the calendar's month arrows are not reset.
+    const leftmostMonth = useMemo(() => selectValue?.startOf('month'), [selectValue])
+
     const scrollToTime = (date: dayjs.Dayjs, skipAnimation: boolean): void => {
         const calendarEl = calendarRef.current
         if (calendarEl && date) {
@@ -160,7 +163,7 @@ export function LemonCalendarSelect({
             <LemonCalendar
                 ref={calendarRef}
                 onDateClick={onDateClick}
-                leftmostMonth={selectValue?.startOf('month')}
+                leftmostMonth={leftmostMonth}
                 months={months}
                 getDateState={({ date }) => {
                     let disabledReason: string | undefined

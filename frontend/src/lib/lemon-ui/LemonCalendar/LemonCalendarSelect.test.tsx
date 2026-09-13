@@ -102,6 +102,31 @@ describe('LemonCalendarSelect', () => {
         expect(onClose).toHaveBeenCalled()
     })
 
+    test('keeps the navigated month when the parent re-renders', async () => {
+        // A parent re-render must not reset the month the user navigated to with the arrows.
+        function Wrapper(): JSX.Element {
+            const [, force] = useState(0)
+            return (
+                <div>
+                    <button data-attr="force-rerender" onClick={() => force((n) => n + 1)}>
+                        force
+                    </button>
+                    <LemonCalendarSelect months={1} value={dayjs('2020-02-15')} onChange={() => {}} />
+                </div>
+            )
+        }
+
+        const { container } = render(<Wrapper />)
+        const calendar = getByDataAttr(container, 'lemon-calendar')
+        expect(await within(calendar).findByText('February 2020')).toBeTruthy()
+
+        await userEvent.click(getByDataAttr(container, 'lemon-calendar-month-previous'))
+        expect(await within(calendar).findByText('January 2020')).toBeTruthy()
+
+        await userEvent.click(getByDataAttr(container, 'force-rerender'))
+        expect(await within(calendar).findByText('January 2020')).toBeTruthy()
+    })
+
     test('select various times', async () => {
         const { onChange, clickOnDate, clickOnTime } = renderLemonCalendarSelect(null, {
             granularity: 'minute',
