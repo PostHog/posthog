@@ -203,6 +203,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
             title={installTitle}
             stepKey={OnboardingStepKey.INSTALL}
             continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
+            continueDisabledHint={`Choose your SDK below and follow the steps. This step unlocks when your first ${listeningForName} arrives.`}
             showSkip={showSkipAtBottom}
             actions={
                 hideInstallationCheck ? undefined : (

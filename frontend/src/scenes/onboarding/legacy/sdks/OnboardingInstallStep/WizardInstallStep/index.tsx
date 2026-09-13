@@ -163,6 +163,7 @@ function WizardInstallShell({
             subtitle={props.installSubtitle}
             stepKey={OnboardingStepKey.INSTALL}
             continueDisabledReason={continueDisabledReason}
+            continueDisabledHint={`Run the install command above. This step unlocks when your first ${listeningForName} arrives.`}
             showSkip={showSkip}
             actions={
                 <div className="pr-2 min-w-0">
