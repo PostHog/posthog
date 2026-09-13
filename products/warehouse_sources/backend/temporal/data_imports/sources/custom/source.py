@@ -949,6 +949,20 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             "Couldn't resolve the host": "A host in the manifest (base_url, token_url, or a resource's URL) could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then try again.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # OAuth2Auth._obtain_token (integration-backed and manifest-driven alike) mints its
+        # token request with retry=Retry(total=0) — see its docstring — so a proxy CONNECT
+        # failure during token mint surfaces here as a bare ProxyError/OSError instead of being
+        # retried in-process. It's the same egress-proxy blip already classified this way for
+        # Salesforce and ClickHouse: Temporal's activity retry recovers once the proxy does, so
+        # keep it out of error tracking as noise.
+        return {
+            "Tunnel connection failed: 429",
+            "Tunnel connection failed: 502",
+            "Tunnel connection failed: 503",
+            "Tunnel connection failed: 504",
+        }
+
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
         """Parse the stored manifest and rejoin it with the auth credentials.
 

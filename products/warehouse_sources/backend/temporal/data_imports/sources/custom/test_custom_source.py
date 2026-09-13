@@ -1872,6 +1872,35 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         assert any(key in str(message) for key in non_retryable)
 
 
+class TestCustomSourceRetryableErrors(SimpleTestCase):
+    @parameterized.expand(
+        [
+            "Tunnel connection failed: 429 Too Many Requests",
+            "Tunnel connection failed: 502 Bad gateway",
+            "Tunnel connection failed: 503 Service Unavailable",
+            "Tunnel connection failed: 504 Gateway Timeout",
+            "HTTPSConnectionPool(host='example.my.salesforce.com', port=443): Max retries exceeded "
+            "with url: /services/oauth2/token (Caused by ProxyError('Cannot connect to proxy.', "
+            "OSError('Tunnel connection failed: 429 Too Many Requests')))",
+        ]
+    )
+    def test_token_mint_proxy_tunnel_failure_is_retryable(self, error_message):
+        # OAuth2Auth._obtain_token mints its token request with retry=Retry(total=0), so a proxy
+        # CONNECT failure during token mint (integration-backed or manifest-driven) surfaces here
+        # as a bare ProxyError/OSError instead of being retried in-process. It's an egress-proxy
+        # blip Temporal's activity retry recovers from, so it must stay out of error tracking as
+        # noise instead of falling through to the unclassified path.
+        retryable = CustomSource().get_retryable_errors()
+        assert any(pattern in error_message for pattern in retryable)
+
+    def test_proxy_auth_failure_is_not_retryable(self):
+        # A 407 shares the "Tunnel connection failed" wording but is a deterministic proxy-auth
+        # misconfiguration, not a blip — it must not match the transient set here.
+        error_message = "Tunnel connection failed: 407 Proxy Authentication Required"
+        retryable = CustomSource().get_retryable_errors()
+        assert not any(pattern in error_message for pattern in retryable)
+
+
 def _fanout_manifest() -> dict:
     """A parent (`forms`) + fan-out child (`responses`) that binds the parent's
     `id` into its path via a `type: "resolve"` param."""
