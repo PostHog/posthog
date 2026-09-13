@@ -1,6 +1,6 @@
 import re
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import urlparse
@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.utils import timezone
 
 import structlog
 
@@ -189,8 +190,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     def save(self, *args, **kwargs):
         if self.is_test and not self.expires_at:
-            from django.utils import timezone
-
             self.expires_at = timezone.now() + TEST_VIEW_EXPIRY_INTERVAL
         elif not self.is_test and self.expires_at:
             self.expires_at = None
@@ -398,7 +397,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     def soft_delete(self):
         self.deleted = True
-        self.deleted_at = datetime.now()
+        self.deleted_at = timezone.now()
         self.deleted_name = self.name
         self.name = f"POSTHOG_DELETED_{uuid.uuid4()}"
 
