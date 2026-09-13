@@ -42,7 +42,7 @@ export function InboxWaitingForWork(): JSX.Element {
 
     const { sourceConfigs, sourceConfigsLoading } = useValues(signalSourcesLogic)
     const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
-    const { isSetupLoaded, isSelfDrivingSetUp, isWizardRunning, isWizardStateResolved, isRefetching } =
+    const { isSetupLoaded, isSelfDrivingSetUp, isWizardRunning, isWizardStateResolved, isRefetching, hasExistingWork } =
         useValues(inboxOnboardingLogic)
     const enabledSources = uniqueEnabledSources(sourceConfigs)
     const enabledScouts = (scoutConfigs ?? []).filter((scout) => scout.enabled && scout.emit)
@@ -63,8 +63,11 @@ export function InboxWaitingForWork(): JSX.Element {
     // Keep the last settled answer through those windows instead of swapping the surface for one
     // request round trip: the copy-the-command flow comes back to this tab, which refetches.
     const setupIsUnfinished = useRef(false)
+    // Work elsewhere in the inbox means the scene already shows the dismissible paused banner, which
+    // carries the same command with the diagnosis that fits a team who set self-driving up and then
+    // turned it off. One empty tab under that banner is not a reason to say setup never finished.
     if (isSetupVerdictSettled) {
-        setupIsUnfinished.current = !isSelfDrivingSetUp && !isWizardRunning
+        setupIsUnfinished.current = !isSelfDrivingSetUp && !isWizardRunning && !hasExistingWork
     }
     if (setupIsUnfinished.current) {
         return <InboxSetupIncomplete />

@@ -12,11 +12,12 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { mockSourceConfigs } from '../../__mocks__/inboxMocks'
+import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
 import { InboxWaitingForWork } from './InboxWaitingForWork'
 
 jest.mock('posthog-js')
 
-function mockWatchers(sourceConfigs: unknown[]): void {
+function mockWatchers(sourceConfigs: unknown[], reportCount: number = 0): void {
     useMocks({
         get: {
             '/api/environments/:team_id/external_data_sources/': () => [
@@ -25,7 +26,7 @@ function mockWatchers(sourceConfigs: unknown[]): void {
             ],
             '/api/projects/:team_id/signals/reports/': () => [
                 200,
-                { count: 0, next: null, previous: null, results: [] },
+                { count: reportCount, next: null, previous: null, results: [] },
             ],
             '/api/projects/:team_id/signals/reports/available_reviewers': {},
             '/api/projects/:team_id/signals/source_configs/': () => [
@@ -120,5 +121,17 @@ describe('InboxWaitingForWork', () => {
         expect(screen.queryByText("Setup isn't finished")).toBeNull()
 
         await waitFor(() => expect(screen.getByText("Setup isn't finished")).toBeInTheDocument())
+    })
+
+    // An empty legacy Pull requests tab can sit under the scene's paused banner while reports wait
+    // on another tab. A second prompt there contradicted the banner and outlived its dismissal.
+    it('leaves the setup prompt to the banner when work waits on another tab', async () => {
+        mockWatchers([], 3)
+
+        render(<InboxWaitingForWork />)
+
+        await waitFor(() => expect(inboxOnboardingLogic.values.hasExistingWork).toBe(true))
+        await waitFor(() => expect(screen.getByText('No signal sources are active.')).toBeInTheDocument())
+        expect(screen.queryByText("Setup isn't finished")).toBeNull()
     })
 })
