@@ -168,6 +168,24 @@ describe('dataQualityChecksLogic', () => {
         expect(lemonToast.error).not.toHaveBeenCalled()
     })
 
+    // A failed history request leaves the loader's empty default behind, which the table would
+    // otherwise present as "no check runs yet" - a claim the request never established.
+    it('marks the run history as failed, and clears that once a retry succeeds', async () => {
+        ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockRejectedValue(new Error('boom'))
+
+        await mountLogic()
+
+        expect(logic.values.suiteRuns).toEqual([])
+        expect(logic.values.suiteRunsError).toBe(true)
+        ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [] })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSuiteRuns()
+        }).toFinishAllListeners()
+
+        expect(logic.values.suiteRunsError).toBe(false)
+    })
+
     it('drops the deleted row and refreshes health', async () => {
         ;(warehouseSavedQueriesChecksDestroy as jest.Mock).mockResolvedValue(undefined)
         await mountLogic()

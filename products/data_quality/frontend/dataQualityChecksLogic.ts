@@ -68,6 +68,7 @@ export interface dataQualityChecksLogicValues {
     sortedChecks: DataQualityCheckApi[]
     suiteRunCheckRunsBySuiteRunId: Record<string, DataQualityCheckRunApi[]>
     suiteRuns: DataQualitySuiteRunApi[]
+    suiteRunsError: boolean
     suiteRunsLoading: boolean
 }
 
@@ -306,6 +307,16 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
             {} as Record<string, DataQualityCheckRunApi[]>,
             {
                 setSuiteRunCheckRuns: (state, { suiteRunId, runs }) => ({ ...state, [suiteRunId]: runs }),
+            },
+        ],
+        // Without this the table would claim no runs exist whenever the request fails, since a
+        // failed load leaves the empty default behind.
+        suiteRunsError: [
+            false,
+            {
+                loadSuiteRuns: () => false,
+                loadSuiteRunsSuccess: () => false,
+                loadSuiteRunsFailure: () => true,
             },
         ],
         accessDenied: [

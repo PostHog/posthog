@@ -13,7 +13,8 @@ import type { DataQualitySuiteRunApi } from './generated/api.schemas'
 
 export function SuiteRunsHistory(props: DataQualityChecksLogicProps): JSX.Element {
     const logic = dataQualityChecksLogic(props)
-    const { suiteRuns, suiteRunsLoading, suiteRunCheckRunsBySuiteRunId, pendingCheckActions } = useValues(logic)
+    const { suiteRuns, suiteRunsLoading, suiteRunsError, suiteRunCheckRunsBySuiteRunId, pendingCheckActions } =
+        useValues(logic)
     const { loadSuiteRuns, loadSuiteRunCheckRuns } = useActions(logic)
 
     return (
@@ -40,7 +41,11 @@ export function SuiteRunsHistory(props: DataQualityChecksLogicProps): JSX.Elemen
                 rowKey="id"
                 loading={suiteRunsLoading}
                 nouns={['run', 'runs']}
-                emptyState="No check runs yet. Run all checks to see results here."
+                emptyState={
+                    suiteRunsError
+                        ? "Couldn't load the run history. Refresh to try again."
+                        : 'No check runs yet. Run all checks to see results here.'
+                }
                 expandable={{
                     onRowExpand: (suiteRun) => loadSuiteRunCheckRuns(suiteRun.id),
                     expandedRowRender: (suiteRun) => (
