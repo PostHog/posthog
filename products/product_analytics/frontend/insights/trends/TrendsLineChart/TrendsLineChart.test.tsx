@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, configure, screen, waitFor } from '@testing-library/react'
+import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { dimensions, dragSelection, rawDrag, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
@@ -21,6 +21,7 @@ import {
     getQuerySource,
     legend,
     personsModal,
+    INSIGHT_TEST_ID,
     renderInsight,
     trendsSeries,
 } from '~/test/insight-testing'
@@ -603,6 +604,101 @@ describe('TrendsLineChart', () => {
                 expect(screen.getByLabelText(/chart with/i)).toBeInTheDocument()
             })
             expect(screen.queryByTestId('insight-empty-state')).not.toBeInTheDocument()
+        })
+
+        it('says the query adds up to zero instead of claiming nothing matched', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
+                }),
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
+            })
+            expect(screen.getByText(/adds up to zero/i)).toBeInTheDocument()
+            expect(screen.queryByText(/no matching events/i)).not.toBeInTheDocument()
+        })
+
+        it('names the internal and test users filter when it is hiding the answer', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
+                    filterTestAccounts: true,
+                }),
+            })
+
+            await waitFor(() => {
+                expect(screen.getByText(/internal and test users are filtered out/i)).toBeInTheDocument()
+            })
+        })
+
+        it('turns the internal and test users filter off from the empty state', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
+                    filterTestAccounts: true,
+                }),
+            })
+
+            const button = await screen.findByTestId('insight-empty-state-include-test-accounts')
+            fireEvent.click(button)
+
+            await waitFor(() => {
+                expect(getQuerySource().filterTestAccounts).toBe(false)
+            })
+        })
+
+        it.each([
+            ['a dashboard tile', { embedded: true }],
+            ['a shared insight', { embedded: true, inSharedMode: true }],
+        ])('names the filter but withholds the button on %s', async (_surface, renderProps) => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
+                    filterTestAccounts: true,
+                }),
+                ...renderProps,
+            })
+
+            await waitFor(() => {
+                expect(screen.getByText(/internal and test users are filtered out/i)).toBeInTheDocument()
+            })
+            expect(screen.queryByTestId('insight-empty-state-include-test-accounts')).not.toBeInTheDocument()
+        })
+
+        it('keeps the button on an insight page opened from a dashboard', async () => {
+            // The insight page keeps `dashboardId` in its props when it is opened from a tile, and the
+            // query is still editable there, so the hint must not read that as a read-only surface.
+            const source = buildTrendsQuery({
+                series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
+                filterTestAccounts: true,
+            })
+            renderInsight({
+                query: source,
+                context: {
+                    insightProps: {
+                        dashboardItemId: INSIGHT_TEST_ID,
+                        dashboardId: 1,
+                        query: { kind: NodeKind.InsightVizNode, source },
+                    },
+                },
+            })
+
+            expect(await screen.findByTestId('insight-empty-state-include-test-accounts')).toBeInTheDocument()
+        })
+
+        it('keeps the filter hint out of the way when no filter is set', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
+                }),
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
+            })
+            expect(screen.queryByText(/internal and test users/i)).not.toBeInTheDocument()
         })
 
         it('uses context.emptyStateHeading override when provided', async () => {

@@ -185,6 +185,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
             <InsightEmptyState
                 heading={context?.emptyStateHeading}
                 detail={context?.emptyStateDetail}
+                insightVizProps={insightProps}
                 sampleDataVariant="line"
             />
         )

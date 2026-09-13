@@ -21,6 +21,7 @@ import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { EditorFilters } from './EditorFilters'
 import { InsightVizDisplay } from './InsightVizDisplay'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from './insightVizKeys'
+import { InsightVizQueryEditableContext } from './InsightVizQueryEditableContext'
 import { getCachedResults } from './utils'
 
 export { insightVizDataCollectionId, insightVizDataNodeKey } from './insightVizKeys'
@@ -119,36 +120,38 @@ export function InsightViz({
 
     return (
         <ErrorBoundary exceptionProps={{ feature: 'InsightViz' }}>
-            <BindLogic logic={insightLogic} props={insightProps}>
-                <BindLogic logic={insightDataLogic} props={insightProps}>
-                    <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                        <BindLogic logic={insightVizDataLogic} props={insightProps}>
-                            <div
-                                className={
-                                    !isEmbedded
-                                        ? clsx('InsightViz InsightViz--horizontal', {
-                                              '!gap-4': editMode,
-                                              '!gap-0': !editMode,
-                                              'flex-1': editMode,
-                                          })
-                                        : 'InsightCard__viz'
-                                }
-                            >
-                                <EditorFilters
-                                    query={query.source}
-                                    showing={!readOnly && showingFilters}
-                                    embedded={isEmbedded}
-                                />
-                                {!isEmbedded ? (
-                                    <div className="flex-1 max-h-full overflow-auto">{display}</div>
-                                ) : (
-                                    display
-                                )}
-                            </div>
+            <InsightVizQueryEditableContext.Provider value={!isEmbedded && !inSharedMode}>
+                <BindLogic logic={insightLogic} props={insightProps}>
+                    <BindLogic logic={insightDataLogic} props={insightProps}>
+                        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                            <BindLogic logic={insightVizDataLogic} props={insightProps}>
+                                <div
+                                    className={
+                                        !isEmbedded
+                                            ? clsx('InsightViz InsightViz--horizontal', {
+                                                  '!gap-4': editMode,
+                                                  '!gap-0': !editMode,
+                                                  'flex-1': editMode,
+                                              })
+                                            : 'InsightCard__viz'
+                                    }
+                                >
+                                    <EditorFilters
+                                        query={query.source}
+                                        showing={!readOnly && showingFilters}
+                                        embedded={isEmbedded}
+                                    />
+                                    {!isEmbedded ? (
+                                        <div className="flex-1 max-h-full overflow-auto">{display}</div>
+                                    ) : (
+                                        display
+                                    )}
+                                </div>
+                            </BindLogic>
                         </BindLogic>
                     </BindLogic>
                 </BindLogic>
-            </BindLogic>
+            </InsightVizQueryEditableContext.Provider>
         </ErrorBoundary>
     )
 }

@@ -236,6 +236,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             <InsightEmptyState
                 heading={context?.emptyStateHeading}
                 detail={context?.emptyStateDetail}
+                insightVizProps={insightProps}
                 sampleDataVariant="bar"
             />
         )
