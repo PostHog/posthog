@@ -27,7 +27,7 @@ jest.mock('lib/components/AutoSizer', () => ({
         renderProp({ height: 400, width: 400 }),
 }))
 
-describe('RecordingsUniversalFilterAddFilterPopover (pill category dropdown)', () => {
+describe('RecordingsUniversalFilterAddFilterPopover', () => {
     beforeEach(() => {
         useMocks({
             get: {
@@ -65,10 +65,7 @@ describe('RecordingsUniversalFilterAddFilterPopover (pill category dropdown)', (
                     onChange={jest.fn()}
                     taxonomicGroupTypes={taxonomicGroupTypes}
                 >
-                    <RecordingsUniversalFilterAddFilterPopover
-                        categoryDropdownVariant="pill"
-                        taxonomicGroupTypes={taxonomicGroupTypes}
-                    />
+                    <RecordingsUniversalFilterAddFilterPopover taxonomicGroupTypes={taxonomicGroupTypes} />
                 </UniversalFilters>
             </Provider>
         )
@@ -81,9 +78,9 @@ describe('RecordingsUniversalFilterAddFilterPopover (pill category dropdown)', (
         const input = screen.getByTestId('replay-filters-add-filter-input')
         await userEvent.click(input)
 
-        const pillTrigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
-        // Defaults to the first group.
-        expect(pillTrigger).toHaveTextContent('Events')
+        const pillTrigger = await screen.findByTestId('taxonomic-category-dropdown-trigger')
+        // The combined results category is the default for multiple groups.
+        expect(pillTrigger).toHaveTextContent('All')
         expect(pillTrigger).toHaveClass('LemonButton--secondary')
         expect(pillTrigger).not.toHaveClass('TaxonomicFilter__category-dropdown', 'LemonButton--truncate')
 
@@ -95,7 +92,7 @@ describe('RecordingsUniversalFilterAddFilterPopover (pill category dropdown)', (
 
         // Open the pill menu and select a visible option. Re-query the trigger — typing
         // re-renders the input suffix, detaching the node captured above.
-        await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
+        await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger'))
         const personPropertiesItem = await screen.findByTestId('taxonomic-category-dropdown-item-person_properties')
         await userEvent.click(personPropertiesItem)
 

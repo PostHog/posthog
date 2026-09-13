@@ -306,9 +306,8 @@ export function TaxonomicFilterMenu({
                 hadCommit: hadCommitRef.current,
                 lastState: previous,
             })
-            // Legacy `taxonomic filter *` contract — emitted alongside the
-            // menu-specific events so the rebuild is comparable to the
-            // control/pill variants by feature-flag value.
+            // The shared `taxonomic filter *` contract keeps the rebuilt menu
+            // comparable to the classic picker.
             // Legacy's `groupType: activeTab` is omitted because the menu has no single active tab at close time.
             posthog.capture('taxonomic filter closed', {
                 surface: TAXONOMIC_FILTER_SURFACE,

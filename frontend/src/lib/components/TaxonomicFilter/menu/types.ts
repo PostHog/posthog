@@ -12,9 +12,8 @@ import {
     TaxonomicFilterValue,
 } from '../types'
 
-/** Stamped on the legacy `taxonomic filter *` telemetry events so the A/B arms
- *  are distinguishable by an explicit property rather than a feature-flag join.
- *  Legacy emits `legacy-control` / `legacy-pill`. */
+/** Stamped on shared `taxonomic filter *` telemetry events so the rebuilt menu
+ *  stays distinguishable from the classic picker. */
 export const TAXONOMIC_FILTER_SURFACE = 'rebuild-menu'
 
 /** A single selectable entry — what the picker commits when chosen. */

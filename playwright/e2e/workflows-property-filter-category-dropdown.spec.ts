@@ -1,4 +1,3 @@
-import { mockFeatureFlags } from '../utils/mockApi'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
 
 const TRIGGER_NODE_ID = 'trigger_node'
@@ -75,15 +74,11 @@ test.describe('Workflows conditional branch property filter category dropdown', 
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
-        // Log in (sets the session + CSRF cookie the test needs to create a hog_flow) without
-        // navigating into the app, so the feature flag mock is installed before the editor loads.
+        // Log in without navigating into the app so the test can create a workflow first.
         await playwrightSetup.login(page, workspace!)
-        await mockFeatureFlags(page, {
-            'taxonomic-filter-category-dropdown': 'pill',
-        })
     })
 
-    test('reopening a saved filter and clicking the category dropdown trigger pill keeps the filter popover open', async ({
+    test('reopening a saved filter and clicking the category dropdown keeps the filter popover open', async ({
         page,
     }) => {
         test.setTimeout(90 * 1000)
@@ -121,14 +116,11 @@ test.describe('Workflows conditional branch property filter category dropdown', 
         await test.step('open the inner taxonomic filter dropdown', async () => {
             await page.getByTestId('property-select-toggle-0').click()
             await expect(page.getByTestId('taxonomic-filter-searchfield')).toBeVisible()
-            await expect(page.getByTestId('taxonomic-category-dropdown-trigger-pill')).toBeVisible()
+            await expect(page.getByTestId('taxonomic-category-dropdown-trigger')).toBeVisible()
         })
 
-        await test.step('clicking the category dropdown trigger pill opens the menu and keeps the popover open', async () => {
-            await page.getByTestId('taxonomic-category-dropdown-trigger-pill').click()
-            // Give the popover transitions time to settle so the assertions reflect the steady state
-            // after the click rather than the brief moment between mouseup and click-outside.
-            await page.waitForTimeout(250)
+        await test.step('clicking the category dropdown opens the menu and keeps the popover open', async () => {
+            await page.getByTestId('taxonomic-category-dropdown-trigger').click()
             await expect(page.getByTestId('property-filter-0')).toBeVisible()
             await expect(page.getByTestId('property-select-toggle-0')).toBeVisible()
             await expect(page.getByTestId('taxonomic-filter-searchfield')).toBeVisible()

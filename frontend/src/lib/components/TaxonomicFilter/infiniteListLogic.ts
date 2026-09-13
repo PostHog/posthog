@@ -64,7 +64,6 @@ import {
     filterPinnedForContext,
     filterRecentsForContext,
 } from 'lib/components/TaxonomicFilter/utils/suggestedContextFilters'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
@@ -2266,9 +2265,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 if (cache.lastEmptyResultDedupeKey !== dedupeKey) {
                     cache.lastEmptyResultDedupeKey = dedupeKey
                     posthog.capture('taxonomic filter empty result', {
-                        surface: legacyTaxonomicSurface(
-                            posthog.getFeatureFlag(FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN)
-                        ),
+                        surface: legacyTaxonomicSurface(),
                         groupType: props.listGroupType,
                         searchQuery: trimmedQuery,
                     })
@@ -2291,9 +2288,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             if (cache.lastFetchFailedDedupeKey !== dedupeKey) {
                 cache.lastFetchFailedDedupeKey = dedupeKey
                 posthog.capture('taxonomic filter fetch failed', {
-                    surface: legacyTaxonomicSurface(
-                        posthog.getFeatureFlag(FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN)
-                    ),
+                    surface: legacyTaxonomicSurface(),
                     groupType: props.listGroupType,
                     searchQuery: trimmedQuery,
                 })
