@@ -9,6 +9,7 @@ import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
+import { InboxSetupIncomplete } from './InboxSetupIncomplete'
 import { InstallingFlowRow } from './InstallingFlowRow'
 import { ScoutFlowRow } from './ScoutFlowRow'
 import { SignalSourceFlowRow } from './SignalSourceFlowRow'
@@ -40,13 +41,22 @@ export function InboxWaitingForWork(): JSX.Element {
 
     const { sourceConfigs, sourceConfigsLoading } = useValues(signalSourcesLogic)
     const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
-    const { isWizardRunning } = useValues(inboxOnboardingLogic)
+    const { isSetupLoaded, isSelfDrivingSetUp, isWizardRunning } = useValues(inboxOnboardingLogic)
     const enabledSources = uniqueEnabledSources(sourceConfigs)
     const enabledScouts = (scoutConfigs ?? []).filter((scout) => scout.enabled && scout.emit)
     const visibleSources = enabledSources.slice(0, MAX_VISIBLE_ITEMS)
     const visibleScouts = enabledScouts.slice(0, MAX_VISIBLE_ITEMS)
     const sourcesLoading = sourceConfigs === null || sourceConfigsLoading
     const scoutsLoading = scoutConfigs === null || scoutConfigsLoading
+
+    // A setup run that ends without enabling anything leaves this surface with nothing to wait for,
+    // and the welcome prompt that carries the setup command stays suppressed for the rest of the
+    // session once "Set up manually" has been pressed. Read from the same verdict the scene decides
+    // the onboarding with, not from the lists below: those exclude a non-emitting scout and a
+    // Replay Vision scanner, so a project watching through either would be told setup is unfinished.
+    if (isSetupLoaded && !isSelfDrivingSetUp && !isWizardRunning) {
+        return <InboxSetupIncomplete />
+    }
 
     return (
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-7 py-6">

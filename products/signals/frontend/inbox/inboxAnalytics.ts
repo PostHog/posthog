@@ -61,6 +61,8 @@ export const INBOX_EVENTS = {
     SCOUT_SUGGESTIONS_CHAT_OPENED: 'Scout suggestions chat opened',
     RUN_OPENED: 'Inbox run opened',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
+    SETUP_INCOMPLETE_VIEWED: 'Inbox setup incomplete viewed',
+    SETUP_RECOVERY_ACTION: 'Inbox setup recovery action',
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
@@ -79,6 +81,9 @@ export type InboxReportActionSurface =
  * the ones nobody uses can go.
  */
 export type InboxSelectionEntryMethod = 'long_press' | 'meta_click' | 'shift_click' | 'checkbox' | 'context_menu'
+
+/** Route out of the unfinished-setup state. */
+export type InboxSetupRecoveryAction = 'copy_command' | 'configure_sources' | 'browse_scouts'
 
 /** How a report detail was opened. `triage` is the open-report shortcut in triage mode. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
@@ -306,6 +311,22 @@ export function captureInboxWelcomeCommandCopied(params: { surface: InboxWelcome
  */
 export function captureInboxWelcomeManualSetupClicked(): void {
     captureInboxEvent(INBOX_EVENTS.WELCOME_MANUAL_SETUP_CLICKED, {})
+}
+
+/**
+ * The inbox told the user setup is unfinished, because nothing is watching the project and no run
+ * is in flight. Pairs with {@link captureInboxSetupRecoveryAction}: the two together say how often
+ * a team lands in that state and how often they take a route out of it.
+ */
+export function captureInboxSetupIncompleteViewed(): void {
+    captureInboxEvent(INBOX_EVENTS.SETUP_INCOMPLETE_VIEWED, {})
+}
+
+/** A route out of the unfinished-setup state was taken. */
+export function captureInboxSetupRecoveryAction(params: { action: InboxSetupRecoveryAction }): void {
+    captureInboxEvent(INBOX_EVENTS.SETUP_RECOVERY_ACTION, {
+        action: params.action,
+    })
 }
 
 /**
