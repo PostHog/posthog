@@ -1008,6 +1008,21 @@ class PersonalSpendDailyThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "200/day"
 
 
+class LLMPromptProjectSecretApiKeyTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate burst budget across all of a project's secret API keys, so minting
+    extra keys never multiplies a project's total prompt-fetch capacity."""
+
+    scope = "llm_prompt_psak_team_burst"
+    rate = BurstRateThrottle.rate
+
+
+class LLMPromptProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate sustained budget across all of a project's secret API keys."""
+
+    scope = "llm_prompt_psak_team_sustained"
+    rate = SustainedRateThrottle.rate
+
+
 class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     # Stricter burst limit for publishing prompt versions.
     # This protects against accidental loops or scripted abuse while allowing normal usage.

@@ -60,13 +60,20 @@ from posthog.auth import (
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
 )
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
-from posthog.permissions import AccessControlPermission
-from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
+from posthog.permissions import AccessControlPermission, is_authenticated_via_project_secret_api_key
+from posthog.rate_limit import (
+    BurstRateThrottle,
+    LLMPromptProjectSecretApiKeyTeamBurstThrottle,
+    LLMPromptProjectSecretApiKeyTeamSustainedThrottle,
+    LLMPromptPublishBurstRateThrottle,
+    SustainedRateThrottle,
+)
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
@@ -90,6 +97,12 @@ class LLMPromptViewSet(
     queryset = LLMPrompt.objects.all()
     serializer_class = LLMPromptSerializer
     permission_classes = [AccessControlPermission]
+    # Extends the default authenticators (TeamAndOrgViewSetMixin appends session/JWT/PAT/OAuth).
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # A project secret API key with llm_prompt:read can fetch prompts. Backend applications
+    # fetch their prompts at runtime, and a project secret API key outlives the person who
+    # created it. Publishing, archiving, and every other write stay session/PAT/OAuth-only.
+    psak_allowed_actions = ["get_by_name", "resolve_by_name"]
 
     def safely_get_queryset(self, queryset: QuerySet[LLMPrompt]) -> QuerySet[LLMPrompt]:
         return get_active_prompt_queryset(self.team)
@@ -98,7 +111,16 @@ class LLMPromptViewSet(
         if self.action == "update_by_name":
             return [LLMPromptPublishBurstRateThrottle(), BurstRateThrottle(), SustainedRateThrottle()]
         if self.action in ["get_by_name", "resolve_by_name"]:
-            return [BurstRateThrottle(), SustainedRateThrottle()]
+            # Each request runs one pair: the defaults skip project secret API keys, and the
+            # team pair skips every other authenticator. A per-key pair on top would never
+            # reject anything, because it shares these rates and its bucket is a subset of
+            # the team bucket, so the team cap always binds first.
+            return [
+                BurstRateThrottle(),
+                SustainedRateThrottle(),
+                LLMPromptProjectSecretApiKeyTeamBurstThrottle(),
+                LLMPromptProjectSecretApiKeyTeamSustainedThrottle(),
+            ]
 
         return super().get_throttles()
 
@@ -442,9 +464,12 @@ class LLMPromptViewSet(
     @llma_track_latency("llma_prompts_resolve_by_name")
     @monitor(feature=None, endpoint="llma_prompts_resolve_by_name", method="GET")
     def resolve_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
+        # A project secret API key reaches this action through psak_allowed_actions.
+        # Every other non-web authenticator stays blocked.
+        if not is_authenticated_via_project_secret_api_key(request):
+            auth_error = self._ensure_web_authenticated(request)
+            if auth_error is not None:
+                return auth_error
 
         query_params = self._get_resolve_query_params(request)
         version = cast(int | None, query_params.get("version"))
