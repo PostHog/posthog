@@ -72,6 +72,9 @@ export function MaterializationRunActions({
                 disabledReason={
                     accessReason ||
                     (updatingDataWarehouseSavedQuery ? 'Saving materialization settings' : undefined) ||
+                    // Modes with a reason cannot be materialized at all: the endpoint refuses a
+                    // managed viewset, and a view with no node has nothing to schedule through.
+                    modeDisabledReason(savedQuery.sync_frequency_bounds) ||
                     unsatisfiableReason(savedQuery.sync_frequency_bounds) ||
                     draftError
                 }
