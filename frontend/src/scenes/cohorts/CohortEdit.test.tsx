@@ -4,9 +4,10 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic, partial } from 'kea-test-utils'
 
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { checkIsPendingCalculation, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { urls } from 'scenes/urls'
 
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
@@ -348,7 +349,10 @@ describe('cohortEditLogic', () => {
             expect(retryButtons.length).toBeGreaterThan(0)
             const retryButton = retryButtons[0]
 
-            // Verify contact support link is shown as secondary option
+            // The banner must not dead-end: it links to the calculation history so the user can
+            // see the actual failure, alongside contacting support.
+            const historyLink = screen.getByText('calculation history')
+            expect(historyLink.closest('a')?.getAttribute('href')).toContain(urls.cohortCalculationHistory(cohortId))
             expect(screen.getByText('contact support')).toBeInTheDocument()
 
             // Get the logic instance and verify clicking retry triggers submitCohort
@@ -358,6 +362,54 @@ describe('cohortEditLogic', () => {
             await expectLogic(logic, async () => {
                 await userEvent.click(retryButton)
             }).toDispatchActions(['submitCohort'])
+        })
+
+        it('disables the retry button while the recalculation PATCH is in flight', async () => {
+            const cohortId = 6
+            const failed = {
+                id: cohortId,
+                name: 'Test Cohort',
+                is_static: false,
+                filters: { properties: { type: 'AND', values: [] } },
+                version: 1,
+                pending_version: 2,
+                is_calculating: false,
+                errors_calculating: 1,
+                last_calculation: '2024-01-01T00:00:00Z',
+                last_error_message: 'Query execution timed out',
+            }
+            let releasePatch: () => void = () => {}
+            useMocks({
+                get: { [`/api/projects/:team_id/cohorts/${cohortId}/`]: failed },
+                // Hold the PATCH open so the in-flight window is observable rather than a fast resolve.
+                patch: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: async () => {
+                        await new Promise<void>((resolve) => {
+                            releasePatch = resolve
+                        })
+                        return { ...failed, is_calculating: true, errors_calculating: 0, pending_version: 3 }
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+            await screen.findByText(/Calculation failed:/)
+
+            const retryButton = (): HTMLElement | null =>
+                document.querySelector('[data-attr="cohort-retry-calculation"]')
+            // Enabled once the initial load settles.
+            await waitFor(() => expect(retryButton()).toHaveAttribute('aria-disabled', 'false'))
+
+            await userEvent.click(retryButton() as HTMLElement)
+
+            // While the recalculation is queued, the button shows its loading/disabled state so the
+            // click doesn't read as inert — the dead-end symptom the PR fixes.
+            await waitFor(() => expect(retryButton()).toHaveAttribute('aria-disabled', 'true'))
+
+            // Release the PATCH and let the loader settle so nothing is left in flight; the banner
+            // then leaves the error state.
+            releasePatch()
+            await waitFor(() => expect(screen.queryByText(/Calculation failed:/)).not.toBeInTheDocument())
         })
 
         it('shows the error banner, not a pending state, when a stuck calculation has failed', async () => {
@@ -491,6 +543,71 @@ describe('cohortEditLogic', () => {
                 })
             }
         )
+
+        // A queued retry bumps `pending_version` but leaves `errors_calculating` from the prior
+        // failure in place, so a climb in that count is the only signal the retry failed too.
+        it.each([
+            {
+                name: 'queued retry, not yet failed again: in progress',
+                cohort: { version: 1, pending_version: 2, errors_calculating: 1 },
+                retryState: { baselineErrors: 1 },
+                expected: true,
+            },
+            {
+                name: 'queued retry that failed again (errors climbed): failed',
+                cohort: { version: 1, pending_version: 2, errors_calculating: 2 },
+                retryState: { baselineErrors: 1 },
+                expected: false,
+            },
+            {
+                name: 'retry queued but version caught up: not pending',
+                cohort: { version: 2, pending_version: 2, errors_calculating: 0 },
+                retryState: { baselineErrors: 1 },
+                expected: false,
+            },
+        ])('checkIsPendingCalculation — $name', ({ cohort, retryState, expected }) => {
+            expect(checkIsPendingCalculation({ ...mockCohort, ...cohort }, retryState)).toBe(expected)
+        })
+
+        // The pure-function cases above build `retryState` by hand, so none of them exercise the
+        // reducer + loader wiring that produces it. This drives the real submit path: the baseline
+        // is snapshotted by setCalculationRetryBaseline *after* setCohort (which clears it), so
+        // breaking that dispatch order — or dropping the snapshot — would let the just-queued retry
+        // read as "failed" and bring the dead-end back, while every case above still passes.
+        it('records the retry baseline through the real save, reading a just-queued retry as in progress', async () => {
+            const cohortId = 5
+            const failed = {
+                id: cohortId,
+                name: 'Test Cohort',
+                is_static: false,
+                filters: { properties: { type: 'AND', values: [] } },
+                version: 1,
+                pending_version: 2,
+                is_calculating: false,
+                errors_calculating: 1,
+                last_calculation: '2024-01-01T00:00:00Z',
+            }
+            useMocks({
+                get: { [`/api/projects/:team_id/cohorts/${cohortId}/`]: failed },
+                // The retry PATCH bumps pending_version but the serializer still returns the prior
+                // error count. A fixture that reset it to 0 would snapshot a baseline of 0 and
+                // silently defeat the mechanism.
+                patch: { [`/api/projects/:team_id/cohorts/${cohortId}/`]: { ...failed, pending_version: 3 } },
+            })
+
+            logic = cohortEditLogic({ id: cohortId })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ isPendingCalculation: false })
+
+            await expectLogic(logic, () => logic.actions.submitCohort())
+                .toDispatchActions(['saveCohortSuccess'])
+                .toMatchValues({
+                    calculationRetryState: { baselineErrors: 1 },
+                    isPendingCalculation: true,
+                })
+
+            logic.unmount()
+        })
     })
 
     describe('import warning', () => {
