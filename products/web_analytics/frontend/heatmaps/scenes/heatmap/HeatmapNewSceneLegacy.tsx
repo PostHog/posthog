@@ -91,7 +91,7 @@ export function HeatmapNewSceneLegacy(): JSX.Element {
                         <HeatmapsInvalidURL />
                     )
                 ) : null}
-                {displayUrl && isDisplayUrlValid && dataUrl && !isBrowserUrlAuthorized ? (
+                {type === 'iframe' && displayUrl && isDisplayUrlValid && dataUrl && !isBrowserUrlAuthorized ? (
                     <HeatmapsForbiddenURL />
                 ) : null}
                 {!displayUrl && noPageviews && !topUrlsLoading ? (
@@ -148,8 +148,8 @@ export function HeatmapNewSceneLegacy(): JSX.Element {
                                 ? 'URL is required'
                                 : !isDisplayUrlValid
                                   ? 'Enter a valid URL'
-                                  : !!dataUrl && !isBrowserUrlAuthorized
-                                    ? 'Authorize the URL first'
+                                  : type === 'iframe' && !!dataUrl && !isBrowserUrlAuthorized
+                                    ? 'Authorize the URL first, or switch to a screenshot'
                                     : null
                         }
                     >

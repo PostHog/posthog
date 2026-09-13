@@ -25,6 +25,8 @@ describe('the authorized urls list logic', () => {
     let logic: ReturnType<typeof authorizedUrlListLogic.build>
 
     beforeEach(() => {
+        // `clearMocks` keeps mock implementations, so drop the spies a previous test installed.
+        jest.restoreAllMocks()
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/trend/': ({ request }) => {
@@ -104,6 +106,78 @@ describe('the authorized urls list logic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(markTaskAsCompleted).toHaveBeenCalledWith(SetupTaskId.AddAuthorizedDomain)
+        })
+    })
+
+    describe('a rejected save', () => {
+        beforeEach(() => {
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id': [
+                        403,
+                        { type: 'authentication_error', code: 'permission_denied', detail: 'Not allowed' },
+                    ],
+                },
+            })
+        })
+
+        // Regression coverage: the reducers add the URL before the team PATCH answers. A caller that
+        // is not allowed to change `app_urls` gets a 403, and the list must not keep the URL — the
+        // heatmaps banner reads it to decide whether the URL is authorized.
+        it('drops the added URL when the team rejects it', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.addUrl('https://rejected.example.com')
+            }).toFinishAllListeners()
+
+            expect(logic.values.authorizedUrls).not.toContain('https://rejected.example.com')
+        })
+
+        // Regression coverage: kea-loaders resolves the `updateCurrentTeam` action after a 403, so the
+        // `addUrl` listener runs on past the await. The setup task must stay open, because the URL was
+        // never saved.
+        it('does not complete the setup task when the team rejects it', async () => {
+            const markTaskAsCompleted = jest.fn()
+            jest.spyOn(globalSetupLogic, 'findMounted').mockReturnValue({
+                actions: { markTaskAsCompleted },
+            } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.addUrl('https://rejected.example.com')
+            }).toFinishAllListeners()
+
+            expect(markTaskAsCompleted).not.toHaveBeenCalled()
+        })
+
+        // Regression coverage: applying a suggestion adds it to authorizedUrls, and the rollback on a 403
+        // restores authorizedUrls only. The suggestion must stay visible so the user can retry, which it
+        // does because urlsKeyed derives suggestion visibility from authorizedUrls rather than mutating
+        // the suggestion list.
+        it('keeps the applied suggestion visible when the team rejects it', async () => {
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/:kind': [
+                        200,
+                        { results: [['https://suggested.example.net', 5]] },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSuggestions()
+            }).toFinishAllListeners()
+
+            expect(logic.values.urlsKeyed).toContainEqual(
+                expect.objectContaining({ url: 'https://suggested.example.net', type: 'suggestion' })
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.addUrl('https://suggested.example.net')
+            }).toFinishAllListeners()
+
+            expect(logic.values.authorizedUrls).not.toContain('https://suggested.example.net')
+            expect(logic.values.urlsKeyed).toContainEqual(
+                expect.objectContaining({ url: 'https://suggested.example.net', type: 'suggestion' })
+            )
         })
     })
 

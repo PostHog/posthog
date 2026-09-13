@@ -81,7 +81,7 @@ export function HeatmapHeader(): JSX.Element {
                                 <HeatmapsInvalidURL />
                             )
                         ) : null}
-                        {dataUrl && !isBrowserUrlAuthorized ? <HeatmapsForbiddenURL /> : null}
+                        {type === 'iframe' && dataUrl && !isBrowserUrlAuthorized ? <HeatmapsForbiddenURL /> : null}
                     </div>
                     {type === 'screenshot' && screenshotError && (
                         <div className="flex flex-col gap-2">
