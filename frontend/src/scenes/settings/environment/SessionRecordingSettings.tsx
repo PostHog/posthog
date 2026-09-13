@@ -58,7 +58,7 @@ export function Since(props: {
 
 export function LogCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { teamWithPendingPatch: currentTeam, updatingTeamFields } = useValues(teamLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -76,14 +76,14 @@ export function LogCaptureSettings(): JSX.Element {
             disabledReason={
                 !currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : restrictedReason
             }
-            loading={currentTeamLoading}
+            loading={!!updatingTeamFields.capture_console_log_opt_in}
         />
     )
 }
 
 export function CanvasCaptureSettings(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { teamWithPendingPatch: currentTeam, updatingTeamFields } = useValues(teamLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -106,7 +106,7 @@ export function CanvasCaptureSettings(): JSX.Element | null {
             disabledReason={
                 !currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : restrictedReason
             }
-            loading={currentTeamLoading}
+            loading={!!updatingTeamFields.session_replay_config}
         />
     )
 }
@@ -133,7 +133,7 @@ function PayloadWarning(): JSX.Element {
 
 export function ReplayNetworkCapture(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { teamWithPendingPatch: currentTeam, updatingTeamFields } = useValues(teamLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -151,14 +151,14 @@ export function ReplayNetworkCapture(): JSX.Element {
             disabledReason={
                 !currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : restrictedReason
             }
-            loading={currentTeamLoading}
+            loading={!!updatingTeamFields.capture_performance_opt_in}
         />
     )
 }
 
 export function ReplayNetworkHeadersPayloads(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { teamWithPendingPatch: currentTeam, updatingTeamFields } = useValues(teamLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -208,7 +208,7 @@ export function ReplayNetworkHeadersPayloads(): JSX.Element {
                         ? 'Session and network performance capture must be enabled'
                         : restrictedReason
                 }
-                loading={currentTeamLoading}
+                loading={!!updatingTeamFields.session_recording_network_payload_capture_config}
             />
             <LemonSwitch
                 data-attr="opt-in-capture-network-body-switch"
@@ -252,7 +252,7 @@ export function ReplayNetworkHeadersPayloads(): JSX.Element {
                         ? 'Session and network performance capture must be enabled'
                         : restrictedReason
                 }
-                loading={currentTeamLoading}
+                loading={!!updatingTeamFields.session_recording_network_payload_capture_config}
             />
         </div>
     )
@@ -285,7 +285,7 @@ export function ReplayAuthorizedDomains(): JSX.Element {
 
 export function ReplayMaskingSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { teamWithPendingPatch: currentTeam, updatingTeamFields } = useValues(teamLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -315,7 +315,7 @@ export function ReplayMaskingSettings(): JSX.Element {
                     { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
                     { value: 'free-love', label: 'Free love (mask only passwords)' },
                 ]}
-                loading={currentTeamLoading}
+                loading={!!updatingTeamFields.session_recording_masking_config}
                 disabledReason={restrictedReason}
             />
         </div>
@@ -324,7 +324,7 @@ export function ReplayMaskingSettings(): JSX.Element {
 
 export function ReplayDataRetentionSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { teamWithPendingPatch: currentTeam, updatingTeamFields } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -421,7 +421,7 @@ export function ReplayDataRetentionSettings(): JSX.Element {
             <LemonSegmentedButton
                 value={currentRetention}
                 onChange={(val) => val && handleRetentionChange(val)}
-                options={renderOptions(currentTeamLoading)}
+                options={renderOptions(!!updatingTeamFields.session_recording_retention_period)}
                 disabledReason={restrictedReason ?? undefined}
             />
             {!hasMaxRetentionEntitlement && (
@@ -439,7 +439,7 @@ export function ReplayDataRetentionSettings(): JSX.Element {
 
 export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { teamWithPendingPatch: currentTeam, updatingTeamFields } = useValues(teamLogic)
     const [showSurvey, setShowSurvey] = useState<boolean>(false)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -463,7 +463,7 @@ export function ReplayGeneral(): JSX.Element {
                 label="Record user sessions"
                 bordered
                 checked={!!currentTeam?.session_recording_opt_in}
-                loading={currentTeamLoading}
+                loading={!!updatingTeamFields.session_recording_opt_in}
                 disabledReason={restrictedReason}
             />
 
