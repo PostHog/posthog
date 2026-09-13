@@ -1,7 +1,9 @@
 /**
  * @jest-environment jsdom
  */
-import { CorsPlugin, createHLSPlayerPlugin, WindowTitlePlugin } from './index'
+import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
+
+import { BoxOrientPlugin, CorsPlugin, createHLSPlayerPlugin, WindowTitlePlugin } from './index'
 
 describe('CorsPlugin', () => {
     it.each(['https://some-external.js'])('should replace JS urls', (jsUrl) => {
@@ -272,5 +274,128 @@ describe('WindowTitlePlugin', () => {
             { replayer: null as unknown as any }
         )
         expect(mockCallback).not.toHaveBeenCalled()
+    })
+})
+
+describe('BoxOrientPlugin', () => {
+    const buildContext = { id: 1, replayer: null as unknown as any }
+
+    const attributeMutation = (id: number, attributes: Record<string, unknown>): eventWithTime =>
+        ({
+            type: EventType.IncrementalSnapshot,
+            timestamp: 0,
+            data: {
+                source: IncrementalSource.Mutation,
+                adds: [],
+                removes: [],
+                texts: [],
+                attributes: [{ id, attributes }],
+            },
+        }) as unknown as eventWithTime
+
+    const styleMutation = (id: number, style: unknown): eventWithTime => attributeMutation(id, { style })
+
+    const replayerFor = (node: HTMLElement): any => ({ getMirror: () => ({ getNode: () => node }) })
+
+    it('restores the webkit name in a stylesheet Firefox serialized', () => {
+        const style = document.createElement('style')
+        style.appendChild(
+            document.createTextNode(
+                '.clamped { display: -webkit-box; -moz-box-orient: vertical; -webkit-line-clamp: 2; }'
+            )
+        )
+
+        BoxOrientPlugin.onBuild?.(style, buildContext)
+
+        expect(style.textContent).toEqual(
+            '.clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }'
+        )
+    })
+
+    // rrweb builds a stylesheet added after the snapshot as an empty element, then sends its CSS
+    // as a separate text node.
+    it.each([
+        ['style', '.clamped { -moz-box-orient: vertical; }', '.clamped { -webkit-box-orient: vertical; }'],
+        ['p', 'the -moz-box-orient rule', 'the -moz-box-orient rule'],
+    ])('handles a text node built after its %s parent', (tagName, text, expected) => {
+        const parent = document.createElement(tagName)
+
+        BoxOrientPlugin.onBuild?.(parent, buildContext)
+        const textNode = document.createTextNode(text)
+        parent.appendChild(textNode)
+        BoxOrientPlugin.onBuild?.(textNode, buildContext)
+
+        expect(parent.textContent).toEqual(expected)
+    })
+
+    it('restores the webkit name in a style attribute', () => {
+        const el = document.createElement('p')
+        el.setAttribute('style', 'display:-webkit-box;-moz-box-orient:vertical;-webkit-line-clamp:2')
+
+        BoxOrientPlugin.onBuild?.(el, buildContext)
+
+        expect(el.getAttribute('style')).toEqual('display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2')
+    })
+
+    it('leaves a node without the moz name alone', () => {
+        const el = document.createElement('p')
+        el.setAttribute('style', 'color: red')
+
+        BoxOrientPlugin.onBuild?.(el, buildContext)
+
+        expect(el.getAttribute('style')).toEqual('color: red')
+    })
+
+    it('restores the webkit name when a mutation replaces the whole style attribute', () => {
+        const el = document.createElement('p')
+        el.setAttribute('style', 'display:-webkit-box;-moz-box-orient:vertical')
+
+        BoxOrientPlugin.handler?.(styleMutation(7, 'display:-webkit-box;-moz-box-orient:vertical'), false, {
+            replayer: replayerFor(el),
+        } as any)
+
+        expect(el.getAttribute('style')).toEqual('display:-webkit-box;-webkit-box-orient:vertical')
+    })
+
+    // rrweb applies a `_cssText` mutation by rebuilding the element without the plugins, so a
+    // stylesheet inlined that way reaches the page with the moz name intact.
+    it('restores the webkit name in a stylesheet inlined as _cssText', () => {
+        const style = document.createElement('style')
+        style.appendChild(document.createTextNode('.clamped { -moz-box-orient: vertical; }'))
+
+        BoxOrientPlugin.handler?.(
+            attributeMutation(7, { _cssText: '.clamped { -moz-box-orient: vertical; }' }),
+            false,
+            {
+                replayer: replayerFor(style),
+            } as any
+        )
+
+        expect(style.textContent).toEqual('.clamped { -webkit-box-orient: vertical; }')
+    })
+
+    it.each([
+        ['a plain value', 'vertical', 'vertical', ''],
+        ['an important value', ['vertical', 'important'], 'vertical', 'important'],
+    ])('sets the webkit property when a mutation carries %s', (_name, mutated, value, priority) => {
+        const el = document.createElement('p')
+        const setProperty = jest.spyOn(el.style, 'setProperty')
+
+        BoxOrientPlugin.handler?.(styleMutation(7, { '-moz-box-orient': mutated }), false, {
+            replayer: replayerFor(el),
+        } as any)
+
+        expect(setProperty).toHaveBeenCalledWith('-webkit-box-orient', value, priority)
+    })
+
+    it('removes the webkit property when a mutation drops the moz one', () => {
+        const el = document.createElement('p')
+        const removeProperty = jest.spyOn(el.style, 'removeProperty')
+
+        BoxOrientPlugin.handler?.(styleMutation(7, { '-moz-box-orient': false }), false, {
+            replayer: replayerFor(el),
+        } as any)
+
+        expect(removeProperty).toHaveBeenCalledWith('-webkit-box-orient')
     })
 })
