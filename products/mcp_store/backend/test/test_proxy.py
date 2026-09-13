@@ -334,6 +334,12 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         [
             ("connect_error", httpx.ConnectError("Connection refused"), 502, "Upstream MCP server unreachable"),
             ("timeout", httpx.TimeoutException("Timed out"), 502, "Upstream MCP server timed out"),
+            (
+                "proxy_error",
+                httpx.ProxyError("429 Too Many Requests"),
+                502,
+                "Egress proxy refused the connection to the upstream MCP server, retry shortly",
+            ),
         ]
     )
     @patch("products.mcp_store.backend.proxy.httpx.Client")

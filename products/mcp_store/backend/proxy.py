@@ -114,6 +114,22 @@ def send_mcp_request_with_same_origin_redirect(
     return client.send(redirected_request, stream=stream), redirect_url
 
 
+def upstream_transport_error_message(exc: httpx.TransportError) -> str:
+    """Describe a transport failure so the caller can tell it from an upstream refusal.
+
+    ``ProxyError`` is a sibling of ``ConnectError``, not a subclass, and it means our
+    own egress proxy refused the connection. The caller cannot deduce that from the
+    upstream URL, so name it.
+    """
+    if isinstance(exc, httpx.ProxyError):
+        return "Egress proxy refused the connection to the upstream MCP server, retry shortly"
+    if isinstance(exc, httpx.TimeoutException):
+        return "Upstream MCP server timed out"
+    if isinstance(exc, httpx.ConnectError):
+        return "Upstream MCP server unreachable"
+    return "Upstream MCP server connection failed"
+
+
 def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str, str]:
     sensitive = installation.sensitive_configuration or {}
 
@@ -545,19 +561,12 @@ def proxy_mcp_request(
             headers=headers,
             stream=True,
         )
-    except httpx.ConnectError:
+    except httpx.TransportError as exc:
         client.close()
-        logger.warning("Upstream MCP server unreachable", url=installation.url)
+        message = upstream_transport_error_message(exc)
+        logger.warning("Upstream MCP request failed in transport", url=installation.url, reason=message)
         return HttpResponse(
-            '{"error": "Upstream MCP server unreachable"}',
-            content_type="application/json",
-            status=502,
-        )
-    except httpx.TimeoutException:
-        client.close()
-        logger.warning("Upstream MCP server timed out", url=installation.url)
-        return HttpResponse(
-            '{"error": "Upstream MCP server timed out"}',
+            json.dumps({"error": message}),
             content_type="application/json",
             status=502,
         )
