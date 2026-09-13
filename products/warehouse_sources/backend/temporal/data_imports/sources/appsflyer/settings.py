@@ -69,7 +69,24 @@ _MASTER_KPIS = (
 _AD_REVENUE_ADDITIONAL_FIELDS = ("monetization_network", "ad_unit", "placement", "impressions")
 
 _RAW_EVENT_PRIMARY_KEYS = ["appsflyer_id", "event_time"]
+_IN_APP_EVENT_PRIMARY_KEYS = [*_RAW_EVENT_PRIMARY_KEYS, "event_name"]
 _AD_REVENUE_PRIMARY_KEYS = [*_RAW_EVENT_PRIMARY_KEYS, "monetization_network", "ad_unit", "placement"]
+
+# Protect360's fraud classification rides on additional_fields rather than the standard raw
+# schema, so ask for it by name: without it a blocked row says nothing about why it was blocked.
+_BLOCKED_ADDITIONAL_FIELDS = (
+    "blocked_reason",
+    "blocked_sub_reason",
+    "blocked_reason_value",
+    "rejected_reason",
+    "rejected_reason_value",
+)
+_POST_ATTRIBUTION_ADDITIONAL_FIELDS = (
+    "detection_date",
+    "fraud_reason",
+    "rejected_reason",
+    "rejected_reason_value",
+)
 
 
 @frozen
@@ -118,14 +135,93 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
         partition_key="event_time",
         partition_format="day",
     ),
+    "installs_organic": AppsFlyerEndpointConfig(
+        name="installs_organic",
+        report="organic_installs_report",
+        kind=AppsFlyerReportKind.RAW,
+        primary_keys=list(_RAW_EVENT_PRIMARY_KEYS),
+        incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
+        partition_key="event_time",
+        partition_format="day",
+    ),
+    "installs_retargeting": AppsFlyerEndpointConfig(
+        name="installs_retargeting",
+        report="installs-retarget",
+        kind=AppsFlyerReportKind.RAW,
+        primary_keys=list(_RAW_EVENT_PRIMARY_KEYS),
+        incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
+        partition_key="event_time",
+        partition_format="day",
+    ),
     "in_app_events": AppsFlyerEndpointConfig(
         name="in_app_events",
         report="in_app_events_report",
         kind=AppsFlyerReportKind.RAW,
-        primary_keys=[*_RAW_EVENT_PRIMARY_KEYS, "event_name"],
+        primary_keys=list(_IN_APP_EVENT_PRIMARY_KEYS),
         incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
         partition_key="event_time",
         partition_format="day",
+    ),
+    "in_app_events_organic": AppsFlyerEndpointConfig(
+        name="in_app_events_organic",
+        report="organic_in_app_events_report",
+        kind=AppsFlyerReportKind.RAW,
+        primary_keys=list(_IN_APP_EVENT_PRIMARY_KEYS),
+        incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
+        partition_key="event_time",
+        partition_format="day",
+    ),
+    "in_app_events_retargeting": AppsFlyerEndpointConfig(
+        name="in_app_events_retargeting",
+        report="in-app-events-retarget",
+        kind=AppsFlyerReportKind.RAW,
+        primary_keys=list(_IN_APP_EVENT_PRIMARY_KEYS),
+        incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
+        partition_key="event_time",
+        partition_format="day",
+    ),
+    "uninstall_events": AppsFlyerEndpointConfig(
+        name="uninstall_events",
+        report="uninstall_events_report",
+        kind=AppsFlyerReportKind.RAW,
+        primary_keys=list(_RAW_EVENT_PRIMARY_KEYS),
+        incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
+        partition_key="event_time",
+        partition_format="day",
+    ),
+    "blocked_installs": AppsFlyerEndpointConfig(
+        name="blocked_installs",
+        report="blocked_installs_report",
+        kind=AppsFlyerReportKind.RAW,
+        primary_keys=list(_RAW_EVENT_PRIMARY_KEYS),
+        incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
+        partition_key="event_time",
+        partition_format="day",
+        extra_params={"additional_fields": ",".join(_BLOCKED_ADDITIONAL_FIELDS)},
+    ),
+    "blocked_in_app_events": AppsFlyerEndpointConfig(
+        name="blocked_in_app_events",
+        report="blocked_in_app_events_report",
+        kind=AppsFlyerReportKind.RAW,
+        primary_keys=list(_IN_APP_EVENT_PRIMARY_KEYS),
+        incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
+        partition_key="event_time",
+        partition_format="day",
+        extra_params={"additional_fields": ",".join(_BLOCKED_ADDITIONAL_FIELDS)},
+    ),
+    "post_attribution_installs": AppsFlyerEndpointConfig(
+        name="post_attribution_installs",
+        report="detection",
+        kind=AppsFlyerReportKind.RAW,
+        primary_keys=list(_RAW_EVENT_PRIMARY_KEYS),
+        # Rows appear here only once fraud is found, which is after the install they describe, so
+        # the report keeps growing backwards in event time. The from/to window filters on event
+        # time, not detection date, so an event-time watermark would skip every late detection —
+        # full refresh over the raw lookback is the only way to see them.
+        incremental_fields=[],
+        partition_key="event_time",
+        partition_format="day",
+        extra_params={"additional_fields": ",".join(_POST_ATTRIBUTION_ADDITIONAL_FIELDS)},
     ),
     "ad_revenue": AppsFlyerEndpointConfig(
         name="ad_revenue",
