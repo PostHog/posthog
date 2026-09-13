@@ -80931,7 +80931,7 @@ export namespace Schemas {
          * @maximum 10
          */
       runs_remaining?: number;
-      /** Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run. */
+      /** Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first. */
       expires_at?: string;
     }
 

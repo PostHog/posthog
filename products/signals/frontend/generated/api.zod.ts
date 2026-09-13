@@ -402,7 +402,9 @@ export const SignalsReportChecksCreateBody = /* @__PURE__ */ zod
         expires_at: zod.iso
             .datetime({ offset: true })
             .optional()
-            .describe('Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run.'),
+            .describe(
+                'Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first.'
+            ),
     })
     .describe(
         "Request body for creating a check on a report.\n\nThe schedule is the check's own: `next_run_at` says when to look, rather than the system\nderiving a soak window from a merged pull request that many fixes never have."

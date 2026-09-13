@@ -1644,7 +1644,8 @@ class SignalReportCheckWriteSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Horizon after which the check retires unrun. Defaults to "
-            f"{DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN.days} days after the last scheduled run."
+            f"{DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN.days} days after the last scheduled run, or the "
+            f"{MAX_CHECK_HORIZON.days}-day horizon if that comes first."
         ),
     )
 
@@ -1666,7 +1667,20 @@ class SignalReportCheckWriteSerializer(serializers.Serializer):
             )
 
         last_run_at = next_run_at + timedelta(minutes=interval * (runs - 1)) if interval else next_run_at
-        expires_at = attrs.get("expires_at") or last_run_at + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN
+        if last_run_at > horizon:
+            raise serializers.ValidationError(
+                {
+                    "run_interval_minutes": (
+                        f"the last run must fall within {MAX_CHECK_HORIZON.days} days. "
+                        "Use a shorter interval or fewer runs."
+                    )
+                }
+            )
+
+        # The padding after the last run is a default, not something the caller asked for, so it
+        # gives way to the horizon. Letting it overflow would reject a legal schedule and blame an
+        # `expires_at` the caller never sent.
+        expires_at = attrs.get("expires_at") or min(last_run_at + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN, horizon)
         if expires_at <= next_run_at:
             raise serializers.ValidationError({"expires_at": "must be after the first run."})
         if expires_at > horizon:

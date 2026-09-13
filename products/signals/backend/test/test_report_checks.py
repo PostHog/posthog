@@ -21,8 +21,11 @@ from products.signals.backend.report_check_execution import (
     run_due_report_checks,
 )
 from products.signals.backend.report_checks import (
+    DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
     MAX_ACTIVE_CHECKS_PER_REPORT,
+    MAX_CHECK_HORIZON,
     MAX_CHECK_INTERVAL_MINUTES,
+    MAX_CHECK_RUNS,
     MAX_CONSECUTIVE_CHECK_ERRORS,
     MIN_CHECK_INTERVAL_MINUTES,
     CheckComparison,
@@ -155,6 +158,11 @@ class TestCheckScheduleValidation(SimpleTestCase):
                 "run_interval_minutes",
             ),
             ("expiry_before_the_first_run", {"expires_at": "2020-01-01T00:00:00Z"}, "expires_at"),
+            (
+                "last_run_past_the_horizon",
+                {"run_interval_minutes": 30 * 24 * 60, "runs_remaining": 5},
+                "run_interval_minutes",
+            ),
         ]
     )
     def test_impossible_schedule_is_refused(self, _name, overrides, field) -> None:
@@ -171,7 +179,37 @@ class TestCheckScheduleValidation(SimpleTestCase):
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["next_run_at"] > timezone.now()
         assert serializer.validated_data["expires_at"] > serializer.validated_data["next_run_at"]
+        assert (
+            serializer.validated_data["expires_at"]
+            == serializer.validated_data["next_run_at"] + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN
+        )
         assert serializer.validated_data["runs_remaining"] == 1
+
+    @parameterized.expand(
+        [
+            ("one_shot_beyond_the_padding", 61, None, 1),
+            ("recurring_to_the_run_ceiling", 7, 7 * 24 * 60, MAX_CHECK_RUNS),
+        ]
+    )
+    def test_an_omitted_expiry_never_pushes_a_legal_schedule_past_the_horizon(
+        self, _name, first_run_in_days, interval, runs
+    ) -> None:
+        overrides: dict = {
+            "next_run_at": (timezone.now() + timedelta(days=first_run_in_days)).isoformat(),
+            "runs_remaining": runs,
+        }
+        if interval is not None:
+            overrides["run_interval_minutes"] = interval
+
+        before = timezone.now()
+        serializer = SignalReportCheckWriteSerializer(
+            data={"title": "Errors stay low", "kind": "metric_threshold", "config": _threshold_config(), **overrides}
+        )
+        valid = serializer.is_valid()
+        after = timezone.now()
+
+        assert valid, serializer.errors
+        assert before + MAX_CHECK_HORIZON <= serializer.validated_data["expires_at"] <= after + MAX_CHECK_HORIZON
 
 
 class TestReportCheckExecution(APIBaseTest):
