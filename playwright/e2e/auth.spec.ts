@@ -141,7 +141,7 @@ test.describe('Auth', () => {
         await page.goto(insightUrl, { waitUntil: 'commit' })
         await expect(page).toHaveURL(/\/login/)
 
-        await loginPage.enterUsername(LOGIN_USERNAME)
+        await loginPage.enterUsername(workspace!.user_email)
         await page.locator('[data-attr=login-email]').blur()
         await page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
 
