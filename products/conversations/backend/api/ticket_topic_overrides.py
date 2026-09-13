@@ -21,7 +21,7 @@ MAX_OVERRIDES_PER_TEAM = 50
 
 
 class TicketTopicOverrideSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True, help_text="Who added the override.")
+    created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="Who added the override.")
     topic = serializers.CharField(
         max_length=200,
         help_text="One or two words, matched after the same normalization detection applies to ticket text: "

@@ -97,7 +97,7 @@ export interface TicketTopicOverrideApi {
     /** A disabled override is kept but has no effect. */
     enabled?: boolean
     /** Who added the override. */
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
     /** When the override was added. */
     readonly created_at: string
 }
@@ -132,7 +132,7 @@ export interface PatchedTicketTopicOverrideApi {
     /** A disabled override is kept but has no effect. */
     enabled?: boolean
     /** Who added the override. */
-    readonly created_by?: UserBasicApi
+    readonly created_by?: UserBasicApi | null
     /** When the override was added. */
     readonly created_at?: string
 }

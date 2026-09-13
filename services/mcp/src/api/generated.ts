@@ -61258,7 +61258,7 @@ export namespace Schemas {
       /** A disabled override is kept but has no effect. */
       enabled?: boolean;
       /** Who added the override. */
-      readonly created_by: UserBasic;
+      readonly created_by: UserBasic | null;
       /** When the override was added. */
       readonly created_at: string;
     }
@@ -70590,7 +70590,7 @@ export namespace Schemas {
       /** A disabled override is kept but has no effect. */
       enabled?: boolean;
       /** Who added the override. */
-      readonly created_by?: UserBasic;
+      readonly created_by?: UserBasic | null;
       /** When the override was added. */
       readonly created_at?: string;
     }
