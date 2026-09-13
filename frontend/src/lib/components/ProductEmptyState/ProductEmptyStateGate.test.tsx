@@ -6,13 +6,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { ProductEmptyStateGate } from './ProductEmptyStateGate'
-import { productSetupStatusLogic } from './productSetupStatusLogic'
+import { SETUP_STATUS_FAIL_OPEN_MS, productSetupStatusLogic } from './productSetupStatusLogic'
 import type { ProductEmptyStateConfig, ProductSetupStatus, SceneProductEmptyState } from './types'
 
 const config: ProductEmptyStateConfig = {
@@ -158,5 +159,29 @@ describe('ProductEmptyStateGate', () => {
 
         expect(!!screen.queryByText('Set up workflows')).toBe(expectedGated)
         expect(!!screen.queryByText('the real scene')).toBe(!expectedGated)
+    })
+
+    // The reported failure: a project switch leaves the detected status stamped against the
+    // previous team, the gate reads that as `loading`, and its spinner covers a live scene
+    // until the page is reloaded.
+    it('gives up on a spinner that never resolves', () => {
+        jest.useFakeTimers()
+        try {
+            const otherTeam = { ...teamLogic.values.currentTeam!, id: (teamLogic.values.currentTeamId ?? 0) + 1 }
+            act(() => teamLogic.actions.loadCurrentTeamSuccess(otherTeam))
+            const { container } = render(
+                <ProductEmptyStateGate emptyState={emptyState}>
+                    <div>the real scene</div>
+                </ProductEmptyStateGate>
+            )
+            expect(container.querySelector('.SpinnerOverlay')).not.toBeNull()
+            expect(screen.queryByText('the real scene')).toBeNull()
+
+            act(() => jest.advanceTimersByTime(SETUP_STATUS_FAIL_OPEN_MS))
+            expect(container.querySelector('.SpinnerOverlay')).toBeNull()
+            expect(screen.getByText('the real scene')).not.toBeNull()
+        } finally {
+            jest.useRealTimers()
+        }
     })
 })

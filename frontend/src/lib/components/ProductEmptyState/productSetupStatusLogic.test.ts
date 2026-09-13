@@ -6,7 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { productSetupStatusLogic } from './productSetupStatusLogic'
+import { SETUP_STATUS_FAIL_OPEN_MS, productSetupStatusLogic } from './productSetupStatusLogic'
 
 describe('productSetupStatusLogic', () => {
     beforeEach(() => {
@@ -140,5 +140,63 @@ describe('productSetupStatusLogic', () => {
         const otherTeam = { ...teamLogic.values.currentTeam!, id: (teamLogic.values.currentTeamId ?? 0) + 1 }
         await expectLogic(logic, () => teamLogic.actions.loadCurrentTeamSuccess(otherTeam)).toFinishAllListeners()
         expect(logic.values.status).toBe('loading')
+    })
+
+    // Without the clock, a detection that never answers (or an answer stamped for a team the
+    // user has left) holds `loading` for the whole session, and the gate keeps the scene
+    // behind a spinner with no timeout, retry, or escape.
+    it('fails open once loading runs out of time', () => {
+        jest.useFakeTimers()
+        try {
+            const logic = mountLogic()
+            expect(logic.values.status).toBe('loading')
+
+            jest.advanceTimersByTime(SETUP_STATUS_FAIL_OPEN_MS)
+            expect(logic.values.status).toBe('unknown')
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'product empty state detection timed out',
+                expect.objectContaining({ product_key: ProductKey.MCP_ANALYTICS })
+            )
+
+            // A late answer still counts, so the surface settles on the real verdict.
+            logic.actions.setDetectedStatus('waiting-for-data')
+            expect(logic.values.status).toBe('waiting-for-data')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    // The team reloads itself every 30 seconds. Re-arming on each reload would push the
+    // deadline past every tick, so the spinner would never give way.
+    it('keeps the clock running across a plain team reload', () => {
+        jest.useFakeTimers()
+        try {
+            const logic = mountLogic()
+            jest.advanceTimersByTime(SETUP_STATUS_FAIL_OPEN_MS / 2)
+            teamLogic.actions.loadCurrentTeamSuccess(teamLogic.values.currentTeam!)
+            jest.advanceTimersByTime(SETUP_STATUS_FAIL_OPEN_MS / 2)
+
+            expect(logic.values.status).toBe('unknown')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('restarts the clock for the team the user switched to', () => {
+        jest.useFakeTimers()
+        try {
+            const logic = mountLogic()
+            jest.advanceTimersByTime(SETUP_STATUS_FAIL_OPEN_MS)
+            expect(logic.values.status).toBe('unknown')
+
+            const otherTeam = { ...teamLogic.values.currentTeam!, id: (teamLogic.values.currentTeamId ?? 0) + 1 }
+            teamLogic.actions.loadCurrentTeamSuccess(otherTeam)
+            expect(logic.values.status).toBe('loading')
+
+            jest.advanceTimersByTime(SETUP_STATUS_FAIL_OPEN_MS)
+            expect(logic.values.status).toBe('unknown')
+        } finally {
+            jest.useRealTimers()
+        }
     })
 })
