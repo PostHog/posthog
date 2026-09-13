@@ -21,11 +21,12 @@ import { dualRead } from '../utils/dual-store'
 import { HogFlowExecutorService } from './hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './hogflows/hogflow-manager.service'
 import { shouldBlockHogFlowDueToQuota } from './hogflows/hogflow-quota-limiting'
+import { WarehouseTriggerAccess, WarehouseTriggerAccessConfig } from './hogflows/warehouse-trigger-access'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherState, sameWatcherStates } from './monitoring/hog-watcher.service'
 
-export interface HogFlowInvocationPipelineConfig {
+export interface HogFlowInvocationPipelineConfig extends WarehouseTriggerAccessConfig {
     CDP_RATE_LIMITER_BUCKET_SIZE: number
     CDP_RATE_LIMITER_REFILL_RATE: number
     CDP_RATE_LIMITER_TTL: number
@@ -52,6 +53,7 @@ export interface HogFlowInvocationPipelineDeps {
 export class HogFlowInvocationPipeline {
     private hogRateLimiter: KeyedRateLimiterService
     private hogRateLimiterMirror: KeyedRateLimiterService
+    private warehouseTriggerAccess: WarehouseTriggerAccess
 
     constructor(
         private config: HogFlowInvocationPipelineConfig,
@@ -65,6 +67,7 @@ export class HogFlowInvocationPipeline {
         }
         this.hogRateLimiter = new KeyedRateLimiterService(rateLimiterConfig, deps.redis)
         this.hogRateLimiterMirror = new KeyedRateLimiterService(rateLimiterConfig, deps.valkeyShadow.writer)
+        this.warehouseTriggerAccess = new WarehouseTriggerAccess(config)
     }
 
     @instrumented('cdpConsumer.handleEachBatch.queueMatchingFlows')
@@ -82,11 +85,14 @@ export class HogFlowInvocationPipeline {
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFlowsByTeam = await this.deps.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
         const eligibilityFn = options?.eligibilityFn
+        const canReadWarehouseSource = await this.warehouseTriggerAccess.forBatch(invocationGlobals, hogFlowsByTeam)
 
         const possibleInvocations = (
             await Promise.all(
                 invocationGlobals.map(async (globals) => {
-                    const teamHogFlows = hogFlowsByTeam[globals.project.id]
+                    const teamHogFlows = (hogFlowsByTeam[globals.project.id] ?? []).filter((flow) =>
+                        canReadWarehouseSource(flow, globals)
+                    )
                     const eligibleFlows = eligibilityFn
                         ? teamHogFlows.filter((flow) => eligibilityFn(flow, globals))
                         : teamHogFlows

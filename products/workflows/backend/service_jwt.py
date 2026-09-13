@@ -1,6 +1,11 @@
 from posthog.jwt import PosthogJwtAudience
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
+WORKFLOW_WAREHOUSE_ACCESS_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOW_WAREHOUSE_ACCESS,
+    settings_name="WORKFLOW_WAREHOUSE_ACCESS_JWT_SECRETS",
+)
+
 # Minted by the plugin server's "Create AI task" workflow action, verified by the
 # workflow_tasks endpoint. Empty (so disabled) in production until provisioned.
 TASKS_CREATE_PURPOSE = ScopedServiceJwtPurpose(

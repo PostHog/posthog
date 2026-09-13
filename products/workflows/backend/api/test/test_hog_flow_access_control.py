@@ -9,10 +9,14 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 from products.access_control.backend.models.access_control import AccessControl
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -171,6 +175,73 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(self._list_url(), data=self._create_payload(name="editor_create"), format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertTrue(HogFlow.objects.filter(team=self.team, name="editor_create").exists())
+
+    @parameterized.expand([("data-warehouse-table", "warehouse_table"), ("data-warehouse-view", "warehouse_view")])
+    def test_warehouse_trigger_requires_object_access(self, trigger_type: str, resource: str) -> None:
+        table: DataWarehouseTable | DataWarehouseSavedQuery
+        if resource == "warehouse_view":
+            table = DataWarehouseSavedQuery.objects.create(
+                team=self.team, name="restricted_rows", query={"kind": "HogQLQuery", "query": "select 1"}
+            )
+        else:
+            table = DataWarehouseTable.objects.create(team=self.team, name="restricted_rows", columns={})
+        self._create_access_control(self.editor_user, resource=resource, resource_id=str(table.id), access_level="none")
+        self.client.force_login(self.editor_user)
+        payload = {
+            "name": "warehouse_subscription",
+            "status": "active",
+            "actions": [{**TRIGGER_ACTION, "config": {"type": trigger_type, "table_name": table.name}}],
+        }
+
+        response = self.client.post(self._list_url(), data=payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+        self.assertFalse(HogFlow.objects.filter(team=self.team, name="warehouse_subscription").exists())
+
+    @parameterized.expand([("activate",), ("edit",), ("archive",)])
+    def test_existing_warehouse_workflow_rechecks_editor_access(self, operation: str) -> None:
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="restricted_rows", query={"kind": "HogQLQuery", "query": "select 1"}
+        )
+        self.hog_flow.actions = [{**TRIGGER_ACTION, "config": {"type": "data-warehouse-view", "table_name": view.name}}]
+        self.hog_flow.status = HogFlow.State.DRAFT if operation == "activate" else HogFlow.State.ACTIVE
+        self.hog_flow.save()
+        self._create_access_control(
+            self.editor_user, resource="warehouse_view", resource_id=str(view.id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+        payload = (
+            {"description": "Updated"}
+            if operation == "edit"
+            else {"status": "archived" if operation == "archive" else "active"}
+        )
+        response = self.client.patch(self._detail_url(), payload, format="json")
+        self.assertEqual(response.status_code, 200 if operation == "archive" else 403, response.json())
+
+    @parameterized.expand([("hog_flow:write", False), ("warehouse_view:read", True)])
+    def test_warehouse_trigger_requires_token_read_scope(self, scope: str, allowed: bool) -> None:
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="allowed_rows", query={"kind": "HogQLQuery", "query": "select 1"}
+        )
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.editor_user,
+            label="workflow test",
+            secure_value=hash_key_value(token),
+            scopes=["hog_flow:write", scope],
+        )
+        self.client.logout()
+        response = self.client.post(
+            self._list_url(),
+            {
+                "name": "Rows",
+                "status": "active",
+                "actions": [{**TRIGGER_ACTION, "config": {"type": "data-warehouse-view", "table_name": view.name}}],
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 201 if allowed else 403, response.json())
 
     @parameterized.expand(
         [
