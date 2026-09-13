@@ -16,6 +16,18 @@ describe('toolbar urls duplicate', () => {
         featureFlags: [[], ['history']],
         heatmap: [['hm-abc123'], [123]],
         productTour: [['tour-id'], ['tour-id', 'step=2'], ['tour-id', '?step=2']],
+        replay: [
+            [],
+            ['home'],
+            [
+                'home',
+                {
+                    date_from: '-7d',
+                    filter_group: { type: 'AND', values: [{ type: 'AND', values: [] }] },
+                },
+            ],
+            ['home', undefined, 'session-uuid', 'start_time'],
+        ],
         sessionProfile: [['session-uuid']],
         settings: [[], ['project'], ['environment-customization', 'date-and-time'], ['user']],
         survey: [['survey-uuid'], ['new']],
