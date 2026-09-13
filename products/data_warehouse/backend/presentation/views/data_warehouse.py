@@ -28,8 +28,10 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.permissions import is_service_auth
 from posthog.utils import convert_property_value, flatten
 
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.batch_exports.backend.facade.models import BatchExportRun
 from products.cdp.backend.facade.models import HogFunction, HogFunctionState, HogFunctionType
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
@@ -688,23 +690,44 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
 
             # Get failed syncs from ExternalDataSchema
-            # Only show syncs that are actively enabled but failing
-            problem_syncs = (
+            # A schema the user switched off is not a failure to report. A schema PostHog halted
+            # after a non-retryable error is one, because only the user can repair the source and
+            # turn syncing back on. `auto_disabled_at` tells the two apart.
+            problem_syncs = list(
                 ExternalDataSchema.objects.filter(
                     team_id=self.team_id,
                     deleted=False,
-                    should_sync=True,
                 )
+                .filter(Q(should_sync=True) | Q(auto_disabled_at__isnull=False))
                 .filter(
                     Q(status=ExternalDataSchemaStatus.FAILED) | Q(status=ExternalDataSchemaStatus.BILLING_LIMIT_REACHED)
                 )
-                .select_related("source")
+                .select_related("source", "table")
             )
+
+            if not is_service_auth(request):
+                # A schema has no access rules of its own. Resolve each row through its table or
+                # source, as the schema list does, so a member denied on a source does not read
+                # its table names and errors here.
+                user_access_control = self.user_access_control
+                user_access_control.preload_object_access_controls(
+                    [schema.table or schema.source for schema in problem_syncs]
+                )
+                problem_syncs = [
+                    schema
+                    for schema in problem_syncs
+                    if (level := user_access_control.get_user_access_level(schema.table or schema.source)) is not None
+                    and access_level_satisfied_for_resource("warehouse_table", level, "viewer")
+                ]
 
             for schema in problem_syncs:
                 sync_status = "failed"
+                failed_at = schema.last_synced_at
                 if schema.status == ExternalDataSchemaStatus.BILLING_LIMIT_REACHED:
                     sync_status = "billing_limit"
+                elif not schema.should_sync:
+                    sync_status = "disabled"
+                    failed_at = schema.auto_disabled_at
 
                 results.append(
                     {
@@ -714,7 +737,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         "source_type": schema.source.source_type if schema.source else None,
                         "status": sync_status,
                         "error": schema.latest_error,
-                        "failed_at": schema.last_synced_at.isoformat() if schema.last_synced_at else None,
+                        "failed_at": failed_at.isoformat() if failed_at else None,
                         "url": f"/data-warehouse/sources/{schema.source_id}" if schema.source_id else None,
                     }
                 )
