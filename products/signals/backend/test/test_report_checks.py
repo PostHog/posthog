@@ -22,6 +22,7 @@ from products.signals.backend.report_check_execution import (
 )
 from products.signals.backend.report_checks import (
     MAX_ACTIVE_CHECKS_PER_REPORT,
+    MAX_CHECK_INTERVAL_MINUTES,
     MAX_CONSECUTIVE_CHECK_ERRORS,
     MIN_CHECK_INTERVAL_MINUTES,
     CheckComparison,
@@ -115,6 +116,16 @@ class TestCheckScheduleValidation(SimpleTestCase):
             (
                 "interval_below_the_floor",
                 {"run_interval_minutes": MIN_CHECK_INTERVAL_MINUTES - 1, "runs_remaining": 2},
+                "run_interval_minutes",
+            ),
+            (
+                "recurring_interval_past_the_horizon",
+                {"run_interval_minutes": MAX_CHECK_INTERVAL_MINUTES + 1, "runs_remaining": 2},
+                "run_interval_minutes",
+            ),
+            (
+                "one_shot_interval_past_the_horizon",
+                {"run_interval_minutes": 3_000_000_000},
                 "run_interval_minutes",
             ),
             ("expiry_before_the_first_run", {"expires_at": "2020-01-01T00:00:00Z"}, "expires_at"),

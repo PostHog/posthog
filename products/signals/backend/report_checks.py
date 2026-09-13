@@ -34,6 +34,9 @@ MAX_CHECK_RATIONALE_LENGTH = 2_000
 MIN_CHECK_INTERVAL_MINUTES = 6 * 60
 MAX_CHECK_RUNS = 10
 MAX_CHECK_HORIZON = timedelta(days=90)
+# The horizon bounds the gap as well as the schedule. A gap wider than the horizon can never produce
+# a second run, and an unbounded one overflows the date arithmetic that plans the runs.
+MAX_CHECK_INTERVAL_MINUTES = int(MAX_CHECK_HORIZON.total_seconds() // 60)
 # A soak needs the fix to have been live a while. A week is the default first look; an author who
 # knows the window says so.
 DEFAULT_FIRST_RUN_AFTER = timedelta(days=7)

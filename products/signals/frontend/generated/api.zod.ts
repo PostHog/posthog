@@ -322,6 +322,7 @@ export const signalsReportChecksCreateBodyTitleMax = 200
 export const signalsReportChecksCreateBodyRationaleMax = 2000
 
 export const signalsReportChecksCreateBodyRunIntervalMinutesMin = 360
+export const signalsReportChecksCreateBodyRunIntervalMinutesMax = 129600
 
 export const signalsReportChecksCreateBodyRunsRemainingMax = 10
 
@@ -387,8 +388,11 @@ export const SignalsReportChecksCreateBody = /* @__PURE__ */ zod
         run_interval_minutes: zod
             .number()
             .min(signalsReportChecksCreateBodyRunIntervalMinutesMin)
+            .max(signalsReportChecksCreateBodyRunIntervalMinutesMax)
             .nullish()
-            .describe('Gap between runs for a recurring check, at least 360 minutes. Omit for a one-shot check.'),
+            .describe(
+                'Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.'
+            ),
         runs_remaining: zod
             .number()
             .min(1)

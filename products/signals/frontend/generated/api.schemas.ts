@@ -2421,8 +2421,9 @@ export interface SignalReportCheckWriteApi {
     /** When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now. */
     next_run_at?: string
     /**
-     * Gap between runs for a recurring check, at least 360 minutes. Omit for a one-shot check.
+     * Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.
      * @minimum 360
+     * @maximum 129600
      * @nullable
      */
     run_interval_minutes?: number | null

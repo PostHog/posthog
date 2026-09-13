@@ -26,6 +26,7 @@ from products.signals.backend.report_checks import (
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
     DEFAULT_FIRST_RUN_AFTER,
     MAX_CHECK_HORIZON,
+    MAX_CHECK_INTERVAL_MINUTES,
     MAX_CHECK_RATIONALE_LENGTH,
     MAX_CHECK_RUNS,
     MAX_CHECK_TITLE_LENGTH,
@@ -1627,9 +1628,10 @@ class SignalReportCheckWriteSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         min_value=MIN_CHECK_INTERVAL_MINUTES,
+        max_value=MAX_CHECK_INTERVAL_MINUTES,
         help_text=(
-            "Gap between runs for a recurring check, at least "
-            f"{MIN_CHECK_INTERVAL_MINUTES} minutes. Omit for a one-shot check."
+            f"Gap between runs for a recurring check, between {MIN_CHECK_INTERVAL_MINUTES} and "
+            f"{MAX_CHECK_INTERVAL_MINUTES} minutes. Omit for a one-shot check."
         ),
     )
     runs_remaining = serializers.IntegerField(
