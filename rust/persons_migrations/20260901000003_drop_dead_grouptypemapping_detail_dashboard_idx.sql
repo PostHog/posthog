@@ -1,0 +1,16 @@
+-- no-transaction
+--
+-- Drop a dead index on posthog_grouptypemapping.detail_dashboard_id. The only query that
+-- filters detail_dashboard_id also filters team_id (see rust/personhog-replica group.rs
+-- get_group_type_mapping_by_dashboard_id), and the team_id index wins on a table that
+-- holds at most six rows per team. The foreign key is declared db_constraint=False, so
+-- Postgres runs no reverse check that would need this index either. It is unreachable.
+--
+-- CONCURRENTLY, alone in its own no-transaction file: a plain DROP INDEX takes
+-- ACCESS EXCLUSIVE on the table, which blocks every read and write until it commits.
+-- sqlx runs a no-transaction file as one implicitly-transactional batch and CONCURRENTLY
+-- cannot run inside a transaction, so each concurrent statement must be alone in its file.
+--
+-- IF EXISTS makes this idempotent under bin/migrate retries. If a DROP CONCURRENTLY is
+-- interrupted it may leave the index INVALID but still present; a rerun completes the drop.
+DROP INDEX CONCURRENTLY IF EXISTS posthog_grouptypemapping_detail_dashboard_id_54b0edbb;

@@ -1,0 +1,16 @@
+-- no-transaction
+--
+-- Drop a dead index on posthog_grouptypemapping. The initial schema creates a plain
+-- index on (project_id, group_type_index) AND a unique index over the identical column
+-- tuple (unique_group_type_index_for_project). The planner always prefers the unique
+-- index, so the plain one is never chosen and only costs storage and write overhead.
+-- The unique index stays; only the redundant plain index goes.
+--
+-- CONCURRENTLY, alone in its own no-transaction file: a plain DROP INDEX takes
+-- ACCESS EXCLUSIVE on the table, which blocks every read and write until it commits.
+-- sqlx runs a no-transaction file as one implicitly-transactional batch and CONCURRENTLY
+-- cannot run inside a transaction, so each concurrent statement must be alone in its file.
+--
+-- IF EXISTS makes this idempotent under bin/migrate retries. If a DROP CONCURRENTLY is
+-- interrupted it may leave the index INVALID but still present; a rerun completes the drop.
+DROP INDEX CONCURRENTLY IF EXISTS posthog_group_type_i_proj_idx;
