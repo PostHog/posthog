@@ -330,6 +330,13 @@ class TestReportCheckExecution(APIBaseTest):
         assert check.status == SignalReportCheck.Status.EXPIRED
         assert self._results() == []
 
+    def test_a_check_past_its_horizon_is_not_due_even_when_the_sweep_has_not_reached_it(self) -> None:
+        now = timezone.now()
+        # The state every check reaches at its horizon: due, still active, and past its expiry.
+        self._check(next_run_at=now - timedelta(days=2), expires_at=now - timedelta(days=1))
+
+        assert collect_due_checks(now) == []
+
     def test_a_check_riding_a_report_metric_measures_that_metric(self) -> None:
         self.report.metrics = [
             {

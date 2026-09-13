@@ -286,12 +286,18 @@ def expire_overdue_checks(now: datetime) -> int:
 
 
 def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -> list[SignalReportCheck]:
-    """The checks to run this tick, most overdue first and capped per team."""
+    """The checks to run this tick, most overdue first and capped per team.
+
+    The horizon is read here rather than trusted to the expiry sweep. That sweep is bounded per
+    tick, and a check sitting at its horizon is always due as well, so a backlog larger than the
+    sweep would otherwise let a row measure after the horizon it was supposed to retire at.
+    """
 
     candidates = (
         SignalReportCheck.all_teams.filter(
             status=SignalReportCheck.Status.ACTIVE,
             next_run_at__lte=now,
+            expires_at__gt=now,
             report__status__in=CHECKABLE_REPORT_STATUSES,
         )
         .select_related("report", "report__team")
