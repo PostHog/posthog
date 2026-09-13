@@ -843,24 +843,24 @@ Diffed against: <https://api-docs.bitrise.io/docs/swagger.json>
 
 ## BlandAI — **thin**
 
-Today (3): `call_transcripts`, `calls`, `pathways`
+Today (8): `call_transcripts`, `calls`, `inbound_numbers`, `pathways`, `personas`, `sms_conversations`, `sms_messages`, `voices`
 
 Diffed against: <https://docs.bland.ai/llms.txt>
 
-- [ ] `GET /v1/sms/conversations (and /v1/sms/conversations/{id})` — the entire SMS channel is missing; conversations and their messages sit alongside calls (high)
-- [ ] `GET /v1/inbound` — phone number lookup resolving the numbers on every call row (high)
-- [ ] `GET /v1/personas` — lookup resolving the persona that handled a call (high)
+- [x] `GET /v1/sms/conversations (and /v1/sms/conversations/{id})` — the entire SMS channel is missing; conversations and their messages sit alongside calls (high)
+- [x] `GET /v1/inbound` — phone number lookup resolving the numbers on every call row (high)
+- [x] `GET /v1/personas` — lookup resolving the persona that handled a call (high)
 - [ ] `GET /v1/calls/{id}/event-stream` — per-call event timeline (node transitions, tool calls) — finer grained than the transcript (medium)
 - [ ] `GET /v1/agents` — web agent lookup, the non-phone counterpart to pathways (medium)
 - [ ] `GET /v1/pathway_versions` — pathway version history so a call can be attributed to the version that served it (medium)
-- [ ] `GET /v1/voices` — lookup resolving voice IDs referenced by calls (medium)
+- [x] `GET /v1/voices` — lookup resolving voice IDs referenced by calls (medium)
 - [ ] `GET /v1/evals/runs and /v1/evals/runs/{id}/call-results` — per-call eval scores, the quality metric for voice agents (medium)
 - [ ] `GET /v1/agent-testing/runs (and /agent-testing/scenarios)` — regression test outcomes per pathway over time (medium)
 - [ ] `GET /v1/widget/{id}/threads` — web widget conversation threads, another engagement channel (medium)
 - [ ] `GET /v1/audit-logs` — account change history for compliance reporting (low)
 - [ ] `GET /v1/knowledge` — knowledge base inventory referenced by pathways (low)
 
-Note: Source directory has no dynamic table discovery — bland_ai.py exposes the three static tables only. Bland's API is very large (200+ documented operations), so 3 tables is a genuinely small fraction.
+Note: Source directory has no dynamic table discovery — bland_ai.py exposes a static table catalog only. Bland's API is very large (200+ documented operations), so the remaining gaps above are still a sizeable fraction.
 
 ## Blogger — gaps
 
