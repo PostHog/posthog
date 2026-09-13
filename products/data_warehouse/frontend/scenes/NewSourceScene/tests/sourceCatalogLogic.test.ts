@@ -1,3 +1,4 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -157,5 +158,38 @@ describe('sourceCatalogLogic', () => {
 
         expect(logic.values.catalogItems).toBe(initialItems)
         expect(logic.values.catalogFuse).toBe(initialFuse)
+    })
+
+    it.each([
+        { previewEnabled: true, expectedMatches: 1 },
+        { previewEnabled: false, expectedMatches: 0 },
+    ])(
+        'shows the incoming webhook source in a "webhook" search when the preview is $previewEnabled',
+        ({ previewEnabled, expectedMatches }) => {
+            const logic = sourceCatalogLogic()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(previewEnabled ? [FEATURE_FLAGS.CDP_HOG_SOURCES] : [], {
+                [FEATURE_FLAGS.CDP_HOG_SOURCES]: previewEnabled,
+            })
+
+            logic.actions.setSearch('webhook')
+
+            expect(logic.values.filteredItems.filter((item) => item.name === 'event-webhook')).toHaveLength(
+                expectedMatches
+            )
+        }
+    )
+
+    it('leaves the incoming webhook source out of a catalog restricted to warehouse sources', () => {
+        const logic = sourceCatalogLogic({ allowedSources: ['Stripe'] })
+        const unmountRestricted = logic.mount()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CDP_HOG_SOURCES], {
+            [FEATURE_FLAGS.CDP_HOG_SOURCES]: true,
+        })
+
+        expect(logic.values.catalogItems.some((item) => item.name === 'event-webhook')).toBe(false)
+
+        unmountRestricted()
     })
 })
