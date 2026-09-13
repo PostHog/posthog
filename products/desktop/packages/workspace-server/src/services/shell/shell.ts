@@ -47,7 +47,7 @@ export interface ShellSession {
 }
 
 export const OUTPUT_FLUSH_MS = 16;
-const OUTPUT_FLUSH_BYTES = 64 * 1024;
+const OUTPUT_FLUSH_CHARS = 64 * 1024;
 
 export class OutputCoalescer {
   private pending = "";
@@ -57,7 +57,7 @@ export class OutputCoalescer {
 
   push(data: string): void {
     this.pending += data;
-    if (this.pending.length >= OUTPUT_FLUSH_BYTES) {
+    if (this.pending.length >= OUTPUT_FLUSH_CHARS) {
       this.flush();
       return;
     }
