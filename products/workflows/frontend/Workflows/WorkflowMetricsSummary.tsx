@@ -141,6 +141,12 @@ export function WorkflowMetricsSummary({
                             type: 'warning' as const,
                             metric: 'email_bounce_prevented' as EmailMetric,
                         },
+                        {
+                            label: 'no recipient',
+                            value: row.noRecipient,
+                            type: 'warning' as const,
+                            metric: 'no_recipient' as EmailMetric,
+                        },
                     ].filter((issue) => issue.value > 0)
                     if (issues.length === 0) {
                         return <span className="text-muted">—</span>

@@ -18,8 +18,8 @@ import { RerunPaginatorService } from './rerun-paginator.service'
 // tests pin the fix: the rehydrated invocation carries `currentAction` forward,
 // so replay resumes after the already-completed actions — but WITHOUT its parked
 // `hogFunctionState`, whose `globals.inputs` was stripped on persist; restoring
-// it verbatim skips the input re-render and message actions then fail with
-// "No recipient identifier found".
+// it verbatim skips the input re-render, so message actions resolve no recipient
+// and send nothing.
 describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
     const teamId = 42
     const functionId = 'flow-1'

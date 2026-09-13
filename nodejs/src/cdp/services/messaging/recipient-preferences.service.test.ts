@@ -227,13 +227,26 @@ describe('RecipientPreferencesService', () => {
                 loggerSpy.mockRestore()
             })
 
-            it('should throw error if no email identifier is found', async () => {
-                const action = createEmailAction('', '123e4567-e89b-12d3-a456-426614174000')
+            // A "to" field reading a property the person does not have renders empty, and one reading a
+            // property that holds only spaces renders blank. Neither is an address anything can send to,
+            // and the MX check defers both back here, so the skip has to catch them at this gate.
+            it.each([
+                ['an empty', ''],
+                ['a blank', '   '],
+            ])('should skip rather than fail the run on %s email identifier', async (_label, to) => {
+                const action = createEmailAction(to, '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)
 
-                await expect(service.shouldSkipAction(invocation, action)).rejects.toThrow(
-                    `No recipient identifier found for message action [Action:${action.id}]. Check that the message 'to' field is set correctly for this person.`
-                )
+                await expect(service.shouldSkipAction(invocation, action)).resolves.toBe('no_recipient')
+                expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
+            })
+
+            it('should skip a transactional email with no identifier, which never reached the opt-out check', async () => {
+                const action = createEmailAction('', '123e4567-e89b-12d3-a456-426614174000')
+                action.config.message_category_type = 'transactional'
+                const invocation = createFunctionStepInvocation(action)
+
+                await expect(service.shouldSkipAction(invocation, action)).resolves.toBe('no_recipient')
             })
 
             it('should return true if recipient is opted out of all marketing messaging', async () => {
@@ -501,13 +514,17 @@ describe('RecipientPreferencesService', () => {
                 expect(result).toBeNull()
             })
 
-            it('should throw error if no SMS identifier is found', async () => {
-                const action = createSmsAction('', '123e4567-e89b-12d3-a456-426614174000')
+            // SMS has no second check behind this one, so a blank phone number reaches Twilio unless the
+            // skip catches it here.
+            it.each([
+                ['an empty', ''],
+                ['a blank', '   '],
+            ])('should skip rather than fail the run on %s SMS identifier', async (_label, toNumber) => {
+                const action = createSmsAction(toNumber, '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)
 
-                await expect(service.shouldSkipAction(invocation, action)).rejects.toThrow(
-                    `No recipient identifier found for message action [Action:${action.id}]. Check that the message 'to' field is set correctly for this person.`
-                )
+                await expect(service.shouldSkipAction(invocation, action)).resolves.toBe('no_recipient')
+                expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
             })
 
             it('should return true if SMS recipient is opted out of all marketing messaging', async () => {
@@ -627,6 +644,23 @@ describe('RecipientPreferencesService', () => {
                 expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
                     teamId: team.id,
                     identifier: 'delivered-person',
+                })
+            })
+
+            it('falls back to the event distinct_id when the person has a blank one', async () => {
+                const action = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'marketing')
+                const invocation = createFunctionStepInvocation(action)
+                invocation.state.globals.person!.distinct_id = '   '
+                invocation.state.globals.event!.distinct_id = 'trigger-person'
+
+                mockRecipientsManagerGet.mockResolvedValue(null)
+
+                const result = await service.shouldSkipAction(invocation, action)
+
+                expect(result).toBeNull()
+                expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
+                    teamId: team.id,
+                    identifier: 'trigger-person',
                 })
             })
         })

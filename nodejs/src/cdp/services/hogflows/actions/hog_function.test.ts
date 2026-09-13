@@ -445,6 +445,77 @@ describe('HogFunctionHandler', () => {
         expect(mockFetch).not.toHaveBeenCalled()
     })
 
+    // A person with no address can never be messaged and no retry changes that, so an unaddressable
+    // person must not fail the run and bury real send failures under a structural failure rate. The
+    // kind is per channel because the reason name is not.
+    it.each([
+        ['function_email', 'email', 'the step\'s "To" field'],
+        ['function_sms', 'sms', 'the step\'s "Recipient phone number" field'],
+        ['function_push', 'push', 'no registered device can be found'],
+    ] as const)(
+        'skips a %s step with no resolved address and counts it under %s',
+        async (actionType, metricKind, expectedGuidance) => {
+            ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('no_recipient')
+            // Each message type pins its own `config.template_id` literal, so only the discriminant is
+            // retyped here — the handler reads nothing else off the config on the skip path.
+            const messageAction = { ...action, type: actionType } as unknown as typeof action
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            const handlerResult = await hogFunctionHandler.execute({
+                invocation,
+                action: messageAction,
+                result: invocationResult,
+            })
+
+            expect(handlerResult.error).toBeUndefined()
+            expect(handlerResult.nextAction?.id).toBe('exit')
+            // The remediation names the field this channel actually reads, so an SMS operator is not
+            // sent to an email-only "To" field that the step does not have.
+            expect(invocationResult.logs[0].message).toContain(expectedGuidance)
+            expect(invocationResult.metrics).toEqual([
+                {
+                    team_id: team.id,
+                    app_source_id: invocation.functionId,
+                    instance_id: messageAction.id,
+                    metric_kind: metricKind,
+                    metric_name: 'no_recipient',
+                    count: 1,
+                },
+            ])
+            expect(mockFetch).not.toHaveBeenCalled()
+        }
+    )
+
+    // A batch child carries the batch job id in parentRunId, and the batch Metrics view queries by
+    // that id. Attributing the skip to the workflow leaves the batch's Issues column empty, which is
+    // the view an operator opens right after firing a broadcast.
+    it('attributes a no-recipient skip to the batch job that produced the run', async () => {
+        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('no_recipient')
+        invocation.parentRunId = 'batch-job-id'
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(invocationResult.metrics).toEqual([
+            {
+                team_id: team.id,
+                app_source_id: 'batch-job-id',
+                instance_id: action.id,
+                metric_kind: 'email',
+                metric_name: 'no_recipient',
+                count: 1,
+            },
+        ])
+    })
+
     it('should skip the send and emit email_bounce_prevented when validation predicts a hard bounce', async () => {
         ;(mockEmailValidationService.getSkipReason as jest.Mock).mockResolvedValueOnce(
             'Skipping send: the domain "dead.invalid" has no reachable mail servers, so this message would hard bounce.'

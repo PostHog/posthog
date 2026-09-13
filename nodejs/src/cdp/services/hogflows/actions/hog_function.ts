@@ -14,11 +14,12 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFlowInvocationContext,
+    MinimalAppMetric,
     MinimalLogEntry,
 } from '../../../types'
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
-import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
+import { RecipientPreferencesService, RecipientSkipReason } from '../../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
@@ -26,7 +27,7 @@ import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
-type FunctionActionType = 'function' | 'function_email' | 'function_sms'
+type FunctionActionType = 'function' | 'function_email' | 'function_sms' | 'function_push'
 
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
@@ -34,6 +35,46 @@ type AwaitingResume = NonNullable<NonNullable<HogFlowInvocationContext['currentA
 
 // A template parks the step by returning `{ ..., 'await': { 'max_wait': '190m', 'label': 'task' } }`.
 type AwaitRequest = { maxWait: Duration; label: string }
+
+// The outcome is the same on every channel but the thing to fix is not: email reads a "To" field,
+// SMS a "Recipient phone number" field, and push no recipient field at all, since it looks the
+// device up from the person the run resolved. A plain `function` action never reports this reason;
+// its entry only keeps the lookup total.
+const NO_RECIPIENT_MESSAGES: Record<FunctionActionType, string> = {
+    function: 'Skipping send: this person has no address.',
+    function_email:
+        'Skipping send: this person has no address. Check that the step\'s "To" field reads a property everyone in the audience has.',
+    function_sms:
+        'Skipping send: this person has no phone number. Check that the step\'s "Recipient phone number" field reads a property everyone in the audience has.',
+    function_push:
+        'Skipping send: this person has no distinct ID, so no registered device can be found for them. Check that everyone in the audience has a distinct ID.',
+}
+
+// A null `metric` leaves the reason readable in the run log only, which is all opt-out has.
+const RECIPIENT_SKIPS: Record<
+    RecipientSkipReason,
+    { message: (actionType: FunctionActionType) => string; metric: MinimalAppMetric['metric_name'] | null }
+> = {
+    suppressed: {
+        message: () => 'Skipping send: recipient is on the suppression list.',
+        metric: 'email_suppressed',
+    },
+    opted_out: { message: () => 'Recipient has opted out, skipping message delivery.', metric: null },
+    no_recipient: {
+        message: (actionType) => NO_RECIPIENT_MESSAGES[actionType],
+        metric: 'no_recipient',
+    },
+}
+
+// The reason names the outcome and the kind names the channel, so a channel-agnostic reason needs
+// no per-channel metric name of its own. A plain `function` action is not subject to recipient
+// preferences and so never reports one; its entry only keeps the lookup total.
+const MESSAGE_ACTION_METRIC_KINDS: Record<FunctionActionType, MinimalAppMetric['metric_kind']> = {
+    function: 'email',
+    function_email: 'email',
+    function_sms: 'sms',
+    function_push: 'push',
+}
 
 const AWAIT_DURATION_REGEX = /^(\d*\.?\d+)([dhms])$/
 const SECONDS_PER_UNIT: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 }
@@ -327,32 +368,29 @@ export class HogFunctionHandler implements ActionHandler {
             () => this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)
         )
         if (skipReason) {
-            // Suppression and opt-out both short-circuit the send, but a customer reading the run
-            // log needs to know which one — the operator response is different (fix the recipient
-            // list vs. respect the unsubscribe). `email_suppressed` mirrors the metric name the
-            // send-time choke point in email.service.ts emits, so both entry points aggregate.
-            const message =
-                skipReason === 'suppressed'
-                    ? `Skipping send: recipient is on the suppression list.`
-                    : `Recipient has opted out, skipping message delivery.`
-            const metrics =
-                skipReason === 'suppressed'
-                    ? [
-                          {
-                              team_id: hogFunctionInvocation.teamId,
-                              app_source_id: hogFunctionInvocation.functionId,
-                              instance_id: action.id,
-                              metric_kind: 'email' as const,
-                              metric_name: 'email_suppressed' as const,
-                              count: 1,
-                          },
-                      ]
-                    : []
+            // Each reason short-circuits the send, but a customer reading the run log needs to know
+            // which one — the operator response differs (fix the recipient list, respect the
+            // unsubscribe, or populate the property the recipient field reads). `email_suppressed`
+            // mirrors the metric name the send-time choke point in email.service.ts emits, so both
+            // entry points aggregate.
+            const { message, metric } = RECIPIENT_SKIPS[skipReason]
+            const metrics = metric
+                ? [
+                      {
+                          team_id: hogFunctionInvocation.teamId,
+                          app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
+                          instance_id: action.id,
+                          metric_kind: MESSAGE_ACTION_METRIC_KINDS[action.type],
+                          metric_name: metric,
+                          count: 1,
+                      },
+                  ]
+                : []
             return {
                 finished: true,
                 skipped: true,
                 invocation: hogFunctionInvocation,
-                logs: [{ level: 'info', timestamp: DateTime.now(), message }],
+                logs: [{ level: 'info', timestamp: DateTime.now(), message: message(action.type) }],
                 metrics,
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],

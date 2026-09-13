@@ -791,10 +791,10 @@ export class RerunPaginatorService {
             // `stripInputs` removed its `globals.inputs` (resolved secrets)
             // before the row was written, and `buildHogFunctionInvocation`
             // reuses a present `hogFunctionState` verbatim instead of
-            // re-rendering inputs — a message action resumed with it fails
-            // with "No recipient identifier found". Dropping it makes the
-            // action re-enter fresh, so inputs re-render against the current
-            // config, which is what a rerun intends anyway.
+            // re-rendering inputs — a message action resumed with it resolves
+            // no recipient and is skipped. Dropping it makes the action
+            // re-enter fresh, so inputs re-render against the current config,
+            // which is what a rerun intends anyway.
             const {
                 hogFunctionState: _stripped,
                 awaitingResume: _awaitingResume,
