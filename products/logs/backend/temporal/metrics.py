@@ -143,6 +143,43 @@ def record_alerts_active(count: int) -> None:
     gauge.set(count)
 
 
+def record_coordinator_poll(
+    *,
+    selected_count: int,
+    max_alerts_per_run: int,
+    has_more: bool,
+    oldest_due_at: dt.datetime | None,
+) -> None:
+    """Record bounded coordinator progress without tenant-level labels."""
+    outcome = "saturated" if has_more else "empty" if selected_count == 0 else "partial"
+    meter = get_metric_meter({"outcome": outcome})
+    meter.create_counter(
+        "logs_alerting_coordinator_polls_total",
+        "Logs alert coordinator polls by batch saturation",
+    ).add(1)
+
+    unlabelled_meter = get_metric_meter()
+    unlabelled_meter.create_counter(
+        "logs_alerting_coordinator_selected_total",
+        "Logs alerts selected by the coordinator",
+    ).add(selected_count)
+    unlabelled_meter.create_gauge(
+        "logs_alerting_coordinator_max_alerts_per_run",
+        "Effective per-run logs alert selection limit",
+    ).set(max_alerts_per_run)
+    oldest_due_age_seconds = (
+        max(0, int((dt.datetime.now(tz=dt.UTC) - oldest_due_at).total_seconds())) if oldest_due_at is not None else 0
+    )
+    unlabelled_meter.create_gauge(
+        "logs_alerting_coordinator_oldest_due_age_seconds",
+        "Wall-clock age of the oldest due logs alert selected by the coordinator",
+    ).set(oldest_due_age_seconds)
+    unlabelled_meter.create_gauge(
+        "logs_alerting_coordinator_last_successful_poll_timestamp_seconds",
+        "Unix timestamp of the last successful logs alert coordinator poll",
+    ).set(int(time.time()))
+
+
 def record_checkpoint_lag(now: dt.datetime, checkpoint: dt.datetime) -> None:
     meter = get_metric_meter()
     gauge = meter.create_gauge(
