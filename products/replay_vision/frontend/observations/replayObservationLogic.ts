@@ -172,8 +172,8 @@ export interface replayObservationLogicActions {
         observation: ReplayObservationApi,
         neighbors: ObservationNeighbors | null
     ) => {
-        observation: ReplayObservationApi
         neighbors: ObservationNeighbors | null
+        observation: ReplayObservationApi
     }
 }
 
@@ -183,11 +183,11 @@ export interface replayObservationLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         neighborParams: (searchParams: Record<string, any>) => VisionObservationsRetrieveParams
         neighborsPending: (handoffNeighbors: ObservationNeighbors | null, observationLoading: boolean) => boolean
-        nextObservationId: (
+        previousObservationId: (
             handoffNeighbors: ObservationNeighbors | null,
             observation: ReplayObservationApi | null
         ) => string | null
-        previousObservationId: (
+        nextObservationId: (
             handoffNeighbors: ObservationNeighbors | null,
             observation: ReplayObservationApi | null
         ) => string | null
@@ -260,20 +260,21 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
     selectors({
         neighborParams: [
             () => [router.selectors.searchParams],
-            (searchParams): VisionObservationsRetrieveParams => neighborFilterParams(searchParams),
+            (searchParams: Record<string, any>): VisionObservationsRetrieveParams => neighborFilterParams(searchParams),
         ],
         neighborsPending: [
             (s) => [s.handoffNeighbors, s.observationLoading],
-            (handoffNeighbors, observationLoading): boolean => !handoffNeighbors && observationLoading,
+            (handoffNeighbors: ObservationNeighbors | null, observationLoading: boolean): boolean =>
+                !handoffNeighbors && observationLoading,
         ],
         previousObservationId: [
             (s) => [s.handoffNeighbors, s.observation],
-            (handoffNeighbors, observation): string | null =>
+            (handoffNeighbors: ObservationNeighbors | null, observation: ReplayObservationApi | null): string | null =>
                 handoffNeighbors ? handoffNeighbors.previous : (observation?.previous_observation_id ?? null),
         ],
         nextObservationId: [
             (s) => [s.handoffNeighbors, s.observation],
-            (handoffNeighbors, observation): string | null =>
+            (handoffNeighbors: ObservationNeighbors | null, observation: ReplayObservationApi | null): string | null =>
                 handoffNeighbors ? handoffNeighbors.next : (observation?.next_observation_id ?? null),
         ],
     }),
