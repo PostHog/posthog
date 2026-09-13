@@ -20,7 +20,10 @@ class TicketTopicOverride(UUIDModel):
 
     objects = EnvironmentScopedManager()
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # db_index=False: the unique (team, topic) below leads with team.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
     kind = models.CharField(max_length=8, choices=TicketTopicOverrideKind.choices)
     topic = models.CharField(max_length=200)
     notes = models.CharField(max_length=500, blank=True, default="")
