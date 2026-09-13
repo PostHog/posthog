@@ -91,7 +91,7 @@ MODE_LIVE = "live"
 MODES = (MODE_PREVIEW, MODE_LIVE)
 
 _FOOTER = (
-    "This repeats daily while the items stay unresolved. "
+    "This repeats every weekday while the items stay unresolved. "
     "To opt out, set notifications: {visual_review: false} under your team in owners.yaml."
 )
 
@@ -577,10 +577,12 @@ def _send_one(
 
 
 def repos_in_scope() -> list[Repo]:
-    """Every repo, oldest first.
+    """Every repo that opted in, oldest first.
 
-    No allowlist: the per-repo task stops as soon as a repo owes nothing, so a repo that never
-    carries debt costs one cheap read a day. The fan-out only routes, so the rows stay unhydrated.
+    The switch is the only way to stop the digest without a deploy, so the fan-out reads it rather
+    than the per-repo task: a repo that is off costs no child task at all. For the repos that are
+    on, the per-repo task stops as soon as one owes nothing, so a repo that never carries debt
+    costs one cheap read a day. The fan-out only routes, so the rows stay unhydrated.
     """
     # nosemgrep: idor-lookup-without-team — cross-team beat sweep, no user input
-    return list(Repo.objects.unscoped().only("id", "team_id").order_by("created_at"))
+    return list(Repo.objects.unscoped().filter(debt_digest_enabled=True).only("id", "team_id").order_by("created_at"))

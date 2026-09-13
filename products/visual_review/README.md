@@ -43,9 +43,9 @@ The windows and the reasons behind them are constants in `backend/logic/retentio
 
 ### Daily debt digest
 
-A daily Celery task, `send visual review debt digests`, posts each team a Slack reminder about the visual review debt it still carries.
+Every weekday morning a Celery task, `send visual review debt digests`, posts each team a Slack reminder about the visual review debt it still carries.
 The digest is stateless: every morning both conditions below are evaluated from current data, and nothing is stored about what was sent.
-An item repeats every day while it stands, and stops the day the condition no longer holds.
+An item repeats every weekday while it stands, and stops the day the condition no longer holds.
 
 Two conditions, and nothing else:
 
@@ -87,10 +87,12 @@ Routing goes to the team's `notifications` channel in the repository's root `own
 A team opts out with `notifications: {visual_review: false}` under its entry.
 A shared Slack channel is refused, so a name match never carries an internal reminder out of the workspace.
 
-There is nothing to configure.
-The daily beat task runs the digest for every repository, and a repository that owes nothing posts nothing.
+The digest is off for a repository until `debt_digest_enabled` is set on it.
+Set it through the repo API (`PATCH /api/projects/:team_id/visual_review/repos/:id/`), the `visual-review-repos-partial-update` MCP tool, or Django admin.
+The beat task runs Monday to Friday, and it fans out only to the repositories that are on.
+A repository that owes nothing posts nothing.
 
-`./manage.py visual_review_debt_digest --repo owner/name [--mode preview]` runs one repository by hand.
+`./manage.py visual_review_debt_digest --repo owner/name [--mode preview]` runs one repository by hand, whatever `debt_digest_enabled` says, because a run somebody starts is already a decision to send it.
 `--mode preview`, the default, renders every team's message and logs it without posting.
 `--mode live` posts.
 

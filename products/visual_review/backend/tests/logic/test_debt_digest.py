@@ -234,10 +234,14 @@ class TestRouting:
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestReposInScope:
-    def test_every_repo_is_in_scope_whatever_team_owns_it(self, team) -> None:
+    def test_only_repos_that_opted_in_are_in_scope_whatever_team_owns_them(self, team) -> None:
         mine = repos.create_repo(team_id=team.id, repo_external_id=77781, repo_full_name="org/mine")
         other_team = Team.objects.create(organization=team.organization, name="other")
         theirs = repos.create_repo(team_id=other_team.id, repo_external_id=77782, repo_full_name="org/theirs")
+        for repo in (mine, theirs):
+            repo.debt_digest_enabled = True
+            repo.save(update_fields=["debt_digest_enabled"])
+        repos.create_repo(team_id=team.id, repo_external_id=77783, repo_full_name="org/switched-off")
 
         assert {(repo.team_id, repo.id) for repo in debt_digest.repos_in_scope()} == {
             (mine.team_id, mine.id),
