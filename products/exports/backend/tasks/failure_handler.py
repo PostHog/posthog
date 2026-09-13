@@ -13,6 +13,7 @@ from posthog.hogql.errors import (
     QueryError,
     ResolutionError,
     SyntaxError as HogQLSyntaxError,
+    TableAccessDeniedError,
 )
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -198,6 +199,9 @@ EXCEPTIONS_TO_RETRY = (
 
 USER_QUERY_ERRORS = (
     QueryError,
+    # A QueryError subclass, so isinstance already covers it. Listed so the derived name set covers
+    # it too: an export failure crosses the Temporal activity boundary as a class name.
+    TableAccessDeniedError,
     HogQLSyntaxError,
     ValidationError,  # DRF validation of the user's query (e.g. a funnel with fewer than two steps)
     ClickHouseQueryMemoryLimitExceeded,  # Users should reduce the date range on their query (or materialise)

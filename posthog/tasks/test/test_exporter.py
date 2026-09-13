@@ -29,6 +29,7 @@ class TestIsUserQueryErrorType(TestCase):
         [
             # User query errors - should return True
             ("QueryError", True),
+            ("TableAccessDeniedError", True),
             ("SyntaxError", True),
             ("CHQueryErrorIllegalAggregation", True),
             ("CHQueryErrorIllegalTypeOfArgument", True),
