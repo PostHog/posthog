@@ -192,6 +192,50 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
     );
   }
 
+  private wirePty(
+    sessionId: string,
+    ptyProcess: pty.IPty,
+  ): {
+    disposables: pty.IDisposable[];
+    output: OutputCoalescer;
+    exitPromise: Promise<{ exitCode: number }>;
+  } {
+    let resolveExit: (result: { exitCode: number }) => void;
+    const exitPromise = new Promise<{ exitCode: number }>((resolve) => {
+      resolveExit = resolve;
+    });
+
+    const disposables: pty.IDisposable[] = [];
+    const output = new OutputCoalescer((data) =>
+      this.emit(ShellEvent.Data, { sessionId, data }),
+    );
+
+    disposables.push(
+      ptyProcess.onData((data: string) => {
+        output.push(data);
+      }),
+    );
+
+    disposables.push(
+      ptyProcess.onExit(({ exitCode }) => {
+        this.processTracking.unregister(ptyProcess.pid, "exited");
+        const session = this.sessions.get(sessionId);
+        if (session) {
+          for (const d of session.disposables) {
+            d.dispose();
+          }
+          session.pty.destroy();
+          this.sessions.delete(sessionId);
+        }
+        output.flush();
+        this.emit(ShellEvent.Exit, { sessionId, exitCode });
+        resolveExit({ exitCode });
+      }),
+    );
+
+    return { disposables, output, exitPromise };
+  }
+
   async create(
     sessionId: string,
     cwd?: string,
@@ -230,37 +274,9 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
       taskId,
     );
 
-    let resolveExit: (result: { exitCode: number }) => void;
-    const exitPromise = new Promise<{ exitCode: number }>((resolve) => {
-      resolveExit = resolve;
-    });
-
-    const disposables: pty.IDisposable[] = [];
-    const output = new OutputCoalescer((data) =>
-      this.emit(ShellEvent.Data, { sessionId, data }),
-    );
-
-    disposables.push(
-      ptyProcess.onData((data: string) => {
-        output.push(data);
-      }),
-    );
-
-    disposables.push(
-      ptyProcess.onExit(({ exitCode }) => {
-        this.processTracking.unregister(ptyProcess.pid, "exited");
-        const session = this.sessions.get(sessionId);
-        if (session) {
-          for (const d of session.disposables) {
-            d.dispose();
-          }
-          session.pty.destroy();
-          this.sessions.delete(sessionId);
-        }
-        output.flush();
-        this.emit(ShellEvent.Exit, { sessionId, exitCode });
-        resolveExit({ exitCode });
-      }),
+    const { disposables, output, exitPromise } = this.wirePty(
+      sessionId,
+      ptyProcess,
     );
 
     if (initialCommand) {
@@ -319,37 +335,9 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
       taskId,
     );
 
-    let resolveExit: (result: { exitCode: number }) => void;
-    const exitPromise = new Promise<{ exitCode: number }>((resolve) => {
-      resolveExit = resolve;
-    });
-
-    const disposables: pty.IDisposable[] = [];
-    const output = new OutputCoalescer((data) =>
-      this.emit(ShellEvent.Data, { sessionId, data }),
-    );
-
-    disposables.push(
-      ptyProcess.onData((data: string) => {
-        output.push(data);
-      }),
-    );
-
-    disposables.push(
-      ptyProcess.onExit(({ exitCode }) => {
-        this.processTracking.unregister(ptyProcess.pid, "exited");
-        const session = this.sessions.get(sessionId);
-        if (session) {
-          for (const d of session.disposables) {
-            d.dispose();
-          }
-          session.pty.destroy();
-          this.sessions.delete(sessionId);
-        }
-        output.flush();
-        this.emit(ShellEvent.Exit, { sessionId, exitCode });
-        resolveExit({ exitCode });
-      }),
+    const { disposables, output, exitPromise } = this.wirePty(
+      sessionId,
+      ptyProcess,
     );
 
     const session: ShellSession = {
