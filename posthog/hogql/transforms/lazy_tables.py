@@ -183,6 +183,10 @@ class LazyTableResolver(TraversingVisitor):
     ):
         super().__init__()
         self.field_collectors: list[list[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
+        # Ancestor select queries of the node currently being visited, outermost first. Seeded from the
+        # caller-supplied scope stack and grown as the visitor descends into subqueries. A lazy table can
+        # read this to find a filter written on an outer query level.
+        self.select_query_stack: list[ast.SelectQuery] = list(stack) if stack else []
         self.context = context
         self.dialect: HogQLDialect = dialect
         # forwarded to nested resolve_types/resolve_lazy_tables calls so a caller-supplied
@@ -313,6 +317,8 @@ class LazyTableResolver(TraversingVisitor):
 
         assert node.type is not None
         assert select_type is not None
+
+        self.select_query_stack.append(node)
 
         # Visit CTEs first to resolve any lazy joins inside them before processing the main query
         if node.ctes:
@@ -563,7 +569,12 @@ class LazyTableResolver(TraversingVisitor):
 
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
-            subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
+            # Expose the ancestors of `node` so a lazy table can read a filter from an outer query level.
+            self.context.lazy_table_ancestors = self.select_query_stack[:-1]
+            try:
+                subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
+            finally:
+                self.context.lazy_table_ancestors = None
             subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
             subquery = cast(
                 ast.SelectQuery,
@@ -744,3 +755,5 @@ class LazyTableResolver(TraversingVisitor):
             if lazy_finder.found_lazy:
                 self.lazy_finder_counter = self.lazy_finder_counter + 1
                 self.visit_select_query(node)
+
+        self.select_query_stack.pop()
