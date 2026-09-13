@@ -67,6 +67,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "LlmsTxtBot/1.0 (+https://github.com/tristansinclair/llms-txt-tristan-sinclair)",
         "every-api/0.1 (+https://github.com/MEMEO-PRO/every-api; docs corpus for AI coding agents)",
         "Mozilla/5.0 (compatible; RightAIChoiceBot/1.0; +https://rightaichoice.com)",
+        "akwlabs-doc-mirror/2.0 (+https://akwlabs.com)",
+        "Reflectionbot/1.0 (+https://reflection.ai/bot)",
     ],
     "ai_search": [
         "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot",
@@ -199,6 +201,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; PolycoreSupabaseDetector/1.0; +https://www.polycore.ai/)",
         "UnboundCompute-PublicSnapshot/1.0 (+https://unboundcompute.com/)",
         "swissAItalentBot/1.0 (+https://swissaitalent.ch/bot)",
+        "QuarryBot/1.0 (+https://quarry.design/bot)",
     ],
     "seo_crawler": [
         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",
