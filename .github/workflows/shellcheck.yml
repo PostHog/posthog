@@ -44,6 +44,11 @@ jobs:
                   shellcheck .github/scripts/prepare-product-junit-for-trunk.sh .github/scripts/prepare-product-junit-for-trunk.test.sh
                   bash .github/scripts/prepare-product-junit-for-trunk.test.sh
 
+            - name: Check failed-test retry script
+              run: |
+                  shellcheck .github/scripts/retry-failed-tests.sh .github/scripts/retry-failed-tests.test.sh
+                  bash .github/scripts/retry-failed-tests.test.sh
+
             - name: Check commit-time warning scripts
               run: |
                   # An open PR that has not rebased onto this commit does not carry these
