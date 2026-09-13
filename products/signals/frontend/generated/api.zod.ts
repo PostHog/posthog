@@ -336,7 +336,7 @@ export const SignalsReportChecksCreateBody = /* @__PURE__ */ zod
             .string()
             .max(signalsReportChecksCreateBodyRationaleMax)
             .optional()
-            .describe('Why the check is worth running; shown next to its result.'),
+            .describe('Why the check is worth running.'),
         kind: zod
             .enum(['metric_threshold'])
             .describe('\* `metric_threshold` - Metric Threshold')

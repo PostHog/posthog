@@ -1580,7 +1580,7 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
         read_only_fields = fields
         extra_kwargs = {
             "title": {"help_text": "Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`."},
-            "rationale": {"help_text": "Why the author set the check; shown next to the result."},
+            "rationale": {"help_text": "Why the author set the check."},
             "kind": {"help_text": "How the check is evaluated."},
             "status": {"help_text": "`active` while the check still runs; every other value is terminal."},
             "next_run_at": {"help_text": "When the coordinator next evaluates the check."},
@@ -1608,7 +1608,7 @@ class SignalReportCheckWriteSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         max_length=MAX_CHECK_RATIONALE_LENGTH,
-        help_text="Why the check is worth running; shown next to its result.",
+        help_text="Why the check is worth running.",
     )
     kind = serializers.ChoiceField(
         choices=SignalReportCheck.Kind.choices,

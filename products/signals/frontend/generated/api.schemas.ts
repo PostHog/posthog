@@ -2344,7 +2344,7 @@ export interface SignalReportCheckApi {
     readonly id: string
     /** Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`. */
     readonly title: string
-    /** Why the author set the check; shown next to the result. */
+    /** Why the author set the check. */
     readonly rationale: string
     /** How the check is evaluated.
      *
@@ -2411,7 +2411,7 @@ export interface SignalReportCheckWriteApi {
      */
     title: string
     /**
-     * Why the check is worth running; shown next to its result.
+     * Why the check is worth running.
      * @maxLength 2000
      */
     rationale?: string
