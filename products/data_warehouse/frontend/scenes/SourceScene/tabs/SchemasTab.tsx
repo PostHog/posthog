@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
@@ -649,6 +649,37 @@ function ManagedSchemaTable({
     )
 }
 
+// `LemonDropdown` reports a close through `onVisibilityChange`, but not when it unmounts while
+// open, and `sourceSettingsLogic` outlives the tab. Releasing the pause here stops a menu that is
+// open at that moment from freezing both refresh loops for the rest of the scene visit.
+export function useMenuPollPause(pausePolling: () => void, resumePolling: () => void): (visible: boolean) => void {
+    const ownsPauseRef = useRef(false)
+    const resumeRef = useRef(resumePolling)
+    resumeRef.current = resumePolling
+
+    useEffect(
+        () => () => {
+            if (ownsPauseRef.current) {
+                ownsPauseRef.current = false
+                resumeRef.current()
+            }
+        },
+        []
+    )
+
+    return (visible: boolean): void => {
+        if (visible === ownsPauseRef.current) {
+            return
+        }
+        ownsPauseRef.current = visible
+        if (visible) {
+            pausePolling()
+        } else {
+            resumePolling()
+        }
+    }
+}
+
 function SchemaBulkActions({
     schemas,
     clearSelection,
@@ -667,6 +698,7 @@ function SchemaBulkActions({
         resumePolling,
     } = useActions(sourceSettingsLogic)
     const { bulkEnableLoading } = useValues(sourceSettingsLogic)
+    const onMenuVisibilityChange = useMenuPollPause(pausePolling, resumePolling)
 
     // Wrap every action so the selection clears once it's been kicked off.
     const run = (action: () => void): void => {
@@ -746,7 +778,7 @@ function SchemaBulkActions({
                 // Pause the 5s source refresh while the menu is open — a poll re-renders the table
                 // and dismisses the menu out from under the user.
                 dropdown={{
-                    onVisibilityChange: (visible) => (visible ? pausePolling() : resumePolling()),
+                    onVisibilityChange: onMenuVisibilityChange,
                 }}
                 overlay={
                     <>
@@ -817,6 +849,7 @@ function SchemaRowMore({
     onOpenAccessControl?: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     const { pausePolling, resumePolling } = useActions(sourceSettingsLogic)
+    const onMenuVisibilityChange = useMenuPollPause(pausePolling, resumePolling)
 
     return (
         // Read the access reason as a value rather than through the render-prop form of
@@ -827,7 +860,7 @@ function SchemaRowMore({
             // Pause the refresh polls while the menu is open — a poll re-renders the table and
             // dismisses the menu out from under the user.
             dropdown={{
-                onVisibilityChange: (visible) => (visible ? pausePolling() : resumePolling()),
+                onVisibilityChange: onMenuVisibilityChange,
             }}
             overlay={
                 <>
