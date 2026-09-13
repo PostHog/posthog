@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback } from 'react'
 
 import { IconChevronDown, IconPin, IconPinFilled } from '@posthog/icons'
 
@@ -29,13 +28,13 @@ export function CategoryDropdown({
     const { setCategoryRailPinned } = useActions(taxonomicFilterCategoryLayoutLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
-    const onVisibilityChange = useCallback((visible: boolean) => {
+    const onVisibilityChange = (visible: boolean): void => {
         if (visible) {
             posthog.capture('taxonomic filter category dropdown opened', {
                 variant: 'pill',
             })
         }
-    }, [])
+    }
 
     if (taxonomicGroupTypes.length <= 1) {
         return null

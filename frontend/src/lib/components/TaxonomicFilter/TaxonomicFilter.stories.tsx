@@ -565,7 +565,7 @@ export const CategoryDropdown: Story = {
 }
 
 export const CategoryRailPinned: Story = {
-    render: (args) => <CategoryRailStoryRender {...args} />,
+    render: CategoryRailStoryRender,
     args: CATEGORY_DROPDOWN_ARGS,
     parameters: {
         testOptions: { waitForSelector: '[data-attr="taxonomic-category-rail-unpin"]' },
