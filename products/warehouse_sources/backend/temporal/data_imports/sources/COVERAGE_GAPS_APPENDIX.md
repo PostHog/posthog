@@ -549,15 +549,17 @@ Excluded as not table-shaped: `notetakerTranscript.info` is a single-object gett
 
 ## Asknicely — gaps
 
-Today (1): `responses`
+Today (3): `contacts_unsubscribed`, `responses`, `stats`
 
 Diffed against: <https://asknicely.asknice.ly/help/apidocs/responses>
 
-- [ ] `GET /api/v1/stats` — daily historical time series (sent, delivered, opened, responded, promoters/passives/detractors, NPS, CSAT) - the vendor's headline metric, already tabular (high)
-- [ ] `GET /api/v1/contacts/unsubscribed` — paginated opt-out list with unsubscribe timestamps; the suppression table for any send analysis (medium)
+- [x] `GET /api/v1/stats` — daily historical time series (sent, delivered, opened, responded, promoters/passives/detractors, NPS, CSAT) - the vendor's headline metric, already tabular (high)
+- [x] `GET /api/v1/contacts/unsubscribed` — paginated opt-out list with unsubscribe timestamps; the suppression table for any send analysis (medium)
 - [ ] `GET /api/v1/sentstats/{days}` — send-funnel counts for a rolling window, segmentable by custom property and question type (low)
 
-Note: AskNicely's v1 API is genuinely small; the only other GETs are a single-contact lookup (/contact/get/{search}/{key}, not a list) and /getnps/{days} which returns one scalar derivable from responses. Source uses a static ENDPOINTS = ("responses",) tuple - no dynamic table discovery.
+Note: AskNicely's v1 API is genuinely small; the only other GETs are a single-contact lookup (/contact/get/{search}/{key}, not a list) and /getnps/{days} which returns one scalar derivable from responses. Source uses a static ENDPOINTS tuple - no dynamic table discovery.
+
+Note on sentstats: skipped deliberately. It returns one unkeyed, untimestamped aggregate object for a rolling window, so a table of it holds a single row whose meaning depends on when the sync ran. Every column is a sum over the same columns `stats` now returns per day, so the same numbers come from a query over `stats` for any window. Its one extra capability - segmenting by a custom property via `filters[]`/`values[]` - cannot be expressed in a static endpoint catalog without hardcoding one customer's property.
 
 ## AssemblyAI — adequate
 
