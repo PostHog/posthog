@@ -15,7 +15,7 @@ export const errorTrackingAlertsCreateBodyThrottleSecondsDefault = 0
 export const errorTrackingAlertsCreateBodyThrottleSecondsMin = 0
 export const errorTrackingAlertsCreateBodyThrottleSecondsMax = 2592000
 
-export const errorTrackingAlertsCreateBodyDestinationsItemConfigOneReplyBroadcastDefault = false
+export const errorTrackingAlertsCreateBodyDestinationsItemConfigOneReplyBroadcastDefault = true
 
 export const ErrorTrackingAlertsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(errorTrackingAlertsCreateBodyNameMax).describe('Human-readable name of the alert.'),
@@ -79,7 +79,7 @@ export const ErrorTrackingAlertsCreateBody = /* @__PURE__ */ zod.object({
                             .boolean()
                             .default(errorTrackingAlertsCreateBodyDestinationsItemConfigOneReplyBroadcastDefault)
                             .describe(
-                                'Also post each thread reply to the channel, so people who do not follow the thread see every update.'
+                                'Also post each thread reply to the channel, so people who do not follow the thread see every update. On unless turned off.'
                             ),
                     })
                     .describe('Channel-specific delivery settings, e.g. {\"channel\": \"C0123\"} for Slack.'),
@@ -94,7 +94,7 @@ export const errorTrackingAlertsUpdateBodyThrottleSecondsDefault = 0
 export const errorTrackingAlertsUpdateBodyThrottleSecondsMin = 0
 export const errorTrackingAlertsUpdateBodyThrottleSecondsMax = 2592000
 
-export const errorTrackingAlertsUpdateBodyDestinationsItemConfigOneReplyBroadcastDefault = false
+export const errorTrackingAlertsUpdateBodyDestinationsItemConfigOneReplyBroadcastDefault = true
 export const errorTrackingAlertsUpdateBodyEnabledDefault = true
 
 export const ErrorTrackingAlertsUpdateBody = /* @__PURE__ */ zod.object({
@@ -159,7 +159,7 @@ export const ErrorTrackingAlertsUpdateBody = /* @__PURE__ */ zod.object({
                             .boolean()
                             .default(errorTrackingAlertsUpdateBodyDestinationsItemConfigOneReplyBroadcastDefault)
                             .describe(
-                                'Also post each thread reply to the channel, so people who do not follow the thread see every update.'
+                                'Also post each thread reply to the channel, so people who do not follow the thread see every update. On unless turned off.'
                             ),
                     })
                     .describe('Channel-specific delivery settings, e.g. {\"channel\": \"C0123\"} for Slack.'),
@@ -177,7 +177,7 @@ export const errorTrackingAlertsPartialUpdateBodyNameMax = 400
 export const errorTrackingAlertsPartialUpdateBodyThrottleSecondsMin = 0
 export const errorTrackingAlertsPartialUpdateBodyThrottleSecondsMax = 2592000
 
-export const errorTrackingAlertsPartialUpdateBodyDestinationsItemConfigOneReplyBroadcastDefault = false
+export const errorTrackingAlertsPartialUpdateBodyDestinationsItemConfigOneReplyBroadcastDefault = true
 
 export const ErrorTrackingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -250,7 +250,7 @@ export const ErrorTrackingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .boolean()
                             .default(errorTrackingAlertsPartialUpdateBodyDestinationsItemConfigOneReplyBroadcastDefault)
                             .describe(
-                                'Also post each thread reply to the channel, so people who do not follow the thread see every update.'
+                                'Also post each thread reply to the channel, so people who do not follow the thread see every update. On unless turned off.'
                             ),
                     })
                     .describe('Channel-specific delivery settings, e.g. {\"channel\": \"C0123\"} for Slack.'),
