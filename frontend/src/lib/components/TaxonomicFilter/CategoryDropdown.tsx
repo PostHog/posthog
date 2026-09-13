@@ -17,10 +17,12 @@ export function CategoryDropdown({
     variant,
     eventName,
     onAfterChange,
+    joinedToInput = false,
 }: {
     variant: Exclude<CategoryDropdownVariant, 'control'>
     eventName?: string
     onAfterChange?: () => void
+    joinedToInput?: boolean
 }): JSX.Element | null {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
     const { setActiveTab } = useActions(taxonomicFilterLogic)
@@ -71,20 +73,29 @@ export function CategoryDropdown({
             placement="bottom-start"
             className={CLICK_OUTSIDE_BLOCK_CLASS}
         >
-            {renderTrigger(variant, activeLabel)}
+            {renderTrigger(variant, activeLabel, joinedToInput)}
         </LemonMenu>
     )
 }
 
-function renderTrigger(variant: Exclude<CategoryDropdownVariant, 'control'>, activeLabel: string): JSX.Element {
+function renderTrigger(
+    variant: Exclude<CategoryDropdownVariant, 'control'>,
+    activeLabel: string,
+    joinedToInput: boolean
+): JSX.Element {
     return (
         <LemonButton
-            type="secondary"
+            type={joinedToInput ? 'tertiary' : 'secondary'}
             size="xsmall"
+            truncate={joinedToInput}
             sideIcon={<IconChevronDown />}
             data-attr={`taxonomic-category-dropdown-trigger-${variant}`}
             aria-label={`Current category: ${activeLabel}. Click to change.`}
-            className={CLICK_OUTSIDE_BLOCK_CLASS}
+            className={
+                joinedToInput
+                    ? `${CLICK_OUTSIDE_BLOCK_CLASS} TaxonomicFilter__category-dropdown`
+                    : CLICK_OUTSIDE_BLOCK_CLASS
+            }
         >
             {activeLabel}
         </LemonButton>
