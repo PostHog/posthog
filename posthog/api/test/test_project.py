@@ -1,6 +1,8 @@
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
@@ -992,6 +994,20 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         rows = {project["id"]: project["tags"] for project in response.json()["results"]}
         self.assertEqual(rows[self.project.id], ["production"])
+
+    def test_list_does_not_read_full_team_rows(self):
+        # A full-width `posthog_team` read pulls TOAST pages that the response discards, and it
+        # repeats once per project when `passthrough_team` misses the prefetch cache.
+        for name in ("Second", "Third", "Fourth"):
+            Project.objects.create_with_team(organization=self.organization, name=name, initiating_user=self.user)
+
+        with CaptureQueriesContext(connection) as context:
+            response = self.client.get("/api/projects/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(len(response.json()["results"]), 4)
+        wide_reads = [query for query in context.captured_queries if '"posthog_team"."app_urls"' in query["sql"]]
+        self.assertEqual(wide_reads, [])
 
     def test_unknown_tags_match_mode_is_rejected(self):
         response = self.client.get("/api/projects/?tags=production&tags_match=either")
