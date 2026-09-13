@@ -111,8 +111,9 @@ Legacy-only: `taxonomic_filter_search_query`
 `taxonomic filter empty result` (`groupType`, `searchQuery`),
 `taxonomic filter include stale toggled`,
 `taxonomic filter category dropdown opened` (pill only),
-`taxonomic filter example browser opened` (`surface`, `sourceKind`,
-`eventName`; behind `TAXONOMIC_FILTER_EXAMPLE_BROWSER`).
+`taxonomic filter example browser opened` (`surface`, `sourceKind` of
+`event` / `person` / `group`, `eventName`; behind
+`TAXONOMIC_FILTER_EXAMPLE_BROWSER`).
 
 Rebuild-only menu events: `taxonomic filter menu opened` / `drilled` /
 `closed` / `option clicked` / `item selected`.
