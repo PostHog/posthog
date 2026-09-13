@@ -56,6 +56,19 @@ describe('retryImport', () => {
         expect(isChunkLoadError(error)).toBe(true)
     })
 
+    it('normalizes a non-object rejection into a classified chunk error', async () => {
+        const factory = jest.fn().mockRejectedValue(undefined)
+
+        const rejection = retryImport(factory).catch((e) => e)
+        await jest.runAllTimersAsync()
+
+        const error = await rejection
+        expect(error).toBeInstanceOf(Error)
+        expect(error.message).toBe('Dynamic import rejected with a non-object value: undefined')
+        expect(isChunkLoadError(error)).toBe(true)
+        expect(factory).toHaveBeenCalledTimes(3)
+    })
+
     it('rethrows a non-chunk error immediately without retrying', async () => {
         const factory = jest.fn().mockRejectedValue(new TypeError('undefined is not a function'))
 
