@@ -17,6 +17,7 @@ import type {
     ComposeTicketApi,
     ComposeTicketResponseApi,
     ConfirmPatternApi,
+    ConversationsPatternOverridesListParams,
     ConversationsPatternsListParams,
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
@@ -25,8 +26,10 @@ import type {
     PaginatedTicketListApi,
     PaginatedTicketMessageListApi,
     PaginatedTicketPatternListApi,
+    PaginatedTicketTopicOverrideListApi,
     PaginatedTicketViewListApi,
     PatchedTicketNoteUpdateRequestApi,
+    PatchedTicketTopicOverrideApi,
     PatchedTicketUpdateRequestApi,
     PatchedTicketViewApi,
     TicketApi,
@@ -34,6 +37,7 @@ import type {
     TicketMessageApi,
     TicketPatternApi,
     TicketReplyRequestApi,
+    TicketTopicOverrideApi,
     TicketUpdateRequestApi,
     TicketViewApi,
     ZendeskImportJobApi,
@@ -56,6 +60,126 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getConversationsPatternOverridesListUrl = (
+    projectId: string,
+    params?: ConversationsPatternOverridesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/conversations/pattern_overrides/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/pattern_overrides/`
+}
+
+/**
+ * Per-topic instructions to the pattern detector. Same all-or-nothing ticket gate as patterns:
+ * an override steers what the whole inbox alerts on, so authoring one needs edit access to every
+ * ticket.
+ */
+export const conversationsPatternOverridesList = async (
+    projectId: string,
+    params?: ConversationsPatternOverridesListParams,
+    options?: RequestInit
+): Promise<PaginatedTicketTopicOverrideListApi> => {
+    return apiMutator<PaginatedTicketTopicOverrideListApi>(getConversationsPatternOverridesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsPatternOverridesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/pattern_overrides/`
+}
+
+/**
+ * Per-topic instructions to the pattern detector. Same all-or-nothing ticket gate as patterns:
+ * an override steers what the whole inbox alerts on, so authoring one needs edit access to every
+ * ticket.
+ */
+export const conversationsPatternOverridesCreate = async (
+    projectId: string,
+    ticketTopicOverrideApi: NonReadonly<TicketTopicOverrideApi>,
+    options?: RequestInit
+): Promise<TicketTopicOverrideApi> => {
+    return apiMutator<TicketTopicOverrideApi>(getConversationsPatternOverridesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketTopicOverrideApi),
+    })
+}
+
+export const getConversationsPatternOverridesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/pattern_overrides/${id}/`
+}
+
+/**
+ * Per-topic instructions to the pattern detector. Same all-or-nothing ticket gate as patterns:
+ * an override steers what the whole inbox alerts on, so authoring one needs edit access to every
+ * ticket.
+ */
+export const conversationsPatternOverridesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TicketTopicOverrideApi> => {
+    return apiMutator<TicketTopicOverrideApi>(getConversationsPatternOverridesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsPatternOverridesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/pattern_overrides/${id}/`
+}
+
+/**
+ * Per-topic instructions to the pattern detector. Same all-or-nothing ticket gate as patterns:
+ * an override steers what the whole inbox alerts on, so authoring one needs edit access to every
+ * ticket.
+ */
+export const conversationsPatternOverridesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedTicketTopicOverrideApi?: NonReadonly<PatchedTicketTopicOverrideApi>,
+    options?: RequestInit
+): Promise<TicketTopicOverrideApi> => {
+    return apiMutator<TicketTopicOverrideApi>(getConversationsPatternOverridesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTicketTopicOverrideApi),
+    })
+}
+
+export const getConversationsPatternOverridesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/pattern_overrides/${id}/`
+}
+
+/**
+ * Per-topic instructions to the pattern detector. Same all-or-nothing ticket gate as patterns:
+ * an override steers what the whole inbox alerts on, so authoring one needs edit access to every
+ * ticket.
+ */
+export const conversationsPatternOverridesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsPatternOverridesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
 
 export const getConversationsPatternsListUrl = (projectId: string, params?: ConversationsPatternsListParams) => {
     const normalizedParams = new URLSearchParams()

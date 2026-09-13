@@ -388,6 +388,7 @@ rules:
                               |TicketPattern
                               |TicketPatternEvidence
                               |TicketTopicBaseline
+                              |TicketTopicOverride
                               |TicketView
                               |TicketViewFavorite
                               |ZendeskImportJob
@@ -791,6 +792,7 @@ rules:
                         |TicketPattern
                         |TicketPatternEvidence
                         |TicketTopicBaseline
+                        |TicketTopicOverride
                         |TicketView
                         |TicketViewFavorite
                         |ZendeskImportJob

@@ -56,6 +56,7 @@ import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/se
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
+import { TicketPatternsSection } from 'products/conversations/frontend/scenes/settings/TicketPatternsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsEventStream } from 'products/customer_analytics/frontend/components/EventStream/CustomerAnalyticsEventStream'
 import { AccountTrackRules } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/AccountTrackRules'
@@ -1324,6 +1325,22 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'PRODUCT_SUPPORT_AI_SUGGESTION',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['ai', 'agent', 'suggestion', 'auto', 'reply', 'support', 'conversation', 'beta'],
+            },
+            {
+                id: 'conversations-patterns',
+                title: (
+                    <>
+                        Ticket patterns
+                        <LemonTag type="highlight" size="small" className="ml-1">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                description: 'Get told when several customers raise the same topic in support within an hour.',
+                component: <TicketPatternsSection />,
+                flag: 'PRODUCT_SUPPORT_TICKET_PATTERNS',
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['pattern', 'spike', 'trend', 'incident', 'outage', 'burst', 'support', 'ticket', 'beta'],
             },
         ],
     },
