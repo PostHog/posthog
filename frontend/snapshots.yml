@@ -10484,6 +10484,14 @@ snapshots:
         hash: v1.k794b7964.b5c5685fbf4362ffdeb86b71403d992895bc7f465a89e3950e73d805659120cd.LflCqOqs_3HllO3yAenQoTU4XkVLmdFgiMZdver44EI
     scenes-other-toolbar--heatmap-dark--light:
         hash: v1.k794b7964.54ea6dd30881be4b788facdce098a207fb5171f6ed969451c4f378ed9bb17f67.kmPM0TK8dLKElYiLRmgDMvswiByHAMWOmC2nhEaeCTM
+    scenes-other-toolbar--heatmap-entitlements-error--dark:
+        hash: v1.k794b7964.11b12d94798a78afe633b555550a3b6be8c84ed4bb03adfa0c80c923fe739115.THJ-PW5rpBcnp8Cgfab7g-J3Jfumq6ULrZl053qREuI
+    scenes-other-toolbar--heatmap-entitlements-error--light:
+        hash: v1.k794b7964.d628aec0cc4ba7f5359f87ede92c2a29e3c81238e723a91ddea25f0c36e1cbdf.VrzMCvXUBehL0dFKel21d1ee0rDmzThv2ZKdhkvRS_Y
+    scenes-other-toolbar--heatmap-entitlements-loading--dark:
+        hash: v1.k794b7964.18953cf5eb039c2db6229fc2ccf6a409686f509ee37a1098f9ef7bcb61401ed0.wUGMJJJGGLGPONfCvzgzodVgweh7dgQDprBar-JWt_I
+    scenes-other-toolbar--heatmap-entitlements-loading--light:
+        hash: v1.k794b7964.0b56bde4bd671759d3974635bb2840e151386e07a75e93d69e909730a1a5a60b.zNIvrMFECMskqVuP1e2YkDNUgLKei44C6_34QMizEr4
     scenes-other-toolbar--inspect--dark:
         hash: v1.k794b7964.37fa05b873d6876ff8a932209f515de7c81b3cf80af3810489d1e101acb61aa5.00b1XmAvLslDcl3T7oSAyL01QePjoUOaDM3CoV_roaY
     scenes-other-toolbar--inspect--light:

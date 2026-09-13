@@ -4188,6 +4188,21 @@ export interface LeakedKeyReportResponseApi {
 }
 
 /**
+ * Whether the current organization has each toolbar plan entitlement, keyed by feature name.
+ */
+export type ToolbarEntitlementsApiEntitlements = { [key: string]: boolean }
+
+export interface ToolbarEntitlementsApi {
+    /** Whether the current organization has each toolbar plan entitlement, keyed by feature name. */
+    entitlements: ToolbarEntitlementsApiEntitlements
+}
+
+export interface ToolbarEntitlementsErrorApi {
+    /** Why toolbar entitlements could not be retrieved. */
+    error: string
+}
+
+/**
  * * `disabled` - disabled
  * * `toolbar` - toolbar
  */

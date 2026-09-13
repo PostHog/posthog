@@ -55,6 +55,7 @@ class AvailableFeature(StrEnum):
     APPROVALS = "approvals"
     XAA_AUTHENTICATION = "xaa_authentication"
     POSTHOG_CODE_USAGE = "posthog_code_usage"
+    TOOLBAR_HEATMAPS = "toolbar_heatmaps"
 
 
 LOGS_RETENTION_FEATURES_BY_DAYS: dict[int, AvailableFeature] = {
