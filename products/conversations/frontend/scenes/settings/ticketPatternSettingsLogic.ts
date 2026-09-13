@@ -43,6 +43,7 @@ export interface ticketPatternSettingsLogicValues {
     addingKinds: Record<string, boolean>
     overrideDrafts: Record<string, string>
     overrides: TicketTopicOverrideApi[]
+    overridesFailed: boolean
     overridesLoading: boolean
     saving: boolean
     settings: TicketPatternSettings
@@ -167,6 +168,16 @@ export const ticketPatternSettingsLogic = kea<ticketPatternSettingsLogicType>([
             {
                 setOverrideDraft: (state, { kind, draft }) => ({ ...state, [kind]: draft }),
                 addOverrideFinished: (state, { kind, added }) => (added ? { ...state, [kind]: '' } : state),
+            },
+        ],
+        // A failed load leaves `overrides` at its empty default, so the section needs to tell the
+        // two states apart before it can claim a team has no topics.
+        overridesFailed: [
+            false,
+            {
+                loadOverrides: () => false,
+                loadOverridesSuccess: () => false,
+                loadOverridesFailure: () => true,
             },
         ],
         addingKinds: [

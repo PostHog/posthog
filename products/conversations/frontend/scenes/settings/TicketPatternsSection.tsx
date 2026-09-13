@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonButton, LemonCard, LemonInput, LemonSelect, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonInput,
+    LemonSelect,
+    LemonSwitch,
+    LemonTag,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
@@ -34,7 +43,8 @@ function OverrideList({
     description: string
     placeholder: string
 }): JSX.Element {
-    const { overrides, overridesLoading, overrideDrafts, addingKinds } = useValues(ticketPatternSettingsLogic)
+    const { overrides, overridesLoading, overridesFailed, overrideDrafts, addingKinds } =
+        useValues(ticketPatternSettingsLogic)
     const { addOverride, removeOverride, setOverrideDraft } = useActions(ticketPatternSettingsLogic)
     const rows = overrides.filter((o: TicketTopicOverrideApi) => o.kind === kind)
     const draft = overrideDrafts[kind] ?? ''
@@ -63,7 +73,9 @@ function OverrideList({
                         {o.topic}
                     </LemonTag>
                 ))}
-                {rows.length === 0 && !overridesLoading ? <span className="text-muted text-sm">None yet</span> : null}
+                {rows.length === 0 && !overridesLoading && !overridesFailed ? (
+                    <span className="text-muted text-sm">None yet</span>
+                ) : null}
             </div>
             <div className="flex flex-wrap gap-2 items-center">
                 <LemonInput
@@ -92,8 +104,8 @@ function OverrideList({
 }
 
 export function TicketPatternsSection(): JSX.Element {
-    const { settings, saving } = useValues(ticketPatternSettingsLogic)
-    const { updateSettings } = useActions(ticketPatternSettingsLogic)
+    const { settings, saving, overridesFailed } = useValues(ticketPatternSettingsLogic)
+    const { updateSettings, loadOverrides } = useActions(ticketPatternSettingsLogic)
     const { roles } = useValues(rolesLogic)
     const { loadRoles } = useActions(rolesLogic)
 
@@ -202,6 +214,16 @@ export function TicketPatternsSection(): JSX.Element {
                         description="Tell detection about topics it gets wrong. Topics are matched after the same normalization applied to ticket text, so 'Login failures' and 'login failure' are the same."
                     >
                         <div className="flex flex-col gap-3">
+                            {overridesFailed ? (
+                                <LemonBanner
+                                    type="error"
+                                    action={{ children: 'Try again', onClick: () => loadOverrides() }}
+                                    className="max-w-[800px]"
+                                >
+                                    Couldn't load your muted and watched topics. Any you already added are still in
+                                    place.
+                                </LemonBanner>
+                            ) : null}
                             <OverrideList
                                 kind="mute"
                                 title="Never alert on"
