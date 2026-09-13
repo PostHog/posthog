@@ -101,6 +101,24 @@ describe('dataWarehouseViewsLogic', () => {
         expect(logic.values.dataWarehouseSavedQueries).toEqual([])
     })
 
+    // The list is empty whether the route is unserved or the request failed, so a failure only
+    // adds a toast nobody can act on.
+    it('treats a 404 on the list as an empty list', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+
+        useMocks({
+            get: { '/api/environments/:team_id/warehouse_saved_queries/': () => [404, { detail: 'Not found.' }] },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadDataWarehouseSavedQueries()
+        })
+            .toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+            .toNotHaveDispatchedActions(['loadDataWarehouseSavedQueriesFailure'])
+
+        expect(logic.values.dataWarehouseSavedQueries).toEqual([])
+    })
+
     // Regression: a freshly materialized view showed as a plain view in the sidebar until a manual
     // refresh because is_materialized flips asynchronously and the list was fetched only once. The
     // poll must keep reloading until it settles, then stop (not loop forever).

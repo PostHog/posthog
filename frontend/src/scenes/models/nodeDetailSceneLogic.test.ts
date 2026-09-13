@@ -114,6 +114,48 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.effectiveTab).toEqual('materialization')
     })
 
+    // A node can outlive the saved query it points at, and then the request 404s on every visit.
+    // Reporting that as a failed request reports the same defect over and over.
+    it('reads a 404 on the saved query as gone rather than as a failed request', async () => {
+        useMocks({
+            get: { '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [404, {}] },
+        })
+
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        expect(logic.values.savedQueryError).toBe(false)
+        expect(logic.values.savedQueryMissing).toBe(true)
+        expect(logic.values.sceneResolved).toBe(true)
+    })
+
+    // The node API drops a node whose saved query is gone, so a link to one now 404s. Reporting
+    // that as a failed request would trade the old defect for a new one on the same page.
+    it('reads a 404 on the node as not found rather than as a failed request', async () => {
+        useMocks({
+            get: { '/api/environments/:team_id/data_modeling_nodes/:id/': () => [404, {}] },
+        })
+
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        await expectLogic(logic).toDispatchActions(['loadNodeSuccess']).toNotHaveDispatchedActions(['loadNodeFailure'])
+        expect(logic.values.node).toBe(null)
+    })
+
+    // A retry keeps every other term of savedQueryMissing true, so the panels would claim the
+    // query is gone for the whole request and drop the Retry button while it runs.
+    it('does not report the saved query as gone while a retry is in flight', async () => {
+        useMocks({
+            get: { '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [500, {}] },
+        })
+        await mountScene(urls.nodeDetail(NODE_ID))
+        expect(logic.values.savedQueryError).toBe(true)
+
+        logic.actions.loadSavedQuery()
+
+        expect(logic.values.savedQueryLoading).toBe(true)
+        expect(logic.values.savedQueryMissing).toBe(false)
+    })
+
     // A failed saved-query request leaves the scene rendering with nothing to read is_materialized
     // from. Reading that absence as "not materialized" would open a matview on Query and print
     // "Materialization: Off" under its own Materialized view tag.

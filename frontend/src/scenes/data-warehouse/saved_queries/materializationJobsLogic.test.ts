@@ -68,6 +68,24 @@ describe('materializationJobsLogic', () => {
         featureFlagLogic.unmount()
     })
 
+    // The models Tests tab mounts this logic for a node whose saved query can already be gone, so
+    // an unguarded 404 here reports a defect the rest of that page was fixed to stop reporting.
+    it('reads a 404 on the saved query as gone rather than as a failed request', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [404, {}],
+                '/api/environments/:team_id/data_modeling_jobs': { results: [], count: 0 },
+            },
+        })
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadSavedQuerySuccess'])
+            .toNotHaveDispatchedActions(['loadSavedQueryFailure'])
+        expect(logic.values.savedQuery).toBe(null)
+    })
+
     // Regression: the saved query reloads on every jobs poll. Without the once-per-mount guard the
     // eligibility check fires on each poll, hammering a parse-heavy endpoint. And without the key
     // default, enabling incremental starts from an empty picker.

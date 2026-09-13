@@ -217,7 +217,16 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                     if (!props.viewId) {
                         return null
                     }
-                    return await api.dataWarehouseSavedQueries.get(props.viewId)
+                    try {
+                        return await api.dataWarehouseSavedQueries.get(props.viewId)
+                    } catch (error) {
+                        // A panel can outlive the saved query it shows, and then every request for
+                        // it 404s. That is a query that is gone, not a request that failed.
+                        if (!(error instanceof ApiError) || error.status !== 404) {
+                            throw error
+                        }
+                        return null
+                    }
                 },
             },
         ],

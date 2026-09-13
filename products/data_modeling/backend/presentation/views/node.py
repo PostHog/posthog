@@ -292,7 +292,10 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return dag_id
 
     def safely_get_queryset(self, queryset):
-        qs = _annotate_latest_job(queryset.filter(team_id=self.team_id))
+        # A saved query is soft-deleted, and `on_delete=PROTECT` only blocks a hard delete, so a
+        # half-finished delete cascade leaves a node pointing at a query the API will not return.
+        # Such a node has nothing to show, so drop it from the list and its detail route alike.
+        qs = _annotate_latest_job(queryset.filter(team_id=self.team_id).exclude(saved_query__deleted=True))
         dag_id = self._get_dag_id_param()
         if dag_id:
             qs = qs.filter(dag_id=dag_id)
