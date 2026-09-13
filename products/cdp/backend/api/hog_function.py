@@ -197,17 +197,17 @@ def _without(value: Any, keys: tuple[str, ...]) -> Any:
     return {k: v for k, v in value.items() if k not in keys} if isinstance(value, dict) else value
 
 
-def _merge_stored_inputs(sent: Any, stored: Any) -> Any:
-    """The `inputs` a partial update validates, from the object the caller sent and the stored one.
+def _merge_stored_inputs(sent: Any, base: Any) -> Any:
+    """The `inputs` a partial update validates, from the object the caller sent and the base it edits.
 
     `InputsSerializer` reads every key of `inputs_schema` out of that single object, so an input the
     caller leaves out reaches storage empty. A one-field edit has silently removed a webhook's
     authorization header and its request body this way. The caller can still clear one input,
     because an explicit empty value overrides the stored one.
     """
-    if not isinstance(sent, dict) or not isinstance(stored, dict):
+    if not isinstance(sent, dict) or not isinstance(base, dict):
         return sent
-    return {**stored, **sent}
+    return {**base, **sent}
 
 
 def _inputs_without_derived(inputs: Any) -> Any:
