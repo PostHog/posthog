@@ -72,6 +72,9 @@ service PersonHogService {
   rpc FoldPersonDocument(personhog.types.v1.FoldPersonDocumentRequest) returns (personhog.types.v1.FoldPersonDocumentResponse);
 
   // Person deletes
+  // DeletePersons removes the persons in any state. A caller working from an advisory
+  // list of tombstoned persons must use DeleteTombstonedPersons instead, which re-checks
+  // the tombstone under the row lock.
   // WARNING: This is a write operation on person data. It should route to the leader
   // once personhog-leader supports deletes. Currently routed through the replica
   // (which uses the primary Postgres pool) as a temporary measure.
@@ -79,6 +82,9 @@ service PersonHogService {
   rpc DeletePersons(personhog.types.v1.DeletePersonsRequest) returns (personhog.types.v1.DeletePersonsResponse);
   // WARNING: Same routing caveat as DeletePersons above.
   rpc DeletePersonsBatchForTeam(personhog.types.v1.DeletePersonsBatchForTeamRequest) returns (personhog.types.v1.DeletePersonsBatchForTeamResponse);
+  // Deletes only persons that are still tombstoned when the delete runs.
+  // WARNING: Same routing caveat as DeletePersons above.
+  rpc DeleteTombstonedPersons(personhog.types.v1.DeleteTombstonedPersonsRequest) returns (personhog.types.v1.DeleteTombstonedPersonsResponse);
 
   // Person split
   // WARNING: Same routing caveat as DeletePersons above — write operation on person data

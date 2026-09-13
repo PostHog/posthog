@@ -211,6 +211,34 @@ message DeletePersonsBatchForTeamResponse {
   int64 deleted_count = 1;
 }
 
+// DeleteTombstonedPersonsRequest hard-deletes persons only while they are still
+// tombstoned (is_deleted = true) at the moment of the delete. The check and the
+// delete run under the same row locks, so a revival that races the request is
+// never lost: it either wins the lock and the person is skipped, or it waits and
+// then creates a fresh person. Deletes posthog_persondistinctid,
+// posthog_cohortpeople and posthog_featureflaghashkeyoverride rows with the
+// person. Used by the person_pg_cleanup_queue drain. Idempotent.
+message DeleteTombstonedPersonsRequest {
+  int64 team_id = 1;
+  // Person UUIDs to delete. Max 1000 per request.
+  repeated string person_uuids = 2;
+}
+
+message DeleteTombstonedPersonsResponse {
+  // Persons hard-deleted together with their distinct ids and cohort memberships.
+  int64 deleted_count = 1;
+  // Persons found with is_deleted = false: revived after the caller queued them.
+  // Nothing was deleted for them.
+  int64 skipped_live_count = 2;
+  // Persons still tombstoned but referenced by a live distinct id. Nothing was
+  // deleted for them; the caller must not treat them as cleaned.
+  repeated string blocked_person_uuids = 3;
+  // Persons still tombstoned but owning more distinct ids than one delete
+  // transaction may touch (replica setting TOMBSTONED_DELETE_MAX_DISTINCT_IDS).
+  // Nothing was deleted for them; the caller must not treat them as cleaned.
+  repeated string oversized_person_uuids = 4;
+}
+
 // SplitPersonRequest splits specific distinct_ids off of a person onto new persons.
 // Each distinct_id gets a new person with a deterministic UUID (UUIDv5 from team_id:distinct_id).
 // The operation is atomic per request: all splits succeed or none do.

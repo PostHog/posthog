@@ -98,6 +98,10 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 "BULK_CHUNK_SIZE must be at least 1"
             );
             assert!(
+                config.tombstoned_delete_max_distinct_ids >= 1,
+                "TOMBSTONED_DELETE_MAX_DISTINCT_IDS must be at least 1"
+            );
+            assert!(
                 config.bulk_max_concurrent_chunks >= 1,
                 "BULK_MAX_CONCURRENT_CHUNKS must be at least 1"
             );
@@ -115,6 +119,7 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 bulk_replica_pool,
                 config.bulk_chunk_size,
                 config.bulk_max_concurrent_chunks,
+                config.tombstoned_delete_max_distinct_ids,
             ))
         }
         other => {

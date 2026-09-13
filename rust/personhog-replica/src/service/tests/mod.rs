@@ -9,9 +9,10 @@ use personhog_proto::personhog::types::v1::{
     CountCohortMembersRequest, CreateGroupRequest, DeleteCohortMemberRequest,
     DeleteCohortMembersBulkRequest, DeleteGroupTypeMappingRequest,
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupsBatchForTeamRequest,
-    DeletePersonsBatchForTeamRequest, DeletePersonsRequest, GetGroupRequest, GetPersonRequest,
-    GetPersonsByDistinctIdsInTeamRequest, InsertCohortMembersRequest, ListCohortMemberIdsRequest,
-    UpdateGroupRequest, UpdateGroupTypeMappingRequest,
+    DeletePersonsBatchForTeamRequest, DeletePersonsRequest, DeleteTombstonedPersonsRequest,
+    GetGroupRequest, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
+    InsertCohortMembersRequest, ListCohortMemberIdsRequest, UpdateGroupRequest,
+    UpdateGroupTypeMappingRequest,
 };
 use rstest::rstest;
 use tonic::Request;
@@ -189,6 +190,55 @@ async fn test_delete_persons_success(#[case] person_uuids: Vec<String>) {
         .await;
 
     assert!(result.is_ok());
+}
+
+// ============================================================
+// DeleteTombstonedPersons tests
+// ============================================================
+
+#[rstest]
+#[case::connection_error(FailingStorage::with_connection_error(), tonic::Code::Unavailable)]
+#[case::query_error(FailingStorage::with_query_error(), tonic::Code::Internal)]
+#[tokio::test]
+async fn test_delete_tombstoned_persons_storage_error(
+    #[case] storage: FailingStorage,
+    #[case] expected_code: tonic::Code,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(storage));
+
+    let result = service
+        .delete_tombstoned_persons(Request::new(DeleteTombstonedPersonsRequest {
+            team_id: 1,
+            person_uuids: vec!["00000000-0000-0000-0000-000000000001".to_string()],
+        }))
+        .await;
+
+    assert_eq!(result.unwrap_err().code(), expected_code);
+}
+
+#[rstest]
+#[case::too_many_uuids(
+    (0..1001).map(|i| format!("00000000-0000-0000-0000-{i:012}")).collect(),
+    "1000"
+)]
+#[case::invalid_uuid(vec!["not-a-valid-uuid".to_string()], "Invalid UUID")]
+#[tokio::test]
+async fn test_delete_tombstoned_persons_invalid_input(
+    #[case] person_uuids: Vec<String>,
+    #[case] expected_message: &str,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let status = service
+        .delete_tombstoned_persons(Request::new(DeleteTombstonedPersonsRequest {
+            team_id: 1,
+            person_uuids,
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains(expected_message));
 }
 
 // ============================================================

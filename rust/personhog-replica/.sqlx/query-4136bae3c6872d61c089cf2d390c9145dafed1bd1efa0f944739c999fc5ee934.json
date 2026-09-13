@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT p.id AS \"id!\"\n        FROM unnest($2::bigint[]) AS p(id)\n        WHERE EXISTS (\n            SELECT 1\n            FROM posthog_persondistinctid\n            WHERE team_id = $1 AND person_id = p.id\n            OFFSET $3 LIMIT 1\n        )\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4136bae3c6872d61c089cf2d390c9145dafed1bd1efa0f944739c999fc5ee934"
+}

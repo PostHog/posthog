@@ -36,6 +36,7 @@ impl TestContext {
             pool.clone(),
             50, // bulk_chunk_size — small so parallel path is exercised with fewer test rows
             5,  // bulk_max_concurrent_chunks
+            3,  // tombstoned_delete_max_distinct_ids — small so the oversized path needs few rows
         ));
         let team_id = random_team_id();
 
@@ -216,6 +217,85 @@ impl TestContext {
         .await?;
 
         Ok(())
+    }
+
+    /// Mirror the ingestion tombstone: mark the person and its distinct ids deleted, except one
+    /// distinct id that stays live when `live_distinct_id` is given.
+    pub async fn tombstone_person(
+        &self,
+        person_id: i64,
+        live_distinct_id: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE posthog_person
+            SET is_deleted = true, version = COALESCE(version, 0) + 1, properties = '{}'
+            WHERE team_id = $1 AND id = $2"#,
+        )
+        .bind(self.team_id)
+        .bind(person_id)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"UPDATE posthog_persondistinctid
+            SET is_deleted = true, version = COALESCE(version, 0) + 1
+            WHERE team_id = $1 AND person_id = $2
+              AND ($3::text IS NULL OR distinct_id <> $3)"#,
+        )
+        .bind(self.team_id)
+        .bind(person_id)
+        .bind(live_distinct_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_distinct_ids_of(&self, person_id: i64) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM posthog_persondistinctid WHERE team_id = $1 AND person_id = $2")
+            .bind(self.team_id)
+            .bind(person_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// True while the row exists in any state; the storage reads hide tombstoned rows.
+    pub async fn person_row_exists(&self, person_id: i64) -> Result<bool, sqlx::Error> {
+        let id: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM posthog_person WHERE team_id = $1 AND id = $2")
+                .bind(self.team_id)
+                .bind(person_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(id.is_some())
+    }
+
+    pub async fn distinct_id_row_count(&self, person_id: i64) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar(
+            "SELECT count(*) FROM posthog_persondistinctid WHERE team_id = $1 AND person_id = $2",
+        )
+        .bind(self.team_id)
+        .bind(person_id)
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    pub async fn hash_key_override_count(&self, person_id: i64) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar(
+            "SELECT count(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = $2",
+        )
+        .bind(self.team_id)
+        .bind(person_id)
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    pub async fn cohort_membership_count(&self, person_id: i64) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar("SELECT count(*) FROM posthog_cohortpeople WHERE person_id = $1")
+            .bind(person_id)
+            .fetch_one(&self.pool)
+            .await
     }
 
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {

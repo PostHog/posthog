@@ -5,19 +5,20 @@ use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHo
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
     DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest, GetGroupRequest,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
-    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
-    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
-    GetPersonsRequest, GroupIdentifier, GroupKey, SetPersonDistinctIdVersionFloorRequest,
-    SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
-    UpsertHashKeyOverridesRequest,
+    DeleteTombstonedPersonsRequest, GetDistinctIdsForPersonRequest,
+    GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
+    GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
+    GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
+    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest, SplitPersonRequest,
+    TeamDistinctId, UpsertHashKeyOverridesRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
 use tonic::Request;
+use uuid::Uuid;
 
 /// Test context that wraps TestContext and adds a service instance.
 pub struct ServiceTestContext {
@@ -1247,6 +1248,62 @@ async fn test_delete_hash_key_overrides_by_teams_invalid_batch_size(#[case] batc
     let status = result.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
     assert!(status.message().contains("batch_size"));
+
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// Delete tombstoned persons tests
+// ============================================================
+
+#[tokio::test]
+async fn test_delete_tombstoned_persons_reports_each_outcome() {
+    let ctx = ServiceTestContext::new().await;
+    let gone = ctx.insert_person("svc_tomb_gone", None).await.unwrap();
+    ctx.tombstone_person(gone.id, None).await.unwrap();
+    let live = ctx.insert_person("svc_tomb_live", None).await.unwrap();
+    let blocked = ctx.insert_person("svc_tomb_blocked", None).await.unwrap();
+    ctx.tombstone_person(blocked.id, Some("svc_tomb_blocked"))
+        .await
+        .unwrap();
+    let oversized = ctx.insert_person("svc_tomb_oversized", None).await.unwrap();
+    for i in 0..3 {
+        ctx.add_distinct_id_to_person(oversized.id, &format!("svc_tomb_oversized_{i}"))
+            .await
+            .unwrap();
+    }
+    ctx.tombstone_person(oversized.id, None).await.unwrap();
+
+    let response = ctx
+        .service
+        .delete_tombstoned_persons(Request::new(DeleteTombstonedPersonsRequest {
+            team_id: ctx.team_id,
+            person_uuids: vec![
+                gone.uuid.to_string(),
+                live.uuid.to_string(),
+                blocked.uuid.to_string(),
+                oversized.uuid.to_string(),
+                Uuid::now_v7().to_string(),
+            ],
+        }))
+        .await
+        .expect("RPC failed")
+        .into_inner();
+
+    assert_eq!(response.deleted_count, 1);
+    assert_eq!(response.skipped_live_count, 1);
+    assert_eq!(
+        response.blocked_person_uuids,
+        vec![blocked.uuid.to_string()]
+    );
+    assert_eq!(
+        response.oversized_person_uuids,
+        vec![oversized.uuid.to_string()]
+    );
+    assert!(!ctx.person_row_exists(gone.id).await.unwrap());
+    assert!(ctx.person_row_exists(live.id).await.unwrap());
+    assert!(ctx.person_row_exists(blocked.id).await.unwrap());
+    assert!(ctx.person_row_exists(oversized.id).await.unwrap());
 
     ctx.cleanup().await.ok();
 }

@@ -15,6 +15,22 @@ pub struct DistinctIdWithVersion {
     pub version: Option<i64>,
 }
 
+/// Outcome of a tombstone-guarded delete. Every requested uuid lands in at most one bucket;
+/// a uuid with no Postgres row lands in none.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TombstonedDeleteOutcome {
+    /// Persons hard-deleted together with their distinct ids and cohort memberships.
+    pub deleted: i64,
+    /// Persons found with is_deleted = false, so revived after the caller queued them. Untouched.
+    pub skipped_live: i64,
+    /// Persons still tombstoned but referenced by a live distinct id. Untouched. Ingestion never
+    /// produces this state, so the caller should surface it rather than retry blindly.
+    pub blocked_uuids: Vec<Uuid>,
+    /// Persons still tombstoned but owning more distinct ids than one transaction may delete.
+    /// Untouched.
+    pub oversized_uuids: Vec<Uuid>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SplitResult {
     pub distinct_id: String,

@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures::stream::{self, StreamExt, TryStreamExt};
 use sqlx::postgres::PgPool;
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use personhog_common::grpc::{current_client_name, current_method_name};
@@ -11,7 +12,7 @@ use personhog_common::grpc::{current_client_name, current_method_name};
 use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
-use crate::storage::types::{Person, SplitResult};
+use crate::storage::types::{Person, SplitResult, TombstonedDeleteOutcome};
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
 const SPLIT_VERSION_OFFSET: i64 = 101;
@@ -548,6 +549,68 @@ impl PersonLookup for PostgresStorage {
         Ok(results.iter().sum())
     }
 
+    async fn delete_tombstoned_persons(
+        &self,
+        team_id: i64,
+        uuids: &[Uuid],
+    ) -> StorageResult<TombstonedDeleteOutcome> {
+        if uuids.is_empty() {
+            return Ok(TombstonedDeleteOutcome::default());
+        }
+
+        let client = current_client_name();
+        let method = current_method_name();
+        let labels = [
+            (
+                "operation".to_string(),
+                "delete_tombstoned_persons".to_string(),
+            ),
+            ("pool".to_string(), "bulk_primary".to_string()),
+            ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        // One outcome per uuid: a duplicate must not be counted or reported twice.
+        let mut seen = HashSet::with_capacity(uuids.len());
+        let unique: Vec<Uuid> = uuids.iter().copied().filter(|u| seen.insert(*u)).collect();
+
+        // Chunk the uuids rather than pre-resolved ids: the resolve has to happen inside each
+        // chunk's transaction, under the row locks, or a revival between resolve and delete
+        // would be lost.
+        let chunks: Vec<&[Uuid]> = unique.chunks(self.bulk_chunk_size).collect();
+        common_metrics::histogram(
+            DB_BULK_CHUNKS,
+            &[(
+                "operation".to_string(),
+                "delete_tombstoned_persons".to_string(),
+            )],
+            chunks.len() as f64,
+        );
+
+        // Sequential on purpose. This serves a background drain, so one bulk connection at a
+        // time keeps its footprint on the persons writer small and predictable.
+        let mut outcome = TombstonedDeleteOutcome::default();
+        for chunk in chunks {
+            let chunk_outcome = delete_tombstoned_persons_chunk(
+                &self.bulk_primary_pool,
+                team_id,
+                chunk,
+                self.tombstoned_delete_max_distinct_ids,
+                &client,
+            )
+            .await?;
+            outcome.deleted += chunk_outcome.deleted;
+            outcome.skipped_live += chunk_outcome.skipped_live;
+            outcome.blocked_uuids.extend(chunk_outcome.blocked_uuids);
+            outcome
+                .oversized_uuids
+                .extend(chunk_outcome.oversized_uuids);
+        }
+
+        Ok(outcome)
+    }
+
     async fn get_persons_by_distinct_ids_cross_team(
         &self,
         team_distinct_ids: &[(i64, String)],
@@ -989,6 +1052,26 @@ async fn delete_persons_by_ids_chunk(
     let _chunk_timer = common_metrics::timing_guard(DB_QUERY_DURATION, &chunk_labels);
 
     let mut tx = pool.begin().await?;
+    let deleted =
+        delete_persons_by_ids_in_tx(&mut tx, team_id, person_ids, client, delete_cohortpeople)
+            .await?;
+    tx.commit().await?;
+
+    Ok(deleted)
+}
+
+/// The delete statements every person delete path shares, run inside the caller's
+/// transaction so a tombstone check can hold its row locks across them.
+async fn delete_persons_by_ids_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    team_id: i64,
+    person_ids: &[i64],
+    client: &str,
+    delete_cohortpeople: bool,
+) -> StorageResult<i64> {
+    if person_ids.is_empty() {
+        return Ok(0);
+    }
 
     // Delete distinct_id rows first — FK is NO ACTION.
     let did_result = sqlx::query!(
@@ -999,7 +1082,7 @@ async fn delete_persons_by_ids_chunk(
         team_id as i32,
         person_ids
     )
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
     common_metrics::histogram(
@@ -1019,8 +1102,8 @@ async fn delete_persons_by_ids_chunk(
     // Cohort memberships have no FK to posthog_person (the constraint was dropped
     // during person-table partitioning), so they don't cascade — delete them
     // explicitly for these persons. Gated because the team-teardown path already
-    // clears cohortpeople up front by cohort; only the per-person DeletePersons
-    // path needs this here.
+    // clears cohortpeople up front by cohort; only the per-person delete paths
+    // need this here.
     if delete_cohortpeople {
         let cohort_result = sqlx::query!(
             r#"
@@ -1029,7 +1112,7 @@ async fn delete_persons_by_ids_chunk(
             "#,
             person_ids
         )
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
         common_metrics::histogram(
@@ -1056,7 +1139,7 @@ async fn delete_persons_by_ids_chunk(
         team_id as i32,
         person_ids
     )
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
     common_metrics::histogram(
@@ -1073,7 +1156,187 @@ async fn delete_persons_by_ids_chunk(
         result.rows_affected() as f64,
     );
 
+    Ok(result.rows_affected() as i64)
+}
+
+/// One tombstone-guarded chunk in a single transaction. Row locks are taken in id
+/// order, persons first and then their distinct ids. Live-traffic writers work on
+/// live persons, which are never locked here, and the identity saga locks in this
+/// same order; any wait that appears anyway ends at lock_timeout as a retryable error.
+async fn delete_tombstoned_persons_chunk(
+    pool: &PgPool,
+    team_id: i64,
+    uuids: &[Uuid],
+    max_distinct_ids: usize,
+    client: &str,
+) -> StorageResult<TombstonedDeleteOutcome> {
+    if uuids.is_empty() {
+        return Ok(TombstonedDeleteOutcome::default());
+    }
+
+    let chunk_labels = [
+        (
+            "operation".to_string(),
+            "delete_tombstoned_persons_chunk".to_string(),
+        ),
+        ("pool".to_string(), "bulk_primary".to_string()),
+        ("client".to_string(), client.to_string()),
+        ("method".to_string(), current_method_name().to_string()),
+    ];
+    let _chunk_timer = common_metrics::timing_guard(DB_QUERY_DURATION, &chunk_labels);
+
+    let mut tx = pool.begin().await?;
+
+    // A writer holding one of these rows is mid-revival or mid-merge. Wait briefly, then hand
+    // the whole chunk back to the caller to retry instead of queueing behind live traffic. Kept
+    // under the router's 5 s backend deadline so the caller sees an error, not a timeout.
+    sqlx::query("SET LOCAL lock_timeout = '2s'")
+        .execute(&mut *tx)
+        .await?;
+
+    // Lock only the persons that are still tombstoned. READ COMMITTED re-checks is_deleted on
+    // the row version that wins the lock, so a person revived a moment ago drops out here.
+    let candidates: Vec<(i64, Uuid)> = sqlx::query!(
+        r#"
+        SELECT id::bigint AS "id!", uuid AS "uuid!"
+        FROM posthog_person
+        WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted
+        ORDER BY id
+        FOR UPDATE
+        "#,
+        team_id as i32,
+        uuids
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .map(|row| (row.id, row.uuid))
+    .collect();
+
+    let skipped_live: i64 = sqlx::query_scalar!(
+        r#"
+        SELECT count(*) AS "count!"
+        FROM posthog_person
+        WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = false
+        "#,
+        team_id as i32,
+        uuids
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if candidates.is_empty() {
+        tx.commit().await?;
+        return Ok(TombstonedDeleteOutcome {
+            skipped_live,
+            ..TombstonedDeleteOutcome::default()
+        });
+    }
+
+    // A person over the cap would hold row locks and write WAL far past the caller's deadline,
+    // so it is reported back instead. The probe reads at most cap + 1 index entries per person.
+    let all_candidate_ids: Vec<i64> = candidates.iter().map(|(id, _)| *id).collect();
+    let oversized_ids: HashSet<i64> = sqlx::query_scalar!(
+        r#"
+        SELECT p.id AS "id!"
+        FROM unnest($2::bigint[]) AS p(id)
+        WHERE EXISTS (
+            SELECT 1
+            FROM posthog_persondistinctid
+            WHERE team_id = $1 AND person_id = p.id
+            OFFSET $3 LIMIT 1
+        )
+        "#,
+        team_id as i32,
+        all_candidate_ids.as_slice(),
+        max_distinct_ids as i64
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .collect();
+    let oversized_uuids: Vec<Uuid> = candidates
+        .iter()
+        .filter(|(id, _)| oversized_ids.contains(id))
+        .map(|(_, uuid)| *uuid)
+        .collect();
+    let candidates: Vec<(i64, Uuid)> = candidates
+        .into_iter()
+        .filter(|(id, _)| !oversized_ids.contains(id))
+        .collect();
+    let candidate_ids: Vec<i64> = candidates.iter().map(|(id, _)| *id).collect();
+
+    // Lock the distinct ids too and read their state under the lock. A live mapping means
+    // ingestion can still reach the person, so it must stay.
+    let live_owners: HashSet<i64> = sqlx::query!(
+        r#"
+        SELECT person_id AS "person_id!", is_deleted AS "is_deleted!"
+        FROM posthog_persondistinctid
+        WHERE team_id = $1 AND person_id = ANY($2)
+        ORDER BY id
+        FOR UPDATE
+        "#,
+        team_id as i32,
+        candidate_ids.as_slice()
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .filter(|row| !row.is_deleted)
+    .map(|row| row.person_id)
+    .collect();
+
+    let blocked_uuids: Vec<Uuid> = candidates
+        .iter()
+        .filter(|(id, _)| live_owners.contains(id))
+        .map(|(_, uuid)| *uuid)
+        .collect();
+    let victims: Vec<i64> = candidates
+        .iter()
+        .filter(|(id, _)| !live_owners.contains(id))
+        .map(|(id, _)| *id)
+        .collect();
+
+    for (operation, value) in [
+        ("delete_tombstoned_persons_blocked", blocked_uuids.len()),
+        ("delete_tombstoned_persons_oversized", oversized_uuids.len()),
+        (
+            "delete_tombstoned_persons_skipped_live",
+            skipped_live as usize,
+        ),
+    ] {
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[
+                ("operation".to_string(), operation.to_string()),
+                ("pool".to_string(), "bulk_primary".to_string()),
+                ("client".to_string(), client.to_string()),
+                ("method".to_string(), current_method_name().to_string()),
+            ],
+            value as f64,
+        );
+    }
+
+    // The hash key override FK cascades in production but not in every environment built from
+    // the sqlx migrations, so remove the overrides here instead of relying on the cascade.
+    if !victims.is_empty() {
+        sqlx::query!(
+            "DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = ANY($2)",
+            team_id as i32,
+            victims.as_slice()
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    let deleted = delete_persons_by_ids_in_tx(&mut tx, team_id, &victims, client, true).await?;
+
     tx.commit().await?;
 
-    Ok(result.rows_affected() as i64)
+    Ok(TombstonedDeleteOutcome {
+        deleted,
+        skipped_live,
+        blocked_uuids,
+        oversized_uuids,
+    })
 }

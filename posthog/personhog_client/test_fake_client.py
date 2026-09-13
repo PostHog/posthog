@@ -469,3 +469,95 @@ class TestFakePersonhogClientContextManager:
 
             client = get_personhog_client()
             assert client is fake
+
+
+class TestFakePersonHogClientDeleteTombstonedPersons:
+    TEAM_ID = 7
+
+    def setup_method(self):
+        self.client = FakePersonHogClient()
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=1,
+            uuid="tombstoned",
+            distinct_ids=["t-1", "t-2"],
+            is_deleted=True,
+            tombstoned_distinct_ids=["t-1", "t-2"],
+        )
+        self.client.add_person(team_id=self.TEAM_ID, person_id=2, uuid="live", distinct_ids=["l-1"])
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=3,
+            uuid="blocked",
+            distinct_ids=["b-1", "b-2"],
+            is_deleted=True,
+            tombstoned_distinct_ids=["b-1"],
+        )
+        # Also owns a live distinct id: oversized takes precedence over blocked.
+        self.client.max_distinct_ids_per_tombstoned_person = 2
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=4,
+            uuid="oversized",
+            distinct_ids=["o-1", "o-2", "o-3"],
+            is_deleted=True,
+            tombstoned_distinct_ids=["o-1", "o-2"],
+        )
+
+    def _delete(self, *uuids: str) -> person_pb2.DeleteTombstonedPersonsResponse:
+        return self.client.delete_tombstoned_persons(
+            person_pb2.DeleteTombstonedPersonsRequest(team_id=self.TEAM_ID, person_uuids=list(uuids))
+        )
+
+    @pytest.mark.parametrize(
+        "uuid,expected_deleted,expected_skipped_live,expected_blocked,expected_oversized,expect_present",
+        [
+            ("tombstoned", 1, 0, [], [], False),
+            ("live", 0, 1, [], [], True),
+            ("blocked", 0, 0, ["blocked"], [], True),
+            ("oversized", 0, 0, [], ["oversized"], True),
+            ("unknown", 0, 0, [], [], False),
+        ],
+    )
+    def test_each_outcome(
+        self, uuid, expected_deleted, expected_skipped_live, expected_blocked, expected_oversized, expect_present
+    ):
+        # The same uuid twice must not double any count or list.
+        resp = self._delete(uuid, uuid)
+
+        assert resp.deleted_count == expected_deleted
+        assert resp.skipped_live_count == expected_skipped_live
+        assert list(resp.blocked_person_uuids) == expected_blocked
+        assert list(resp.oversized_person_uuids) == expected_oversized
+        lookup = self.client.get_person_by_uuid(person_pb2.GetPersonByUuidRequest(team_id=self.TEAM_ID, uuid=uuid))
+        assert lookup.HasField("person") == expect_present
+
+    def test_deleting_removes_distinct_id_mappings_and_is_idempotent(self):
+        assert self._delete("tombstoned").deleted_count == 1
+
+        by_did = self.client.get_person_by_distinct_id(
+            person_pb2.GetPersonByDistinctIdRequest(team_id=self.TEAM_ID, distinct_id="t-1")
+        )
+        assert not by_did.HasField("person")
+        assert self._delete("tombstoned") == person_pb2.DeleteTombstonedPersonsResponse()
+
+    def test_wrong_team_touches_nothing(self):
+        resp = self.client.delete_tombstoned_persons(
+            person_pb2.DeleteTombstonedPersonsRequest(team_id=self.TEAM_ID + 1, person_uuids=["tombstoned"])
+        )
+
+        assert resp == person_pb2.DeleteTombstonedPersonsResponse()
+        lookup = self.client.get_person_by_uuid(
+            person_pb2.GetPersonByUuidRequest(team_id=self.TEAM_ID, uuid="tombstoned")
+        )
+        assert lookup.HasField("person")
+
+    def test_delete_persons_still_removes_tombstoned_and_live_alike(self):
+        resp = self.client.delete_persons(
+            person_pb2.DeletePersonsRequest(team_id=self.TEAM_ID, person_uuids=["tombstoned", "live", "blocked"])
+        )
+
+        assert resp.deleted_count == 3
+        for uuid in ("tombstoned", "live", "blocked"):
+            lookup = self.client.get_person_by_uuid(person_pb2.GetPersonByUuidRequest(team_id=self.TEAM_ID, uuid=uuid))
+            assert not lookup.HasField("person")

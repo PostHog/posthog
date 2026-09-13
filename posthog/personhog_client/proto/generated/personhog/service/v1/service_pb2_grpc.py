@@ -279,6 +279,12 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.FromString,
             _registered_method=True,
         )
+        self.DeleteTombstonedPersons = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/DeleteTombstonedPersons",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsResponse.FromString,
+            _registered_method=True,
+        )
         self.SplitPerson = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/SplitPerson",
             request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.SplitPersonRequest.SerializeToString,
@@ -537,6 +543,9 @@ class PersonHogServiceServicer:
 
     def DeletePersons(self, request, context):
         """Person deletes
+        DeletePersons removes the persons in any state. A caller working from an advisory
+        list of tombstoned persons must use DeleteTombstonedPersons instead, which re-checks
+        the tombstone under the row lock.
         WARNING: This is a write operation on person data. It should route to the leader
         once personhog-leader supports deletes. Currently routed through the replica
         (which uses the primary Postgres pool) as a temporary measure.
@@ -548,6 +557,14 @@ class PersonHogServiceServicer:
 
     def DeletePersonsBatchForTeam(self, request, context):
         """WARNING: Same routing caveat as DeletePersons above."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def DeleteTombstonedPersons(self, request, context):
+        """Deletes only persons that are still tombstoned when the delete runs.
+        WARNING: Same routing caveat as DeletePersons above.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
@@ -775,6 +792,11 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.DeletePersonsBatchForTeam,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.SerializeToString,
+        ),
+        "DeleteTombstonedPersons": grpc.unary_unary_rpc_method_handler(
+            servicer.DeleteTombstonedPersons,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsResponse.SerializeToString,
         ),
         "SplitPerson": grpc.unary_unary_rpc_method_handler(
             servicer.SplitPerson,
@@ -1991,6 +2013,36 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/DeletePersonsBatchForTeam",
             personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def DeleteTombstonedPersons(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/DeleteTombstonedPersons",
+            personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsResponse.FromString,
             options,
             channel_credentials,
             insecure,

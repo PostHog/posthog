@@ -61,6 +61,13 @@ pub struct Config {
     #[envconfig(default = "2")]
     pub bulk_max_concurrent_chunks: usize,
 
+    /// Maximum distinct ids a tombstoned person may own for
+    /// DeleteTombstonedPersons to delete it. Persons above the cap are reported
+    /// as oversized and left untouched, so one person cannot hold a huge delete
+    /// transaction open on the primary.
+    #[envconfig(default = "1000")]
+    pub tombstoned_delete_max_distinct_ids: usize,
+
     /// Maximum number of server-side (PgBouncer → Postgres) connections to
     /// warm at startup via SELECT 1. Clamped to min_pg_connections. Set to 0
     /// to skip server-side warming entirely.
