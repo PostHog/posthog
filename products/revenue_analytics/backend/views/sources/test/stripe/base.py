@@ -12,6 +12,13 @@ from posthog.schema import CurrencyCode
 
 from products.revenue_analytics.backend.views.core import SourceHandle
 from products.revenue_analytics.backend.views.sources.test.base import RevenueAnalyticsViewSourceBaseTest
+from products.revenue_analytics.backend.views.test.data.structure import (
+    STRIPE_CHARGE_COLUMNS,
+    STRIPE_CUSTOMER_COLUMNS,
+    STRIPE_INVOICE_COLUMNS,
+    STRIPE_PRODUCT_COLUMNS,
+    STRIPE_SUBSCRIPTION_COLUMNS,
+)
 from products.warehouse_sources.backend.facade.contracts import RevenueSource, RevenueSourceSchema, RevenueSourceTable
 from products.warehouse_sources.backend.facade.sources import (
     CHARGE_RESOURCE_NAME,
@@ -20,6 +27,14 @@ from products.warehouse_sources.backend.facade.sources import (
     PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
 )
+
+COLUMNS_BY_RESOURCE_NAME = {
+    CHARGE_RESOURCE_NAME: tuple(STRIPE_CHARGE_COLUMNS),
+    CUSTOMER_RESOURCE_NAME: tuple(STRIPE_CUSTOMER_COLUMNS),
+    INVOICE_RESOURCE_NAME: tuple(STRIPE_INVOICE_COLUMNS),
+    PRODUCT_RESOURCE_NAME: tuple(STRIPE_PRODUCT_COLUMNS),
+    SUBSCRIPTION_RESOURCE_NAME: tuple(STRIPE_SUBSCRIPTION_COLUMNS),
+}
 
 
 def create_mock_stripe_external_data_source(team, schemas: Optional[list[str]] = None):
@@ -48,7 +63,11 @@ def create_mock_stripe_external_data_source(team, schemas: Optional[list[str]] =
         source_schemas.append(
             RevenueSourceSchema(
                 name=schema_name,
-                table=RevenueSourceTable(id=uuid4(), name=f"{prefix}_{schema_name.lower()}"),
+                table=RevenueSourceTable(
+                    id=uuid4(),
+                    name=f"{prefix}_{schema_name.lower()}",
+                    columns=COLUMNS_BY_RESOURCE_NAME.get(schema_name, ()),
+                ),
             )
         )
 
@@ -62,7 +81,7 @@ def create_mock_stripe_external_data_source(team, schemas: Optional[list[str]] =
     )
 
 
-def create_mock_stripe_table(team, table_name, schema_name=None):
+def create_mock_stripe_table(team, table_name, schema_name=None, columns=None):
     """
     Create a mock DataWarehouseTable for a specific Stripe resource.
 
@@ -70,6 +89,7 @@ def create_mock_stripe_table(team, table_name, schema_name=None):
         team: The team to associate with the table
         table_name: Name of the table
         schema_name: Optional schema name (defaults to table_name)
+        columns: Optional column names (defaults to the synced columns of the resource)
 
     Returns:
         Mock DataWarehouseTable
@@ -77,7 +97,10 @@ def create_mock_stripe_table(team, table_name, schema_name=None):
     if schema_name is None:
         schema_name = table_name
 
-    return RevenueSourceTable(id=uuid4(), name=table_name)
+    if columns is None:
+        columns = COLUMNS_BY_RESOURCE_NAME.get(schema_name, ())
+
+    return RevenueSourceTable(id=uuid4(), name=table_name, columns=tuple(columns))
 
 
 def create_mock_stripe_schema(source, schema_name: str, table=None):
@@ -133,7 +156,7 @@ class StripeSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
 
         Args:
             schema_configs: List of dictionaries with schema configuration:
-                [{"name": "charge", "table_name": "stripe_charges"}, ...]
+                [{"name": "charge", "table_name": "stripe_charges", "columns": [...]}, ...]
         """
         schemas: list[RevenueSourceSchema] = []
 
@@ -142,7 +165,12 @@ class StripeSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
             table_name = config.get("table_name", f"stripe_{schema_name.lower()}")
 
             table = (
-                create_mock_stripe_table(team=self.team, table_name=table_name, schema_name=schema_name)
+                create_mock_stripe_table(
+                    team=self.team,
+                    table_name=table_name,
+                    schema_name=schema_name,
+                    columns=config.get("columns"),
+                )
                 if table_name is not None
                 else None
             )
