@@ -19,7 +19,7 @@ _UPDATED_ON_CREATED_ON: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class BitbucketEndpointConfig:
     name: str
     path: str  # Path template with {workspace} and, for fan-out endpoints, {repo_slug}

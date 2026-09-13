@@ -27,7 +27,7 @@ class BitbucketRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class BitbucketResumeConfig:
     # Full URL of the next page to fetch. None means "start the current bookmark's list
     # from its first page" (the URL is built fresh when the loop reaches it).
@@ -266,10 +266,19 @@ _ROW_MAPPERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "pull_request_comments": _normalize_comment_row,
 }
 
+# A pending comment is an unpublished draft that only its author can read, and the API
+# returns the connector identity's own drafts. Syncing them would put one person's private
+# drafts in front of everyone with warehouse query access, so they are dropped.
+_ROW_FILTERS: dict[str, Callable[[dict[str, Any]], bool]] = {
+    "pull_request_comments": lambda row: not row.get("pending"),
+}
+
 
 def _map_rows(endpoint: str, items: list[dict[str, Any]], repo: dict[str, Any] | None) -> list[dict[str, Any]]:
     mapper = _ROW_MAPPERS.get(endpoint)
-    return [_normalize_row(mapper(item) if mapper else item, repo) for item in items]
+    row_filter = _ROW_FILTERS.get(endpoint)
+    rows = (item for item in items if row_filter is None or row_filter(item))
+    return [_normalize_row(mapper(row) if mapper else row, repo) for row in rows]
 
 
 def _iter_repositories(

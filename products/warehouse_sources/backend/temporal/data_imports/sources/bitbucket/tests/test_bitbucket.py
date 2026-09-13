@@ -553,6 +553,29 @@ def test_pull_request_fan_out_resumes_past_already_synced_pull_requests():
     assert [row["id"] for batch in batches for row in batch] == [502, 503]
 
 
+def test_pull_request_comments_drops_unpublished_drafts():
+    # `pending` comments are the connector identity's own unpublished drafts; the API has no
+    # server-side filter for them, so syncing them would expose one person's drafts
+    session = _session_returning(
+        _response({"values": [REPO_PAGE["values"][0]]}),
+        _response({"values": [{"id": 11}]}),
+        _response(
+            {
+                "values": [
+                    {"id": 501, "pullrequest": {"id": 11}, "pending": True},
+                    {"id": 502, "pullrequest": {"id": 11}, "pending": False},
+                    {"id": 503, "pullrequest": {"id": 11}},
+                ]
+            }
+        ),
+    )
+
+    with mock.patch.object(bitbucket, "_make_session", return_value=session):
+        batches = list(get_rows(BitbucketAuth(), "ws", "pull_request_comments", mock.Mock(), _manager()))
+
+    assert [row["id"] for batch in batches for row in batch] == [502, 503]
+
+
 def test_pull_request_fan_out_skips_a_deleted_pull_request_without_dropping_the_repo():
     session = _session_returning(
         _response(REPO_PAGE),

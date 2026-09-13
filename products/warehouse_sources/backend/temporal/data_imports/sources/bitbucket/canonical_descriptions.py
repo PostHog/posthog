@@ -135,7 +135,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_on": "When the comment was posted.",
             "updated_on": "When the comment was last edited.",
             "deleted": "Whether the comment has been deleted.",
-            "pending": "Whether the comment is part of a draft review and not yet published.",
+            "pending": "Always false. PostHog does not sync unpublished draft comments.",
             "inline": "Set when the comment is on a file or a line of code; carries the path and the from/to line numbers.",
             "parent": "The comment this one replies to, for replies in a comment thread.",
             "resolution": "Who resolved the comment thread and when, if it has been resolved.",
