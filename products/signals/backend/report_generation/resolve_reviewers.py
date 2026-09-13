@@ -816,6 +816,22 @@ def list_project_members(
     ]
 
 
+def resolve_project_members_by_uuid(team: Team, user_uuids: Iterable[str]) -> dict[str, User]:
+    """Map user UUID -> project member ``User`` for ``team``, GitHub-linked or not.
+
+    Reads the same roster as ``list_project_members``, so every uuid `scout-members-list` hands a
+    scout resolves here. Use this, not the org-wide ``resolve_org_users_by_uuid``, to validate a
+    reviewer a caller supplies: on a private project the org-wide read accepts a member with no
+    access to the project, who can neither open the report nor act on it. Prefetches the GitHub
+    relations a resolved reviewer's ``get_github_login()`` reads.
+    """
+    wanted = {u for u in (_normalized_reviewer_user_uuid(raw) for raw in user_uuids) if u}
+    if not wanted:
+        return {}
+    users = team.all_users_with_access().filter(uuid__in=wanted).prefetch_related(*_github_identity_prefetches())
+    return {str(user.uuid): user for user in users}
+
+
 def resolve_org_github_login_to_users(team_id: int, github_logins: Iterable[str]) -> dict[str, User]:
     """Map normalized GitHub login -> org member ``User`` (same identity rules as ``User.get_github_login()``).
 

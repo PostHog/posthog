@@ -1209,9 +1209,9 @@ class ReportEvidenceSerializer(serializers.Serializer):
 class SuggestedReviewerSerializer(serializers.Serializer):
     """One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
 
-    A reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a
+    A reviewer is a PostHog user, so a `user_uuid` only has to name a member of this project: a
     member with no linked GitHub account routes the report like anyone else. A `user_uuid` that
-    isn't an org member of this team is rejected — so a reviewer is never silently dropped."""
+    names no project member is rejected — so a reviewer is never silently dropped."""
 
     github_login = serializers.CharField(
         required=False,
@@ -1228,7 +1228,9 @@ class SuggestedReviewerSerializer(serializers.Serializer):
         help_text=(
             "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use "
             "this when you know the PostHog user, whether or not they have a GitHub handle — every "
-            "member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here."
+            "member is routable this way. Must name a current member of this project, so an entity "
+            "whose creator has since left resolves to nobody: `scout-members-list` is the roster "
+            "this is validated against. Must be a concrete UUID; the `@me` alias is not valid here."
         ),
     )
 

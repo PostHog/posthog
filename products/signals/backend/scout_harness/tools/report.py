@@ -61,7 +61,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerIdentitySet,
     get_org_member_github_logins_by_user_uuid,
     resolve_org_github_login_to_users,
-    resolve_org_users_by_uuid,
+    resolve_project_members_by_uuid,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metrics import (
@@ -574,12 +574,15 @@ def _build_suggested_reviewers(
 
     Each scout-supplied entry identifies a reviewer by `github_login`, `user_uuid`, or both —
     mirroring the inbox `SuggestedReviewerEntryWriteSerializer`. A reviewer is a PostHog user, so a
-    `user_uuid` only has to name an org member of this team: a member who never connected GitHub is
+    `user_uuid` only has to name a member of this project: a member who never connected GitHub is
     stored by uuid with a null login and routes like anyone else. A supplied login is stored
     alongside the uuid of the org member it names, so the entry keeps routing if they later unlink
-    GitHub. Resolution is fail-loud: a `user_uuid` that isn't an org member of this team raises
+    GitHub. Resolution is fail-loud: a `user_uuid` that names no project member raises
     `InvalidScoutReportError` rather than silently dropping the reviewer, since a quietly-lost
     reviewer is what leaves a report routed to no one.
+
+    Uuids resolve through `resolve_project_members_by_uuid`, the roster `scout-members-list` serves,
+    so the tool a scout reads its reviewer from and the write that validates it cannot disagree.
 
     **The scout owns routing.** Owners are *not* injected here — they're surfaced to the scout as
     context (the run prompt's skill-owners line) so it can decide, and a skill body that says "route
@@ -613,7 +616,7 @@ def _build_suggested_reviewers(
             raise InvalidScoutReportError("each suggested reviewer needs a github_login or a user_uuid")
 
     uuids_to_resolve = [str(entry.user_uuid) for entry in reviewers if entry.user_uuid]
-    uuid_to_user = resolve_org_users_by_uuid(team.id, uuids_to_resolve) if uuids_to_resolve else {}
+    uuid_to_user = resolve_project_members_by_uuid(team, uuids_to_resolve) if uuids_to_resolve else {}
     logins_to_resolve = {
         (entry.github_login or "").strip().lower()
         for entry in reviewers
@@ -626,7 +629,10 @@ def _build_suggested_reviewers(
         if entry.user_uuid:
             member = uuid_to_user.get(str(entry.user_uuid))
             if member is None:
-                raise InvalidScoutReportError(f"user_uuid '{entry.user_uuid}' is not an org member of this team")
+                raise InvalidScoutReportError(
+                    f"user_uuid '{entry.user_uuid}' is not a member of this project — "
+                    "call scout-members-list for the uuids you can route to"
+                )
             user_uuid: str | None = str(member.uuid)
             member_login = member.get_github_login()
             login: str | None = member_login.lower() if member_login else None

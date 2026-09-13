@@ -3998,9 +3998,9 @@ export interface ReportEvidenceApi {
 /**
  * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
  *
- * A reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a
+ * A reviewer is a PostHog user, so a `user_uuid` only has to name a member of this project: a
  * member with no linked GitHub account routes the report like anyone else. A `user_uuid` that
- * isn't an org member of this team is rejected — so a reviewer is never silently dropped.
+ * names no project member is rejected — so a reviewer is never silently dropped.
  */
 export interface SuggestedReviewerApi {
     /**
@@ -4008,7 +4008,7 @@ export interface SuggestedReviewerApi {
      * @maxLength 200
      */
     github_login?: string
-    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here. */
+    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must name a current member of this project, so an entity whose creator has since left resolves to nobody: `scout-members-list` is the roster this is validated against. Must be a concrete UUID; the `@me` alias is not valid here. */
     user_uuid?: string
     /**
      * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.
