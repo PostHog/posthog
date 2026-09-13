@@ -148,6 +148,15 @@ def test_table_from_py_list_numeric_column_coerces_numeric_string_values():
             [decimal.Decimal("1.5"), None, decimal.Decimal("2.5"), None],
             pa.types.is_decimal,
         ),
+        # bool mixed with Decimal -> decimal conversion path; pyarrow can't infer a common
+        # array type for this mix, so the raw Python bools survive to the decimal converter,
+        # which used str(x) and crashed on "True"/"False" (e.g. Langfuse score "value" is a
+        # number or a boolean depending on the score's dataType)
+        (
+            [decimal.Decimal("1.5"), True, False, None],
+            [decimal.Decimal("1.5"), decimal.Decimal("1"), decimal.Decimal("0"), None],
+            pa.types.is_decimal,
+        ),
     ],
 )
 def test_table_from_py_list_numeric_column_with_none_gaps(values, expected, type_check):

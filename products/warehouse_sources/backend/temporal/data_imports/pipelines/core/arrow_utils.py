@@ -1555,6 +1555,12 @@ def _process_batch(
                 if isinstance(x, decimal.Decimal):
                     return x
 
+                # bool is an int subclass, so it reaches here alongside genuine numeric types
+                # (e.g. Langfuse score values, which are numbers or booleans depending on the
+                # score's dataType). str(True) == "True", which Decimal() can't parse.
+                if isinstance(x, bool):
+                    return decimal.Decimal(1) if x else decimal.Decimal(0)
+
                 return decimal.Decimal(str(x))
 
             def _convert_to_float_or_none(x: float | str | None) -> float | None:
