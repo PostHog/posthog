@@ -1404,6 +1404,21 @@ class WatchFeedQuerySerializer(serializers.Serializer):
         choices=ScannerType.choices,
         help_text="Restrict the feed to observations from scanners of this type.",
     )
+    tags = serializers.CharField(
+        required=False,
+        help_text=(
+            "Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to "
+            "follow one area without naming every scanner in it."
+        ),
+    )
+    search = serializers.CharField(
+        required=False,
+        help_text=(
+            "Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the "
+            "notability sentence) and the scanner's name. Applied before ranking, so it searches the whole "
+            "window rather than the items that would have surfaced without it."
+        ),
+    )
     limit = serializers.IntegerField(
         required=False,
         default=WATCH_FEED_DEFAULT_LIMIT,
@@ -1411,6 +1426,9 @@ class WatchFeedQuerySerializer(serializers.Serializer):
         max_value=WATCH_FEED_MAX_LIMIT,
         help_text=f"Feed items to return, at most {WATCH_FEED_MAX_LIMIT}. The feed is bounded, not paginated.",
     )
+
+    def validate_tags(self, value: str) -> list[str]:
+        return [tagify(tag) for tag in split_csv(value)]
 
     def validate_scanner_ids(self, value: str) -> list[UUID]:
         raw_ids = split_csv(value)
@@ -2072,6 +2090,17 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         if params.get("scanner_ids"):
             requested = set(params["scanner_ids"])
             allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in requested]
+        if params.get("tags"):
+            # Narrow by tag through the scanner rows rather than the observations: a snapshot records the
+            # scanner's config at scan time, not its tags, and a retag should take effect immediately.
+            tagged_ids = set(
+                ReplayScanner.objects.filter(
+                    team_id=self.team_id, id__in=allowed_ids, tagged_items__tag__name__in=params["tags"]
+                )
+                .distinct()
+                .values_list("id", flat=True)
+            )
+            allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in tagged_ids]
         candidates = ReplayObservation.objects.filter(
             team_id=self.team_id,
             scanner_id__in=allowed_ids,
@@ -2082,6 +2111,18 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             candidates = candidates.filter(created_at__lte=date_to)
         if params.get("scanner_type"):
             candidates = candidates.filter(scanner_snapshot__scanner_type=params["scanner_type"])
+        if params.get("search"):
+            # Applied before ranking so the box searches the whole window, not the slice that would have
+            # surfaced anyway. Unindexed, but the candidate query is already bounded by team, readable
+            # scanners, succeeded status and the date window. Lookup keys are literals, not caller input.
+            term = params["search"]
+            candidates = candidates.filter(
+                Q(scanner_result__model_output__reasoning__icontains=term)
+                | Q(scanner_result__model_output__summary__icontains=term)
+                | Q(scanner_result__model_output__title__icontains=term)
+                | Q(scanner_result__model_output__notability_reason__icontains=term)
+                | Q(scanner_snapshot__name__icontains=term)
+            )
         # Row-gate on each row's snapshot experiment before ranking, so a restricted row can't take a slot.
         candidates = accessible_observations(self.user_access_control, self.team_id, candidates)
         viewer_id = cast(User, request.user).id

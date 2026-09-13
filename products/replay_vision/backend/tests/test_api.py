@@ -4475,6 +4475,49 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         resp = self.client.get(f"{self.feed_url}?limit=1")
         self.assertEqual(len(resp.json()["results"]), 1)
 
+    def test_search_matches_scan_prose_and_scanner_name_across_the_whole_window(self) -> None:
+        # Search runs before ranking, so a match that the ranking would never have surfaced still
+        # comes back — that is the whole point of the box on a capped feed.
+        checkout = self._create_scanner(name="Checkout watcher")
+        other = self._create_scanner(name="Inbox watcher")
+        self._succeeded_observation(
+            checkout,
+            "coupon-sess",
+            30,
+            {
+                "model_output": {
+                    "scanner_type": "summarizer",
+                    "title": "Coupon rejected",
+                    "summary": "The coupon field rejected a valid code.",
+                    "confidence": 0.9,
+                },
+                "signals_count": 0,
+            },
+        )
+        self._succeeded_observation(other, "inbox-sess", 1, self._monitor_result("no"))
+
+        resp = self.client.get(f"{self.feed_url}?search=coupon")
+        self.assertEqual([i["observation"]["session_id"] for i in resp.json()["results"]], ["coupon-sess"])
+
+        # The scanner's own name matches too, so typing an area name works.
+        resp = self.client.get(f"{self.feed_url}?search=inbox")
+        self.assertEqual([i["observation"]["session_id"] for i in resp.json()["results"]], ["inbox-sess"])
+
+        resp = self.client.get(f"{self.feed_url}?search=nothingmatchesthis")
+        self.assertEqual(resp.json()["results"], [])
+
+    def test_tag_filter_follows_current_scanner_tags_not_the_snapshot(self) -> None:
+        # Snapshots freeze config at scan time and never carried tags, so a retag has to take effect
+        # on existing observations immediately.
+        tagged = self._create_scanner(name="tagged")
+        untagged = self._create_scanner(name="untagged")
+        self._succeeded_observation(tagged, "tagged-sess", 10, self._monitor_result("no"))
+        self._succeeded_observation(untagged, "untagged-sess", 5, self._monitor_result("no"))
+        set_tags_on_object(["checkout"], tagged)
+
+        resp = self.client.get(f"{self.feed_url}?tags=checkout")
+        self.assertEqual([i["observation"]["session_id"] for i in resp.json()["results"]], ["tagged-sess"])
+
     def test_malformed_scanner_result_ranks_by_recency_instead_of_500(self) -> None:
         scanner = self._create_scanner(name="m")
         self._succeeded_observation(scanner, "broken", 1, {"model_output": "not-a-dict"})
