@@ -12,8 +12,6 @@ import {
     TaxonomicFilterValue,
 } from '../types'
 
-/** Stamped on shared `taxonomic filter *` telemetry events so the rebuilt menu
- *  stays distinguishable from the classic picker. */
 export const TAXONOMIC_FILTER_SURFACE = 'rebuild-menu'
 
 /** A single selectable entry — what the picker commits when chosen. */

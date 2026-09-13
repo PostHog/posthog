@@ -1379,10 +1379,6 @@ describe('TaxonomicFilter', () => {
         })
     })
 
-    // Spec for the insight series picker: searching a term that matches
-    // pageview URLs should make ONE "url contains <query>" shortcut the first row of the
-    // aggregated Suggested filters ("All") tab — ahead of raw URL/event rows. Fails today
-    // because the series (PageviewEvents) group isn't collapsed and the shortcut never leads.
     describe('series picker: pageview url-contains shortcut leads', () => {
         beforeEach(() => {
             useMocks({
@@ -1427,8 +1423,6 @@ describe('TaxonomicFilter', () => {
                 ],
             })
 
-            // The active category shows in the dropdown trigger. Reopening on an existing event
-            // selection should read "All", not "Events".
             const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
             // Wait for the dropdown trigger to paint its active-category label before asserting.
             await waitFor(() => expect(trigger.textContent || '').toMatch(/All|Events|Suggestions/))

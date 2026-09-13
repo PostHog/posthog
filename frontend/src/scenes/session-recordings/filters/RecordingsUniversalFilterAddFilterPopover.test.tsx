@@ -79,7 +79,6 @@ describe('RecordingsUniversalFilterAddFilterPopover', () => {
         await userEvent.click(input)
 
         const pillTrigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
-        // The combined results category is the default for multiple groups.
         expect(pillTrigger).toHaveTextContent('All')
         expect(pillTrigger).toHaveClass('LemonButton--secondary')
         expect(pillTrigger).not.toHaveClass('TaxonomicFilter__category-dropdown', 'LemonButton--truncate')

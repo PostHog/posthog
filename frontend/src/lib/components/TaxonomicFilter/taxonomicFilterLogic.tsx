@@ -188,13 +188,6 @@ export function resolveAvailableGroupTypes(
     return groupTypes.filter((groupType) => !excluded.has(groupType) && availableGroupTypes.has(groupType))
 }
 
-/** SuggestedFilters ("All") is the default cross-group landing spot whenever there is more than one
- *  substantive group to aggregate. The rebuild path (useTaxonomicFilter.ts) has the same behavior.
- *
- *  With one real group there's nothing for "All" to aggregate, so drop it (a call site may have
- *  prepended SuggestedFilters — see TaxonomicPropertyFilter). Recent/Pinned then follow the group
- *  instead of leading, and the group's own list floats recent/pinned items to the top (see
- *  infiniteListLogic `items`). */
 function resolveSuggestedFiltersGroup(
     groupTypes: TaxonomicFilterGroupType[],
     availableGroupTypes: Set<TaxonomicFilterGroupType>,

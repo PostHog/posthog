@@ -74,7 +74,6 @@ test.describe('Workflows conditional branch property filter category dropdown', 
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
-        // Log in without navigating into the app so the test can create a workflow first.
         await playwrightSetup.login(page, workspace!)
     })
 
