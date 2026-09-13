@@ -43,6 +43,39 @@ export interface ShellSession {
   exitPromise: Promise<{ exitCode: number }>;
   command?: string;
   disposables: pty.IDisposable[];
+  output: OutputCoalescer;
+}
+
+export const OUTPUT_FLUSH_MS = 16;
+const OUTPUT_FLUSH_BYTES = 64 * 1024;
+
+export class OutputCoalescer {
+  private pending = "";
+  private timer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(private readonly emitData: (data: string) => void) {}
+
+  push(data: string): void {
+    this.pending += data;
+    if (this.pending.length >= OUTPUT_FLUSH_BYTES) {
+      this.flush();
+      return;
+    }
+    if (this.timer === null) {
+      this.timer = setTimeout(() => this.flush(), OUTPUT_FLUSH_MS);
+    }
+  }
+
+  flush(): void {
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (this.pending.length === 0) return;
+    const data = this.pending;
+    this.pending = "";
+    this.emitData(data);
+  }
 }
 
 function getDefaultShell(): string {
@@ -203,10 +236,13 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
     });
 
     const disposables: pty.IDisposable[] = [];
+    const output = new OutputCoalescer((data) =>
+      this.emit(ShellEvent.Data, { sessionId, data }),
+    );
 
     disposables.push(
       ptyProcess.onData((data: string) => {
-        this.emit(ShellEvent.Data, { sessionId, data });
+        output.push(data);
       }),
     );
 
@@ -221,6 +257,7 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
           session.pty.destroy();
           this.sessions.delete(sessionId);
         }
+        output.flush();
         this.emit(ShellEvent.Exit, { sessionId, exitCode });
         resolveExit({ exitCode });
       }),
@@ -237,6 +274,7 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
       exitPromise,
       command: initialCommand,
       disposables,
+      output,
     };
 
     this.sessions.set(sessionId, session);
@@ -287,10 +325,13 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
     });
 
     const disposables: pty.IDisposable[] = [];
+    const output = new OutputCoalescer((data) =>
+      this.emit(ShellEvent.Data, { sessionId, data }),
+    );
 
     disposables.push(
       ptyProcess.onData((data: string) => {
-        this.emit(ShellEvent.Data, { sessionId, data });
+        output.push(data);
       }),
     );
 
@@ -305,6 +346,7 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
           session.pty.destroy();
           this.sessions.delete(sessionId);
         }
+        output.flush();
         this.emit(ShellEvent.Exit, { sessionId, exitCode });
         resolveExit({ exitCode });
       }),
@@ -315,6 +357,7 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
       exitPromise,
       command,
       disposables,
+      output,
     };
 
     this.sessions.set(sessionId, session);
@@ -368,6 +411,7 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
       }
       session.pty.destroy();
       this.sessions.delete(sessionId);
+      session.output.flush();
       this.emit(ShellEvent.Exit, {
         sessionId,
         exitCode: DESTROYED_EXIT_CODE,
