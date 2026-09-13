@@ -38,7 +38,7 @@ SMS_PAGE_SIZE = 100
 PERSONAS_PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class BlandAIResumeConfig:
     # Index offset into the call list (`from` query param) of the next unfetched page.
     offset: int = 0
