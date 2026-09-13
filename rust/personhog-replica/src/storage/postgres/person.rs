@@ -19,6 +19,13 @@ const SPLIT_VERSION_OFFSET: i64 = 101;
 const POOL_LABEL: &str = "replica";
 const BULK_POOL_LABEL: &str = "bulk_replica";
 
+// The bulk lookups below hold `properties_last_updated_at` and
+// `properties_last_operation` at `NULL::text`. No caller reads either field:
+// the Django converter ignores both, and the property reconciliation job reads
+// them straight from Postgres. Both columns carry one entry per property key,
+// so rendering them to text doubles the JSONB work of a bulk read. Single-person
+// lookups still select them, where the cost is one row.
+
 #[async_trait]
 impl PersonLookup for PostgresStorage {
     async fn get_person_by_id(
@@ -133,8 +140,8 @@ impl PersonLookup for PostgresStorage {
                     r#"
                     SELECT id, uuid, team_id::bigint as "team_id!",
                            CASE WHEN $3::boolean THEN properties::text ELSE NULL END as "properties?",
-                           CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                           CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
+                           NULL::text as "properties_last_updated_at?",
+                           NULL::text as "properties_last_operation?",
                            created_at, version, is_identified,
                            CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                            last_seen_at
@@ -208,8 +215,8 @@ impl PersonLookup for PostgresStorage {
                     r#"
                     SELECT id, uuid, team_id::bigint as "team_id!",
                            CASE WHEN $3::boolean THEN properties::text ELSE NULL END as "properties?",
-                           CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                           CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
+                           NULL::text as "properties_last_updated_at?",
+                           NULL::text as "properties_last_operation?",
                            created_at, version, is_identified,
                            CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                            last_seen_at
@@ -346,8 +353,8 @@ impl PersonLookup for PostgresStorage {
                         r#"
                         SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
                                CASE WHEN $3::boolean THEN p.properties::text ELSE NULL END as "properties?",
-                               CASE WHEN $3::boolean THEN p.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                               CASE WHEN $3::boolean THEN p.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
+                               NULL::text as "properties_last_updated_at?",
+                               NULL::text as "properties_last_operation?",
                                p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
                                CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                                p.last_seen_at,
@@ -580,8 +587,8 @@ impl PersonLookup for PostgresStorage {
             r#"
             SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
                    CASE WHEN $3::boolean THEN p.properties::text ELSE NULL END as "properties?",
-                   CASE WHEN $3::boolean THEN p.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                   CASE WHEN $3::boolean THEN p.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
+                   NULL::text as "properties_last_updated_at?",
+                   NULL::text as "properties_last_operation?",
                    p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                    p.last_seen_at,
