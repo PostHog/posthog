@@ -58256,6 +58256,7 @@ export namespace Schemas {
       repo_full_name: string;
       baseline_file_paths: RepoBaselineFilePaths;
       enable_pr_comments: boolean;
+      debt_digest_enabled: boolean;
       created_at: string;
     }
 
@@ -70963,8 +70964,16 @@ export namespace Schemas {
     export interface PatchedUpdateRepoRequestInput {
       /** @nullable */
       baseline_file_paths?: PatchedUpdateRepoRequestInputBaselineFilePaths;
-      /** @nullable */
+      /**
+         * Post a pull request comment when a run finds visual changes to review.
+         * @nullable
+         */
       enable_pr_comments?: boolean | null;
+      /**
+         * Post the visual review debt digest to the Slack channels of the teams that own the snapshots. Off by default. The digest runs each weekday morning.
+         * @nullable
+         */
+      debt_digest_enabled?: boolean | null;
     }
 
     /**
