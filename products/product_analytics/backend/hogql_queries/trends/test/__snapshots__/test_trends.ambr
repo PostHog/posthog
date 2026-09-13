@@ -466,7 +466,7 @@
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
                      row_number() OVER (
-                                        ORDER BY total DESC) AS row_number
+                                        ORDER BY total DESC, breakdown_value ASC) AS row_number
      FROM
        (SELECT sum(total) AS count,
                breakdown_value AS breakdown_value
@@ -2650,7 +2650,7 @@
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
                      row_number() OVER (
-                                        ORDER BY total DESC) AS row_number
+                                        ORDER BY total DESC, breakdown_value ASC) AS row_number
      FROM
        (SELECT sum(total) AS count,
                breakdown_value AS breakdown_value
@@ -2701,7 +2701,7 @@
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
                      row_number() OVER (
-                                        ORDER BY total DESC) AS row_number
+                                        ORDER BY total DESC, breakdown_value ASC) AS row_number
      FROM
        (SELECT sum(total) AS count,
                breakdown_value AS breakdown_value
@@ -2752,7 +2752,7 @@
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
                      row_number() OVER (
-                                        ORDER BY total DESC) AS row_number
+                                        ORDER BY total DESC, breakdown_value ASC) AS row_number
      FROM
        (SELECT sum(total) AS count,
                [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
@@ -2803,7 +2803,7 @@
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
                      row_number() OVER (
-                                        ORDER BY total DESC) AS row_number
+                                        ORDER BY total DESC, breakdown_value ASC) AS row_number
      FROM
        (SELECT sum(total) AS count,
                [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
@@ -2978,7 +2978,7 @@
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
                      row_number() OVER (
-                                        ORDER BY total DESC) AS row_number
+                                        ORDER BY total DESC, breakdown_value ASC) AS row_number
      FROM
        (SELECT sum(total) AS count,
                breakdown_value AS breakdown_value
@@ -3225,7 +3225,7 @@
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
                      row_number() OVER (
-                                        ORDER BY total DESC) AS row_number
+                                        ORDER BY total DESC, breakdown_value ASC) AS row_number
      FROM
        (SELECT sum(total) AS count,
                breakdown_value AS breakdown_value
@@ -3276,7 +3276,7 @@
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
                      row_number() OVER (
-                                        ORDER BY total DESC) AS row_number
+                                        ORDER BY total DESC, breakdown_value ASC) AS row_number
      FROM
        (SELECT sum(total) AS count,
                [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
