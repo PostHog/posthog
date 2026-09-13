@@ -255,15 +255,19 @@ def _validate_issue_leaf(property_filter: dict[str, Any]) -> None:
         raise AlertValidationError(f"Unknown issue property in alert filters: {key}.")
     if key != "assignee" or property_filter.get("operator") in ("is_set", "is_not_set"):
         return
-    # The assignee picker stores the JSON string "null" when its selection is cleared;
-    # no issue ever carries that value, so the filter would never match.
+    # The assignee picker stores the JSON string "null" when its selection is cleared,
+    # and an empty list or a null id are the same cleared state; no issue ever carries
+    # those values, so the filter would never match.
     values = property_filter.get("value")
-    for value in values if isinstance(values, list) else [values]:
+    values = values if isinstance(values, list) else [values]
+    if not values:
+        raise AlertValidationError("Choose an assignee for the assignee filter, or remove it.")
+    for value in values:
         try:
             parsed = json.loads(value) if isinstance(value, str) else None
         except ValueError:
             parsed = None
-        if not isinstance(parsed, dict) or "id" not in parsed:
+        if not isinstance(parsed, dict) or parsed.get("id") in (None, ""):
             raise AlertValidationError("Choose an assignee for the assignee filter, or remove it.")
 
 
